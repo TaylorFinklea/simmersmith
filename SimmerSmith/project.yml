@@ -23,6 +23,7 @@ targets:
       - package: SimmerSmithKit
     settings:
       base:
+        DEVELOPMENT_TEAM: K7CBQW6MPG
         PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios
         PRODUCT_NAME: SimmerSmith
         GENERATE_INFOPLIST_FILE: YES

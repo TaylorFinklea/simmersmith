@@ -50,6 +50,9 @@ struct RecipesView: View {
         .navigationTitle("Recipes")
         .searchable(text: $searchText, prompt: "Search recipes, tags, memories")
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                BrandToolbarBadge()
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Menu("Organize") {
                     Button("Refresh") {

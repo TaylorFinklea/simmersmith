@@ -22,6 +22,7 @@
 		6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */; };
 		7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */; };
 		7B103ED88BA0EDC2355992EF /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B617C15FBB7189BE5086D0 /* ActivityView.swift */; };
+		7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */; };
 		9FEF5423BB6FCDEEAA8574C2 /* RecipeImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */; };
 		B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */; };
 		B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F2A8FAD850D02995516AE /* GroceryView.swift */; };
@@ -49,7 +50,8 @@
 
 /* Begin PBXFileReference section */
 		01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeWeekAssignmentView.swift; sourceTree = "<group>"; };
-		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandToolbarBadge.swift; sourceTree = "<group>"; };
+		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B617C15FBB7189BE5086D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		41C73D583ED87BFE61E47C9D /* WeekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekView.swift; sourceTree = "<group>"; };
 		42FB8215B29EE1469EE3AA1E /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 		EE923BEF33AA4479174A71DE /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */,
 				F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */,
 			);
 			path = Shared;
@@ -306,6 +309,9 @@
 					85EBA5D7D0CB79A3A6E3649D = {
 						TestTargetID = DA8FD0A67D8C362CBB8546BF;
 					};
+					DA8FD0A67D8C362CBB8546BF = {
+						DevelopmentTeam = K7CBQW6MPG;
+					};
 				};
 			};
 			buildConfigurationList = C5FCB9C95DE3B5A69C468465 /* Build configuration list for PBXProject "SimmerSmith" */;
@@ -355,6 +361,7 @@
 			files = (
 				7B103ED88BA0EDC2355992EF /* ActivityView.swift in Sources */,
 				C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */,
+				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */,
 				7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */,
 				B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */,

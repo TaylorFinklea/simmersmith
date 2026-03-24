@@ -86,6 +86,9 @@ struct WeekView: View {
         }
         .navigationTitle("Week")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                BrandToolbarBadge()
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await appState.refreshWeek() }

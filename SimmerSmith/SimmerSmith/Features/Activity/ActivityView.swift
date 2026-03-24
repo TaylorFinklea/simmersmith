@@ -37,5 +37,10 @@ struct ActivityView: View {
             }
         }
         .navigationTitle("Activity")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                BrandToolbarBadge()
+            }
+        }
     }
 }

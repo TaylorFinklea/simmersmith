@@ -66,6 +66,9 @@ struct GroceryView: View {
         }
         .navigationTitle("Grocery")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                BrandToolbarBadge()
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await appState.refreshWeek() }
