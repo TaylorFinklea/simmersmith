@@ -9,8 +9,10 @@ struct ConnectionSetupView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("SimmerSmith")
-                        .font(.largeTitle.bold())
+                    Image("BrandLockup")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 280, alignment: .leading)
                     Text("Connect this iPhone to your SimmerSmith server. The app keeps a local cache for offline reading, but the server remains the source of truth.")
                         .foregroundStyle(.secondary)
                 }

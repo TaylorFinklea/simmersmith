@@ -77,7 +77,9 @@ export function AppShell() {
         <header className="theme-glass-panel sticky top-3 z-30 mb-5 rounded-2xl border px-4 py-3 backdrop-blur-lg sm:px-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-6">
-              <h1 className="font-serif text-xl text-stone-950 dark:text-stone-50">SimmerSmith</h1>
+              <NavLink to="/" className="inline-flex items-center" aria-label="SimmerSmith home">
+                <img src="/simmersmith-lockup.png" alt="SimmerSmith" className="h-8 w-auto sm:h-9" />
+              </NavLink>
               {/* Desktop nav */}
               <nav className="hidden sm:flex">
                 <div className="flex gap-1">
