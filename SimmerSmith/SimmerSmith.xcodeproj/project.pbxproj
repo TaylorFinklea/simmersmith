@@ -49,7 +49,7 @@
 
 /* Begin PBXFileReference section */
 		01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeWeekAssignmentView.swift; sourceTree = "<group>"; };
-		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B617C15FBB7189BE5086D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		41C73D583ED87BFE61E47C9D /* WeekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekView.swift; sourceTree = "<group>"; };
 		42FB8215B29EE1469EE3AA1E /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
@@ -413,6 +413,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SimmerSmith;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -529,6 +530,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = SimmerSmith;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
