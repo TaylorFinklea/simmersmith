@@ -6,12 +6,15 @@ node_modules/
 dist/
 build/
 .build/
+**/.build/
 DerivedData/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+**/xcuserdata/
 *.egg-info/
 .DS_Store
+**/.DS_Store
 .env
 .tmp-ios-token
 app_data/
