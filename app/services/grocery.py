@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import hashlib
+import math
+import re
+from collections import defaultdict
+from fractions import Fraction
+from typing import Any
+
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.models import GroceryItem, Recipe, RecipeIngredient, Staple, Week, WeekMeal, WeekMealIngredient
+from app.services.weeks import invalidate_week
+
+
+UNIT_MAP = {
+    "count": "ct",
+    "counts": "ct",
+    "ct": "ct",
+    "each": "ea",
+    "ea": "ea",
+    "egg": "ea",
+    "eggs": "ea",
+    "pound": "lb",
+    "pounds": "lb",
+    "lb": "lb",
+    "lbs": "lb",
+    "ounce": "oz",
+    "ounces": "oz",
+    "oz": "oz",
+    "fluid ounce": "fl oz",
+    "fluid ounces": "fl oz",
+    "fl oz": "fl oz",
+    "gallon": "gal",
+    "gallons": "gal",
+    "gal": "gal",
+    "cup": "cup",
+    "cups": "cup",
+    "tablespoon": "tbsp",
+    "tablespoons": "tbsp",
+    "tbsp": "tbsp",
+    "teaspoon": "tsp",
+    "teaspoons": "tsp",
+    "tsp": "tsp",
+    "package": "pkg",
+    "packages": "pkg",
+    "pkg": "pkg",
+    "can": "can",
+    "cans": "can",
+    "bag": "bag",
+    "bags": "bag",
+    "bunch": "bunch",
+    "bunches": "bunch",
+    "clove": "clove",
+    "cloves": "clove",
+    "slice": "slice",
+    "slices": "slice",
+}
+
+
+def normalize_name(value: str) -> str:
+    cleaned = value.lower().strip()
+    cleaned = cleaned.replace("&", " and ")
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def normalize_unit(value: object) -> str:
+    text = normalize_name(str(value or ""))
+    return UNIT_MAP.get(text, text)
+
+
+def parse_quantity(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    mixed_match = re.fullmatch(r"(\d+)\s+(\d+/\d+)", text)
+    if mixed_match:
+        return float(int(mixed_match.group(1)) + Fraction(mixed_match.group(2)))
+    fraction_match = re.fullmatch(r"\d+/\d+", text)
+    if fraction_match:
+        return float(Fraction(text))
+    return None
+
+
+def ingredient_id(normalized_name_value: str, unit: str, source: str) -> str:
+    digest = hashlib.sha1(f"{normalized_name_value}|{unit}|{source}".encode("utf-8")).hexdigest()[:8]
+    stem = re.sub(r"[^a-z0-9]+", "-", normalized_name_value).strip("-") or "item"
+    suffix = f"-{unit}" if unit else ""
+    return f"{stem}{suffix}-{digest}"
+
+
+def source_label(meal: WeekMeal) -> str:
+    parts = [meal.day_name, meal.slot, meal.recipe_name]
+    return " / ".join(part for part in parts if part)
+
+
+def quantity_display(quantity: float | None) -> str:
+    if quantity is None:
+        return ""
+    if math.isclose(quantity, round(quantity), rel_tol=0, abs_tol=1e-9):
+        return str(int(round(quantity)))
+    return f"{quantity:.2f}".rstrip("0").rstrip(".")
+
+
+def staple_names(session: Session) -> set[str]:
+    staples = session.scalars(select(Staple).where(Staple.is_active.is_(True))).all()
+    return {staple.normalized_name for staple in staples}
+
+
+def build_grocery_rows_for_week(session: Session, week: Week) -> list[dict[str, Any]]:
+    recipes = {recipe.id: recipe for recipe in session.scalars(select(Recipe)).all()}
+    ingredients_by_recipe: dict[str, list[RecipeIngredient]] = defaultdict(list)
+    for ingredient in session.scalars(select(RecipeIngredient)).all():
+        ingredients_by_recipe[ingredient.recipe_id].append(ingredient)
+    inline_ingredients_by_meal: dict[str, list[WeekMealIngredient]] = defaultdict(list)
+    for ingredient in session.scalars(select(WeekMealIngredient)).all():
+        inline_ingredients_by_meal[ingredient.week_meal_id].append(ingredient)
+
+    staples = staple_names(session)
+    aggregations: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    meals = list(
+        session.scalars(
+            select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order)
+        ).all()
+    )
+
+    for meal in meals:
+        recipe = recipes.get(meal.recipe_id or "")
+        if recipe:
+            base_servings = recipe.servings or 1.0
+            meal_servings = meal.servings or base_servings
+            factor = meal.scale_multiplier or (meal_servings / base_servings if base_servings else 1.0)
+            ingredients = ingredients_by_recipe.get(recipe.id, [])
+        else:
+            factor = 1.0
+            ingredients = inline_ingredients_by_meal.get(meal.id, [])
+
+        for ingredient in ingredients:
+            ingredient_name = ingredient.ingredient_name.strip()
+            if not ingredient_name:
+                continue
+
+            normalized = normalize_name(ingredient.normalized_name or ingredient_name)
+            if normalized in staples:
+                continue
+
+            unit = normalize_unit(ingredient.unit)
+            quantity = ingredient.quantity * factor if ingredient.quantity is not None else None
+            quantity_text = "" if quantity is not None else ""
+            key = (normalized, unit, quantity_text)
+            bucket = aggregations.get(key)
+            if bucket is None:
+                bucket = {
+                    "ingredient_name": ingredient_name,
+                    "normalized_name": normalized,
+                    "total_quantity": 0.0 if quantity is not None else None,
+                    "unit": unit,
+                    "quantity_text": "",
+                    "category": ingredient.category,
+                    "source_meals": set(),
+                    "notes": set(),
+                    "review_flag": "",
+                }
+                aggregations[key] = bucket
+
+            if quantity is not None:
+                bucket["total_quantity"] = float(bucket["total_quantity"] or 0) + quantity
+            elif quantity_text:
+                bucket["quantity_text"] = quantity_text
+                bucket["review_flag"] = "quantity review"
+
+            if ingredient.notes:
+                bucket["notes"].add(ingredient.notes)
+            if ingredient.prep:
+                bucket["notes"].add(ingredient.prep)
+            if ingredient.category and not bucket["category"]:
+                bucket["category"] = ingredient.category
+            bucket["source_meals"].add(source_label(meal))
+
+    rows = []
+    for bucket in aggregations.values():
+        total_quantity = bucket["total_quantity"]
+        if isinstance(total_quantity, float):
+            total_quantity = round(total_quantity, 2)
+        rows.append(
+            {
+                "ingredient_name": bucket["ingredient_name"],
+                "normalized_name": bucket["normalized_name"],
+                "total_quantity": total_quantity,
+                "unit": bucket["unit"],
+                "quantity_text": bucket["quantity_text"],
+                "category": bucket["category"],
+                "source_meals": "; ".join(sorted(bucket["source_meals"])),
+                "notes": "; ".join(sorted(bucket["notes"])),
+                "review_flag": bucket["review_flag"],
+            }
+        )
+    rows.sort(key=lambda row: ((row.get("category") or "").lower(), row["ingredient_name"].lower()))
+    return rows
+
+
+def regenerate_grocery_for_week(session: Session, week: Week) -> list[GroceryItem]:
+    invalidate_week(session, week)
+    session.execute(delete(GroceryItem).where(GroceryItem.week_id == week.id))
+    session.flush()
+
+    rows = build_grocery_rows_for_week(session, week)
+    created: list[GroceryItem] = []
+    for row in rows:
+        grocery_item = GroceryItem(
+            week_id=week.id,
+            ingredient_name=row["ingredient_name"],
+            normalized_name=row["normalized_name"],
+            total_quantity=row["total_quantity"],
+            unit=row["unit"],
+            quantity_text=row["quantity_text"],
+            category=row["category"],
+            source_meals=row["source_meals"],
+            notes=row["notes"],
+            review_flag=row["review_flag"],
+        )
+        session.add(grocery_item)
+        created.append(grocery_item)
+
+    session.flush()
+    return created

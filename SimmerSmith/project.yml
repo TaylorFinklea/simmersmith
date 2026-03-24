@@ -1,0 +1,60 @@
+name: SimmerSmith
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    IPHONEOS_DEPLOYMENT_TARGET: 26.0
+packages:
+  SimmerSmithKit:
+    path: ../SimmerSmithKit
+targets:
+  SimmerSmith:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: SimmerSmith
+        excludes:
+          - Assets.xcassets
+    resources:
+      - path: SimmerSmith/Assets.xcassets
+    dependencies:
+      - package: SimmerSmithKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios
+        PRODUCT_NAME: SimmerSmith
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SimmerSmith
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
+  SimmerSmithTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: SimmerSmithTests
+    dependencies:
+      - target: SimmerSmith
+      - package: SimmerSmithKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+  SimmerSmithUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: SimmerSmithUITests
+    dependencies:
+      - target: SimmerSmith
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES

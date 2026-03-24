@@ -1,0 +1,2 @@
+"""SimmerSmith application package."""
+
