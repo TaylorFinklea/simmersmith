@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import ProfileSetting, Recipe, Staple, Week
+from app.services.ai import secret_profile_flags, visible_profile_settings
 from app.services.nutrition import calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
 
@@ -13,7 +14,8 @@ from app.services.recipes import days_since, effective_override_fields, effectiv
 def profile_payload(session: Session) -> dict[str, object]:
     settings_records = session.scalars(select(ProfileSetting).order_by(ProfileSetting.key)).all()
     staple_records = session.scalars(select(Staple).order_by(Staple.staple_name)).all()
-    settings = {setting.key: setting.value for setting in settings_records}
+    raw_settings = {setting.key: setting.value for setting in settings_records}
+    settings = visible_profile_settings(raw_settings)
     staples = [
         {
             "staple_name": staple.staple_name,
@@ -24,7 +26,12 @@ def profile_payload(session: Session) -> dict[str, object]:
         for staple in staple_records
     ]
     timestamps = [setting.updated_at for setting in settings_records] + [staple.updated_at for staple in staple_records]
-    return {"updated_at": max(timestamps) if timestamps else None, "settings": settings, "staples": staples}
+    return {
+        "updated_at": max(timestamps) if timestamps else None,
+        "settings": settings,
+        "secret_flags": secret_profile_flags(raw_settings),
+        "staples": staples,
+    }
 
 
 def recipe_payload(
@@ -40,6 +47,7 @@ def recipe_payload(
     nutrition_summary = calculate_recipe_nutrition(session, data["ingredients"], data.get("servings"))
     return {
         "recipe_id": recipe.id,
+        "recipe_template_id": recipe.recipe_template_id,
         "base_recipe_id": data["base_recipe_id"],
         "name": data["name"],
         "meal_type": data["meal_type"],

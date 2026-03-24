@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     port: int = 8080
     base_url: str = "http://localhost:8080"
     api_token: str = ""
+    ai_mcp_enabled: bool = True
+    ai_mcp_server_name: str = "codex"
+    ai_openai_api_key: str = ""
+    ai_anthropic_api_key: str = ""
     data_dir: Path = Path("/Users/tfinklea/codex/meals/data")
     db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")
     frontend_dist_dir: Path = Path(__file__).resolve().parents[1] / "frontend" / "dist"

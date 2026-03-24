@@ -87,6 +87,7 @@ func decoderHandlesServerDatetimeWithoutTimezone() throws {
     let profile = try SimmerSmithJSONCoding.makeDecoder().decode(ProfileSnapshot.self, from: json)
     #expect(profile.updatedAt != nil)
     #expect(profile.settings["week_start_day"] == "Monday")
+    #expect(profile.secretFlags.isEmpty)
 }
 
 @Test
@@ -178,6 +179,7 @@ func decoderHandlesRecipeMetadataPayload() throws {
     let json = """
     {
       "updated_at": "2026-03-23T19:30:00.000000",
+      "default_template_id": "recipe-template-standard",
       "cuisines": [
         {
           "item_id": "cuisine-1",
@@ -204,6 +206,19 @@ func decoderHandlesRecipeMetadataPayload() throws {
           "normalized_name": "cup",
           "updated_at": "2026-03-23T19:30:00.000000"
         }
+      ],
+      "templates": [
+        {
+          "template_id": "recipe-template-standard",
+          "slug": "standard",
+          "name": "Standard",
+          "description": "Balanced",
+          "section_order": ["title", "ingredients", "steps"],
+          "share_source": true,
+          "share_memories": true,
+          "built_in": true,
+          "updated_at": "2026-03-23T19:30:00.000000"
+        }
       ]
     }
     """.data(using: .utf8)!
@@ -213,6 +228,44 @@ func decoderHandlesRecipeMetadataPayload() throws {
     #expect(metadata.cuisines.first?.name == "Thai")
     #expect(metadata.tags.first?.normalizedName == "low carb")
     #expect(metadata.units.first?.name == "cup")
+    #expect(metadata.defaultTemplateId == "recipe-template-standard")
+    #expect(metadata.templates.first?.name == "Standard")
+}
+
+@Test
+func decoderHandlesHealthCapabilitiesPayload() throws {
+    let json = """
+    {
+      "status": "ok",
+      "ai_capabilities": {
+        "supports_user_override": true,
+        "preferred_mode": "auto",
+        "user_override_provider": "openai",
+        "user_override_configured": true,
+        "default_target": {
+          "provider_kind": "mcp",
+          "mode": "mcp",
+          "source": "server",
+          "mcp_server_name": "codex"
+        },
+        "available_providers": [
+          {
+            "provider_id": "mcp",
+            "label": "codex",
+            "provider_kind": "mcp",
+            "available": true,
+            "source": "server"
+          }
+        ]
+      }
+    }
+    """.data(using: .utf8)!
+
+    let health = try SimmerSmithJSONCoding.makeDecoder().decode(HealthResponse.self, from: json)
+
+    #expect(health.status == "ok")
+    #expect(health.aiCapabilities?.defaultTarget?.mcpServerName == "codex")
+    #expect(health.aiCapabilities?.availableProviders.first?.providerId == "mcp")
 }
 
 @Test

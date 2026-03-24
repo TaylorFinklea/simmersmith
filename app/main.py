@@ -14,6 +14,7 @@ from app.auth import require_api_token
 from app.config import get_settings
 from app.db import session_scope
 from app.schemas import HealthResponse
+from app.services.ai import ai_capabilities_payload, profile_settings_map
 from app.services.bootstrap import run_migrations, seed_defaults
 
 
@@ -41,7 +42,11 @@ app.include_router(weeks_router, dependencies=protected_dependencies)
 
 @app.get('/api/health', response_model=HealthResponse)
 def healthcheck() -> HealthResponse:
-    return HealthResponse(status='ok')
+    with session_scope() as session:
+        return HealthResponse(
+            status='ok',
+            ai_capabilities=ai_capabilities_payload(settings, profile_settings_map(session)),
+        )
 
 
 def frontend_index_response() -> HTMLResponse | FileResponse:

@@ -2,6 +2,18 @@ import Foundation
 
 public struct HealthResponse: Codable, Sendable {
     public let status: String
+    public let aiCapabilities: AICapabilities?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case aiCapabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decode(String.self, forKey: .status)
+        aiCapabilities = try container.decodeIfPresent(AICapabilities.self, forKey: .aiCapabilities)
+    }
 }
 
 public struct Staple: Codable, Identifiable, Hashable, Sendable {
@@ -16,7 +28,50 @@ public struct Staple: Codable, Identifiable, Hashable, Sendable {
 public struct ProfileSnapshot: Codable, Sendable {
     public let updatedAt: Date?
     public let settings: [String: String]
+    public let secretFlags: [String: Bool]
     public let staples: [Staple]
+
+    enum CodingKeys: String, CodingKey {
+        case updatedAt
+        case settings
+        case secretFlags
+        case staples
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        settings = try container.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
+        secretFlags = try container.decodeIfPresent([String: Bool].self, forKey: .secretFlags) ?? [:]
+        staples = try container.decodeIfPresent([Staple].self, forKey: .staples) ?? []
+    }
+}
+
+public struct AIProviderTarget: Codable, Hashable, Sendable {
+    public let providerKind: String
+    public let mode: String
+    public let source: String
+    public let providerName: String?
+    public let mcpServerName: String?
+}
+
+public struct AIProviderAvailability: Codable, Identifiable, Hashable, Sendable {
+    public let providerId: String
+    public let label: String
+    public let providerKind: String
+    public let available: Bool
+    public let source: String
+
+    public var id: String { providerId }
+}
+
+public struct AICapabilities: Codable, Hashable, Sendable {
+    public let supportsUserOverride: Bool
+    public let preferredMode: String
+    public let userOverrideProvider: String?
+    public let userOverrideConfigured: Bool
+    public let defaultTarget: AIProviderTarget?
+    public let availableProviders: [AIProviderAvailability]
 }
 
 public struct ManagedListItem: Codable, Identifiable, Hashable, Sendable {
@@ -34,6 +89,41 @@ public struct RecipeMetadata: Codable, Hashable, Sendable {
     public let cuisines: [ManagedListItem]
     public let tags: [ManagedListItem]
     public let units: [ManagedListItem]
+    public let defaultTemplateId: String?
+    public let templates: [RecipeTemplate]
+
+    enum CodingKeys: String, CodingKey {
+        case updatedAt
+        case cuisines
+        case tags
+        case units
+        case defaultTemplateId
+        case templates
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        cuisines = try container.decodeIfPresent([ManagedListItem].self, forKey: .cuisines) ?? []
+        tags = try container.decodeIfPresent([ManagedListItem].self, forKey: .tags) ?? []
+        units = try container.decodeIfPresent([ManagedListItem].self, forKey: .units) ?? []
+        defaultTemplateId = try container.decodeIfPresent(String.self, forKey: .defaultTemplateId)
+        templates = try container.decodeIfPresent([RecipeTemplate].self, forKey: .templates) ?? []
+    }
+}
+
+public struct RecipeTemplate: Codable, Identifiable, Hashable, Sendable {
+    public let templateId: String
+    public let slug: String
+    public let name: String
+    public let description: String
+    public let sectionOrder: [String]
+    public let shareSource: Bool
+    public let shareMemories: Bool
+    public let builtIn: Bool
+    public let updatedAt: Date
+
+    public var id: String { templateId }
 }
 
 public struct NutritionSummary: Codable, Hashable, Sendable {
@@ -141,6 +231,7 @@ public struct RecipeStep: Codable, Identifiable, Hashable, Sendable {
 
 public struct RecipeDraft: Codable, Hashable, Sendable {
     public var recipeId: String?
+    public var recipeTemplateId: String?
     public var baseRecipeId: String?
     public var name: String
     public var mealType: String
@@ -163,6 +254,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
 
     public init(
         recipeId: String? = nil,
+        recipeTemplateId: String? = nil,
         baseRecipeId: String? = nil,
         name: String,
         mealType: String = "",
@@ -184,6 +276,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         nutritionSummary: NutritionSummary? = nil
     ) {
         self.recipeId = recipeId
+        self.recipeTemplateId = recipeTemplateId
         self.baseRecipeId = baseRecipeId
         self.name = name
         self.mealType = mealType
@@ -207,6 +300,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case recipeId
+        case recipeTemplateId
         case baseRecipeId
         case name
         case mealType
@@ -231,6 +325,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         recipeId = try container.decodeIfPresent(String.self, forKey: .recipeId)
+        recipeTemplateId = try container.decodeIfPresent(String.self, forKey: .recipeTemplateId)
         baseRecipeId = try container.decodeIfPresent(String.self, forKey: .baseRecipeId)
         name = try container.decode(String.self, forKey: .name)
         mealType = try container.decodeIfPresent(String.self, forKey: .mealType) ?? ""
@@ -255,6 +350,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
 
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let recipeId: String
+    public let recipeTemplateId: String?
     public let baseRecipeId: String?
     public let name: String
     public let mealType: String
@@ -289,6 +385,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case recipeId
+        case recipeTemplateId
         case baseRecipeId
         case name
         case mealType
@@ -323,6 +420,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         recipeId = try container.decode(String.self, forKey: .recipeId)
+        recipeTemplateId = try container.decodeIfPresent(String.self, forKey: .recipeTemplateId)
         baseRecipeId = try container.decodeIfPresent(String.self, forKey: .baseRecipeId)
         name = try container.decode(String.self, forKey: .name)
         mealType = try container.decodeIfPresent(String.self, forKey: .mealType) ?? ""

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ManagedListItem
+from app.services.recipe_templates import DEFAULT_TEMPLATE_ID, list_templates, template_payload
 from app.services.grocery import normalize_name
 
 
@@ -99,7 +100,11 @@ def sync_items(session: Session, kind: str, names: Iterable[str]) -> list[str]:
 def metadata_payload(session: Session) -> dict[str, object]:
     ensure_defaults(session)
     items = list(session.scalars(select(ManagedListItem).order_by(ManagedListItem.kind, ManagedListItem.name)).all())
+    templates = list_templates(session)
     updated_at = max((item.updated_at for item in items), default=None)
+    template_updated_at = max((template.updated_at for template in templates), default=None)
+    if template_updated_at is not None and (updated_at is None or template_updated_at > updated_at):
+        updated_at = template_updated_at
     payload_by_kind: dict[str, list[dict[str, object]]] = {"cuisine": [], "tag": [], "unit": []}
     for item in items:
         payload_by_kind.setdefault(item.kind, []).append(
@@ -116,6 +121,8 @@ def metadata_payload(session: Session) -> dict[str, object]:
         "cuisines": payload_by_kind.get("cuisine", []),
         "tags": payload_by_kind.get("tag", []),
         "units": payload_by_kind.get("unit", []),
+        "default_template_id": DEFAULT_TEMPLATE_ID,
+        "templates": [template_payload(template) for template in templates],
     }
 
 

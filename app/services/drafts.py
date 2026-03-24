@@ -22,6 +22,7 @@ from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
 from app.services.change_history import ai_baseline_changes, build_change_event, record_change_batch
 from app.services.grocery import normalize_name, regenerate_grocery_for_week
 from app.services.managed_lists import sync_items
+from app.services.recipe_templates import default_template, get_template
 from app.services.recipes import (
     RECIPE_OVERRIDE_FIELDS,
     effective_recipe_data,
@@ -159,6 +160,7 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
     current_steps = normalized_step_payloads(payload)
     overrides: dict[str, object] = {}
     candidate_values = {
+        "recipe_template_id": payload.recipe_template_id or base_recipe.recipe_template_id,
         "meal_type": payload.meal_type,
         "cuisine": payload.cuisine,
         "servings": payload.servings,
@@ -202,7 +204,16 @@ def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
     canonical_cuisine = sync_items(session, "cuisine", [cuisine]) if cuisine else []
     cuisine = canonical_cuisine[0] if canonical_cuisine else ""
     tags = sync_items(session, "tag", normalize_tag_list(payload.tags))
+    recipe_template = None
+    requested_template_id = payload.recipe_template_id or recipe.recipe_template_id
+    if requested_template_id:
+        recipe_template = get_template(session, requested_template_id)
+        if recipe_template is None:
+            raise ValueError("Recipe template not found")
+    else:
+        recipe_template = default_template(session)
 
+    recipe.recipe_template_id = recipe_template.id if recipe_template is not None else None
     recipe.base_recipe_id = base_recipe.id if base_recipe is not None else None
     recipe.name = payload.name
     recipe.meal_type = payload.meal_type

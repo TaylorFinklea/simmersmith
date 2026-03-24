@@ -25,6 +25,7 @@ final class AppState {
     var currentWeek: WeekSnapshot?
     var recipes: [RecipeSummary] = []
     var recipeMetadata: RecipeMetadata?
+    var aiCapabilities: AICapabilities?
     var exports: [ExportRun] = []
     var checkedGroceryItemIDs: Set<String> = []
 
@@ -61,6 +62,10 @@ final class AppState {
         case .failed(let message):
             return message
         }
+    }
+
+    var recipeTemplateCount: Int {
+        recipeMetadata?.templates.count ?? 0
     }
 
     func loadCachedData() {
@@ -100,7 +105,8 @@ final class AppState {
         lastErrorMessage = nil
 
         do {
-            _ = try await apiClient.fetchHealth()
+            let health = try await apiClient.fetchHealth()
+            aiCapabilities = health.aiCapabilities
 
             let fetchedProfile = try await apiClient.fetchProfile()
             let fetchedWeek = try await apiClient.fetchCurrentWeek()
@@ -122,6 +128,11 @@ final class AppState {
                 try? cacheStore.saveExports(fetchedExports, for: fetchedWeek.weekId)
             } else {
                 exports = []
+            }
+
+            if let metadata = try? await apiClient.fetchRecipeMetadata() {
+                recipeMetadata = metadata
+                try? cacheStore.saveRecipeMetadata(metadata)
             }
 
             syncPhase = .synced(.now)

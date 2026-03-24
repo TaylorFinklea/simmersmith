@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import ProfileSetting, Staple, utcnow
+from app.services.recipe_templates import ensure_default_templates
 from app.services.nutrition import ensure_nutrition_defaults
 
 
@@ -40,6 +41,8 @@ DEFAULT_PROFILE_SETTINGS = {
     "walmart_store_name": "",
     "walmart_store_zip": "",
     "walmart_store_id": "",
+    "ai_provider_mode": "auto",
+    "ai_direct_provider": "",
 }
 
 DEFAULT_STAPLES = [
@@ -69,5 +72,6 @@ def seed_defaults(session: Session) -> None:
         for staple in DEFAULT_STAPLES:
             session.add(Staple(**staple))
 
+    ensure_default_templates(session)
     ensure_nutrition_defaults(session)
     session.flush()

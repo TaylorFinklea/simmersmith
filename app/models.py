@@ -72,6 +72,25 @@ class ManagedListItem(Base):
     )
 
 
+class RecipeTemplate(Base):
+    __tablename__ = "recipe_templates"
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    section_order_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    share_source: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    share_memories: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    built_in: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    recipes: Mapped[list["Recipe"]] = relationship(back_populates="recipe_template")
+
+
 class NutritionItem(Base):
     __tablename__ = "nutrition_items"
 
@@ -113,6 +132,11 @@ class Recipe(Base):
     __tablename__ = "recipes"
 
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    recipe_template_id: Mapped[str | None] = mapped_column(
+        ForeignKey("recipe_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     base_recipe_id: Mapped[str | None] = mapped_column(
         ForeignKey("recipes.id", ondelete="SET NULL"),
         nullable=True,
@@ -145,6 +169,7 @@ class Recipe(Base):
         remote_side=lambda: Recipe.id,
         back_populates="variants",
     )
+    recipe_template: Mapped["RecipeTemplate | None"] = relationship(back_populates="recipes")
     variants: Mapped[list["Recipe"]] = relationship(
         back_populates="base_recipe",
         order_by=lambda: Recipe.name,

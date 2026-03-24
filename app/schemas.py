@@ -16,12 +16,38 @@ class StaplePayload(BaseModel):
 class ProfileResponse(BaseModel):
     updated_at: datetime | None = None
     settings: dict[str, str]
+    secret_flags: dict[str, bool] = Field(default_factory=dict)
     staples: list[StaplePayload]
 
 
 class ProfileUpdateRequest(BaseModel):
     settings: dict[str, str] = Field(default_factory=dict)
     staples: list[StaplePayload] | None = None
+
+
+class AIProviderTargetOut(BaseModel):
+    provider_kind: Literal["mcp", "direct"]
+    mode: Literal["mcp", "direct"]
+    source: str
+    provider_name: str | None = None
+    mcp_server_name: str | None = None
+
+
+class AIProviderAvailabilityOut(BaseModel):
+    provider_id: str
+    label: str
+    provider_kind: Literal["mcp", "direct"]
+    available: bool
+    source: str
+
+
+class AICapabilitiesOut(BaseModel):
+    supports_user_override: bool = True
+    preferred_mode: Literal["auto", "mcp", "direct", "hybrid"] = "auto"
+    user_override_provider: str | None = None
+    user_override_configured: bool = False
+    default_target: AIProviderTargetOut | None = None
+    available_providers: list[AIProviderAvailabilityOut] = Field(default_factory=list)
 
 
 class PreferenceSignalPayload(BaseModel):
@@ -148,10 +174,25 @@ class RecipeMetadataOut(BaseModel):
     cuisines: list[ManagedListItemOut] = Field(default_factory=list)
     tags: list[ManagedListItemOut] = Field(default_factory=list)
     units: list[ManagedListItemOut] = Field(default_factory=list)
+    default_template_id: str | None = None
+    templates: list["RecipeTemplateOut"] = Field(default_factory=list)
+
+
+class RecipeTemplateOut(BaseModel):
+    template_id: str
+    slug: str
+    name: str
+    description: str = ""
+    section_order: list[str] = Field(default_factory=list)
+    share_source: bool = True
+    share_memories: bool = True
+    built_in: bool = False
+    updated_at: datetime
 
 
 class RecipePayload(BaseModel):
     recipe_id: str | None = None
+    recipe_template_id: str | None = None
     base_recipe_id: str | None = None
     name: str
     meal_type: str = ""
@@ -440,6 +481,8 @@ class PricingImportRequest(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    ai_capabilities: AICapabilitiesOut | None = None
 
 
+RecipeMetadataOut.model_rebuild()
 RecipeStepPayload.model_rebuild()

@@ -19,7 +19,17 @@ def test_profile_defaults_are_available(client) -> None:
     payload = response.json()
     assert payload["updated_at"] is not None
     assert payload["settings"]["week_start_day"] == "Monday"
+    assert payload["secret_flags"]["ai_direct_api_key_present"] is False
     assert any(staple["normalized_name"] == "olive oil" for staple in payload["staples"])
+
+
+def test_health_route_reports_ai_capabilities(client) -> None:
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["ai_capabilities"]["supports_user_override"] is True
+    assert any(provider["provider_id"] == "mcp" for provider in payload["ai_capabilities"]["available_providers"])
 
 
 def test_preference_memory_round_trip_and_scoring(client) -> None:
@@ -87,6 +97,8 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
     metadata_response = client.get("/api/recipes/metadata")
     assert metadata_response.status_code == 200
     assert any(item["kind"] == "cuisine" for item in metadata_response.json()["cuisines"])
+    assert metadata_response.json()["default_template_id"] == "recipe-template-standard"
+    assert any(template["slug"] == "standard" for template in metadata_response.json()["templates"])
 
     new_tag_response = client.post("/api/recipes/metadata/tag", json={"name": "Low carb"})
     assert new_tag_response.status_code == 200
@@ -98,6 +110,7 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
             "name": "Simple Pasta",
             "meal_type": "dinner",
             "cuisine": "Italian",
+            "recipe_template_id": "recipe-template-weeknight",
             "servings": 4,
             "favorite": True,
             "notes": "Weeknight fallback",
@@ -117,6 +130,7 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
     assert recipe["favorite"] is True
     assert recipe["archived"] is False
     assert recipe["updated_at"] is not None
+    assert recipe["recipe_template_id"] == "recipe-template-weeknight"
     assert recipe["tags"] == ["Quick", "Weeknight"]
     assert recipe["steps"][0]["substeps"][0]["instruction"] == "Salt the water."
 

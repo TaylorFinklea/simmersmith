@@ -12,6 +12,7 @@ from app.models import Recipe, RecipeIngredient, RecipeStep, Week, utcnow
 from app.services.grocery import normalize_name
 
 RECIPE_OVERRIDE_FIELDS = {
+    "recipe_template_id",
     "meal_type",
     "cuisine",
     "servings",
@@ -35,6 +36,7 @@ def get_recipe(session: Session, recipe_id: str) -> Recipe | None:
         select(Recipe)
         .where(Recipe.id == recipe_id)
         .options(
+            selectinload(Recipe.recipe_template),
             selectinload(Recipe.ingredients),
             selectinload(Recipe.steps),
             selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients),
@@ -50,6 +52,7 @@ def list_recipes(session: Session, include_archived: bool = False) -> list[Recip
     statement = (
         select(Recipe)
         .options(
+            selectinload(Recipe.recipe_template),
             selectinload(Recipe.ingredients),
             selectinload(Recipe.steps),
             selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients),
@@ -185,6 +188,7 @@ def effective_recipe_data(recipe: Recipe) -> dict[str, Any]:
         base_data = effective_recipe_data(recipe.base_recipe)
 
     data = {
+        "recipe_template_id": recipe.recipe_template_id,
         "base_recipe_id": recipe.base_recipe_id,
         "name": recipe.name,
         "meal_type": recipe.meal_type,
@@ -217,6 +221,7 @@ def effective_recipe_data(recipe: Recipe) -> dict[str, Any]:
     overrides = decode_overrides(recipe)
     resolved = {
         **base_data,
+        "recipe_template_id": recipe.recipe_template_id or base_data.get("recipe_template_id"),
         "base_recipe_id": recipe.base_recipe_id,
         "name": recipe.name,
         "last_used": recipe.last_used,
