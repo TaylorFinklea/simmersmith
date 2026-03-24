@@ -15,10 +15,6 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: SimmerSmith
-        excludes:
-          - Assets.xcassets
-    resources:
-      - path: SimmerSmith/Assets.xcassets
     dependencies:
       - package: SimmerSmithKit
     settings:
