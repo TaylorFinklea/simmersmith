@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SimmerSmith Privacy Policy</title>
+    <meta
+      name="description"
+      content="Privacy policy for SimmerSmith."
+    />
+    <link rel="stylesheet" href="../site.css" />
+  </head>
+  <body>
+    <main class="page">
+      <nav class="nav">
+        <a class="brand" href="../">SimmerSmith</a>
+        <a href="../support/">Support</a>
+        <a href="./">Privacy</a>
+        <a href="https://github.com/TaylorFinklea/simmersmith">GitHub</a>
+      </nav>
+
+      <section class="hero">
+        <div class="eyebrow">Privacy Policy</div>
+        <h1>SimmerSmith Privacy Policy</h1>
+        <p class="lede">
+          This policy describes how the current SimmerSmith app and service layer handle data. It is
+          written for the product in this repository as it exists today.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Summary</h2>
+        <p>
+          SimmerSmith is a self-hosted meal planning app. It does not require a built-in account and
+          does not include advertising, analytics SDKs, or third-party crash reporting in this
+          repository. The iPhone app stores some data locally for offline use and syncs with the
+          SimmerSmith server you configure.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Data stored on your device</h2>
+        <ul>
+          <li>Your configured server URL</li>
+          <li>Your bearer token, stored in the iOS Keychain</li>
+          <li>A local cache of profile data, current week data, recipe lists, recipe metadata, and export snapshots for offline reading</li>
+          <li>Local grocery check-off state for grocery items</li>
+          <li>In the browser admin surface, a local theme preference may be stored in browser local storage</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Data sent off device</h2>
+        <p>
+          The app sends data to the SimmerSmith server you choose to connect to. Depending on how
+          that server is configured, this can include recipes, meal plans, grocery items, household
+          preferences, feedback, export payloads, and recipe imports.
+        </p>
+        <p>
+          SimmerSmith can also expose AI-related server features. In this repository, AI is routed
+          through the server rather than directly from the iPhone app. If the server operator enables
+          external AI providers, recipe or planning content may be sent from the server to those
+          providers. That behavior depends on the server configuration, not the app alone.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Permissions and access</h2>
+        <ul>
+          <li><strong>Camera:</strong> used only when you choose to scan a printed or handwritten recipe into a draft.</li>
+          <li><strong>Photos:</strong> used only when you choose an image from your photo library for recipe import.</li>
+          <li><strong>Files:</strong> used only when you choose a PDF recipe to import.</li>
+          <li><strong>Network access:</strong> used to communicate with the SimmerSmith server you configure.</li>
+        </ul>
+        <p>
+          The current app does <strong>not</strong> request microphone, location, contacts, calendar,
+          or health permissions.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Notifications, reminders, and Apple integrations</h2>
+        <p>
+          The current iPhone app does not request notification permission and does not schedule local
+          or remote notifications.
+        </p>
+        <p>
+          This repository does include export payloads for Apple Reminders, but the actual Reminders
+          write step is handled by a separate host-side helper outside the iPhone app. The app itself
+          does not request Reminders permission.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Accounts, analytics, ads, and personal data</h2>
+        <ul>
+          <li>No built-in user account system is required by the app in this repository.</li>
+          <li>No advertising SDKs are included.</li>
+          <li>No third-party analytics SDKs are included.</li>
+          <li>No third-party crash reporting SDKs are included.</li>
+          <li>The developer does not receive your meal-planning data unless you intentionally send it in a support request.</li>
+        </ul>
+        <p>
+          If you email support, your email address and the information you include in that message
+          will be received and used to respond to your request.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Contact</h2>
+        <p>
+          For privacy questions or requests, contact
+          <a href="mailto:support@finklea.dev">support@finklea.dev</a>.
+        </p>
+      </section>
+
+      <p class="footer">Last updated: March 25, 2026</p>
+    </main>
+  </body>
+</html>

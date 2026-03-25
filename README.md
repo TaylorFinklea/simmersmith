@@ -91,6 +91,12 @@ The container serves the built SPA and API from one service, while persistent da
 - Product domain: `https://simmersmith.app`
 - Public repository: `https://github.com/TaylorFinklea/simmersmith`
 
+## Support And Privacy
+
+- GitHub Pages base URL: `https://taylorfinklea.github.io/simmersmith/`
+- Support URL: `https://taylorfinklea.github.io/simmersmith/support/`
+- Privacy Policy URL: `https://taylorfinklea.github.io/simmersmith/privacy/`
+
 ## Operator flow
 
 The operator CLI remains the main control surface when Codex needs to talk to the app from the terminal:
