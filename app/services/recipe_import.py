@@ -27,10 +27,15 @@ METADATA_LINE_RE = re.compile(r"^(yield|servings?|prep(?:\s+time)?|cook(?:\s+tim
 STEP_PREFIX_RE = re.compile(r"^(?:step\s*)?(?P<index>\d+)[\).\:-]\s*(?P<text>.+)$", re.IGNORECASE)
 SUBSTEP_PREFIX_RE = re.compile(r"^(?P<index>[a-z])[\).\:-]\s*(?P<text>.+)$", re.IGNORECASE)
 LEADING_BULLET_RE = re.compile(r"^[\-\*\u2022\u25E6\u2043]+\s*")
+PAGE_MARKER_RE = re.compile(r"^(?:page\s+)?\d+\s*(?:of|/)\s*\d+$", re.IGNORECASE)
 QUANTITY_RE = re.compile(
     r"^(?P<quantity>(?:\d+\s+\d+/\d+)|(?:\d+-\d+/\d+)|(?:\d+/\d+)|(?:\d+(?:\.\d+)?))\b"
 )
 PACKAGE_NOTE_RE = re.compile(r"^\((?P<note>[^)]*?\d[^)]*)\)\s*")
+STEP_VERB_RE = re.compile(
+    r"^(add|arrange|bake|beat|blend|boil|bring|broil|chill|combine|cook|cover|cut|drain|fold|garnish|grill|heat|knead|let|marinate|mix|place|pour|preheat|reduce|refrigerate|rest|roast|saute|sauté|season|serve|simmer|sprinkle|stir|toast|top|transfer|whisk)\b",
+    re.IGNORECASE,
+)
 
 FRACTION_CHAR_MAP = {
     "¼": "1/4",
@@ -647,6 +652,100 @@ def parse_metadata_line(
     return None, None
 
 
+def normalize_import_lines(text: str) -> list[str]:
+    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines: list[str] = []
+
+    for raw_line in normalized_text.split("\n"):
+        line = clean_text_line(raw_line)
+        if not line or PAGE_MARKER_RE.fullmatch(line):
+            continue
+        if lines and _should_join_wrapped_line(lines[-1], line):
+            lines[-1] = _join_wrapped_lines(lines[-1], line)
+            continue
+        if lines and lines[-1].lower() == line.lower():
+            continue
+        lines.append(line)
+
+    return lines
+
+
+def _should_join_wrapped_line(previous_line: str, next_line: str) -> bool:
+    if not previous_line or not next_line:
+        return False
+    if TEXT_HEADING_RE.fullmatch(previous_line) or TEXT_HEADING_RE.fullmatch(next_line):
+        return False
+    if STEP_PREFIX_RE.match(next_line) or SUBSTEP_PREFIX_RE.match(next_line):
+        return False
+    if previous_line.endswith("-"):
+        return True
+    if previous_line.endswith(",") and next_line[:1].islower():
+        return True
+    if previous_line.endswith("("):
+        return True
+    if previous_line.endswith(")") and _has_quantity_prefix(previous_line) and len(previous_line.split()) <= 3:
+        return True
+    return False
+
+
+def _join_wrapped_lines(previous_line: str, next_line: str) -> str:
+    if previous_line.endswith("-"):
+        previous_line = previous_line[:-1].rstrip()
+    elif previous_line.endswith(","):
+        previous_line = previous_line.rstrip()
+    else:
+        previous_line = previous_line.rstrip()
+    return clean_text_line(f"{previous_line} {next_line}")
+
+
+def looks_like_step_line(line: str) -> bool:
+    cleaned = strip_leading_bullet(clean_text_line(line))
+    if not cleaned:
+        return False
+    if STEP_PREFIX_RE.match(cleaned) or SUBSTEP_PREFIX_RE.match(cleaned):
+        return True
+    if cleaned.endswith(".") and len(cleaned.split()) >= 4:
+        return True
+    return bool(STEP_VERB_RE.match(cleaned) and len(cleaned.split()) >= 4)
+
+
+def _has_quantity_prefix(line: str) -> bool:
+    return QUANTITY_RE.match(normalize_fraction_text(clean_text_line(line))) is not None
+
+
+def looks_like_ingredient_line(line: str) -> bool:
+    cleaned = strip_leading_bullet(clean_text_line(line))
+    if not cleaned or TEXT_HEADING_RE.fullmatch(cleaned) or METADATA_LINE_RE.match(cleaned):
+        return False
+    lowered = cleaned.lower()
+    if _has_quantity_prefix(cleaned):
+        return True
+    if any(phrase in lowered for phrase in NOTE_PHRASES) and len(cleaned.split()) <= 6:
+        return True
+    if cleaned.endswith(".") or STEP_VERB_RE.match(cleaned):
+        return False
+    return len(cleaned.split()) <= 8
+
+
+def infer_sections_from_body_lines(lines: list[str]) -> tuple[list[str], list[str], list[str]]:
+    body_lines = [clean_text_line(line) for line in lines if clean_text_line(line)]
+    if not body_lines:
+        return [], [], []
+
+    step_start_index = next((index for index, line in enumerate(body_lines) if looks_like_step_line(line)), None)
+
+    if step_start_index is not None:
+        ingredient_candidates = body_lines[:step_start_index]
+        step_candidates = body_lines[step_start_index:]
+        ingredients = [line for line in ingredient_candidates if looks_like_ingredient_line(line)]
+        notes = [line for line in ingredient_candidates if line not in ingredients]
+        return ingredients, step_candidates, notes
+
+    ingredients = [line for line in body_lines if looks_like_ingredient_line(line)]
+    notes = [line for line in body_lines if line not in ingredients]
+    return ingredients, [], notes
+
+
 def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
     steps: list[RecipeStepPayload] = []
     current_instruction = ""
@@ -706,9 +805,7 @@ def import_recipe_from_text(
     source_label: str = "",
     source_url: str = "",
 ) -> RecipePayload:
-    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
-    raw_lines = [clean_text_line(line) for line in normalized_text.split("\n")]
-    lines = [line for line in raw_lines if line]
+    lines = normalize_import_lines(text)
     if not lines:
         raise ValueError("No readable recipe text was found.")
 
@@ -721,6 +818,7 @@ def import_recipe_from_text(
     notes_lines: list[str] = []
     ingredient_lines: list[str] = []
     instruction_lines: list[str] = []
+    body_lines: list[str] = []
     current_section = "body"
 
     for line in lines:
@@ -765,9 +863,20 @@ def import_recipe_from_text(
             continue
         if current_section == "notes":
             notes_lines.append(normalized)
+            continue
+        if current_section == "body":
+            body_lines.append(normalized)
 
     if not recipe_title:
         recipe_title = "Imported recipe"
+
+    inferred_ingredients, inferred_steps, inferred_notes = infer_sections_from_body_lines(body_lines)
+    if not ingredient_lines:
+        ingredient_lines = inferred_ingredients
+    if not instruction_lines:
+        instruction_lines = inferred_steps
+    if not notes_lines:
+        notes_lines = inferred_notes
 
     cleaned_ingredients = extract_ingredient_lines([strip_leading_bullet(line) for line in ingredient_lines])
     cleaned_steps = parse_text_steps(instruction_lines)

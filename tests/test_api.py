@@ -418,6 +418,43 @@ Do not overmix the batter.
     assert imported["notes"] == "Do not overmix the batter."
 
 
+def test_recipe_import_from_text_infers_scan_sections_without_headings(client) -> None:
+    import_response = client.post(
+        "/api/recipes/import-from-text",
+        json={
+            "source": "scan_import",
+            "source_label": "Cookbook photo",
+            "text": """
+Whole Wheat Waffles
+Page 1 of 2
+Servings: 4
+2 cups whole wheat flour
+2 eggs
+1 3/4 cups milk
+4 tbsp melted butter
+1. Whisk the dry ingredients together.
+2. Add the wet ingredients and stir until combined.
+3. Cook in a waffle iron until crisp.
+            """.strip(),
+        },
+    )
+
+    assert import_response.status_code == 200
+    imported = import_response.json()
+    assert imported["name"] == "Whole Wheat Waffles"
+    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == [
+        "whole wheat flour",
+        "eggs",
+        "milk",
+        "butter",
+    ]
+    assert [step["instruction"] for step in imported["steps"]] == [
+        "Whisk the dry ingredients together.",
+        "Add the wet ingredients and stir until combined.",
+        "Cook in a waffle iron until crisp.",
+    ]
+
+
 def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> None:
     create_recipe_response = client.post(
         "/api/recipes",
