@@ -232,6 +232,14 @@ class RecipeImportRequest(BaseModel):
     url: str
 
 
+class RecipeTextImportRequest(BaseModel):
+    text: str
+    title: str = ""
+    source: str = "scan_import"
+    source_label: str = ""
+    source_url: str = ""
+
+
 class WeekCreateRequest(BaseModel):
     week_start: date
     notes: str = ""

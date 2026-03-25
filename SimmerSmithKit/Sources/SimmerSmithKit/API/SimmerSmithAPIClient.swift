@@ -28,6 +28,14 @@ private struct RecipeImportBody: Encodable {
     let url: String
 }
 
+private struct RecipeTextImportBody: Encodable {
+    let text: String
+    let title: String
+    let source: String
+    let sourceLabel: String
+    let sourceUrl: String
+}
+
 private struct ManagedListItemBody: Encodable {
     let name: String
 }
@@ -132,6 +140,26 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func importRecipe(fromURL url: String) async throws -> RecipeDraft {
         try await request(path: "/api/recipes/import-from-url", method: "POST", body: RecipeImportBody(url: url))
+    }
+
+    public func importRecipe(
+        fromText text: String,
+        title: String = "",
+        source: String = "scan_import",
+        sourceLabel: String = "",
+        sourceURL: String = ""
+    ) async throws -> RecipeDraft {
+        try await request(
+            path: "/api/recipes/import-from-text",
+            method: "POST",
+            body: RecipeTextImportBody(
+                text: text,
+                title: title,
+                source: source,
+                sourceLabel: sourceLabel,
+                sourceUrl: sourceURL
+            )
+        )
     }
 
     public func saveRecipe(_ recipe: RecipeDraft) async throws -> RecipeSummary {

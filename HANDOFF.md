@@ -342,6 +342,35 @@ These are still part of the broader product direction, but they are not the imme
 5. macOS operator client
    - after server contracts and iOS information architecture are stable
 
+## Priority Queue After Current Roadmap
+
+After the current Recipes sequence and the guided future-week planning wizard, prioritize the following ideas next:
+
+1. Recipe coaching and “what does this mean?” help
+   - explain recipe language inline, e.g. “3 cups milk, lukewarm” and what the user should actually do
+   - practical troubleshooting, e.g. “it was too watery, what should we change?”
+   - use the recipe context, current step, and saved variations where possible
+
+2. Richer source fidelity from creator recipes
+   - preserve creator videos for imported recipes when the source page provides them
+   - keep the original creator recipe clearly visible alongside allowed substitutions/variations
+   - use the variations system to distinguish canonical recipe vs user/AI substitutions
+
+3. Cooking education tracks
+   - beginner-friendly recipe paths for adults learning to cook
+   - kid-friendly recipe paths for children learning to cook
+   - skill-oriented learning flows, e.g. “learn to sauté”, “learn to bake bread”, etc.
+
+4. Visual cooking feedback
+   - upload a picture of the current cooking step
+   - evaluate whether the user is on track or likely doing something wrong
+   - tie the feedback to recipe step context rather than making it generic
+
+5. Guided recipe discovery and comparison
+   - search online for recipes by intent, e.g. “find me the best whole wheat waffle recipe”
+   - explain why a suggested recipe is considered best
+   - compare source credibility, technique, ingredient choices, and fit for the user’s saved preferences
+
 ## Suggested Next Session Execution Order
 
 1. Read this file.

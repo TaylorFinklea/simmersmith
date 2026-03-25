@@ -349,6 +349,60 @@ def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_ar
     assert [step["instruction"] for step in imported["steps"]] == ["Heat the skillet.", "Toss in the vegetables."]
 
 
+def test_recipe_import_from_text_returns_editable_draft(client) -> None:
+    import_response = client.post(
+        "/api/recipes/import-from-text",
+        json={
+            "title": "Whole Wheat Waffles",
+            "source": "scan_import",
+            "source_label": "Family recipe card",
+            "text": """
+Whole Wheat Waffles
+Servings: 4
+Prep Time: 10 minutes
+Cook Time: 12 minutes
+Tags: breakfast, freezer-friendly
+
+Ingredients
+- 2 cups whole wheat flour
+- 2 eggs
+- 1 3/4 cups milk
+- 4 tbsp melted butter
+
+Instructions
+1. Whisk the dry ingredients together.
+2. Add the wet ingredients and stir until combined.
+3. Cook in a waffle iron until crisp.
+
+Notes
+Do not overmix the batter.
+            """.strip(),
+        },
+    )
+
+    assert import_response.status_code == 200
+    imported = import_response.json()
+    assert imported["name"] == "Whole Wheat Waffles"
+    assert imported["source"] == "scan_import"
+    assert imported["source_label"] == "Family recipe card"
+    assert imported["servings"] == 4
+    assert imported["prep_minutes"] == 10
+    assert imported["cook_minutes"] == 12
+    assert imported["tags"] == ["breakfast", "freezer-friendly"]
+    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == [
+        "2 cups whole wheat flour",
+        "2 eggs",
+        "1 3/4 cups milk",
+        "4 tbsp melted butter",
+    ]
+    assert [step["instruction"] for step in imported["steps"]] == [
+        "Whisk the dry ingredients together.",
+        "Add the wet ingredients and stir until combined.",
+        "Cook in a waffle iron until crisp.",
+    ]
+    assert imported["notes"] == "Do not overmix the batter."
+
+
 def test_week_flow_and_pricing_round_trip(client) -> None:
     create_response = client.post("/api/weeks", json={"week_start": "2026-03-16", "notes": "Family week"})
     assert create_response.status_code == 200

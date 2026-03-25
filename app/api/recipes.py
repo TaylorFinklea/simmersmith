@@ -15,6 +15,7 @@ from app.schemas import (
     RecipeMetadataOut,
     RecipeOut,
     RecipePayload,
+    RecipeTextImportRequest,
 )
 from app.services.drafts import upsert_recipe
 from app.services.managed_lists import create_item, metadata_payload
@@ -26,11 +27,30 @@ from app.services.nutrition import (
     search_nutrition_items,
 )
 from app.services.presenters import recipe_payload, recipes_payload
-from app.services.recipe_import import import_recipe_from_url
+from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
 from app.services.recipes import archive_recipe, get_recipe, restore_recipe
 
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
+
+
+def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePayload:
+    recipe.nutrition_summary = NutritionSummaryOut(
+        **calculate_recipe_nutrition(
+            session,
+            [
+                {
+                    "ingredient_name": ingredient.ingredient_name,
+                    "normalized_name": ingredient.normalized_name,
+                    "quantity": ingredient.quantity,
+                    "unit": ingredient.unit,
+                }
+                for ingredient in recipe.ingredients
+            ],
+            recipe.servings,
+        ).as_payload()
+    )
+    return recipe
 
 
 @router.get("", response_model=list[RecipeOut])
@@ -100,22 +120,25 @@ def import_recipe_route(payload: RecipeImportRequest, session: Session = Depends
         recipe = import_recipe_from_url(payload.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    recipe.nutrition_summary = NutritionSummaryOut(
-        **calculate_recipe_nutrition(
-            session,
-            [
-                {
-                    "ingredient_name": ingredient.ingredient_name,
-                    "normalized_name": ingredient.normalized_name,
-                    "quantity": ingredient.quantity,
-                    "unit": ingredient.unit,
-                }
-                for ingredient in recipe.ingredients
-            ],
-            recipe.servings,
-        ).as_payload()
-    )
-    return recipe
+    return _with_nutrition_summary(session, recipe)
+
+
+@router.post("/import-from-text", response_model=RecipePayload)
+def import_recipe_text_route(
+    payload: RecipeTextImportRequest,
+    session: Session = Depends(get_session),
+) -> RecipePayload:
+    try:
+        recipe = import_recipe_from_text(
+            payload.text,
+            title=payload.title,
+            source=payload.source,
+            source_label=payload.source_label,
+            source_url=payload.source_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _with_nutrition_summary(session, recipe)
 
 
 @router.post("/nutrition/estimate", response_model=NutritionSummaryOut)

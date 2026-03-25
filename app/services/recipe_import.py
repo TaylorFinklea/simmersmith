@@ -20,6 +20,11 @@ SERVINGS_RE = re.compile(r"(\d+(?:\.\d+)?)")
 SCHEMA_RECIPE_TYPE = "recipe"
 JUNK_INGREDIENT_RE = re.compile(r"^(ingredients?|instructions?|directions?|method|for the .+)$", re.IGNORECASE)
 HEADING_RE = re.compile(r"<h[1-6][^>]*>\s*(instructions?|directions?|method|preparation)\s*</h[1-6]>", re.IGNORECASE)
+TEXT_HEADING_RE = re.compile(r"^(ingredients?|instructions?|directions?|method|preparation|notes?|memories?|tags?|keywords?|cuisine|yield|servings?|prep(?:\s+time)?|cook(?:\s+time)?)[:\s]*$", re.IGNORECASE)
+METADATA_LINE_RE = re.compile(r"^(yield|servings?|prep(?:\s+time)?|cook(?:\s+time)?|cuisine|tags?|keywords?)\s*:\s*(.+)$", re.IGNORECASE)
+STEP_PREFIX_RE = re.compile(r"^(?:step\s*)?(?P<index>\d+)[\).\:-]\s*(?P<text>.+)$", re.IGNORECASE)
+SUBSTEP_PREFIX_RE = re.compile(r"^(?P<index>[a-z])[\).\:-]\s*(?P<text>.+)$", re.IGNORECASE)
+LEADING_BULLET_RE = re.compile(r"^[\-\*\u2022\u25E6\u2043]+\s*")
 
 
 def clean_text(value: Any) -> str:
@@ -309,6 +314,217 @@ def parse_recipe_html(html: str, url: str) -> RecipePayload:
         notes="",
         ingredients=[RecipeIngredientPayload(ingredient_name=line) for line in ingredient_lines],
         steps=instruction_steps,
+    )
+
+
+def clean_text_line(value: Any) -> str:
+    text = clean_text(value)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def looks_like_title(line: str) -> bool:
+    normalized = line.strip()
+    if not normalized or len(normalized) > 120:
+        return False
+    if TEXT_HEADING_RE.fullmatch(normalized):
+        return False
+    if METADATA_LINE_RE.match(normalized):
+        return False
+    return any(character.isalpha() for character in normalized)
+
+
+def strip_leading_bullet(line: str) -> str:
+    return LEADING_BULLET_RE.sub("", line).strip()
+
+
+def parse_duration_line(value: str) -> int | None:
+    match = SERVINGS_RE.search(value)
+    if not match:
+        return None
+    try:
+        return int(float(match.group(1)))
+    except ValueError:
+        return None
+
+
+def parse_metadata_line(
+    line: str,
+    *,
+    tags: list[str],
+) -> tuple[str | None, Any | None]:
+    match = METADATA_LINE_RE.match(line)
+    if not match:
+        return None, None
+
+    field = clean_text(match.group(1)).lower()
+    value = clean_text(match.group(2))
+    if not value:
+        return None, None
+    if field in {"yield", "servings", "serving"}:
+        return "servings", parse_servings(value)
+    if field in {"prep", "prep time"}:
+        return "prep_minutes", parse_duration_line(value)
+    if field in {"cook", "cook time"}:
+        return "cook_minutes", parse_duration_line(value)
+    if field == "cuisine":
+        return "cuisine", value
+    if field in {"tag", "tags", "keyword", "keywords"}:
+        tags.extend(normalize_keywords(value))
+        return "tags", tags
+    return None, None
+
+
+def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
+    steps: list[RecipeStepPayload] = []
+    current_instruction = ""
+    current_substeps: list[str] = []
+
+    def flush_step() -> None:
+        nonlocal current_instruction, current_substeps
+        instruction = clean_text_line(current_instruction)
+        if not instruction:
+            current_instruction = ""
+            current_substeps = []
+            return
+        steps.append(
+            RecipeStepPayload(
+                sort_order=len(steps) + 1,
+                instruction=instruction,
+                substeps=[
+                    RecipeStepPayload(sort_order=index, instruction=clean_text_line(substep))
+                    for index, substep in enumerate(current_substeps, start=1)
+                    if clean_text_line(substep)
+                ],
+            )
+        )
+        current_instruction = ""
+        current_substeps = []
+
+    for raw_line in lines:
+        line = strip_leading_bullet(clean_text_line(raw_line))
+        if not line or TEXT_HEADING_RE.fullmatch(line):
+            continue
+
+        if match := STEP_PREFIX_RE.match(line):
+            flush_step()
+            current_instruction = match.group("text")
+            continue
+
+        if match := SUBSTEP_PREFIX_RE.match(line):
+            substep_text = clean_text_line(match.group("text"))
+            if substep_text:
+                current_substeps.append(substep_text)
+            continue
+
+        if current_instruction:
+            current_instruction = f"{current_instruction} {line}".strip()
+        else:
+            current_instruction = line
+
+    flush_step()
+    return steps
+
+
+def import_recipe_from_text(
+    text: str,
+    *,
+    title: str = "",
+    source: str = "scan_import",
+    source_label: str = "",
+    source_url: str = "",
+) -> RecipePayload:
+    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    raw_lines = [clean_text_line(line) for line in normalized_text.split("\n")]
+    lines = [line for line in raw_lines if line]
+    if not lines:
+        raise ValueError("No readable recipe text was found.")
+
+    recipe_title = clean_text(title)
+    cuisine = ""
+    servings = None
+    prep_minutes = None
+    cook_minutes = None
+    tags: list[str] = []
+    notes_lines: list[str] = []
+    ingredient_lines: list[str] = []
+    instruction_lines: list[str] = []
+    current_section = "body"
+
+    for line in lines:
+        normalized = line.rstrip(":").strip()
+        lower_line = normalized.lower()
+
+        metadata_field, metadata_value = parse_metadata_line(normalized, tags=tags)
+        if metadata_field == "servings":
+            servings = metadata_value
+            continue
+        if metadata_field == "prep_minutes":
+            prep_minutes = metadata_value
+            continue
+        if metadata_field == "cook_minutes":
+            cook_minutes = metadata_value
+            continue
+        if metadata_field == "cuisine":
+            cuisine = metadata_value or cuisine
+            continue
+        if metadata_field == "tags":
+            continue
+
+        if lower_line in {"ingredients", "ingredient"}:
+            current_section = "ingredients"
+            continue
+        if lower_line in {"instructions", "instruction", "directions", "direction", "method", "preparation"}:
+            current_section = "steps"
+            continue
+        if lower_line in {"notes", "note", "memories", "memory"}:
+            current_section = "notes"
+            continue
+
+        if not recipe_title and current_section == "body" and looks_like_title(normalized):
+            recipe_title = normalized
+            continue
+
+        if current_section == "ingredients":
+            ingredient_lines.append(normalized)
+            continue
+        if current_section == "steps":
+            instruction_lines.append(normalized)
+            continue
+        if current_section == "notes":
+            notes_lines.append(normalized)
+
+    if not recipe_title:
+        recipe_title = "Imported recipe"
+
+    cleaned_ingredients = extract_ingredient_lines([strip_leading_bullet(line) for line in ingredient_lines])
+    cleaned_steps = parse_text_steps(instruction_lines)
+
+    if not cleaned_ingredients and not cleaned_steps:
+        raise ValueError("Recipe text was found, but ingredients and instructions could not be identified.")
+
+    instruction_lines_summary: list[str] = []
+    for index, step in enumerate(cleaned_steps, start=1):
+        instruction_lines_summary.append(f"{index}. {step.instruction}")
+        for sub_index, substep in enumerate(step.substeps, start=1):
+            instruction_lines_summary.append(f"   {chr(ord('a') + sub_index - 1)}. {substep.instruction}")
+
+    return RecipePayload(
+        name=recipe_title,
+        meal_type="",
+        cuisine=cuisine,
+        servings=servings,
+        prep_minutes=prep_minutes,
+        cook_minutes=cook_minutes,
+        tags=tags,
+        instructions_summary="\n".join(instruction_lines_summary),
+        favorite=False,
+        source=source,
+        source_label=source_label,
+        source_url=source_url,
+        notes="\n".join(notes_lines).strip(),
+        ingredients=[RecipeIngredientPayload(ingredient_name=line) for line in cleaned_ingredients],
+        steps=cleaned_steps,
     )
 
 

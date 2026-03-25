@@ -233,6 +233,22 @@ final class AppState {
         try await apiClient.importRecipe(fromURL: url)
     }
 
+    func importRecipeDraft(
+        fromText text: String,
+        title: String = "",
+        source: String = "scan_import",
+        sourceLabel: String = "",
+        sourceURL: String = ""
+    ) async throws -> RecipeDraft {
+        try await apiClient.importRecipe(
+            fromText: text,
+            title: title,
+            source: source,
+            sourceLabel: sourceLabel,
+            sourceURL: sourceURL
+        )
+    }
+
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {
         let savedRecipe = try await apiClient.saveRecipe(draft)
         upsertRecipe(savedRecipe)
