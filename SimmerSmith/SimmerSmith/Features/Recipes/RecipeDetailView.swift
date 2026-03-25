@@ -14,12 +14,23 @@ struct RecipeDetailView: View {
     @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var pendingDelete = false
     @State private var selectedScale: RecipeScaleOption = .single
+    @State private var isGeneratingVariation = false
 
     var body: some View {
         Group {
             if let recipe {
                 List {
                     summarySection(recipe)
+
+                    if isGeneratingVariation {
+                        Section {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                Text("Generating AI variation draft…")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
 
                     Section("Scale") {
                         Picker("Scale", selection: $selectedScale) {
@@ -198,6 +209,14 @@ struct RecipeDetailView: View {
                         Button("Create Variation") {
                             editorContext = RecipeEditorSheetContext(title: "New Variation", draft: recipe.variationDraft())
                         }
+                        Menu("AI Variation Draft") {
+                            ForEach(RecipeVariationGoal.allCases) { goal in
+                                Button(goal.title) {
+                                    Task { await generateVariation(recipe, goal: goal) }
+                                }
+                                .disabled(isGeneratingVariation)
+                            }
+                        }
                         Button("Add to Week") {
                             assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
                         }
@@ -367,6 +386,22 @@ struct RecipeDetailView: View {
     private func archive(_ recipe: RecipeSummary) async {
         do {
             try await appState.archiveRecipe(recipe)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func generateVariation(_ recipe: RecipeSummary, goal: RecipeVariationGoal) async {
+        isGeneratingVariation = true
+        defer { isGeneratingVariation = false }
+
+        do {
+            let aiDraft = try await appState.generateRecipeVariationDraft(recipeID: recipe.recipeId, goal: goal.title)
+            editorContext = RecipeEditorSheetContext(
+                title: "\(aiDraft.goal) Draft",
+                draft: aiDraft.draft
+            )
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.config import Settings, get_settings
 from app.db import get_session
+from app.models import AIRun
 from app.schemas import (
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
@@ -15,8 +17,11 @@ from app.schemas import (
     RecipeMetadataOut,
     RecipeOut,
     RecipePayload,
+    RecipeAIDraftOut,
     RecipeTextImportRequest,
+    RecipeVariationDraftRequest,
 )
+from app.services.ai import profile_settings_map, resolve_ai_execution_target
 from app.services.drafts import upsert_recipe
 from app.services.managed_lists import create_item, metadata_payload
 from app.services.nutrition import (
@@ -27,6 +32,7 @@ from app.services.nutrition import (
     search_nutrition_items,
 )
 from app.services.presenters import recipe_payload, recipes_payload
+from app.services.recipe_ai import build_variation_draft
 from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
 from app.services.recipes import archive_recipe, get_recipe, restore_recipe
 
@@ -139,6 +145,42 @@ def import_recipe_text_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _with_nutrition_summary(session, recipe)
+
+
+@router.post("/{recipe_id}/ai/variation-draft", response_model=RecipeAIDraftOut)
+def recipe_variation_draft_route(
+    recipe_id: str,
+    payload: RecipeVariationDraftRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    recipe = get_recipe(session, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    base_payload = RecipePayload.model_validate(recipe_payload(session, recipe))
+    draft, rationale, resolved_goal = build_variation_draft(base_payload, goal=payload.goal)
+    draft = _with_nutrition_summary(session, draft)
+
+    user_settings = profile_settings_map(session)
+    execution_target = resolve_ai_execution_target(settings, user_settings)
+    if execution_target is None:
+        model_name = "heuristic-variation-v1"
+    else:
+        model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-variation-v1"
+    session.add(
+        AIRun(
+            week_id=None,
+            run_type="recipe_variation",
+            model=model_name,
+            prompt=payload.goal,
+            status="completed",
+            request_payload=payload.model_dump_json(),
+            response_payload=RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump_json(),
+        )
+    )
+    session.commit()
+    return RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump()
 
 
 @router.post("/nutrition/estimate", response_model=NutritionSummaryOut)

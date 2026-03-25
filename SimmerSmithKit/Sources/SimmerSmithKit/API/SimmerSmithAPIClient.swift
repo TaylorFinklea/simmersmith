@@ -36,6 +36,10 @@ private struct RecipeTextImportBody: Encodable {
     let sourceUrl: String
 }
 
+private struct RecipeVariationDraftBody: Encodable {
+    let goal: String
+}
+
 private struct ManagedListItemBody: Encodable {
     let name: String
 }
@@ -159,6 +163,14 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 sourceLabel: sourceLabel,
                 sourceUrl: sourceURL
             )
+        )
+    }
+
+    public func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
+        try await request(
+            path: "/api/recipes/\(recipeID)/ai/variation-draft",
+            method: "POST",
+            body: RecipeVariationDraftBody(goal: goal)
         )
     }
 

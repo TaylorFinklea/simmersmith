@@ -249,6 +249,10 @@ final class AppState {
         )
     }
 
+    func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
+        try await apiClient.generateRecipeVariationDraft(recipeID: recipeID, goal: goal)
+    }
+
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {
         let savedRecipe = try await apiClient.saveRecipe(draft)
         upsertRecipe(savedRecipe)

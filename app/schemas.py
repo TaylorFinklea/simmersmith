@@ -240,6 +240,16 @@ class RecipeTextImportRequest(BaseModel):
     source_url: str = ""
 
 
+class RecipeVariationDraftRequest(BaseModel):
+    goal: str
+
+
+class RecipeAIDraftOut(BaseModel):
+    goal: str
+    rationale: str = ""
+    draft: RecipePayload
+
+
 class WeekCreateRequest(BaseModel):
     week_start: date
     notes: str = ""

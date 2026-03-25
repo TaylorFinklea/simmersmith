@@ -348,6 +348,12 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
     }
 }
 
+public struct RecipeAIDraft: Codable, Hashable, Sendable {
+    public let goal: String
+    public let rationale: String
+    public let draft: RecipeDraft
+}
+
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let recipeId: String
     public let recipeTemplateId: String?

@@ -101,6 +101,19 @@ enum MealSlotOption: String, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
+enum RecipeVariationGoal: String, CaseIterable, Identifiable {
+    case lowCarb = "Low-Carb"
+    case dairyFree = "Dairy-Free"
+    case glutenFree = "Gluten-Free"
+    case vegetarian = "Vegetarian"
+    case kidFriendly = "Kid-Friendly"
+    case pantryFriendly = "Pantry-Friendly"
+
+    var id: String { rawValue }
+
+    var title: String { rawValue }
+}
+
 extension RecipeSummary {
     func editingDraft() -> RecipeDraft {
         RecipeDraft(
