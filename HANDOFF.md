@@ -36,6 +36,11 @@ Before coding:
 - License: `AGPL-3.0`
 - Local git history was intentionally reset during the rename/rehome. Current root history is new and public-safe.
 
+### UI follow-up TODOs
+
+- Revisit the iOS app icon source once a corrected Photoshop export is available.
+- Current issue: the mark-only icon asset is slightly off-center, so regenerate the iOS app icon set from the corrected source before doing any final icon polish for glass/clear/tinted modes.
+
 ### Current commits
 
 - `c440b2e` `chore: rehome as SimmerSmith`
