@@ -22,10 +22,8 @@ targets:
         DEVELOPMENT_TEAM: K7CBQW6MPG
         PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios
         PRODUCT_NAME: SimmerSmith
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: SimmerSmith
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: SimmerSmith/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         CURRENT_PROJECT_VERSION: 1
