@@ -283,7 +283,13 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
     assert imported["source"] == "url_import"
     assert imported["source_label"] == "Serious Eats"
     assert imported["source_url"] == "https://www.seriouseats.com/lemon-pasta"
-    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == ["1 lb spaghetti", "2 lemons"]
+    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == ["spaghetti", "lemons"]
+    assert imported["ingredients"][0]["quantity"] == 1
+    assert imported["ingredients"][0]["unit"] == "lb"
+    assert imported["ingredients"][0]["normalized_name"] == "spaghetti"
+    assert imported["ingredients"][1]["quantity"] == 2
+    assert imported["ingredients"][1]["unit"] == ""
+    assert imported["ingredients"][1]["normalized_name"] == "lemons"
     assert "Boil the pasta." in imported["instructions_summary"]
     assert "Ignore the blog chrome" not in imported["instructions_summary"]
     assert imported["steps"][0]["instruction"] == "Cook the pasta"
@@ -390,11 +396,20 @@ Do not overmix the batter.
     assert imported["cook_minutes"] == 12
     assert imported["tags"] == ["breakfast", "freezer-friendly"]
     assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == [
-        "2 cups whole wheat flour",
-        "2 eggs",
-        "1 3/4 cups milk",
-        "4 tbsp melted butter",
+        "whole wheat flour",
+        "eggs",
+        "milk",
+        "butter",
     ]
+    assert imported["ingredients"][0]["quantity"] == 2
+    assert imported["ingredients"][0]["unit"] == "cup"
+    assert imported["ingredients"][1]["quantity"] == 2
+    assert imported["ingredients"][1]["unit"] == ""
+    assert imported["ingredients"][2]["quantity"] == 1.75
+    assert imported["ingredients"][2]["unit"] == "cup"
+    assert imported["ingredients"][3]["quantity"] == 4
+    assert imported["ingredients"][3]["unit"] == "tbsp"
+    assert imported["ingredients"][3]["prep"] == "melted"
     assert [step["instruction"] for step in imported["steps"]] == [
         "Whisk the dry ingredients together.",
         "Add the wet ingredients and stir until combined.",

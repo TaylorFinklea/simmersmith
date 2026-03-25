@@ -82,24 +82,24 @@ def upgrade() -> None:
     )
     op.bulk_insert(recipe_templates, list(DEFAULT_TEMPLATES))
 
-    op.add_column(
-        "recipes",
-        sa.Column("recipe_template_id", sa.String(length=120), nullable=True, server_default=DEFAULT_TEMPLATE_ID),
-    )
-    op.create_index("ix_recipes_recipe_template_id", "recipes", ["recipe_template_id"], unique=False)
-    op.create_foreign_key(
-        "fk_recipes_recipe_template_id",
-        "recipes",
-        "recipe_templates",
-        ["recipe_template_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    with op.batch_alter_table("recipes", recreate="auto") as batch_op:
+        batch_op.add_column(
+            sa.Column("recipe_template_id", sa.String(length=120), nullable=True, server_default=DEFAULT_TEMPLATE_ID),
+        )
+        batch_op.create_index("ix_recipes_recipe_template_id", ["recipe_template_id"], unique=False)
+        batch_op.create_foreign_key(
+            "fk_recipes_recipe_template_id",
+            "recipe_templates",
+            ["recipe_template_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_recipes_recipe_template_id", "recipes", type_="foreignkey")
-    op.drop_index("ix_recipes_recipe_template_id", table_name="recipes")
-    op.drop_column("recipes", "recipe_template_id")
+    with op.batch_alter_table("recipes", recreate="auto") as batch_op:
+        batch_op.drop_constraint("fk_recipes_recipe_template_id", type_="foreignkey")
+        batch_op.drop_index("ix_recipes_recipe_template_id")
+        batch_op.drop_column("recipe_template_id")
     op.drop_index("ix_recipe_templates_slug", table_name="recipe_templates")
     op.drop_table("recipe_templates")
