@@ -152,6 +152,15 @@ NOTE_PHRASES = (
 
 SORTED_UNIT_ALIASES = sorted(UNIT_ALIASES.items(), key=lambda item: (-len(item[0]), item[0]))
 
+CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Condiments", ("mustard", "bbq sauce", "barbecue sauce", "ketchup", "mayo", "mayonnaise", "vinegar", "hot sauce", "soy sauce", "tamari")),
+    ("Pantry", ("sugar", "salt", "pepper", "flour", "rice", "pasta", "spaghetti", "breadcrumbs", "rub", "seasoning", "sauce", "broth", "stock", "oil")),
+    ("Dairy", ("milk", "butter", "cream", "cheese", "yogurt", "sour cream")),
+    ("Produce", ("onion", "garlic", "lemon", "lime", "pepper", "peppers", "tomato", "tomatoes", "lettuce", "spinach", "broccoli", "carrot", "carrots", "banana", "bananas", "apple", "apples")),
+    ("Meat", ("beef", "roast", "brisket", "steak", "pork", "sausage", "bacon", "chicken", "turkey", "lamb")),
+    ("Seafood", ("salmon", "shrimp", "fish", "tuna", "crab", "lobster", "scallop")),
+)
+
 
 def clean_text(value: Any) -> str:
     if value is None:
@@ -236,6 +245,10 @@ def recipe_nodes_from_json_ld(payload: Any) -> list[dict[str, Any]]:
 
 def first_non_empty(*values: Any) -> str:
     for value in values:
+        if isinstance(value, (list, tuple)):
+            nested = first_non_empty(*value)
+            if nested:
+                return nested
         text = clean_text(value)
         if text:
             return text
@@ -387,6 +400,67 @@ def classify_modifier(text: str) -> tuple[str, str]:
     return "notes", cleaned
 
 
+def split_top_level_segments(text: str, separator: str = ",") -> list[str]:
+    segments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for character in text:
+        if character == "(":
+            depth += 1
+        elif character == ")" and depth > 0:
+            depth -= 1
+        if character == separator and depth == 0:
+            segment = clean_text_line("".join(current))
+            if segment:
+                segments.append(segment)
+            current = []
+            continue
+        current.append(character)
+    tail = clean_text_line("".join(current))
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def consume_inline_parenthetical_notes(line: str) -> tuple[str, str, str]:
+    cleaned = clean_text_line(line)
+    if "(" not in cleaned:
+        return cleaned, "", ""
+
+    remaining_chars: list[str] = []
+    current_note: list[str] = []
+    note_parts: list[str] = []
+    prep_parts: list[str] = []
+    depth = 0
+
+    for character in cleaned:
+        if character == "(":
+            if depth == 0:
+                current_note = []
+            else:
+                current_note.append(character)
+            depth += 1
+            continue
+        if character == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                field, value = classify_modifier("".join(current_note))
+                if field == "prep" and value:
+                    prep_parts.append(value)
+                elif value:
+                    note_parts.append(value)
+                continue
+            current_note.append(character)
+            continue
+        if depth > 0:
+            current_note.append(character)
+        else:
+            remaining_chars.append(character)
+
+    remaining = clean_text_line("".join(remaining_chars))
+    return remaining, ", ".join(dict.fromkeys(prep_parts)), "; ".join(dict.fromkeys(note_parts))
+
+
 def split_leading_prep(line: str) -> tuple[str, str]:
     cleaned = clean_text_line(line)
     lowered = cleaned.lower()
@@ -401,7 +475,7 @@ def split_leading_prep(line: str) -> tuple[str, str]:
 
 def split_modifier_suffixes(line: str) -> tuple[str, str, str]:
     cleaned = clean_text_line(line)
-    parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+    parts = split_top_level_segments(cleaned)
     if not parts:
         return "", "", ""
 
@@ -425,6 +499,18 @@ def split_modifier_suffixes(line: str) -> tuple[str, str, str]:
     return ingredient_name, ", ".join(dict.fromkeys(prep_parts)), "; ".join(dict.fromkeys(note_parts))
 
 
+def infer_ingredient_category(ingredient_name: str, *, unit: str = "", notes: str = "") -> str:
+    haystack = normalize_name(" ".join(part for part in [ingredient_name, notes] if part))
+    if not haystack:
+        return ""
+    for category, keywords in CATEGORY_KEYWORDS:
+        if any(keyword in haystack for keyword in keywords):
+            return category
+    if unit in {"lb", "oz"} and any(term in haystack for term in ("roast", "meat", "beef", "pork", "chicken", "turkey")):
+        return "Meat"
+    return ""
+
+
 def parse_ingredient_line(line: str) -> RecipeIngredientPayload:
     raw_line = clean_text_line(line)
     quantity, remainder = consume_quantity_prefix(raw_line)
@@ -435,13 +521,16 @@ def parse_ingredient_line(line: str) -> RecipeIngredientPayload:
         package_note, remainder = consume_package_note_prefix(remainder)
         unit, remainder = consume_unit_prefix(remainder)
 
+    remainder, parenthetical_prep, parenthetical_notes = consume_inline_parenthetical_notes(remainder)
     ingredient_name, prep, notes = split_modifier_suffixes(remainder)
     leading_prep, ingredient_name = split_leading_prep(ingredient_name)
     if leading_prep:
         prep = ", ".join(part for part in [leading_prep, prep] if part)
+    if parenthetical_prep:
+        prep = ", ".join(part for part in [prep, parenthetical_prep] if part)
 
     ingredient_name = clean_text_line(ingredient_name)
-    combined_notes = "; ".join(part for part in [package_note, notes] if part)
+    combined_notes = "; ".join(part for part in [package_note, parenthetical_notes, notes] if part)
 
     if not ingredient_name:
         ingredient_name = raw_line
@@ -457,6 +546,7 @@ def parse_ingredient_line(line: str) -> RecipeIngredientPayload:
         quantity=quantity,
         unit=unit,
         prep=prep,
+        category=infer_ingredient_category(ingredient_name, unit=unit, notes=combined_notes),
         notes=combined_notes,
     )
 

@@ -10,6 +10,7 @@ def test_parse_ingredient_line_handles_common_quantities_and_units() -> None:
     assert spaghetti.unit == "lb"
     assert spaghetti.prep == ""
     assert spaghetti.notes == ""
+    assert spaghetti.category == "Pantry"
     assert spaghetti.normalized_name == "spaghetti"
 
     lemons = parse_ingredient_line("2 lemons")
@@ -18,6 +19,7 @@ def test_parse_ingredient_line_handles_common_quantities_and_units() -> None:
     assert lemons.unit == ""
     assert lemons.prep == ""
     assert lemons.notes == ""
+    assert lemons.category == "Produce"
 
 
 def test_parse_ingredient_line_handles_prep_phrases_and_mixed_fractions() -> None:
@@ -38,6 +40,7 @@ def test_parse_ingredient_line_handles_prep_phrases_and_mixed_fractions() -> Non
     assert garlic.quantity == 2
     assert garlic.unit == "clove"
     assert garlic.prep == "minced"
+    assert garlic.category == "Produce"
 
 
 def test_parse_ingredient_line_preserves_package_notes_and_modifier_notes() -> None:
@@ -47,6 +50,7 @@ def test_parse_ingredient_line_preserves_package_notes_and_modifier_notes() -> N
     assert tomatoes.unit == "can"
     assert tomatoes.prep == "drained"
     assert tomatoes.notes == "14-ounce"
+    assert tomatoes.category == "Produce"
 
     salt = parse_ingredient_line("salt to taste")
     assert salt.ingredient_name == "salt"
@@ -63,6 +67,39 @@ def test_parse_ingredient_line_falls_back_without_false_unit_parse() -> None:
     assert pepper.unit == ""
     assert pepper.prep == ""
     assert pepper.notes == ""
+    assert pepper.category == "Pantry"
+
+
+def test_parse_ingredient_line_handles_alternative_notes_and_category_inference() -> None:
+    roast = parse_ingredient_line("3 pounds beef chuck roast")
+    assert roast.ingredient_name == "beef chuck roast"
+    assert roast.quantity == 3
+    assert roast.unit == "lb"
+    assert roast.category == "Meat"
+
+    mustard = parse_ingredient_line("2 Tablespoons yellow mustard")
+    assert mustard.ingredient_name == "yellow mustard"
+    assert mustard.quantity == 2
+    assert mustard.unit == "tbsp"
+    assert mustard.category == "Condiments"
+
+    rub = parse_ingredient_line(
+        "3 Tablespoons Hey Grill Hey Beef Rub (or 1 Tablespoon each coarse salt, ground black pepper, and garlic powder)"
+    )
+    assert rub.ingredient_name == "Hey Grill Hey Beef Rub"
+    assert rub.quantity == 3
+    assert rub.unit == "tbsp"
+    assert rub.category == "Pantry"
+    assert rub.notes == "or 1 Tablespoon each coarse salt, ground black pepper, and garlic powder"
+
+    sauce = parse_ingredient_line(
+        "½ cup Hey Grill Hey Everything BBQ Sauce (or your favorite ketchup-based BBQ sauce)"
+    )
+    assert sauce.ingredient_name == "Hey Grill Hey Everything BBQ Sauce"
+    assert sauce.quantity == 0.5
+    assert sauce.unit == "cup"
+    assert sauce.category == "Condiments"
+    assert sauce.notes == "or your favorite ketchup-based BBQ sauce"
 
 
 def test_import_recipe_from_text_infers_sections_when_headings_are_missing() -> None:
