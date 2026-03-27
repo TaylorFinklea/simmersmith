@@ -249,63 +249,128 @@ If that flow is awkward, the whole planning model breaks down.
 
 ## Highest priority: finish Recipes before planning wizard
 
-This is the next major execution track.
+This is still the next major execution track, but the state of the work needs to be described more accurately.
 
-### 1. Recipe scan import
+What is already in code but still needs hardening:
 
-Not done yet.
+- scan/photo/PDF recipe import exists, but it still needs a real regression corpus, OCR hardening, and trust-building polish
+- AI variation drafts exist, but AI suggestion drafts and companion suggestions still need to be built
+- the template model exists, but native PDF export and user-facing template customization do not
 
-Needed:
+### Expanded roadmap: next execution phases
 
-- import recipe from camera/image/PDF
-- route it through the same normalization pipeline as URL import
-- open as editable draft before save
-
-Why it matters:
-
-- this is a core Apple-first capture behavior
-- it belongs naturally in iPhone usage
-
-### 2. AI recipe suggestions and AI recipe variations
-
-Not done yet.
+### 1. AI recipe suggestions
 
 Needed:
 
-- AI suggestion drafts based on the user’s saved recipes and internet context
-- AI variation drafts for ingredient swaps, dietary alternatives, and similar transforms
-- all AI outputs should arrive as drafts, never silently saved
+- draft-only “what should I cook next?” suggestions
+- recipe suggestions grounded in saved recipes, tags, source history, and internet context
+- the same draft-only review posture already used elsewhere
 
-Important architecture requirement:
+### 2. Recipe companion suggestions
 
-- AI should be MCP-first
-- but the server should be architected for future direct API-key provider support
-- do not hardcode an MCP-only contract if you touch AI surfaces
+Needed:
 
-### 3. Recipe PDF export and customizable template system
+- “what goes well with this?” draft suggestions for sides, sauces, and pairings
+- enough rationale that the user understands why the pairing was suggested
 
-Not done yet.
+### 3. Import quality lab
+
+Tech debt that should happen before more recipe intelligence piles on.
+
+Needed:
+
+- a permanent regression corpus for URL, photo, and PDF imports
+- deterministic parser expectations for edge-case ingredients and OCR cleanup
+- saved fixtures from real recipe sites and real scans
+
+### 4. Scan/photo/PDF import hardening
+
+Implemented in baseline form, but not trustworthy enough yet.
+
+Needed:
+
+- better OCR review and salvage behavior
+- multi-page ordering hardening
+- weak-scan fallback that preserves text without mangling it
+- stress-testing on real cookbook photos, recipe cards, and PDFs
+
+### 5. Native recipe PDF export v1
 
 Needed:
 
 - native iOS PDF export/share
-- recipe export templates
-- customizable layout/presentation
-- eventually align all recipes to a reusable template model
+- production-quality printable output from the existing recipe model
+- templates that are usable without requiring layout tinkering each time
 
-### 4. Recipe experience polish
+### 6. Template customization
+
+Needed:
+
+- user-facing export template selection and tuning
+- continued alignment of recipes to a reusable template model
+- a clear split between canonical recipe data and presentation rules
+
+### 7. Live step and substep reorder
+
+Needed:
+
+- drag-and-drop step reorder in the native recipe editor
+- reorder behavior that stays compatible with templates and export
+
+### 8. Recipe experience polish
 
 Still likely needed even after the above:
 
 - ensure “last used” / “time since last used” are surfaced clearly and sort behavior feels useful
 - make breakfast and dinner the most ergonomic discovery flows
 - make variant selection/creation friction very low
-- stress-test import quality on real recipe sites
+- continue stress-testing import quality on real recipe sites
 - review whether the cuisine/tag/unit managed-list UX feels native enough
+
+### 9. SwiftUI architecture pass
+
+Tech debt.
+
+Needed:
+
+- break the oversized `AppState` responsibilities into smaller domain-focused state/services
+- reduce view-owned async orchestration and inline `Task {}` usage
+- keep the app easy to reason about as planning and assistant features expand
+
+### 10. Swift Concurrency cleanup
+
+Tech debt.
+
+Needed:
+
+- move more work to structured concurrency
+- tighten actor/isolation boundaries before more AI and planning state lands
+- avoid papering over concurrency problems with blanket main-actor decisions
+
+### 11. Swift Testing expansion
+
+Tech debt.
+
+Needed:
+
+- parameterized Swift Testing coverage for parser/import/editor/template behavior
+- stronger shared-package and iOS unit coverage where business rules live
+
+### 12. iOS UI automation expansion
+
+Tech debt.
+
+Needed:
+
+- broader XCTest UI coverage for onboarding, import, editing, variation, and week assignment flows
+- keep device-class regressions visible before App Store submissions
 
 ## Next after Recipes: future-week planning wizard
 
 This should not start until Recipes feel trustworthy.
+
+### 13. Guided future-week planning wizard
 
 Desired wizard direction:
 
@@ -319,71 +384,173 @@ Desired wizard direction:
 
 The current codebase already has some week assignment plumbing, but not the full guided wizard.
 
+### 14. Week staging/change-history hardening
+
+Tech debt.
+
+Needed:
+
+- tighten diffing, approvals, and auditability for week changes
+- make sure AI-assisted week changes remain reviewable and explainable
+
 ## Longer-Term Roadmap After That
 
 These are still part of the broader product direction, but they are not the immediate next build order:
 
-1. AI planning collaboration
-   - week-level and slot-level assist
-   - fill gaps after human picks recipes
+### 15. AI planning collaboration
+- week-level and slot-level assist
+- fill gaps after human picks recipes
 
-2. Grocery workspace maturation
-   - editable grocery workspace
-   - manual and derived items together
-   - pricing invalidation behavior after edits
+### 16. Grocery workspace maturation
+- editable grocery workspace
+- manual and derived items together
+- pricing invalidation behavior after edits
 
-3. Pricing/store split/cart prep quality
-   - better trustworthiness and handoff quality
+### 17. Pricing/store split/cart prep quality
+- better trustworthiness and handoff quality
 
-4. Equipment intelligence
-   - household equipment inventory
-   - timing estimates and conversion suggestions based on actual owned equipment
+### 18. Kitchen Assistant for ingredients and seasonality
+- in-app help for unfamiliar ingredients
+- produce-picking guidance
+- seasonality suggestions tied to the user’s context
 
-5. macOS operator client
-   - after server contracts and iOS information architecture are stable
+### 19. Equipment intelligence
+- household equipment inventory
+- timing estimates and conversion suggestions based on actual owned equipment
 
 ## Priority Queue After Current Roadmap
 
-After the current Recipes sequence and the guided future-week planning wizard, prioritize the following ideas next:
+After the current Recipes sequence, the planning wizard, and the grocery/pricing foundation, prioritize the following ideas next:
 
-1. Recipe coaching and “what does this mean?” help
-   - explain recipe language inline, e.g. “3 cups milk, lukewarm” and what the user should actually do
-   - practical troubleshooting, e.g. “it was too watery, what should we change?”
-   - use the recipe context, current step, and saved variations where possible
+### 20. Recipe coaching and “what does this mean?” help
+- explain recipe language inline, e.g. “3 cups milk, lukewarm” and what the user should actually do
+- practical troubleshooting, e.g. “it was too watery, what should we change?”
+- use the recipe context, current step, and saved variations where possible
 
-2. Richer source fidelity from creator recipes
-   - preserve creator videos for imported recipes when the source page provides them
-   - keep the original creator recipe clearly visible alongside allowed substitutions/variations
-   - use the variations system to distinguish canonical recipe vs user/AI substitutions
+### 21. Richer source fidelity from creator recipes
+- preserve creator videos for imported recipes when the source page provides them
+- keep the original creator recipe clearly visible alongside allowed substitutions/variations
+- use the variations system to distinguish canonical recipe vs user/AI substitutions
 
-3. Cooking education tracks
-   - beginner-friendly recipe paths for adults learning to cook
-   - kid-friendly recipe paths for children learning to cook
-   - skill-oriented learning flows, e.g. “learn to sauté”, “learn to bake bread”, etc.
+### 22. Cooking education tracks
+- beginner-friendly recipe paths for adults learning to cook
+- kid-friendly recipe paths for children learning to cook
+- skill-oriented learning flows, e.g. “learn to sauté”, “learn to bake bread”, etc.
 
-4. Visual cooking feedback
-   - upload a picture of the current cooking step
-   - evaluate whether the user is on track or likely doing something wrong
-   - tie the feedback to recipe step context rather than making it generic
+### 23. Visual cooking feedback
+- upload a picture of the current cooking step
+- evaluate whether the user is on track or likely doing something wrong
+- tie the feedback to recipe step context rather than making it generic
 
-5. Guided recipe discovery and comparison
-   - search online for recipes by intent, e.g. “find me the best whole wheat waffle recipe”
-   - explain why a suggested recipe is considered best
-   - compare source credibility, technique, ingredient choices, and fit for the user’s saved preferences
+### 24. Guided recipe discovery and comparison
+- search online for recipes by intent, e.g. “find me the best whole wheat waffle recipe”
+- explain why a suggested recipe is considered best
+- compare source credibility, technique, ingredient choices, and fit for the user’s saved preferences
+
+### 25. iOS release pipeline hardening
+
+Tech debt.
+
+Needed:
+
+- standardize archive/export/signing/App Store submission checks
+- reduce one-off local release fixes
+- make shipping builds more repeatable
+
+### 26. iOS metadata/compliance synchronization
+
+Tech debt.
+
+Needed:
+
+- keep Info.plist permissions, supported devices/orientations, support/privacy URLs, and icons aligned with shipped behavior
+- keep submission docs aligned with the actual app
+
+### 27. Web admin design-system consolidation
+
+Tech debt.
+
+Needed:
+
+- normalize the frontend around semantic tokens and the current shadcn/Radix primitives
+- avoid visual drift as the admin surface grows
+
+### 28. Web end-to-end coverage with browser automation
+
+Tech debt.
+
+Needed:
+
+- add real browser coverage for recipe import/edit, week review, grocery edits, and pricing review
+- catch operator-flow regressions before they become daily friction
+
+### 29. Cloudflare-hosted web frontend
+- host the admin/frontend on Cloudflare rather than treating it as local-only forever
+- prefer the same general hosting direction used elsewhere in the ecosystem
+
+### 30. Cloudflare deployment and observability
+
+Tech debt.
+
+Needed:
+
+- repeatable preview/production deployment
+- basic logs and operational visibility for the hosted web surface
+
+### 31. Public support/privacy/landing maintenance
+
+Tech debt.
+
+Needed:
+
+- treat the GitHub Pages support/privacy surface as maintained product infrastructure
+- keep the public-facing docs aligned with actual app capabilities
+
+### 32. macOS operator client
+- only after server contracts, iOS information architecture, and hosted web/admin workflows are stable
 
 ## Suggested Next Session Execution Order
 
 1. Read this file.
-2. Inspect and resolve the dirty `project.pbxproj` diff.
-3. Confirm the repo still builds in its renamed location.
-4. Choose the next recipe slice:
-   - recommended next: recipe scan import
-5. After scan import, do:
-   - AI recipe suggestions / variation drafts
-6. Then:
-   - recipe PDF/template export
-7. Only then:
+2. Confirm the repo still builds cleanly.
+3. Finish the remaining recipe-intelligence track in this order:
+   - AI recipe suggestions
+   - companion suggestions
+   - import quality lab
+   - scan/photo/PDF hardening
+   - native recipe PDF export
+   - template customization
+   - live step/substep reorder
+   - recipe experience polish
+4. While doing the above, sprinkle in the iOS tech debt phases when they clearly reduce future complexity:
+   - SwiftUI architecture pass
+   - Swift Concurrency cleanup
+   - Swift Testing expansion
+   - iOS UI automation expansion
+5. Only then build:
    - guided future-week planning wizard
+6. After the wizard, do:
+   - week staging/change-history hardening
+   - AI planning collaboration
+   - grocery workspace maturation
+   - pricing/store split/cart prep quality
+7. After that, expand into:
+   - Kitchen Assistant / seasonality
+   - equipment intelligence
+   - recipe coaching
+   - creator/source fidelity
+   - education tracks
+   - visual cooking feedback
+   - guided recipe discovery/comparison
+8. Treat these as continuing infrastructure tracks that should not be ignored:
+   - iOS release pipeline hardening
+   - iOS metadata/compliance synchronization
+   - web admin design-system consolidation
+   - web end-to-end coverage
+   - Cloudflare hosting/deployment/observability
+   - public support/privacy maintenance
+9. Only after the above foundations are strong:
+   - macOS operator client
 
 ## Validation Commands
 
