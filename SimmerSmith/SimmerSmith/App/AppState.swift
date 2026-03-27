@@ -257,6 +257,10 @@ final class AppState {
         try await apiClient.generateRecipeSuggestionDraft(goal: goal)
     }
 
+    func generateRecipeCompanionDrafts(recipeID: String) async throws -> RecipeAIOptions {
+        try await apiClient.generateRecipeCompanionDrafts(recipeID: recipeID)
+    }
+
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {
         let savedRecipe = try await apiClient.saveRecipe(draft)
         upsertRecipe(savedRecipe)

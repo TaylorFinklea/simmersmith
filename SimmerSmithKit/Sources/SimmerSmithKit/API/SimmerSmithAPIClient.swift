@@ -44,6 +44,10 @@ private struct RecipeSuggestionDraftBody: Encodable {
     let goal: String
 }
 
+private struct RecipeCompanionDraftBody: Encodable {
+    let focus: String
+}
+
 private struct ManagedListItemBody: Encodable {
     let name: String
 }
@@ -183,6 +187,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             path: "/api/recipes/ai/suggestion-draft",
             method: "POST",
             body: RecipeSuggestionDraftBody(goal: goal)
+        )
+    }
+
+    public func generateRecipeCompanionDrafts(
+        recipeID: String,
+        focus: String = "sides_and_sauces"
+    ) async throws -> RecipeAIOptions {
+        try await request(
+            path: "/api/recipes/\(recipeID)/ai/companion-drafts",
+            method: "POST",
+            body: RecipeCompanionDraftBody(focus: focus)
         )
     }
 

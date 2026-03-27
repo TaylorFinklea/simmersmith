@@ -11,10 +11,12 @@ struct RecipeDetailView: View {
     @State private var errorMessage: String?
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var assignmentContext: RecipeAssignmentSheetContext?
+    @State private var companionContext: RecipeCompanionSheetContext?
     @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var pendingDelete = false
     @State private var selectedScale: RecipeScaleOption = .single
     @State private var isGeneratingVariation = false
+    @State private var isGeneratingCompanions = false
 
     var body: some View {
         Group {
@@ -27,6 +29,16 @@ struct RecipeDetailView: View {
                             HStack(spacing: 12) {
                                 ProgressView()
                                 Text("Generating AI variation draft…")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if isGeneratingCompanions {
+                        Section {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                Text("Generating companion suggestions…")
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -217,6 +229,10 @@ struct RecipeDetailView: View {
                                 .disabled(isGeneratingVariation)
                             }
                         }
+                        Button("AI Companion Suggestions") {
+                            Task { await generateCompanions(recipe) }
+                        }
+                        .disabled(isGeneratingCompanions)
                         Button("Add to Week") {
                             assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
                         }
@@ -247,6 +263,15 @@ struct RecipeDetailView: View {
         }
         .sheet(item: $assignmentContext) { context in
             RecipeWeekAssignmentView(recipes: context.recipes)
+        }
+        .sheet(item: $companionContext) { context in
+            RecipeCompanionOptionsView(context: context) { selected in
+                companionContext = nil
+                editorContext = RecipeEditorSheetContext(
+                    title: "\(selected.label) Draft",
+                    draft: selected.draft
+                )
+            }
         }
         .sheet(item: $nutritionMatchContext) { context in
             RecipeNutritionMatchView(context: context) {
@@ -407,6 +432,22 @@ struct RecipeDetailView: View {
         }
     }
 
+    private func generateCompanions(_ recipe: RecipeSummary) async {
+        isGeneratingCompanions = true
+        defer { isGeneratingCompanions = false }
+
+        do {
+            let options = try await appState.generateRecipeCompanionDrafts(recipeID: recipe.recipeId)
+            companionContext = RecipeCompanionSheetContext(
+                title: "\(recipe.name) Companions",
+                options: options
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func restore(_ recipe: RecipeSummary) async {
         do {
             try await appState.restoreRecipe(recipe)
@@ -421,6 +462,64 @@ struct RecipeDetailView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RecipeCompanionOptionsView: View {
+    let context: RecipeCompanionSheetContext
+    let onSelect: (RecipeAIDraftOption) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(context.options.rationale)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(context.options.goal)
+                }
+
+                Section("Choose a draft") {
+                    ForEach(context.options.options) { option in
+                        Button {
+                            onSelect(option)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(option.label)
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.footnote)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Text(option.draft.name)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text(option.rationale)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle(context.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }

@@ -35,6 +35,20 @@ class SuggestionPreset:
     variation_goal: str | None = None
 
 
+@dataclass(frozen=True)
+class CompanionPreset:
+    option_id: str
+    label: str
+    name: str
+    rationale: str
+    meal_type: str
+    cuisine: str
+    tags: tuple[str, ...]
+    notes: str
+    ingredients: tuple[RecipeIngredientPayload, ...]
+    steps: tuple[RecipeStepPayload, ...]
+
+
 VARIATION_PRESETS: tuple[VariationPreset, ...] = (
     VariationPreset(
         key="low_carb",
@@ -161,9 +175,389 @@ SUGGESTION_PRESETS: tuple[SuggestionPreset, ...] = (
     ),
 )
 
+COMPANION_LIBRARY: dict[str, tuple[CompanionPreset, CompanionPreset, CompanionPreset]] = {
+    "neutral": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Roasted Lemon Green Beans",
+            rationale="A bright vegetable side keeps richer mains from feeling heavy.",
+            meal_type="dinner",
+            cuisine="",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested"),
+            notes="AI companion note: Built as a lighter vegetable side to balance the anchor recipe.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="green beans", quantity=1, unit="lb", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="olive oil", quantity=1, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="lemon zest", quantity=1, unit="tsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="kosher salt", quantity=0.5, unit="tsp", category="Pantry"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Toss the green beans with olive oil, lemon zest, and salt."),
+                RecipeStepPayload(sort_order=2, instruction="Roast until tender and lightly blistered, then serve warm."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Herbed Rice Pilaf",
+            rationale="A simple starch side rounds out the plate without competing with the main recipe.",
+            meal_type="dinner",
+            cuisine="",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested"),
+            notes="AI companion note: Built as a neutral starch side to make the meal feel complete.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="long-grain rice", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="chicken broth", quantity=2, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="butter", quantity=1, unit="tbsp", category="Dairy"),
+                RecipeIngredientPayload(ingredient_name="parsley", quantity=2, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Toast the rice in butter until lightly fragrant."),
+                RecipeStepPayload(sort_order=2, instruction="Simmer with broth until tender, then fold in chopped parsley."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Lemon Herb Yogurt Sauce",
+            rationale="A cool sauce gives the meal a second texture and an easy finishing element.",
+            meal_type="dinner",
+            cuisine="",
+            tags=("companion", "companion-sauce", "ai-suggested"),
+            notes="AI companion note: Built as a flexible finishing sauce that works with many savory mains.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="Greek yogurt", quantity=1, unit="cup", category="Dairy"),
+                RecipeIngredientPayload(ingredient_name="lemon juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="olive oil", quantity=1, unit="tsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="parsley", quantity=1, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Whisk the yogurt, lemon juice, olive oil, and parsley until smooth."),
+                RecipeStepPayload(sort_order=2, instruction="Season to taste and spoon over the finished dish."),
+            ),
+        ),
+    ),
+    "barbecue": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Tangy Pickle Slaw",
+            rationale="Crunchy slaw cuts through smoky barbecue and keeps the plate from feeling too rich.",
+            meal_type="dinner",
+            cuisine="American",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested", "barbecue"),
+            notes="AI companion note: Built to bring acidity and crunch alongside a smoky barbecue-style main.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="coleslaw mix", quantity=1, unit="bag", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="dill pickles", quantity=0.5, unit="cup", prep="chopped", category="Condiments"),
+                RecipeIngredientPayload(ingredient_name="apple cider vinegar", quantity=2, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="mayonnaise", quantity=0.25, unit="cup", category="Condiments"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Whisk the mayonnaise and apple cider vinegar into a quick dressing."),
+                RecipeStepPayload(sort_order=2, instruction="Fold in the slaw mix and chopped pickles, then chill before serving."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Skillet Cornbread",
+            rationale="Cornbread adds a classic barbecue-friendly starch without overlapping the main flavor too much.",
+            meal_type="dinner",
+            cuisine="American",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested", "barbecue"),
+            notes="AI companion note: Built as a barbecue-friendly starch with enough structure for saucy mains.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="cornmeal", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="all-purpose flour", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="milk", quantity=1, unit="cup", category="Dairy"),
+                RecipeIngredientPayload(ingredient_name="butter", quantity=4, unit="tbsp", prep="melted", category="Dairy"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Mix the batter until just combined and pour into a hot buttered skillet."),
+                RecipeStepPayload(sort_order=2, instruction="Bake until golden and slice for serving alongside the main recipe."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Sweet Heat Finishing Sauce",
+            rationale="A glossy finishing sauce lets the main recipe stay central while giving each serving an easy boost.",
+            meal_type="dinner",
+            cuisine="American",
+            tags=("companion", "companion-sauce", "ai-suggested", "barbecue"),
+            notes="AI companion note: Built as a brush-on or drizzle sauce for smoked or roasted barbecue dishes.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="barbecue sauce", quantity=0.5, unit="cup", category="Condiments"),
+                RecipeIngredientPayload(ingredient_name="apple cider vinegar", quantity=1, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="hot honey", quantity=1, unit="tbsp", category="Condiments"),
+                RecipeIngredientPayload(ingredient_name="butter", quantity=1, unit="tbsp", category="Dairy"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Warm the barbecue sauce, vinegar, hot honey, and butter together until glossy."),
+                RecipeStepPayload(sort_order=2, instruction="Brush or drizzle the sauce over the finished meat right before serving."),
+            ),
+        ),
+    ),
+    "italian": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Garlic Roasted Broccolini",
+            rationale="A fast green side keeps an Italian-style meal feeling lighter and cleaner.",
+            meal_type="dinner",
+            cuisine="Italian",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested", "italian"),
+            notes="AI companion note: Built as a green vegetable side that fits an Italian-leaning dinner.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="broccolini", quantity=1, unit="lb", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="olive oil", quantity=1, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="garlic", quantity=2, unit="clove", prep="minced", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="parmesan", quantity=2, unit="tbsp", prep="grated", category="Dairy"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Toss the broccolini with olive oil and minced garlic."),
+                RecipeStepPayload(sort_order=2, instruction="Roast until tender and finish with grated parmesan."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Creamy Parmesan Polenta",
+            rationale="Polenta gives the plate a soft starch that complements sauces without feeling redundant.",
+            meal_type="dinner",
+            cuisine="Italian",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested", "italian"),
+            notes="AI companion note: Built as a creamy starch side that matches Italian-style mains.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="polenta", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="chicken broth", quantity=4, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="parmesan", quantity=0.5, unit="cup", prep="grated", category="Dairy"),
+                RecipeIngredientPayload(ingredient_name="butter", quantity=2, unit="tbsp", category="Dairy"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Simmer the polenta in broth until thick and tender."),
+                RecipeStepPayload(sort_order=2, instruction="Stir in butter and parmesan just before serving."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Basil Parsley Gremolata",
+            rationale="A fresh herb topping adds brightness and contrast to richer Italian-style mains.",
+            meal_type="dinner",
+            cuisine="Italian",
+            tags=("companion", "companion-sauce", "ai-suggested", "italian"),
+            notes="AI companion note: Built as a bright finishing spoonful for roasted or braised mains.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="parsley", quantity=0.5, unit="cup", prep="chopped", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="basil", quantity=0.25, unit="cup", prep="chopped", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="lemon zest", quantity=1, unit="tsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="olive oil", quantity=2, unit="tbsp", category="Pantry"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Mix the parsley, basil, lemon zest, and olive oil together."),
+                RecipeStepPayload(sort_order=2, instruction="Spoon over the finished dish right before serving."),
+            ),
+        ),
+    ),
+    "mexican": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Charred Corn and Pepper Salad",
+            rationale="A quick vegetable side adds freshness and a little sweetness next to spiced mains.",
+            meal_type="dinner",
+            cuisine="Mexican",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested", "mexican"),
+            notes="AI companion note: Built as a fresh vegetable side for a Mexican-leaning main.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="corn kernels", quantity=2, unit="cup", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="red bell pepper", quantity=1, unit="", prep="diced", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="lime juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="cilantro", quantity=2, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Cook the corn and bell pepper in a hot skillet until lightly charred."),
+                RecipeStepPayload(sort_order=2, instruction="Finish with lime juice and chopped cilantro."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Cilantro Lime Rice",
+            rationale="Rice is an easy starch side that stays useful across tacos, bowls, and roasted proteins.",
+            meal_type="dinner",
+            cuisine="Mexican",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested", "mexican"),
+            notes="AI companion note: Built as a versatile starch side for a Mexican-style dinner.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="white rice", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="chicken broth", quantity=2, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="lime juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="cilantro", quantity=0.25, unit="cup", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Cook the rice in broth until tender."),
+                RecipeStepPayload(sort_order=2, instruction="Fold in the lime juice and chopped cilantro before serving."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Avocado Crema",
+            rationale="A cool, creamy sauce softens heat and gives the meal an easy finishing component.",
+            meal_type="dinner",
+            cuisine="Mexican",
+            tags=("companion", "companion-sauce", "ai-suggested", "mexican"),
+            notes="AI companion note: Built as a cooling sauce for a Mexican-leaning main or side.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="avocado", quantity=1, unit="", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="sour cream", quantity=0.5, unit="cup", category="Dairy"),
+                RecipeIngredientPayload(ingredient_name="lime juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="cilantro", quantity=1, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Blend the avocado, sour cream, lime juice, and cilantro until smooth."),
+                RecipeStepPayload(sort_order=2, instruction="Thin with a splash of water if needed and spoon over the meal."),
+            ),
+        ),
+    ),
+    "thai": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Cucumber Herb Salad",
+            rationale="A cold vegetable side offsets richer Thai-style mains and keeps the flavors bright.",
+            meal_type="dinner",
+            cuisine="Thai",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested", "thai"),
+            notes="AI companion note: Built as a cooling vegetable side for a Thai-leaning main.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="cucumber", quantity=2, unit="", prep="thinly sliced", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="rice vinegar", quantity=1, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="lime juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="cilantro", quantity=2, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Toss the sliced cucumber with rice vinegar and lime juice."),
+                RecipeStepPayload(sort_order=2, instruction="Finish with chopped cilantro and chill until serving."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Coconut Jasmine Rice",
+            rationale="A softly flavored starch side helps carry bold sauces without overwhelming them.",
+            meal_type="dinner",
+            cuisine="Thai",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested", "thai"),
+            notes="AI companion note: Built as a Thai-friendly starch side with a little richness.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="jasmine rice", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="coconut milk", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="water", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="salt", quantity=0.5, unit="tsp", category="Pantry"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Combine the rice, coconut milk, water, and salt in a saucepan."),
+                RecipeStepPayload(sort_order=2, instruction="Cook until the rice is tender and fluffy."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Peanut Lime Sauce",
+            rationale="A nutty sauce gives the meal a useful extra layer without changing the core recipe.",
+            meal_type="dinner",
+            cuisine="Thai",
+            tags=("companion", "companion-sauce", "ai-suggested", "thai"),
+            notes="AI companion note: Built as a Thai-leaning drizzle for noodles, grilled proteins, or vegetables.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="peanut butter", quantity=0.25, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="lime juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="soy sauce", quantity=1, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="warm water", quantity=2, unit="tbsp", category="Pantry"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Whisk the peanut butter, lime juice, soy sauce, and warm water together."),
+                RecipeStepPayload(sort_order=2, instruction="Thin as needed for drizzling and serve alongside the meal."),
+            ),
+        ),
+    ),
+    "middle_eastern": (
+        CompanionPreset(
+            option_id="vegetable-side",
+            label="Vegetable Side",
+            name="Cucumber Tomato Salad",
+            rationale="A sharp vegetable salad keeps spiced roasted or grilled mains feeling balanced.",
+            meal_type="dinner",
+            cuisine="Middle Eastern",
+            tags=("companion", "companion-side", "vegetable-side", "ai-suggested", "middle-eastern"),
+            notes="AI companion note: Built as a crisp, fresh salad for a Middle Eastern-leaning main.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="cucumber", quantity=1, unit="", prep="diced", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="tomatoes", quantity=2, unit="", prep="diced", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="lemon juice", quantity=1, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="mint", quantity=1, unit="tbsp", prep="chopped", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Combine the cucumber and tomatoes in a bowl."),
+                RecipeStepPayload(sort_order=2, instruction="Dress with lemon juice and chopped mint just before serving."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="starch-side",
+            label="Starch Side",
+            name="Turmeric Rice Pilaf",
+            rationale="A warm rice side supports grilled and braised mains without crowding the main spice profile.",
+            meal_type="dinner",
+            cuisine="Middle Eastern",
+            tags=("companion", "companion-side", "starch-side", "ai-suggested", "middle-eastern"),
+            notes="AI companion note: Built as a lightly spiced rice side for a Middle Eastern-leaning main.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="basmati rice", quantity=1, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="chicken broth", quantity=2, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="turmeric", quantity=0.5, unit="tsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="butter", quantity=1, unit="tbsp", category="Dairy"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Toast the rice in butter with turmeric."),
+                RecipeStepPayload(sort_order=2, instruction="Add broth and cook until the rice is tender and fragrant."),
+            ),
+        ),
+        CompanionPreset(
+            option_id="sauce",
+            label="Sauce / Drizzle",
+            name="Tahini Lemon Sauce",
+            rationale="A creamy tahini sauce gives the meal an easy finish and ties together grilled or roasted flavors.",
+            meal_type="dinner",
+            cuisine="Middle Eastern",
+            tags=("companion", "companion-sauce", "ai-suggested", "middle-eastern"),
+            notes="AI companion note: Built as a creamy finishing sauce for a Middle Eastern-style meal.",
+            ingredients=(
+                RecipeIngredientPayload(ingredient_name="tahini", quantity=0.25, unit="cup", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="lemon juice", quantity=2, unit="tbsp", category="Produce"),
+                RecipeIngredientPayload(ingredient_name="warm water", quantity=2, unit="tbsp", category="Pantry"),
+                RecipeIngredientPayload(ingredient_name="garlic", quantity=1, unit="clove", prep="minced", category="Produce"),
+            ),
+            steps=(
+                RecipeStepPayload(sort_order=1, instruction="Whisk the tahini, lemon juice, warm water, and garlic until smooth."),
+                RecipeStepPayload(sort_order=2, instruction="Adjust the texture as needed and drizzle over the meal."),
+            ),
+        ),
+    ),
+}
+
 
 def _normalized_goal(goal: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", goal.lower()).strip()
+
+
+def _normalized_text(*values: str) -> str:
+    joined = " ".join(value for value in values if value)
+    return re.sub(r"[^a-z0-9]+", " ", joined.lower()).strip()
 
 
 def resolve_variation_preset(goal: str) -> VariationPreset:
@@ -329,6 +723,57 @@ def _prefixed_title(prefix: str, name: str) -> str:
     return f"{trimmed_prefix} {trimmed_name}".strip()
 
 
+def _infer_companion_library_key(recipe: RecipePayload) -> str:
+    signal_text = _normalized_text(
+        recipe.cuisine,
+        " ".join(recipe.tags),
+        recipe.source_label,
+        " ".join(ingredient.ingredient_name for ingredient in recipe.ingredients),
+    )
+
+    cuisine_signals = (
+        (("bbq", "barbecue", "smoked", "burnt ends", "brisket"), "barbecue"),
+        (("italian", "pasta", "parmesan", "gremolata"), "italian"),
+        (("mexican", "taco", "enchilada", "cilantro lime", "avocado crema"), "mexican"),
+        (("thai", "peanut", "fish sauce", "jasmine rice", "curry"), "thai"),
+        (("middle eastern", "shawarma", "tahini", "sumac", "zaatar", "za atar"), "middle_eastern"),
+    )
+    for keywords, key in cuisine_signals:
+        if any(keyword in signal_text for keyword in keywords):
+            return key
+    return "neutral"
+
+
+def _companion_recipe_payload(
+    anchor_recipe: RecipePayload,
+    preset: CompanionPreset,
+) -> RecipePayload:
+    combined_notes = f"{preset.notes}\n\nWhy this fits: {preset.rationale}\nAnchor recipe: {anchor_recipe.name}"
+    return RecipePayload(
+        recipe_id=None,
+        recipe_template_id=anchor_recipe.recipe_template_id,
+        base_recipe_id=None,
+        name=preset.name,
+        meal_type=anchor_recipe.meal_type or preset.meal_type,
+        cuisine=anchor_recipe.cuisine or preset.cuisine,
+        servings=anchor_recipe.servings or 4,
+        prep_minutes=10,
+        cook_minutes=15,
+        tags=list(dict.fromkeys(preset.tags)),
+        instructions_summary=preset.rationale,
+        favorite=False,
+        source="ai_companion",
+        source_label=f"Companion for {anchor_recipe.name}",
+        source_url="",
+        notes=combined_notes,
+        memories="",
+        last_used=None,
+        ingredients=[ingredient.model_copy(deep=True) for ingredient in preset.ingredients],
+        steps=[step.model_copy(deep=True) for step in preset.steps],
+        nutrition_summary=None,
+    )
+
+
 def build_suggestion_draft(
     saved_recipes: list[RecipePayload],
     *,
@@ -389,3 +834,32 @@ def build_suggestion_draft(
     if fallback_used:
         rationale += f" No strong {preset.meal_type} match existed yet, so this used the closest saved recipe."
     return final_draft, rationale, preset.label
+
+
+def build_companion_drafts(
+    anchor_recipe: RecipePayload,
+    *,
+    focus: str = "sides_and_sauces",
+) -> tuple[list[tuple[str, str, str, RecipePayload]], str, str]:
+    if focus != "sides_and_sauces":
+        raise ValueError("Unsupported companion focus.")
+
+    library_key = _infer_companion_library_key(anchor_recipe)
+    presets = COMPANION_LIBRARY.get(library_key, COMPANION_LIBRARY["neutral"])
+    drafts: list[tuple[str, str, str, RecipePayload]] = []
+    for preset in presets:
+        drafts.append(
+            (
+                preset.option_id,
+                preset.label,
+                preset.rationale,
+                _companion_recipe_payload(anchor_recipe, preset),
+            )
+        )
+
+    rationale = (
+        f"Three companion drafts were built from {anchor_recipe.name} using a {library_key.replace('_', ' ')} flavor profile."
+        if library_key != "neutral"
+        else f"Three companion drafts were built from {anchor_recipe.name} using neutral sides-and-sauces defaults."
+    )
+    return drafts, rationale, "Sides and Sauces"

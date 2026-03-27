@@ -548,6 +548,90 @@ def test_recipe_suggestion_draft_route_returns_library_grounded_draft(client) ->
     assert len(list_response.json()) == 1
 
 
+def test_recipe_companion_drafts_route_returns_three_draft_only_options(client) -> None:
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Smoked Beef Burnt Ends",
+            "meal_type": "dinner",
+            "cuisine": "American",
+            "tags": ["barbecue"],
+            "source": "url_import",
+            "source_label": "Hey Grill Hey",
+            "ingredients": [
+                {"ingredient_name": "3 lb beef chuck roast", "quantity": 3, "unit": "lb", "category": "Meat"},
+                {"ingredient_name": "2 tbsp yellow mustard", "quantity": 2, "unit": "tbsp", "category": "Condiments"},
+            ],
+            "steps": [
+                {"instruction": "Smoke the beef until bark forms."},
+                {"instruction": "Cube, sauce, and finish cooking until sticky."},
+            ],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+
+    companion_response = client.post(
+        f"/api/recipes/{recipe['recipe_id']}/ai/companion-drafts",
+        json={"focus": "sides_and_sauces"},
+    )
+    assert companion_response.status_code == 200
+    payload = companion_response.json()
+    assert payload["goal"] == "Sides and Sauces"
+    assert len(payload["options"]) == 3
+    assert [option["label"] for option in payload["options"]] == [
+        "Vegetable Side",
+        "Starch Side",
+        "Sauce / Drizzle",
+    ]
+    assert len({option["option_id"] for option in payload["options"]}) == 3
+    assert all(option["draft"]["recipe_id"] is None for option in payload["options"])
+    assert all(option["draft"]["base_recipe_id"] is None for option in payload["options"])
+    assert all(option["draft"]["source"] == "ai_companion" for option in payload["options"])
+    assert all(option["draft"]["source_label"] == "Companion for Smoked Beef Burnt Ends" for option in payload["options"])
+    assert all("companion" in option["draft"]["tags"] for option in payload["options"])
+    assert any("companion-side" in option["draft"]["tags"] for option in payload["options"])
+    assert any("companion-sauce" in option["draft"]["tags"] for option in payload["options"])
+    assert all(option["draft"]["nutrition_summary"] is not None for option in payload["options"])
+
+    list_response = client.get("/api/recipes?include_archived=true")
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+
+
+def test_recipe_companion_drafts_route_falls_back_when_cuisine_is_unknown(client) -> None:
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "House Dinner",
+            "meal_type": "dinner",
+            "source": "manual",
+            "ingredients": [{"ingredient_name": "2 chicken breasts"}],
+            "steps": [{"instruction": "Cook the chicken."}],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+
+    companion_response = client.post(
+        f"/api/recipes/{recipe['recipe_id']}/ai/companion-drafts",
+        json={"focus": "sides_and_sauces"},
+    )
+    assert companion_response.status_code == 200
+    payload = companion_response.json()
+    assert "neutral" in payload["rationale"].lower()
+    assert payload["options"][0]["draft"]["name"] == "Roasted Lemon Green Beans"
+
+
+def test_recipe_companion_drafts_route_returns_404_for_missing_recipe(client) -> None:
+    companion_response = client.post(
+        "/api/recipes/missing-recipe/ai/companion-drafts",
+        json={"focus": "sides_and_sauces"},
+    )
+    assert companion_response.status_code == 404
+    assert companion_response.json()["detail"] == "Recipe not found"
+
+
 def test_week_flow_and_pricing_round_trip(client) -> None:
     create_response = client.post("/api/weeks", json={"week_start": "2026-03-16", "notes": "Family week"})
     assert create_response.status_code == 200

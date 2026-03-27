@@ -2,12 +2,12 @@
 
 Use this as the exact short checklist for the next work session.
 
-- [ ] Build phase 2: recipe companion suggestions as draft-only suggestions tied to a selected recipe
-- [ ] Add server/API/shared-model coverage for companion suggestions
-- [ ] Add iOS UI entry point for companion suggestions from recipe detail
-- [ ] Validate with Python API tests, `swift test`, and iOS build
+- [ ] Build phase 3: import quality lab for recipe URL/photo/PDF regressions
+- [ ] Add a durable real-world fixture corpus for recipe import edge cases
+- [ ] Lock parser/import expectations down with targeted regression tests
+- [ ] Validate with Python import tests plus `swift test` and iOS build if any shared or app code changes
 - [ ] Update `docs/ai/current-state.md` and `docs/ai/decisions.md` with the result
 
-If companion suggestions are blocked:
+If the import quality lab is blocked:
 
-- [ ] Build the import quality lab fixture set and parser regression coverage instead
+- [ ] Move to scan/photo/PDF import hardening on the weakest current real-world sample

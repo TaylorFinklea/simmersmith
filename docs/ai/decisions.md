@@ -18,3 +18,10 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first implementation of recipe suggestions is heuristic and grounded in saved recipes plus existing metadata.
 - Suggestions open in the existing recipe editor as drafts and are never silently saved.
 - This preserves the current MCP-first architecture while keeping the first slice small and testable.
+
+## 2026-03-27 - Phase 2 companion suggestions are recipe-detail-only and return three standalone drafts
+
+- Companion suggestions currently live only on the recipe detail screen, not the recipes list.
+- The server returns exactly three draft options per request: a vegetable side, a starch side, and a sauce/drizzle.
+- Companion results are standalone recipe drafts, not variants, and are never auto-saved.
+- The first implementation is deterministic and cuisine-aware, matching the existing MCP-first but heuristic-first rollout style.

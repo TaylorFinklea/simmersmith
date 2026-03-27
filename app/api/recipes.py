@@ -7,6 +7,7 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import AIRun
 from app.schemas import (
+    RecipeAIDraftOptionOut,
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
     ManagedListItemCreateRequest,
@@ -14,10 +15,12 @@ from app.schemas import (
     NutritionItemOut,
     NutritionSummaryOut,
     RecipeImportRequest,
+    RecipeAIOptionsOut,
     RecipeMetadataOut,
     RecipeOut,
     RecipePayload,
     RecipeAIDraftOut,
+    RecipeCompanionDraftRequest,
     RecipeTextImportRequest,
     RecipeSuggestionDraftRequest,
     RecipeVariationDraftRequest,
@@ -33,7 +36,7 @@ from app.services.nutrition import (
     search_nutrition_items,
 )
 from app.services.presenters import recipe_payload, recipes_payload
-from app.services.recipe_ai import build_suggestion_draft, build_variation_draft
+from app.services.recipe_ai import build_companion_drafts, build_suggestion_draft, build_variation_draft
 from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
 from app.services.recipes import archive_recipe, get_recipe, list_recipes, restore_recipe
 
@@ -183,6 +186,51 @@ def recipe_suggestion_draft_route(
     )
     session.commit()
     return RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump()
+
+
+@router.post("/{recipe_id}/ai/companion-drafts", response_model=RecipeAIOptionsOut)
+def recipe_companion_drafts_route(
+    recipe_id: str,
+    payload: RecipeCompanionDraftRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    recipe = get_recipe(session, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    anchor_payload = RecipePayload.model_validate(recipe_payload(session, recipe))
+    draft_options, rationale, resolved_goal = build_companion_drafts(anchor_payload, focus=payload.focus)
+    response_options = [
+        RecipeAIDraftOptionOut(
+            option_id=option_id,
+            label=label,
+            rationale=option_rationale,
+            draft=_with_nutrition_summary(session, draft),
+        )
+        for option_id, label, option_rationale, draft in draft_options
+    ]
+
+    response_payload = RecipeAIOptionsOut(goal=resolved_goal, rationale=rationale, options=response_options)
+    user_settings = profile_settings_map(session)
+    execution_target = resolve_ai_execution_target(settings, user_settings)
+    if execution_target is None:
+        model_name = "heuristic-companion-v1"
+    else:
+        model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-companion-v1"
+    session.add(
+        AIRun(
+            week_id=None,
+            run_type="recipe_companion",
+            model=model_name,
+            prompt=payload.focus,
+            status="completed",
+            request_payload=payload.model_dump_json(),
+            response_payload=response_payload.model_dump_json(),
+        )
+    )
+    session.commit()
+    return response_payload.model_dump()
 
 
 @router.post("/{recipe_id}/ai/variation-draft", response_model=RecipeAIDraftOut)

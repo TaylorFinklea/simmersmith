@@ -248,10 +248,27 @@ class RecipeSuggestionDraftRequest(BaseModel):
     goal: str
 
 
+class RecipeCompanionDraftRequest(BaseModel):
+    focus: Literal["sides_and_sauces"] = "sides_and_sauces"
+
+
 class RecipeAIDraftOut(BaseModel):
     goal: str
     rationale: str = ""
     draft: RecipePayload
+
+
+class RecipeAIDraftOptionOut(BaseModel):
+    option_id: str
+    label: str
+    rationale: str = ""
+    draft: RecipePayload
+
+
+class RecipeAIOptionsOut(BaseModel):
+    goal: str
+    rationale: str = ""
+    options: list[RecipeAIDraftOptionOut] = Field(default_factory=list)
 
 
 class WeekCreateRequest(BaseModel):

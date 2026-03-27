@@ -12,6 +12,12 @@ struct RecipeAssignmentSheetContext: Identifiable {
     let recipes: [RecipeSummary]
 }
 
+struct RecipeCompanionSheetContext: Identifiable {
+    let id = UUID()
+    let title: String
+    let options: RecipeAIOptions
+}
+
 enum RecipeMealFilter: String, CaseIterable, Identifiable {
     case dinner
     case breakfast
