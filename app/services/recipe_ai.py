@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from dataclasses import dataclass
 
 from app.schemas import RecipeIngredientPayload, RecipePayload, RecipeStepPayload
@@ -21,6 +22,17 @@ class VariationPreset:
     extra_tags: tuple[str, ...]
     guidance_note: str
     ingredient_rules: tuple[VariationRule, ...]
+
+
+@dataclass(frozen=True)
+class SuggestionPreset:
+    key: str
+    label: str
+    title_prefix: str
+    meal_type: str
+    rationale_note: str
+    extra_tags: tuple[str, ...] = ()
+    variation_goal: str | None = None
 
 
 VARIATION_PRESETS: tuple[VariationPreset, ...] = (
@@ -104,6 +116,51 @@ VARIATION_PRESETS: tuple[VariationPreset, ...] = (
     ),
 )
 
+SUGGESTION_PRESETS: tuple[SuggestionPreset, ...] = (
+    SuggestionPreset(
+        key="weeknight_dinner",
+        label="Weeknight Dinner",
+        title_prefix="Weeknight",
+        meal_type="dinner",
+        rationale_note="Favor a reliable dinner idea pulled from your saved rotation.",
+        extra_tags=("weeknight", "ai-suggested"),
+    ),
+    SuggestionPreset(
+        key="breakfast_rotation",
+        label="Breakfast Rotation",
+        title_prefix="Breakfast",
+        meal_type="breakfast",
+        rationale_note="Keep breakfast ideas moving without losing the recipes you already trust.",
+        extra_tags=("breakfast-rotation", "ai-suggested"),
+    ),
+    SuggestionPreset(
+        key="lunchbox_friendly",
+        label="Lunchbox Friendly",
+        title_prefix="Lunchbox",
+        meal_type="lunch",
+        rationale_note="Start from a saved recipe that can translate into a portable lunch.",
+        extra_tags=("portable-lunch", "ai-suggested"),
+    ),
+    SuggestionPreset(
+        key="pantry_reset",
+        label="Pantry Reset",
+        title_prefix="Pantry-Friendly",
+        meal_type="dinner",
+        rationale_note="Use your existing recipe history, but bias toward easier pantry-friendly swaps.",
+        extra_tags=("pantry-friendly", "ai-suggested"),
+        variation_goal="Pantry-Friendly",
+    ),
+    SuggestionPreset(
+        key="kid_friendly_dinner",
+        label="Kid-Friendly Dinner",
+        title_prefix="Kid-Friendly",
+        meal_type="dinner",
+        rationale_note="Start from a dinner your library already suggests is family-usable, then soften the edges.",
+        extra_tags=("kid-friendly", "ai-suggested"),
+        variation_goal="Kid-Friendly",
+    ),
+)
+
 
 def _normalized_goal(goal: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", goal.lower()).strip()
@@ -124,6 +181,25 @@ def resolve_variation_preset(goal: str) -> VariationPreset:
         if phrase in normalized:
             return next(preset for preset in VARIATION_PRESETS if preset.key == preset_key)
     return next(preset for preset in VARIATION_PRESETS if preset.key == "pantry_friendly")
+
+
+def resolve_suggestion_preset(goal: str) -> SuggestionPreset:
+    normalized = _normalized_goal(goal)
+    keyword_map = {
+        "weeknight": "weeknight_dinner",
+        "dinner": "weeknight_dinner",
+        "breakfast": "breakfast_rotation",
+        "lunch": "lunchbox_friendly",
+        "lunchbox": "lunchbox_friendly",
+        "portable": "lunchbox_friendly",
+        "pantry": "pantry_reset",
+        "kid": "kid_friendly_dinner",
+        "family": "kid_friendly_dinner",
+    }
+    for phrase, preset_key in keyword_map.items():
+        if phrase in normalized:
+            return next(preset for preset in SUGGESTION_PRESETS if preset.key == preset_key)
+    return next(preset for preset in SUGGESTION_PRESETS if preset.key == "weeknight_dinner")
 
 
 def _replace_term(text: str, rule: VariationRule) -> str:
@@ -222,3 +298,94 @@ def build_variation_draft(
     )
     rationale = variation_summary
     return draft, rationale, preset.label
+
+
+def _days_since(value: date | None) -> int | None:
+    if value is None:
+        return None
+    return (date.today() - value).days
+
+
+def _meal_type_matches(recipe: RecipePayload, meal_type: str) -> bool:
+    return recipe.meal_type.strip().lower() == meal_type.strip().lower()
+
+
+def _recipe_score(recipe: RecipePayload, preset: SuggestionPreset) -> tuple[int, int, int, str]:
+    days_since_last_used = _days_since(recipe.last_used)
+    recency_score = 0 if days_since_last_used is None else max(0, 30 - min(days_since_last_used, 30))
+    return (
+        1 if _meal_type_matches(recipe, preset.meal_type) else 0,
+        1 if recipe.favorite else 0,
+        recency_score + min(len(recipe.tags), 3) + (1 if recipe.source_label else 0),
+        recipe.name.lower(),
+    )
+
+
+def _prefixed_title(prefix: str, name: str) -> str:
+    trimmed_prefix = prefix.strip()
+    trimmed_name = name.strip()
+    if trimmed_name.lower().startswith(trimmed_prefix.lower()):
+        return trimmed_name
+    return f"{trimmed_prefix} {trimmed_name}".strip()
+
+
+def build_suggestion_draft(
+    saved_recipes: list[RecipePayload],
+    *,
+    goal: str,
+) -> tuple[RecipePayload, str, str]:
+    if not saved_recipes:
+        raise ValueError("Save a few recipes before requesting an AI suggestion draft.")
+
+    preset = resolve_suggestion_preset(goal)
+    matching_recipes = [recipe for recipe in saved_recipes if _meal_type_matches(recipe, preset.meal_type)]
+    fallback_used = not matching_recipes
+    candidates = matching_recipes or saved_recipes
+    anchor = sorted(candidates, key=lambda recipe: _recipe_score(recipe, preset), reverse=True)[0]
+
+    variation_rationale = ""
+    if preset.variation_goal:
+        draft, variation_rationale, _ = build_variation_draft(anchor, goal=preset.variation_goal)
+    else:
+        draft = anchor.model_copy(deep=True)
+
+    suggestion_note = preset.rationale_note
+    if fallback_used:
+        suggestion_note += f" No strong {preset.meal_type} match exists yet, so this starts from your closest saved recipe."
+    if anchor.source_label:
+        suggestion_note += f" Source signal: {anchor.source_label}."
+    if variation_rationale:
+        suggestion_note += f" {variation_rationale}"
+
+    existing_notes = draft.notes.strip()
+    combined_notes = (
+        f"{existing_notes}\n\nAI suggestion note: {suggestion_note}".strip()
+        if existing_notes
+        else f"AI suggestion note: {suggestion_note}"
+    )
+
+    deduped_tags = list(dict.fromkeys([*draft.tags, *preset.extra_tags]))
+    final_draft = draft.model_copy(
+        update={
+            "recipe_id": None,
+            "base_recipe_id": anchor.base_recipe_id or anchor.recipe_id,
+            "name": _prefixed_title(preset.title_prefix, anchor.name),
+            "meal_type": preset.meal_type or draft.meal_type,
+            "favorite": False,
+            "source": "ai_suggestion",
+            "source_label": anchor.source_label,
+            "source_url": anchor.source_url,
+            "notes": combined_notes,
+            "last_used": None,
+            "tags": deduped_tags,
+        }
+    )
+
+    rationale = preset.rationale_note
+    rationale += f" Started from {anchor.name}"
+    if anchor.cuisine:
+        rationale += f" with a {anchor.cuisine} lean"
+    rationale += "."
+    if fallback_used:
+        rationale += f" No strong {preset.meal_type} match existed yet, so this used the closest saved recipe."
+    return final_draft, rationale, preset.label

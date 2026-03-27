@@ -19,6 +19,7 @@ from app.schemas import (
     RecipePayload,
     RecipeAIDraftOut,
     RecipeTextImportRequest,
+    RecipeSuggestionDraftRequest,
     RecipeVariationDraftRequest,
 )
 from app.services.ai import profile_settings_map, resolve_ai_execution_target
@@ -32,9 +33,9 @@ from app.services.nutrition import (
     search_nutrition_items,
 )
 from app.services.presenters import recipe_payload, recipes_payload
-from app.services.recipe_ai import build_variation_draft
+from app.services.recipe_ai import build_suggestion_draft, build_variation_draft
 from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
-from app.services.recipes import archive_recipe, get_recipe, restore_recipe
+from app.services.recipes import archive_recipe, get_recipe, list_recipes, restore_recipe
 
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -145,6 +146,43 @@ def import_recipe_text_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _with_nutrition_summary(session, recipe)
+
+
+@router.post("/ai/suggestion-draft", response_model=RecipeAIDraftOut)
+def recipe_suggestion_draft_route(
+    payload: RecipeSuggestionDraftRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    saved_recipes = [
+        RecipePayload.model_validate(recipe_payload(session, recipe))
+        for recipe in list_recipes(session, include_archived=False)
+    ]
+    try:
+        draft, rationale, resolved_goal = build_suggestion_draft(saved_recipes, goal=payload.goal)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    draft = _with_nutrition_summary(session, draft)
+    user_settings = profile_settings_map(session)
+    execution_target = resolve_ai_execution_target(settings, user_settings)
+    if execution_target is None:
+        model_name = "heuristic-suggestion-v1"
+    else:
+        model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-suggestion-v1"
+    session.add(
+        AIRun(
+            week_id=None,
+            run_type="recipe_suggestion",
+            model=model_name,
+            prompt=payload.goal,
+            status="completed",
+            request_payload=payload.model_dump_json(),
+            response_payload=RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump_json(),
+        )
+    )
+    session.commit()
+    return RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump()
 
 
 @router.post("/{recipe_id}/ai/variation-draft", response_model=RecipeAIDraftOut)

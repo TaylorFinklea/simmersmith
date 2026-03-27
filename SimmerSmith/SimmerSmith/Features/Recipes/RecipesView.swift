@@ -15,10 +15,22 @@ struct RecipesView: View {
     @State private var selectedRecipeIDs: Set<String> = []
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var assignmentContext: RecipeAssignmentSheetContext?
+    @State private var isGeneratingSuggestion = false
+    @State private var suggestionErrorMessage: String?
 
     var body: some View {
         List {
             filterSection
+
+            if isGeneratingSuggestion {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Generating AI suggestion draft…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
 
             if visibleRecipes.isEmpty {
                 ContentUnavailableView(
@@ -80,6 +92,14 @@ struct RecipesView: View {
                     Button("Import from URL") {
                         isImportPresented = true
                     }
+                    Menu("AI Suggestion Draft") {
+                        ForEach(RecipeSuggestionGoal.allCases) { goal in
+                            Button(goal.title) {
+                                Task { await generateSuggestion(goal) }
+                            }
+                            .disabled(isGeneratingSuggestion || appState.recipes.isEmpty)
+                        }
+                    }
                 }
             }
         }
@@ -114,6 +134,20 @@ struct RecipesView: View {
         }
         .sheet(item: $assignmentContext) { context in
             RecipeWeekAssignmentView(recipes: context.recipes)
+        }
+        .alert("AI Suggestion Failed", isPresented: Binding(
+            get: { suggestionErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    suggestionErrorMessage = nil
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {
+                suggestionErrorMessage = nil
+            }
+        } message: {
+            Text(suggestionErrorMessage ?? "The suggestion draft could not be created.")
         }
         .task {
             if appState.recipes.isEmpty {
@@ -203,6 +237,19 @@ struct RecipesView: View {
             selectedRecipeIDs.remove(recipe.recipeId)
         } else {
             selectedRecipeIDs.insert(recipe.recipeId)
+        }
+    }
+
+    private func generateSuggestion(_ goal: RecipeSuggestionGoal) async {
+        suggestionErrorMessage = nil
+        isGeneratingSuggestion = true
+        defer { isGeneratingSuggestion = false }
+
+        do {
+            let aiDraft = try await appState.generateRecipeSuggestionDraft(goal: goal.title)
+            editorContext = RecipeEditorSheetContext(title: "\(goal.title) Suggestion", draft: aiDraft.draft)
+        } catch {
+            suggestionErrorMessage = error.localizedDescription
         }
     }
 

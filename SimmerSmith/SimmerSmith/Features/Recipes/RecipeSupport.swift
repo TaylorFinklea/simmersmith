@@ -114,6 +114,18 @@ enum RecipeVariationGoal: String, CaseIterable, Identifiable {
     var title: String { rawValue }
 }
 
+enum RecipeSuggestionGoal: String, CaseIterable, Identifiable {
+    case weeknightDinner = "Weeknight Dinner"
+    case breakfastRotation = "Breakfast Rotation"
+    case lunchboxFriendly = "Lunchbox Friendly"
+    case pantryReset = "Pantry Reset"
+    case kidFriendlyDinner = "Kid-Friendly Dinner"
+
+    var id: String { rawValue }
+
+    var title: String { rawValue }
+}
+
 extension RecipeSummary {
     func editingDraft() -> RecipeDraft {
         RecipeDraft(

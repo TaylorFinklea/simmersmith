@@ -499,6 +499,55 @@ def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> No
     assert len(list_response.json()) == 1
 
 
+def test_recipe_suggestion_draft_route_returns_library_grounded_draft(client) -> None:
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Chicken Pasta Primavera",
+            "meal_type": "dinner",
+            "cuisine": "Italian",
+            "favorite": True,
+            "source": "url_import",
+            "source_label": "Serious Eats",
+            "ingredients": [
+                {"ingredient_name": "1 lb pasta"},
+                {"ingredient_name": "2 chicken breasts"},
+                {"ingredient_name": "1 tbsp fresh basil"},
+                {"ingredient_name": "2 cloves fresh garlic"},
+            ],
+            "steps": [
+                {"instruction": "Cook the pasta."},
+                {"instruction": "Saute the chicken with the vegetables."},
+            ],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+
+    suggestion_response = client.post(
+        "/api/recipes/ai/suggestion-draft",
+        json={"goal": "Pantry Reset"},
+    )
+    assert suggestion_response.status_code == 200
+    payload = suggestion_response.json()
+    assert payload["goal"] == "Pantry Reset"
+    assert payload["draft"]["recipe_id"] is None
+    assert payload["draft"]["base_recipe_id"] == recipe["recipe_id"]
+    assert payload["draft"]["source"] == "ai_suggestion"
+    assert payload["draft"]["meal_type"] == "dinner"
+    assert "ai-suggested" in payload["draft"]["tags"]
+    assert "pantry-friendly" in payload["draft"]["tags"]
+    assert payload["draft"]["name"] == "Pantry-Friendly Chicken Pasta Primavera"
+    assert "AI suggestion note:" in payload["draft"]["notes"]
+    assert any("dried herbs" in ingredient["ingredient_name"].lower() for ingredient in payload["draft"]["ingredients"])
+    assert "saved rotation" not in payload["rationale"].lower()
+    assert "Started from Chicken Pasta Primavera" in payload["rationale"]
+
+    list_response = client.get("/api/recipes?include_archived=true")
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+
+
 def test_week_flow_and_pricing_round_trip(client) -> None:
     create_response = client.post("/api/weeks", json={"week_start": "2026-03-16", "notes": "Family week"})
     assert create_response.status_code == 200

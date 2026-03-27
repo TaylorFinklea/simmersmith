@@ -244,6 +244,10 @@ class RecipeVariationDraftRequest(BaseModel):
     goal: str
 
 
+class RecipeSuggestionDraftRequest(BaseModel):
+    goal: str
+
+
 class RecipeAIDraftOut(BaseModel):
     goal: str
     rationale: str = ""
