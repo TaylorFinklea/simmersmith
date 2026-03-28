@@ -155,6 +155,30 @@ struct RecipeEditorView: View {
                     }
                 }
 
+                Section("Assistant") {
+                    Button {
+                        Task {
+                            do {
+                                try await appState.beginAssistantLaunch(
+                                    initialText: "Help me refine this recipe draft and make it clearer, more balanced, and easier to cook.",
+                                    title: draft.name.isEmpty ? "Recipe Draft" : draft.name,
+                                    attachedRecipeDraft: draft,
+                                    intent: "recipe_refinement"
+                                )
+                                dismiss()
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        Label("Refine With Assistant", systemImage: "sparkles")
+                    }
+
+                    Text("Open this draft in the Assistant chat to talk through substitutions, structure, and cooking notes before saving.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Timing") {
                     LabeledContent("Servings") {
                         TextField("4", text: $servingsText)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
 from app.services import recipe_import
 
 
@@ -1041,3 +1042,85 @@ def test_recipe_nutrition_estimate_search_and_matching(client) -> None:
     assert matched_estimate["coverage_status"] == "complete"
     assert matched_estimate["unmatched_ingredients"] == []
     assert matched_estimate["calories_per_serving"] == 868.0
+
+
+def test_assistant_thread_lifecycle(client) -> None:
+    create_response = client.post("/api/assistant/threads", json={"title": "Recipe Coach"})
+    assert create_response.status_code == 200
+    thread = create_response.json()
+    assert thread["title"] == "Recipe Coach"
+
+    list_response = client.get("/api/assistant/threads")
+    assert list_response.status_code == 200
+    assert any(item["thread_id"] == thread["thread_id"] for item in list_response.json())
+
+    detail_response = client.get(f"/api/assistant/threads/{thread['thread_id']}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["messages"] == []
+
+    delete_response = client.delete(f"/api/assistant/threads/{thread['thread_id']}")
+    assert delete_response.status_code == 204
+
+    archived_list_response = client.get("/api/assistant/threads")
+    assert archived_list_response.status_code == 200
+    assert all(item["thread_id"] != thread["thread_id"] for item in archived_list_response.json())
+
+
+def test_assistant_respond_stream_persists_messages_and_recipe_draft(client, monkeypatch) -> None:
+    def fake_run_assistant_turn(**_: object) -> AssistantTurnResult:
+        return AssistantTurnResult(
+            target=AssistantExecutionTarget(
+                provider_kind="codex_cli",
+                source="server_codex_cli",
+                model="codex",
+                provider_name="codex",
+                cli_path="/opt/homebrew/bin/codex",
+            ),
+            prompt="Create a whole wheat waffle recipe",
+            raw_output='{"assistant_markdown":"Here is a starter waffle recipe.","recipe_draft":{"name":"Whole Wheat Waffles","meal_type":"breakfast","cuisine":"American","servings":4,"ingredients":[{"ingredient_name":"whole wheat flour","quantity":2,"unit":"cup","category":"Pantry"}],"steps":[{"instruction":"Whisk the batter."}]}}',
+            envelope=AssistantProviderEnvelope.model_validate(
+                {
+                    "assistant_markdown": "Here is a starter waffle recipe.",
+                    "recipe_draft": {
+                        "name": "Whole Wheat Waffles",
+                        "meal_type": "breakfast",
+                        "cuisine": "American",
+                        "servings": 4,
+                        "ingredients": [
+                            {
+                                "ingredient_name": "whole wheat flour",
+                                "quantity": 2,
+                                "unit": "cup",
+                                "category": "Pantry",
+                            }
+                        ],
+                        "steps": [{"instruction": "Whisk the batter."}],
+                    },
+                }
+            ),
+        )
+
+    monkeypatch.setattr("app.api.assistant.run_assistant_turn", fake_run_assistant_turn)
+
+    thread_response = client.post("/api/assistant/threads", json={"title": "Breakfast ideas"})
+    assert thread_response.status_code == 200
+    thread_id = thread_response.json()["thread_id"]
+
+    with client.stream(
+        "POST",
+        f"/api/assistant/threads/{thread_id}/respond",
+        json={"text": "Create a whole wheat waffle recipe", "intent": "recipe_creation"},
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: user_message.created" in body
+    assert "event: assistant.recipe_draft" in body
+    assert "event: assistant.completed" in body
+
+    detail_response = client.get(f"/api/assistant/threads/{thread_id}")
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
+    assert len(payload["messages"]) == 2
+    assert payload["messages"][1]["content_markdown"] == "Here is a starter waffle recipe."
+    assert payload["messages"][1]["recipe_draft"]["name"] == "Whole Wheat Waffles"

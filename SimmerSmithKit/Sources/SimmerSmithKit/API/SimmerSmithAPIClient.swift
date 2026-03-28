@@ -48,6 +48,10 @@ private struct RecipeCompanionDraftBody: Encodable {
     let focus: String
 }
 
+private struct AssistantThreadCreateBody: Encodable {
+    let title: String
+}
+
 private struct ManagedListItemBody: Encodable {
     let name: String
 }
@@ -199,6 +203,97 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             method: "POST",
             body: RecipeCompanionDraftBody(focus: focus)
         )
+    }
+
+    public func fetchAssistantThreads() async throws -> [AssistantThreadSummary] {
+        try await request(path: "/api/assistant/threads")
+    }
+
+    public func createAssistantThread(title: String = "") async throws -> AssistantThreadSummary {
+        try await request(
+            path: "/api/assistant/threads",
+            method: "POST",
+            body: AssistantThreadCreateBody(title: title)
+        )
+    }
+
+    public func fetchAssistantThread(threadID: String) async throws -> AssistantThread {
+        try await request(path: "/api/assistant/threads/\(threadID)")
+    }
+
+    public func deleteAssistantThread(threadID: String) async throws {
+        let _: EmptyResponse = try await request(path: "/api/assistant/threads/\(threadID)", method: "DELETE")
+    }
+
+    public func streamAssistantResponse(
+        threadID: String,
+        text: String,
+        attachedRecipeID: String? = nil,
+        attachedRecipeDraft: RecipeDraft? = nil,
+        intent: String = "general"
+    ) async throws -> AsyncThrowingStream<AssistantStreamEnvelope, Error> {
+        let request = try buildRequest(
+            path: "/api/assistant/threads/\(threadID)/respond",
+            method: "POST",
+            requiresAuth: true,
+            bodyData: try encoder.encode(
+                AssistantRespondRequestBody(
+                    text: text,
+                    attachedRecipeId: attachedRecipeID,
+                    attachedRecipeDraft: attachedRecipeDraft,
+                    intent: intent
+                )
+            )
+        )
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            var data = Data()
+            for try await byte in bytes {
+                data.append(contentsOf: [byte])
+            }
+            if http.statusCode == 401 {
+                throw SimmerSmithAPIError.unauthorized
+            }
+            if let errorPayload = try? decoder.decode(APIErrorResponse.self, from: data) {
+                throw SimmerSmithAPIError.server(errorPayload.detail)
+            }
+            throw SimmerSmithAPIError.invalidResponse
+        }
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    var currentEvent = ""
+                    var dataLines: [String] = []
+                    for try await line in bytes.lines {
+                        if line.isEmpty {
+                            if !currentEvent.isEmpty {
+                                let payload = Data(dataLines.joined(separator: "\n").utf8)
+                                continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
+                            }
+                            currentEvent = ""
+                            dataLines = []
+                            continue
+                        }
+                        if line.hasPrefix("event: ") {
+                            currentEvent = String(line.dropFirst(7))
+                        } else if line.hasPrefix("data: ") {
+                            dataLines.append(String(line.dropFirst(6)))
+                        }
+                    }
+                    if !currentEvent.isEmpty {
+                        let payload = Data(dataLines.joined(separator: "\n").utf8)
+                        continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     public func saveRecipe(_ recipe: RecipeDraft) async throws -> RecipeSummary {

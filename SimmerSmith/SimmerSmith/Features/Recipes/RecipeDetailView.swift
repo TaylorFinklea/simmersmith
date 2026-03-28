@@ -233,6 +233,20 @@ struct RecipeDetailView: View {
                             Task { await generateCompanions(recipe) }
                         }
                         .disabled(isGeneratingCompanions)
+                        Button("Ask Assistant About This Recipe") {
+                            Task {
+                                do {
+                                    try await appState.beginAssistantLaunch(
+                                        initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
+                                        title: recipe.name,
+                                        attachedRecipeID: recipe.recipeId,
+                                        intent: "cooking_help"
+                                    )
+                                } catch {
+                                    errorMessage = error.localizedDescription
+                                }
+                            }
+                        }
                         Button("Add to Week") {
                             assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
                         }

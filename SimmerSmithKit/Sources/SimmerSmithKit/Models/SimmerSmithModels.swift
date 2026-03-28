@@ -369,6 +369,124 @@ public struct RecipeAIOptions: Codable, Hashable, Sendable {
     public let options: [RecipeAIDraftOption]
 }
 
+public struct AssistantThreadSummary: Codable, Identifiable, Hashable, Sendable {
+    public let threadId: String
+    public let title: String
+    public let preview: String
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public var id: String { threadId }
+
+    public init(
+        threadId: String,
+        title: String,
+        preview: String,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.threadId = threadId
+        self.title = title
+        self.preview = preview
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct AssistantMessage: Codable, Identifiable, Hashable, Sendable {
+    public let messageId: String
+    public let threadId: String
+    public let role: String
+    public let status: String
+    public let contentMarkdown: String
+    public let recipeDraft: RecipeDraft?
+    public let attachedRecipeId: String?
+    public let createdAt: Date
+    public let completedAt: Date?
+    public let error: String
+
+    public var id: String { messageId }
+
+    public init(
+        messageId: String,
+        threadId: String,
+        role: String,
+        status: String,
+        contentMarkdown: String,
+        recipeDraft: RecipeDraft?,
+        attachedRecipeId: String?,
+        createdAt: Date,
+        completedAt: Date?,
+        error: String
+    ) {
+        self.messageId = messageId
+        self.threadId = threadId
+        self.role = role
+        self.status = status
+        self.contentMarkdown = contentMarkdown
+        self.recipeDraft = recipeDraft
+        self.attachedRecipeId = attachedRecipeId
+        self.createdAt = createdAt
+        self.completedAt = completedAt
+        self.error = error
+    }
+}
+
+public struct AssistantThread: Codable, Identifiable, Hashable, Sendable {
+    public let threadId: String
+    public let title: String
+    public let preview: String
+    public let createdAt: Date
+    public let updatedAt: Date
+    public let messages: [AssistantMessage]
+
+    public var id: String { threadId }
+
+    public init(
+        threadId: String,
+        title: String,
+        preview: String,
+        createdAt: Date,
+        updatedAt: Date,
+        messages: [AssistantMessage]
+    ) {
+        self.threadId = threadId
+        self.title = title
+        self.preview = preview
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.messages = messages
+    }
+}
+
+public struct AssistantRespondRequestBody: Codable, Hashable, Sendable {
+    public let text: String
+    public let attachedRecipeId: String?
+    public let attachedRecipeDraft: RecipeDraft?
+    public let intent: String
+
+    public init(
+        text: String,
+        attachedRecipeId: String? = nil,
+        attachedRecipeDraft: RecipeDraft? = nil,
+        intent: String = "general"
+    ) {
+        self.text = text
+        self.attachedRecipeId = attachedRecipeId
+        self.attachedRecipeDraft = attachedRecipeDraft
+        self.intent = intent
+    }
+}
+
+public struct AssistantStreamEnvelope: Sendable {
+    public let event: String
+    public let data: Data
+
+    public func decode<T: Decodable>(_ type: T.Type) throws -> T {
+        try SimmerSmithJSONCoding.makeDecoder().decode(T.self, from: data)
+    }
+}
+
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let recipeId: String
     public let recipeTemplateId: String?

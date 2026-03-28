@@ -5,6 +5,7 @@ struct WeekView: View {
     @Environment(AppState.self) private var appState
 
     @State private var selectedMeal: WeekMeal?
+    @State private var showingActivity = false
 
     var body: some View {
         Group {
@@ -90,10 +91,18 @@ struct WeekView: View {
                 BrandToolbarBadge()
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await appState.refreshWeek() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                HStack(spacing: 16) {
+                    Button {
+                        showingActivity = true
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+
+                    Button {
+                        Task { await appState.refreshWeek() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
             }
         }
@@ -109,6 +118,11 @@ struct WeekView: View {
         .sheet(item: $selectedMeal) { meal in
             FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
                 try await appState.submitMealFeedback(for: meal, sentiment: sentiment, notes: notes)
+            }
+        }
+        .sheet(isPresented: $showingActivity) {
+            NavigationStack {
+                ActivityView()
             }
         }
     }

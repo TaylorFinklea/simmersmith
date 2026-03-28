@@ -367,3 +367,42 @@ func decoderHandlesNutritionSummaryAndNutritionCatalogPayloads() throws {
     #expect(item.referenceUnit == "tbsp")
     #expect(item.calories == 102)
 }
+
+@Test
+func decoderHandlesAssistantThreadPayload() throws {
+    let json = """
+    {
+      "thread_id": "thread-1",
+      "title": "Recipe Help",
+      "preview": "Make me a better waffle recipe",
+      "created_at": "2026-03-28T18:30:00.000000",
+      "updated_at": "2026-03-28T18:31:00.000000",
+      "messages": [
+        {
+          "message_id": "message-1",
+          "thread_id": "thread-1",
+          "role": "assistant",
+          "status": "completed",
+          "content_markdown": "Here is a recipe draft.",
+          "recipe_draft": {
+            "name": "Whole Wheat Waffles",
+            "meal_type": "breakfast",
+            "cuisine": "American",
+            "servings": 4,
+            "ingredients": [],
+            "steps": []
+          },
+          "attached_recipe_id": null,
+          "created_at": "2026-03-28T18:31:00.000000",
+          "completed_at": "2026-03-28T18:31:05.000000",
+          "error": ""
+        }
+      ]
+    }
+    """.data(using: .utf8)!
+
+    let thread = try SimmerSmithJSONCoding.makeDecoder().decode(AssistantThread.self, from: json)
+    #expect(thread.title == "Recipe Help")
+    #expect(thread.messages.count == 1)
+    #expect(thread.messages.first?.recipeDraft?.name == "Whole Wheat Waffles")
+}

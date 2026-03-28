@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import ProfileSetting, Recipe, Staple, Week
+from app.models import AssistantMessage, AssistantThread, ProfileSetting, Recipe, Staple, Week
+from app.schemas import RecipePayload
 from app.services.ai import secret_profile_flags, visible_profile_settings
 from app.services.nutrition import calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
@@ -239,4 +241,39 @@ def pricing_payload(week: Week | None) -> dict[str, object] | None:
         "week_start": week.week_start,
         "totals": {key: round(value, 2) for key, value in sorted(retailer_totals.items())},
         "items": (week_payload(week) or {}).get("grocery_items", []),
+    }
+
+
+def assistant_message_payload(message: AssistantMessage) -> dict[str, Any]:
+    recipe_draft = None
+    if message.recipe_draft_json.strip():
+        recipe_draft = RecipePayload.model_validate_json(message.recipe_draft_json).model_dump(mode="json")
+    return {
+        "message_id": message.id,
+        "thread_id": message.thread_id,
+        "role": message.role,
+        "status": message.status,
+        "content_markdown": message.content_markdown,
+        "recipe_draft": recipe_draft,
+        "attached_recipe_id": message.attached_recipe_id,
+        "created_at": message.created_at,
+        "completed_at": message.completed_at,
+        "error": message.error,
+    }
+
+
+def assistant_thread_summary_payload(thread: AssistantThread) -> dict[str, Any]:
+    return {
+        "thread_id": thread.id,
+        "title": thread.title,
+        "preview": thread.preview,
+        "created_at": thread.created_at,
+        "updated_at": thread.updated_at,
+    }
+
+
+def assistant_thread_payload(thread: AssistantThread) -> dict[str, Any]:
+    return {
+        **assistant_thread_summary_payload(thread),
+        "messages": [assistant_message_payload(message) for message in thread.messages],
     }

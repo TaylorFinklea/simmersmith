@@ -21,14 +21,15 @@ This file is the durable roadmap source of truth for AI assistants working in th
 
 1. AI recipe suggestions
 2. Recipe companion suggestions
-3. Import quality lab
-4. Scan/photo/PDF import hardening
-5. Native recipe PDF export
-6. Template customization
-7. Live step/substep reorder
-8. Recipe experience polish
-9. Guided future-week planning wizard
-10. Week staging/change-history hardening
+3. Central Assistant tab and conversational recipe creation
+4. Import quality lab
+5. Scan/photo/PDF import hardening
+6. Native recipe PDF export
+7. Template customization
+8. Live step/substep reorder
+9. Recipe experience polish
+10. Guided future-week planning wizard
+11. Week staging/change-history hardening
 
 ## Platform Tech Debt To Sprinkle In
 
@@ -47,6 +48,8 @@ This file is the durable roadmap source of truth for AI assistants working in th
 
 - Do not move core business logic into the iOS client.
 - Do not silently persist AI-generated recipes or week changes.
+- Keep the Assistant as a first-class product surface, not a buried action sheet.
+- Prefer direct provider APIs when configured, but allow server-side `codex` fallback when API keys are absent.
 - Do not let the web app roadmap displace the iOS-first product direction.
 - Keep shared docs updated at session end.
 
