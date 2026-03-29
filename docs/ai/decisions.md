@@ -48,3 +48,8 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 
 - Assistant SSE events should be JSON-encoded with API-style datetime serialization, not Python `str(datetime)` output.
 - The schema passed to `codex exec --output-schema` must mark object schemas as `additionalProperties: false` and include every property in `required`, matching Codex's stricter validator.
+
+## 2026-03-29 - Assistant streaming should recover from non-fatal decode drift
+
+- If an assistant turn completes on the server but one SSE event fails to decode on iOS, the client should reload the final thread state and continue instead of surfacing a hard failure immediately.
+- This keeps the Assistant usable while server/client event payloads evolve and makes final persisted thread state the fallback source of truth.

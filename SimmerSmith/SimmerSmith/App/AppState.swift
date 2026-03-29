@@ -374,6 +374,7 @@ final class AppState {
         assistantErrorByThreadID[threadID] = nil
         defer { assistantSendingThreadIDs.remove(threadID) }
 
+        let initialMessageCount = assistantThreadDetails[threadID]?.messages.count ?? 0
         let stream = try await apiClient.streamAssistantResponse(
             threadID: threadID,
             text: text,
@@ -381,10 +382,23 @@ final class AppState {
             attachedRecipeDraft: attachedRecipeDraft,
             intent: intent
         )
-        for try await event in stream {
-            try applyAssistantStreamEvent(threadID: threadID, event: event)
+        var streamFailure: Error?
+        do {
+            for try await event in stream {
+                try applyAssistantStreamEvent(threadID: threadID, event: event)
+            }
+        } catch {
+            streamFailure = error
         }
-        _ = try? await fetchAssistantThread(threadID: threadID)
+        let refreshedThread = try? await fetchAssistantThread(threadID: threadID)
+        if let streamFailure {
+            let refreshedCount = refreshedThread?.messages.count ?? 0
+            if refreshedCount > initialMessageCount {
+                assistantErrorByThreadID[threadID] = nil
+                return
+            }
+            throw streamFailure
+        }
     }
 
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {

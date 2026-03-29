@@ -17,23 +17,24 @@
 - Added provider execution with direct-provider support first and automatic server-side `codex` CLI fallback when provider API keys are absent.
 - Moved `Activity` out of the main tab bar and under `Week` so `Assistant` can be a primary tab.
 - Fixed two codex-path issues discovered during device testing: SSE timestamps now serialize in an iOS-decodable JSON format, and the generated `codex` JSON schema is now strict enough for `codex exec` to accept.
+- Added iOS-side recovery in the Assistant chat flow: if one streamed event fails to decode, the app now reloads the final thread from the server instead of failing the whole turn immediately.
 - Expanded the roadmap in `HANDOFF.md` to reflect recipe work, sprinkled tech debt, and Cloudflare/web platform tracks.
 - Added shared `docs/ai` handoff docs plus repo-level `AGENTS.md` and `CLAUDE.md` so assistants use the same repo-based workflow.
 
 ## Recent Commits
 
+- `00249fa` `fix: repair assistant codex fallback stream`
 - `75b8040` `feat: add central assistant chat workflow`
-- pending local commit for the Assistant codex-fallback / SSE-format repair
+- pending local commit for Assistant client-side stream recovery
 - `00db9e9` `feat: add AI recipe suggestion drafts`
 - `673b7c8` `docs: add shared ai handoff workflow`
 
 ## Changed Files In The Last Completed Slice
 
-- `app/api/assistant.py`
-- `app/services/assistant_ai.py`
-- `tests/test_api.py`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
+- `docs/ai/decisions.md`
 
 ## Working Tree
 
@@ -63,6 +64,11 @@ Latest completed validation for the codex-fallback repair:
 - live manual API reproduction via `curl` on `/api/assistant/threads/{thread_id}/respond` -> passed on the `codex` fallback path with a recipe draft artifact
 - `python3 -m compileall app tests` -> passed
 - `.venv/bin/pytest tests/test_api.py -q` -> passed (`23 passed`)
+
+Latest completed validation for the Assistant client recovery change:
+
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 ## Runtime Notes
 
