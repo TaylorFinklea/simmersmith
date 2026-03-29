@@ -1,10 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import os
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass
 
 import httpx
@@ -13,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from app.config import Settings
 from app.schemas import AssistantRespondRequest, RecipePayload
 from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability
+from app.services.mcp_client import run_codex_mcp
 
 
 class AssistantProviderEnvelope(BaseModel):
@@ -47,7 +45,7 @@ class AssistantExecutionTarget:
     source: str
     model: str
     provider_name: str | None = None
-    cli_path: str | None = None
+    mcp_server_name: str | None = None
 
     def as_payload(self) -> dict[str, object]:
         return {
@@ -55,7 +53,7 @@ class AssistantExecutionTarget:
             "source": self.source,
             "model": self.model,
             "provider_name": self.provider_name,
-            "cli_path": self.cli_path,
+            "mcp_server_name": self.mcp_server_name,
         }
 
 
@@ -65,9 +63,26 @@ class AssistantTurnResult:
     prompt: str
     raw_output: str
     envelope: AssistantProviderEnvelope
+    provider_thread_id: str | None = None
 
 
-def resolve_assistant_execution_target(settings: Settings, user_settings: dict[str, str]) -> AssistantExecutionTarget:
+def resolve_assistant_execution_target(
+    settings: Settings,
+    user_settings: dict[str, str],
+    *,
+    existing_provider_thread_id: str | None = None,
+) -> AssistantExecutionTarget:
+    if existing_provider_thread_id:
+        if settings.ai_mcp_enabled and settings.ai_mcp_base_url.strip():
+            return AssistantExecutionTarget(
+                provider_kind="mcp",
+                source="server",
+                provider_name=settings.ai_mcp_server_name,
+                model=settings.ai_mcp_server_name,
+                mcp_server_name=settings.ai_mcp_server_name,
+            )
+        raise RuntimeError("This assistant thread requires MCP, but MCP is not configured on the server.")
+
     preferred_direct = str(user_settings.get("ai_direct_provider", "")).strip().lower()
     direct_candidates = []
     if preferred_direct in SUPPORTED_DIRECT_PROVIDERS:
@@ -88,18 +103,15 @@ def resolve_assistant_execution_target(settings: Settings, user_settings: dict[s
             model=model,
         )
 
-    cli_path = shutil.which(settings.ai_codex_cli_path) or (
-        settings.ai_codex_cli_path if shutil.which(settings.ai_codex_cli_path) else None
-    )
-    if cli_path:
+    if settings.ai_mcp_enabled and settings.ai_mcp_base_url.strip():
         return AssistantExecutionTarget(
-            provider_kind="codex_cli",
-            source="server_codex_cli",
-            provider_name="codex",
-            model="codex",
-            cli_path=cli_path,
+            provider_kind="mcp",
+            source="server",
+            provider_name=settings.ai_mcp_server_name,
+            model=settings.ai_mcp_server_name,
+            mcp_server_name=settings.ai_mcp_server_name,
         )
-    raise RuntimeError("No AI provider is configured and codex CLI is not available on the server.")
+    raise RuntimeError("No direct AI provider is configured and MCP is unavailable.")
 
 
 def run_assistant_turn(
@@ -110,20 +122,40 @@ def run_assistant_turn(
     conversation: list[dict[str, object]],
     request: AssistantRespondRequest,
     attached_recipe: RecipePayload | None = None,
+    existing_provider_thread_id: str | None = None,
 ) -> AssistantTurnResult:
-    target = resolve_assistant_execution_target(settings, user_settings)
+    target = resolve_assistant_execution_target(
+        settings,
+        user_settings,
+        existing_provider_thread_id=existing_provider_thread_id,
+    )
     prompt = build_assistant_prompt(
         thread_title=thread_title,
         conversation=conversation,
         request=request,
         attached_recipe=attached_recipe,
     )
-    if target.provider_kind == "direct":
-        raw_output = run_direct_provider(target=target, settings=settings, user_settings=user_settings, prompt=prompt)
+    provider_thread_id = existing_provider_thread_id
+    if target.provider_kind == "mcp":
+        mcp_result = asyncio.run(
+            run_codex_mcp(
+                settings=settings,
+                prompt=prompt,
+                thread_id=existing_provider_thread_id,
+            )
+        )
+        raw_output = mcp_result.text
+        provider_thread_id = mcp_result.thread_id
     else:
-        raw_output = run_codex_cli(target=target, settings=settings, prompt=prompt)
+        raw_output = run_direct_provider(target=target, settings=settings, user_settings=user_settings, prompt=prompt)
     envelope = parse_provider_envelope(raw_output)
-    return AssistantTurnResult(target=target, prompt=prompt, raw_output=raw_output, envelope=envelope)
+    return AssistantTurnResult(
+        target=target,
+        prompt=prompt,
+        raw_output=raw_output,
+        envelope=envelope,
+        provider_thread_id=provider_thread_id,
+    )
 
 
 def build_assistant_prompt(
@@ -209,47 +241,6 @@ def run_direct_provider(
         return "\n".join(chunk for chunk in text_chunks if chunk).strip()
 
     raise RuntimeError(f"Unsupported direct provider: {target.provider_name}")
-
-
-def run_codex_cli(*, target: AssistantExecutionTarget, settings: Settings, prompt: str) -> str:
-    if not target.cli_path:
-        raise RuntimeError("codex CLI path is unavailable.")
-    schema = strict_json_schema(AssistantProviderEnvelope)
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as schema_file:
-        json.dump(schema, schema_file)
-        schema_path = schema_file.name
-    with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as output_file:
-        output_path = output_file.name
-    try:
-        command = [
-            target.cli_path,
-            "exec",
-            prompt,
-            "--ephemeral",
-            "--skip-git-repo-check",
-            "--output-schema",
-            schema_path,
-            "--output-last-message",
-            output_path,
-        ]
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=settings.ai_timeout_seconds,
-            check=False,
-        )
-        if completed.returncode != 0:
-            stderr = completed.stderr.strip() or completed.stdout.strip() or "codex exec failed"
-            raise RuntimeError(stderr)
-        with open(output_path, "r", encoding="utf-8") as handle:
-            return handle.read().strip()
-    finally:
-        for path in (schema_path, output_path):
-            try:
-                os.unlink(path)
-            except FileNotFoundError:
-                pass
 
 
 def parse_provider_envelope(raw_output: str) -> AssistantProviderEnvelope:

@@ -32,10 +32,10 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - `Activity` is preserved but moved under `Week` instead of staying in the main tab bar.
 - Assistant conversations are stored on the server in persistent thread/message tables so they survive app relaunch and can be shared across clients connected to the same backend.
 
-## 2026-03-28 - Conversational AI uses direct providers first, then server-side `codex` fallback
+## 2026-03-28 - Conversational AI uses direct providers first, then remote MCP
 
 - Assistant turns prefer direct provider APIs when configured.
-- If direct provider keys are absent, the server automatically falls back to invoking `codex` locally.
+- If direct provider keys are absent, the server falls back to a real remote MCP execution path instead of invoking `codex` locally.
 - Assistant responses use a structured envelope with markdown plus an optional recipe draft artifact.
 
 ## 2026-03-28 - Assistant remains draft-only in v1
@@ -44,12 +44,18 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - Assistant turns must not silently save recipes, mutate weeks, or change groceries in v1.
 - Recipe detail and editor shortcuts launch into the centralized Assistant experience rather than creating separate one-off AI UIs.
 
-## 2026-03-28 - Assistant SSE payloads and `codex` schemas must be iOS-safe and Codex-strict
+## 2026-03-28 - Assistant SSE payloads and structured AI envelopes must be iOS-safe and strict
 
 - Assistant SSE events should be JSON-encoded with API-style datetime serialization, not Python `str(datetime)` output.
-- The schema passed to `codex exec --output-schema` must mark object schemas as `additionalProperties: false` and include every property in `required`, matching Codex's stricter validator.
+- The structured assistant envelope schema should keep object payloads strict so both direct-provider and MCP-backed responses are validated before they reach the client.
 
 ## 2026-03-29 - Assistant streaming should recover from non-fatal decode drift
 
 - If an assistant turn completes on the server but one SSE event fails to decode on iOS, the client should reload the final thread state and continue instead of surfacing a hard failure immediately.
 - This keeps the Assistant usable while server/client event payloads evolve and makes final persisted thread state the fallback source of truth.
+
+## 2026-03-29 - MCP execution is remote Streamable HTTP and persists provider thread IDs
+
+- SimmerSmith should not launch local Codex processes for Assistant turns.
+- MCP-backed Assistant execution connects to a user-managed remote MCP server over Streamable HTTP.
+- Assistant threads persist the external provider thread ID so Codex-backed conversations continue with `codex-reply` instead of restarting every turn.

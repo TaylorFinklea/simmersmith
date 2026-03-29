@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import ProfileSetting
+from app.services.mcp_client import mcp_is_configured, probe_codex_mcp
 
 
 AI_SECRET_KEYS = {"ai_direct_api_key"}
@@ -96,7 +97,8 @@ def resolve_ai_execution_target(
         provider_name: direct_provider_availability(provider_name, settings=settings, user_settings=user_settings)
         for provider_name in SUPPORTED_DIRECT_PROVIDERS
     }
-    if preferred_mode in {"mcp", "auto", "hybrid"} and settings.ai_mcp_enabled:
+    mcp_ready = mcp_is_configured(settings)
+    if preferred_mode == "mcp" and mcp_ready:
         return AIExecutionTarget(
             provider_kind="mcp",
             mode="mcp",
@@ -118,24 +120,36 @@ def resolve_ai_execution_target(
                 source=source,
                 provider_name=provider_name,
             )
+    if preferred_mode in {"mcp", "auto", "hybrid", "direct"} and mcp_ready:
+        return AIExecutionTarget(
+            provider_kind="mcp",
+            mode="mcp",
+            source="server",
+            mcp_server_name=settings.ai_mcp_server_name,
+        )
     return None
 
 
-def ai_capabilities_payload(settings: Settings, user_settings: dict[str, str]) -> dict[str, object]:
-    effective_target = resolve_ai_execution_target(settings, user_settings)
+async def ai_capabilities_payload(settings: Settings, user_settings: dict[str, str]) -> dict[str, object]:
+    preferred_mode = str(user_settings.get("ai_provider_mode", "auto")).strip().lower() or "auto"
+    preferred_direct = str(user_settings.get("ai_direct_provider", "")).strip().lower()
+    direct_options = {
+        provider_name: direct_provider_availability(provider_name, settings=settings, user_settings=user_settings)
+        for provider_name in SUPPORTED_DIRECT_PROVIDERS
+    }
+    mcp_available, mcp_source = await probe_codex_mcp(settings)
     available_providers: list[dict[str, object]] = []
-    if settings.ai_mcp_enabled:
-        available_providers.append(
-            {
-                "provider_id": "mcp",
-                "label": settings.ai_mcp_server_name,
-                "provider_kind": "mcp",
-                "available": True,
-                "source": "server",
-            }
-        )
+    available_providers.append(
+        {
+            "provider_id": "mcp",
+            "label": settings.ai_mcp_server_name,
+            "provider_kind": "mcp",
+            "available": mcp_available,
+            "source": mcp_source,
+        }
+    )
     for provider_name in SUPPORTED_DIRECT_PROVIDERS:
-        available, source = direct_provider_availability(provider_name, settings=settings, user_settings=user_settings)
+        available, source = direct_options[provider_name]
         available_providers.append(
             {
                 "provider_id": provider_name,
@@ -145,10 +159,43 @@ def ai_capabilities_payload(settings: Settings, user_settings: dict[str, str]) -
                 "source": source,
             }
         )
+    effective_target: AIExecutionTarget | None = None
+    if preferred_mode == "mcp" and mcp_available:
+        effective_target = AIExecutionTarget(
+            provider_kind="mcp",
+            mode="mcp",
+            source=mcp_source,
+            mcp_server_name=settings.ai_mcp_server_name,
+        )
+    elif preferred_direct in direct_options and direct_options[preferred_direct][0]:
+        effective_target = AIExecutionTarget(
+            provider_kind="direct",
+            mode="direct",
+            source=direct_options[preferred_direct][1],
+            provider_name=preferred_direct,
+        )
+    else:
+        for provider_name, (available, source) in direct_options.items():
+            if available:
+                effective_target = AIExecutionTarget(
+                    provider_kind="direct",
+                    mode="direct",
+                    source=source,
+                    provider_name=provider_name,
+                )
+                break
+        if effective_target is None and mcp_available:
+            effective_target = AIExecutionTarget(
+                provider_kind="mcp",
+                mode="mcp",
+                source=mcp_source,
+                mcp_server_name=settings.ai_mcp_server_name,
+            )
+
     return {
         "supports_user_override": True,
-        "preferred_mode": str(user_settings.get("ai_provider_mode", "auto")).strip().lower() or "auto",
-        "user_override_provider": str(user_settings.get("ai_direct_provider", "")).strip().lower() or None,
+        "preferred_mode": preferred_mode,
+        "user_override_provider": preferred_direct or None,
         "user_override_configured": bool(str(user_settings.get("ai_direct_api_key", "")).strip()),
         "default_target": effective_target.as_payload() if effective_target is not None else None,
         "available_providers": available_providers,

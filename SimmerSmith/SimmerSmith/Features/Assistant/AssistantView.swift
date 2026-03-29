@@ -10,7 +10,14 @@ struct AssistantView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if appState.assistantThreads.isEmpty {
+                if appState.assistantThreads.isEmpty && !appState.assistantExecutionAvailable {
+                    ContentUnavailableView(
+                        "Assistant Needs Setup",
+                        systemImage: "sparkles.slash",
+                        description: Text(appState.assistantExecutionStatusText)
+                    )
+                    .listRowBackground(Color.clear)
+                } else if appState.assistantThreads.isEmpty {
                     ContentUnavailableView(
                         "No Assistant Chats Yet",
                         systemImage: "sparkles.rectangle.stack",
@@ -76,6 +83,7 @@ struct AssistantView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                     }
+                    .disabled(!appState.assistantExecutionAvailable)
                 }
             }
             .task {
@@ -194,6 +202,7 @@ private struct AssistantThreadView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .disabled(!appState.assistantExecutionAvailable)
                 .padding(.horizontal)
             }
         }
@@ -203,6 +212,14 @@ private struct AssistantThreadView: View {
     private var composer: some View {
         VStack(spacing: 8) {
             Divider()
+            if !appState.assistantExecutionAvailable {
+                Text(appState.assistantExecutionStatusText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
             HStack(alignment: .bottom, spacing: 12) {
                 TextField("Ask for a recipe, substitution, or cooking help", text: $composerText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -219,7 +236,11 @@ private struct AssistantThreadView: View {
                             .font(.system(size: 28))
                     }
                 }
-                .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.assistantSendingThreadIDs.contains(threadID))
+                .disabled(
+                    !appState.assistantExecutionAvailable ||
+                    composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    appState.assistantSendingThreadIDs.contains(threadID)
+                )
             }
             .padding(.horizontal)
             .padding(.top, 8)

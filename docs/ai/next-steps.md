@@ -2,9 +2,8 @@
 
 Use this as the exact short checklist for the next work session.
 
-- [ ] Restart the backend and manually test the new Assistant tab on device and simulator
-- [ ] Verify the Assistant tab from a freshly rebuilt iPhone app now that the `codex` fallback, SSE formatting fixes, and client-side stream recovery are in
-- [ ] Polish Assistant UX: thread empty state, loading state, scroll behavior, and error handling
-- [ ] Decide whether to route older recipe AI actions through the new assistant orchestration layer
-- [ ] Return to the roadmap sequence with the import quality lab after Assistant validation
+- [ ] Configure a real remote MCP Streamable HTTP endpoint in the backend env and manually verify Assistant chat works without saved API keys
+- [ ] Manually verify the read-only Assistant empty state and disabled composer when neither MCP nor direct providers are available
+- [ ] Decide whether to migrate the older heuristic recipe AI endpoints onto the same direct/MCP execution seam or leave them heuristic through the import-hardening milestone
+- [ ] Return to the roadmap sequence with the import quality lab after direct/MCP Assistant validation
 - [ ] Update `docs/ai/current-state.md` and `docs/ai/decisions.md` with the result

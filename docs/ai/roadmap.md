@@ -49,7 +49,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - Do not move core business logic into the iOS client.
 - Do not silently persist AI-generated recipes or week changes.
 - Keep the Assistant as a first-class product surface, not a buried action sheet.
-- Prefer direct provider APIs when configured, but allow server-side `codex` fallback when API keys are absent.
+- Support conversational AI through direct provider APIs or a real remote MCP execution path; do not rely on local `codex exec` fallback.
 - Do not let the web app roadmap displace the iOS-first product direction.
 - Keep shared docs updated at session end.
 

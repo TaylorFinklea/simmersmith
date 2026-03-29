@@ -1075,11 +1075,11 @@ def test_assistant_respond_stream_persists_messages_and_recipe_draft(client, mon
     def fake_run_assistant_turn(**_: object) -> AssistantTurnResult:
         return AssistantTurnResult(
             target=AssistantExecutionTarget(
-                provider_kind="codex_cli",
-                source="server_codex_cli",
+                provider_kind="mcp",
+                source="server",
                 model="codex",
                 provider_name="codex",
-                cli_path="/opt/homebrew/bin/codex",
+                mcp_server_name="codex",
             ),
             prompt="Create a whole wheat waffle recipe",
             raw_output='{"assistant_markdown":"Here is a starter waffle recipe.","recipe_draft":{"name":"Whole Wheat Waffles","meal_type":"breakfast","cuisine":"American","servings":4,"ingredients":[{"ingredient_name":"whole wheat flour","quantity":2,"unit":"cup","category":"Pantry"}],"steps":[{"instruction":"Whisk the batter."}]}}',
@@ -1103,6 +1103,7 @@ def test_assistant_respond_stream_persists_messages_and_recipe_draft(client, mon
                     },
                 }
             ),
+            provider_thread_id="mcp-thread-1",
         )
 
     monkeypatch.setattr("app.api.assistant.run_assistant_turn", fake_run_assistant_turn)
@@ -1141,7 +1142,7 @@ def test_assistant_sse_encoding_uses_jsonable_dates() -> None:
     assert '"created_at": "2026-03-29T01:30:00+00:00"' in encoded
 
 
-def test_codex_strict_schema_marks_all_object_properties_required() -> None:
+def test_assistant_strict_schema_marks_all_object_properties_required() -> None:
     schema = strict_json_schema(AssistantProviderEnvelope)
     assert schema["additionalProperties"] is False
     assert sorted(schema["required"]) == ["assistant_markdown", "recipe_draft"]

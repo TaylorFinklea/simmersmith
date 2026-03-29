@@ -131,12 +131,15 @@ async def respond_route(
                 conversation=conversation,
                 request=payload,
                 attached_recipe=attached_recipe_payload,
+                existing_provider_thread_id=thread.provider_thread_id or None,
             )
             with session_scope() as stream_session:
                 live_thread = get_thread(stream_session, thread_id)
                 live_message = stream_session.get(AssistantMessage, assistant_message.id)
                 if live_thread is None or live_message is None:
                     raise RuntimeError("Assistant thread state disappeared during response.")
+                if result.provider_thread_id:
+                    live_thread.provider_thread_id = result.provider_thread_id
                 update_assistant_message(
                     live_thread,
                     live_message,

@@ -6,67 +6,63 @@
 
 ## Recent Progress
 
-- Implemented phase 1: AI recipe suggestion drafts.
-- Added a server route for draft-only recipe suggestions grounded in the saved recipe library.
-- Added an iOS entry point in the Recipes screen to open AI suggestion drafts in the existing editor.
-- Implemented phase 2: recipe companion suggestions from recipe detail.
-- Added a server route that returns exactly three standalone companion drafts for a selected recipe: vegetable side, starch side, and sauce/drizzle.
-- Added an iOS recipe-detail action that opens a picker sheet for companion drafts, then hands the chosen draft to the existing recipe editor.
-- Implemented phase 3: a first-class Assistant tab with persistent server-side threads and conversational recipe creation/refinement.
-- Added server-side assistant thread/message storage, assistant APIs, and SSE-based assistant responses.
-- Added provider execution with direct-provider support first and automatic server-side `codex` CLI fallback when provider API keys are absent.
-- Moved `Activity` out of the main tab bar and under `Week` so `Assistant` can be a primary tab.
-- Fixed two codex-path issues discovered during device testing: SSE timestamps now serialize in an iOS-decodable JSON format, and the generated `codex` JSON schema is now strict enough for `codex exec` to accept.
-- Added iOS-side recovery in the Assistant chat flow: if one streamed event fails to decode, the app now reloads the final thread from the server instead of failing the whole turn immediately.
-- Expanded the roadmap in `HANDOFF.md` to reflect recipe work, sprinkled tech debt, and Cloudflare/web platform tracks.
-- Added shared `docs/ai` handoff docs plus repo-level `AGENTS.md` and `CLAUDE.md` so assistants use the same repo-based workflow.
+- Replaced the Assistant's local `codex exec` fallback with two real execution paths:
+  - direct OpenAI / Anthropic APIs when configured
+  - remote MCP over Streamable HTTP when direct keys are absent
+- Added MCP server configuration for the backend, including URL, auth token, and Codex tool names.
+- Added a real MCP client adapter and runtime probe so health/capability reporting reflects whether the configured MCP server is actually reachable and exposes the expected Codex tools.
+- Persisted the external MCP thread ID on assistant threads so subsequent turns continue with `codex-reply` instead of starting a fresh conversation every time.
+- Updated the iOS Assistant and Settings surfaces so AI remains visible, but chat creation/send is disabled with setup guidance when neither direct providers nor MCP are executable.
+- Kept the older heuristic recipe AI actions in place for now.
 
 ## Recent Commits
 
+- `42b9016` `fix: recover assistant chat after stream decode errors`
 - `00249fa` `fix: repair assistant codex fallback stream`
 - `75b8040` `feat: add central assistant chat workflow`
-- pending local commit for Assistant client-side stream recovery
-- `00db9e9` `feat: add AI recipe suggestion drafts`
+- `787ccf2` `feat: add recipe companion suggestion drafts`
 - `673b7c8` `docs: add shared ai handoff workflow`
 
-## Changed Files In The Last Completed Slice
+## Changed Files In The Current Slice
 
+- `pyproject.toml`
+- `app/config.py`
+- `app/main.py`
+- `app/models.py`
+- `app/api/assistant.py`
+- `app/services/ai.py`
+- `app/services/assistant_ai.py`
+- `app/services/mcp_client.py`
+- `alembic/versions/20260329_0011_assistant_provider_thread.py`
+- `tests/test_api.py`
 - `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty with the Assistant codex-fallback / SSE-format repair until the current commit is created
+- dirty with the direct-provider + MCP execution refactor until the current commit is created
 
 ## Blockers
 
-- none currently, but local backend still needs a restart after the assistant changes before mobile testing
+- none in code
+- manual end-to-end validation still depends on a real remote MCP endpoint being configured on the backend if API keys are not present
 
 ## Open Questions
 
-- Should the older heuristic AI entry points eventually route through the new assistant orchestration layer, or remain separate lightweight APIs?
-- How much of the assistant experience should be available from recipe detail/editor shortcuts versus kept centralized in the Assistant tab?
-- Is true token-by-token provider streaming worth adding next, or is the current chunked SSE good enough for v1 testing?
+- Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
+- Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
 
 ## Validation / Test Status
 
-Latest completed validation for the Assistant slice:
+Latest completed validation for the direct/MCP execution refactor:
 
 - `python3 -m compileall app tests alembic` -> passed
-- `.venv/bin/pytest tests/test_api.py -q` -> passed (`21 passed`)
-- `swift test --package-path SimmerSmithKit` -> passed
-- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
-
-Latest completed validation for the codex-fallback repair:
-
-- live manual API reproduction via `curl` on `/api/assistant/threads/{thread_id}/respond` -> passed on the `codex` fallback path with a recipe draft artifact
-- `python3 -m compileall app tests` -> passed
 - `.venv/bin/pytest tests/test_api.py -q` -> passed (`23 passed`)
-
-Latest completed validation for the Assistant client recovery change:
-
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
@@ -74,5 +70,5 @@ Latest completed validation for the Assistant client recovery change:
 
 - The local backend is typically run on `http://localhost:8080`.
 - Bearer token used in local testing: `2cc40b9addb61756ac8ab7e4405cab696ff68f8e8fe084c8`
-- Do not assume the backend is running; verify before testing.
-- The backend is currently running with the assistant routes live and codex fallback verified.
+- MCP execution now expects a remote Streamable HTTP MCP server configured via server settings / env vars.
+- The backend should no longer rely on local `codex exec` for Assistant turns.

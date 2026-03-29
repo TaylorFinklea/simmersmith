@@ -105,6 +105,35 @@ final class AppState {
         recipeMetadata?.templates.count ?? 0
     }
 
+    var assistantExecutionAvailable: Bool {
+        if let aiCapabilities {
+            return aiCapabilities.defaultTarget != nil
+        }
+        return hasSavedConnection
+    }
+
+    var assistantExecutionStatusText: String {
+        guard let aiCapabilities else {
+            return "AI capability details appear after the server is reachable."
+        }
+        if aiCapabilities.defaultTarget != nil {
+            return "Assistant is ready."
+        }
+        if let mcpProvider = aiCapabilities.availableProviders.first(where: { $0.providerKind == "mcp" }), !mcpProvider.available {
+            switch mcpProvider.source {
+            case "unconfigured":
+                return "Configure an MCP server or save an API key to use the Assistant."
+            case "unreachable":
+                return "The MCP server is configured but not reachable right now."
+            case "misconfigured":
+                return "The MCP server is reachable, but it does not expose the expected Codex tools."
+            default:
+                return "No AI execution backend is currently available."
+            }
+        }
+        return "No AI execution backend is currently available."
+    }
+
     func loadCachedData() {
         profile = cacheStore.loadProfile()
         currentWeek = cacheStore.loadCurrentWeek()

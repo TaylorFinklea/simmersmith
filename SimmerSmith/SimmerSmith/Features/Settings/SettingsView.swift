@@ -48,6 +48,9 @@ struct SettingsView: View {
                         LabeledContent("Default route") {
                             Text(target.providerKind == "mcp" ? (target.mcpServerName ?? "MCP") : (target.providerName ?? "Direct"))
                         }
+                    } else {
+                        Text(appState.assistantExecutionStatusText)
+                            .foregroundStyle(.secondary)
                     }
                     LabeledContent("Preferred mode") {
                         Text(capabilities.preferredMode.capitalized)
@@ -62,7 +65,7 @@ struct SettingsView: View {
                         }
                     }
                 } else {
-                    Text("AI capability details appear after the server is reachable.")
+                    Text(appState.assistantExecutionStatusText)
                         .foregroundStyle(.secondary)
                 }
             }

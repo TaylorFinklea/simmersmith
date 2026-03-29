@@ -21,11 +21,14 @@ class Settings(BaseSettings):
     api_token: str = ""
     ai_mcp_enabled: bool = True
     ai_mcp_server_name: str = "codex"
+    ai_mcp_base_url: str = ""
+    ai_mcp_auth_token: str = ""
+    ai_mcp_tool_name: str = "codex"
+    ai_mcp_reply_tool_name: str = "codex-reply"
     ai_openai_api_key: str = ""
     ai_anthropic_api_key: str = ""
     ai_openai_model: str = "gpt-4.1-mini"
     ai_anthropic_model: str = "claude-3-5-sonnet-latest"
-    ai_codex_cli_path: str = "codex"
     ai_timeout_seconds: int = 120
     data_dir: Path = Path("/Users/tfinklea/codex/meals/data")
     db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")

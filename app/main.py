@@ -43,11 +43,11 @@ app.include_router(weeks_router, dependencies=protected_dependencies)
 
 
 @app.get('/api/health', response_model=HealthResponse)
-def healthcheck() -> HealthResponse:
+async def healthcheck() -> HealthResponse:
     with session_scope() as session:
         return HealthResponse(
             status='ok',
-            ai_capabilities=ai_capabilities_payload(settings, profile_settings_map(session)),
+            ai_capabilities=await ai_capabilities_payload(settings, profile_settings_map(session)),
         )
 
 
