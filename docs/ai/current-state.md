@@ -16,46 +16,28 @@
 - Added server-side assistant thread/message storage, assistant APIs, and SSE-based assistant responses.
 - Added provider execution with direct-provider support first and automatic server-side `codex` CLI fallback when provider API keys are absent.
 - Moved `Activity` out of the main tab bar and under `Week` so `Assistant` can be a primary tab.
+- Fixed two codex-path issues discovered during device testing: SSE timestamps now serialize in an iOS-decodable JSON format, and the generated `codex` JSON schema is now strict enough for `codex exec` to accept.
 - Expanded the roadmap in `HANDOFF.md` to reflect recipe work, sprinkled tech debt, and Cloudflare/web platform tracks.
 - Added shared `docs/ai` handoff docs plus repo-level `AGENTS.md` and `CLAUDE.md` so assistants use the same repo-based workflow.
 
 ## Recent Commits
 
-- pending local commit for the Assistant tab / conversational AI slice
+- `75b8040` `feat: add central assistant chat workflow`
+- pending local commit for the Assistant codex-fallback / SSE-format repair
 - `00db9e9` `feat: add AI recipe suggestion drafts`
 - `673b7c8` `docs: add shared ai handoff workflow`
-- `1cec868` `docs: expand roadmap with platform tech debt`
 
 ## Changed Files In The Last Completed Slice
 
 - `app/api/assistant.py`
-- `app/config.py`
-- `app/main.py`
-- `app/models.py`
-- `app/schemas.py`
 - `app/services/assistant_ai.py`
-- `app/services/assistant_threads.py`
-- `app/services/presenters.py`
-- `alembic/versions/20260328_0010_assistant_threads.py`
-- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
-- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/App/MainTabView.swift`
-- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
-- `SimmerSmith/SimmerSmith/Features/Week/WeekView.swift`
-- `SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj`
 - `tests/test_api.py`
-- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
-- `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty with the Assistant tab / conversational AI slice until the current commit is created
+- dirty with the Assistant codex-fallback / SSE-format repair until the current commit is created
 
 ## Blockers
 
@@ -76,9 +58,15 @@ Latest completed validation for the Assistant slice:
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
+Latest completed validation for the codex-fallback repair:
+
+- live manual API reproduction via `curl` on `/api/assistant/threads/{thread_id}/respond` -> passed on the `codex` fallback path with a recipe draft artifact
+- `python3 -m compileall app tests` -> passed
+- `.venv/bin/pytest tests/test_api.py -q` -> passed (`23 passed`)
+
 ## Runtime Notes
 
 - The local backend is typically run on `http://localhost:8080`.
 - Bearer token used in local testing: `2cc40b9addb61756ac8ab7e4405cab696ff68f8e8fe084c8`
 - Do not assume the backend is running; verify before testing.
-- Restart the backend after this commit before testing the new `/api/assistant/*` routes from iOS.
+- The backend is currently running with the assistant routes live and codex fallback verified.

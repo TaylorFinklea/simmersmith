@@ -20,6 +20,27 @@ class AssistantProviderEnvelope(BaseModel):
     recipe_draft: RecipePayload | None = None
 
 
+def strict_json_schema(model: type[BaseModel]) -> dict[str, object]:
+    schema = model.model_json_schema()
+    _apply_strict_object_schema(schema)
+    return schema
+
+
+def _apply_strict_object_schema(node: object) -> None:
+    if isinstance(node, dict):
+        node_type = node.get("type")
+        if node_type == "object":
+            node["additionalProperties"] = False
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                node["required"] = list(properties.keys())
+        for value in node.values():
+            _apply_strict_object_schema(value)
+    elif isinstance(node, list):
+        for item in node:
+            _apply_strict_object_schema(item)
+
+
 @dataclass(frozen=True)
 class AssistantExecutionTarget:
     provider_kind: str
@@ -112,7 +133,7 @@ def build_assistant_prompt(
     request: AssistantRespondRequest,
     attached_recipe: RecipePayload | None,
 ) -> str:
-    envelope_schema = json.dumps(AssistantProviderEnvelope.model_json_schema(), indent=2)
+    envelope_schema = json.dumps(strict_json_schema(AssistantProviderEnvelope), indent=2)
     transcript = []
     for message in conversation[-10:]:
         role = str(message.get("role", "user")).upper()
@@ -193,7 +214,7 @@ def run_direct_provider(
 def run_codex_cli(*, target: AssistantExecutionTarget, settings: Settings, prompt: str) -> str:
     if not target.cli_path:
         raise RuntimeError("codex CLI path is unavailable.")
-    schema = AssistantProviderEnvelope.model_json_schema()
+    schema = strict_json_schema(AssistantProviderEnvelope)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as schema_file:
         json.dump(schema, schema_file)
         schema_path = schema_file.name

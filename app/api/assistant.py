@@ -5,6 +5,7 @@ import json
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -213,7 +214,8 @@ async def respond_route(
 
 
 def encode_sse(event: str, payload: dict[str, object]) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+    encoded = jsonable_encoder(payload)
+    return f"event: {event}\ndata: {json.dumps(encoded)}\n\n"
 
 
 def chunk_text(value: str, size: int = 180) -> list[str]:

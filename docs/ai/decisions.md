@@ -43,3 +43,8 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The Assistant may answer cooking questions or return one recipe draft per turn.
 - Assistant turns must not silently save recipes, mutate weeks, or change groceries in v1.
 - Recipe detail and editor shortcuts launch into the centralized Assistant experience rather than creating separate one-off AI UIs.
+
+## 2026-03-28 - Assistant SSE payloads and `codex` schemas must be iOS-safe and Codex-strict
+
+- Assistant SSE events should be JSON-encoded with API-style datetime serialization, not Python `str(datetime)` output.
+- The schema passed to `codex exec --output-schema` must mark object schemas as `additionalProperties: false` and include every property in `required`, matching Codex's stricter validator.

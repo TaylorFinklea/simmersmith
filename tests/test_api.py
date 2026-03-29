@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+
+from app.api.assistant import encode_sse
 from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
+from app.services.assistant_ai import strict_json_schema
 from app.services import recipe_import
 
 
@@ -1124,3 +1129,27 @@ def test_assistant_respond_stream_persists_messages_and_recipe_draft(client, mon
     assert len(payload["messages"]) == 2
     assert payload["messages"][1]["content_markdown"] == "Here is a starter waffle recipe."
     assert payload["messages"][1]["recipe_draft"]["name"] == "Whole Wheat Waffles"
+
+
+def test_assistant_sse_encoding_uses_jsonable_dates() -> None:
+    payload = {
+        "thread_id": "thread-1",
+        "created_at": datetime(2026, 3, 29, 1, 30, 0, tzinfo=UTC),
+    }
+    encoded = encode_sse("thread.updated", payload)
+    assert "event: thread.updated" in encoded
+    assert '"created_at": "2026-03-29T01:30:00+00:00"' in encoded
+
+
+def test_codex_strict_schema_marks_all_object_properties_required() -> None:
+    schema = strict_json_schema(AssistantProviderEnvelope)
+    assert schema["additionalProperties"] is False
+    assert sorted(schema["required"]) == ["assistant_markdown", "recipe_draft"]
+
+    recipe_payload_schema = schema["$defs"]["RecipePayload"]
+    assert recipe_payload_schema["additionalProperties"] is False
+    assert "name" in recipe_payload_schema["required"]
+    assert "recipe_id" in recipe_payload_schema["required"]
+
+    serialized = json.dumps(schema)
+    assert '"additionalProperties": false' in serialized
