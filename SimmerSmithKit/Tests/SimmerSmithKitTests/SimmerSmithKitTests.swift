@@ -299,6 +299,32 @@ func decoderHandlesProviderModelsPayload() throws {
 }
 
 @Test
+func decoderHandlesIngredientPreferencePayload() throws {
+    let json = """
+    {
+      "preference_id": "pref-1",
+      "base_ingredient_id": "base-1",
+      "base_ingredient_name": "Refrigerated biscuits",
+      "preferred_variation_id": "var-1",
+      "preferred_variation_name": "Pillsbury Grands! Biscuits",
+      "preferred_brand": "Pillsbury",
+      "choice_mode": "preferred",
+      "active": true,
+      "notes": "Use this unless a recipe locks another brand.",
+      "updated_at": "2026-03-30T18:05:00.000000"
+    }
+    """.data(using: .utf8)!
+
+    let payload = try SimmerSmithJSONCoding.makeDecoder().decode(IngredientPreference.self, from: json)
+
+    #expect(payload.preferenceId == "pref-1")
+    #expect(payload.baseIngredientName == "Refrigerated biscuits")
+    #expect(payload.preferredVariationName == "Pillsbury Grands! Biscuits")
+    #expect(payload.choiceMode == "preferred")
+    #expect(payload.active)
+}
+
+@Test
 func decoderHandlesSnakeCaseAcronymFieldsInExportPayloads() throws {
     let json = """
     {

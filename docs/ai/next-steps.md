@@ -17,12 +17,13 @@ Use this as the exact short checklist for the next work session.
   - PDF samples
   - expected ingredient/step parsing outcomes
 - [ ] Add regression coverage around import structure quality, ingredient resolution quality, and grocery resolution quality
-- [ ] Expose structured ingredient preference editing in the app so households can actually choose preferred brands/products
+- [x] Expose structured ingredient preference editing in the app so households can actually choose preferred brands/products
 - [x] Add a first recipe-editor ingredient review flow:
   - accept suggested base ingredient
   - choose a different base ingredient
   - choose or clear a variation
   - optionally lock a recipe ingredient to a specific product
+- [ ] Surface ingredient preference editing from recipe review and grocery review flows instead of Settings only
 - [ ] Add “create new base ingredient / variation” actions to the ingredient review flow
 - [ ] Add a bulk review queue for unresolved imported ingredients and grocery items
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
@@ -33,4 +34,3 @@ Use this as the exact short checklist for the next work session.
 - [ ] Reduce or suppress the noisy upstream `codex/event` validation logs emitted by the local MCP bridge session
 - [ ] Manually verify the read-only Assistant empty state and disabled composer when neither MCP nor direct providers are available
 - [ ] Expand `docs/ai/mcp-tools.md` with a few end-to-end recipe/week/operator examples after the first real external-client session
-- [ ] Update `docs/ai/current-state.md` and `docs/ai/decisions.md` with the result

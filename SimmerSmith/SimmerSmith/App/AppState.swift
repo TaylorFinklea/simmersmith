@@ -65,6 +65,7 @@ final class AppState {
     var exports: [ExportRun] = []
     var assistantThreads: [AssistantThreadSummary] = []
     var assistantThreadDetails: [String: AssistantThread] = [:]
+    var ingredientPreferences: [IngredientPreference] = []
     var checkedGroceryItemIDs: Set<String> = []
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]
@@ -250,6 +251,9 @@ final class AppState {
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads
             }
+            if let preferences = try? await apiClient.fetchIngredientPreferences() {
+                ingredientPreferences = preferences
+            }
             await refreshAIModels(for: aiDirectProviderDraft)
 
             syncPhase = .synced(.now)
@@ -396,6 +400,42 @@ final class AppState {
 
     func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
         try await apiClient.resolveIngredient(ingredient)
+    }
+
+    func refreshIngredientPreferences() async {
+        guard hasSavedConnection else { return }
+        do {
+            ingredientPreferences = try await apiClient.fetchIngredientPreferences()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func upsertIngredientPreference(
+        preferenceID: String? = nil,
+        baseIngredientID: String,
+        preferredVariationID: String? = nil,
+        preferredBrand: String = "",
+        choiceMode: String = "preferred",
+        active: Bool = true,
+        notes: String = ""
+    ) async throws -> IngredientPreference {
+        let preference = try await apiClient.upsertIngredientPreference(
+            preferenceID: preferenceID,
+            baseIngredientID: baseIngredientID,
+            preferredVariationID: preferredVariationID,
+            preferredBrand: preferredBrand,
+            choiceMode: choiceMode,
+            active: active,
+            notes: notes
+        )
+        if let index = ingredientPreferences.firstIndex(where: { $0.preferenceId == preference.preferenceId }) {
+            ingredientPreferences[index] = preference
+        } else {
+            ingredientPreferences.append(preference)
+            ingredientPreferences.sort { $0.baseIngredientName.localizedCaseInsensitiveCompare($1.baseIngredientName) == .orderedAscending }
+        }
+        return preference
     }
 
     func saveIngredientNutritionMatch(

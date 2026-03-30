@@ -124,3 +124,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - URL, camera scan, photo import, and PDF import should be directly discoverable from the Recipes create menu instead of being hidden behind a misleading URL import entry point.
 - The first native ingredient review UX is a per-ingredient sheet launched from the recipe editor, not a full bulk-review screen.
 - The first sheet supports reviewing the suggested canonical ingredient, choosing a different base ingredient, selecting a stored variation, and optionally locking the recipe to that product.
+
+## 2026-03-30 - Household ingredient preferences are first edited in Settings
+
+- The first native UI for structured ingredient preferences lives in Settings, not in recipe review or grocery review flows.
+- Preference editing is centralized around canonical base ingredients, optional stored variations, choice mode, optional preferred brand text, and active/inactive state.
+- Recipe review and grocery review can link into the same preference system later, but the first slice keeps creation and editing in one stable operator-facing place.

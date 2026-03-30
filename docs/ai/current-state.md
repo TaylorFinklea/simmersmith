@@ -6,6 +6,16 @@
 
 ## Recent Progress
 
+- Added the first in-app structured ingredient preference editor in native Settings.
+- Households can now list, add, and edit canonical ingredient preferences server-side using:
+  - base ingredient search
+  - stored variation selection
+  - choice mode selection
+  - optional preferred brand text
+  - active/inactive state
+- The native client now supports ingredient preference APIs for:
+  - listing preferences
+  - upserting preferences
 - Added the first native ingredient-resolution review UX on top of the canonical ingredient catalog foundation.
 - The iOS recipe editor now shows canonical ingredient status per row and opens a dedicated review sheet for:
   - suggested/resolved/locked state
@@ -78,7 +88,8 @@
 
 ## Recent Commits
 
-- `pending` native import UX and ingredient review commit not created yet in this session
+- `pending` structured ingredient preference settings commit not created yet in this session
+- `76873ba` `feat: improve native recipe import review`
 - `fc56fac` `feat: add canonical ingredient catalog foundation`
 - `e40d4e1` `feat: add provider model discovery`
 - `0b4a8fd` `feat: add server-side ai key settings`
@@ -92,19 +103,17 @@
 
 ## Changed Files In The Current Slice
 
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
 - `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeImportView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
 - `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the native import UX and ingredient-review slice until the session-end commit is created
+- dirty during the structured ingredient preference settings slice until the session-end commit is created
 
 ## Blockers
 
@@ -115,6 +124,7 @@
 
 - When should the app offer “create new base ingredient” and “create variation” from the native ingredient review sheet?
 - Should the current sheet-based ingredient review remain the primary UX, or should we also add a dedicated bulk review queue screen for imports and groceries?
+- Should ingredient preferences also be editable from grocery-item review and recipe-editor ingredient review, or stay centralized in Settings until the bulk-review queue exists?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
 - When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
@@ -135,6 +145,11 @@ Latest completed validation for the ingredient catalog foundation slice:
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 Latest completed validation for the native import UX and ingredient review slice:
+
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the structured ingredient preference settings slice:
 
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed

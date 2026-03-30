@@ -1,7 +1,9 @@
 import SwiftUI
+import SimmerSmithKit
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @State private var preferenceEditor: IngredientPreferenceEditorContext?
 
     var body: some View {
         @Bindable var appState = appState
@@ -135,6 +137,58 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Ingredient Preferences") {
+                if appState.ingredientPreferences.isEmpty {
+                    Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(appState.ingredientPreferences) { preference in
+                        Button {
+                            preferenceEditor = IngredientPreferenceEditorContext(preference: preference)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(preference.baseIngredientName)
+                                        .foregroundStyle(.primary)
+                                    if !preference.active {
+                                        Text("Inactive")
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(.thinMaterial, in: Capsule())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(preference.choiceMode.replacingOccurrences(of: "_", with: " ").capitalized)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let variationName = preference.preferredVariationName, !variationName.isEmpty {
+                                    Text(variationName)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                } else if !preference.preferredBrand.isEmpty {
+                                    Text(preference.preferredBrand)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("Generic ingredient preference")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Button {
+                    preferenceEditor = IngredientPreferenceEditorContext()
+                } label: {
+                    Label("Add Ingredient Preference", systemImage: "plus.circle")
+                }
+            }
+
             Section("Data") {
                 Button("Clear Local Cache", role: .destructive) {
                     appState.clearLocalCache()
@@ -149,10 +203,271 @@ struct SettingsView: View {
         .task(id: appState.aiDirectProviderDraft) {
             await appState.refreshAIModels(for: appState.aiDirectProviderDraft)
         }
+        .task {
+            if appState.ingredientPreferences.isEmpty {
+                await appState.refreshIngredientPreferences()
+            }
+        }
+        .sheet(item: $preferenceEditor) { context in
+            IngredientPreferenceEditorSheet(context: context)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 BrandToolbarBadge()
             }
+        }
+    }
+}
+
+private struct IngredientPreferenceEditorContext: Identifiable {
+    let preference: IngredientPreference?
+
+    var id: String { preference?.preferenceId ?? "new" }
+
+    init(preference: IngredientPreference? = nil) {
+        self.preference = preference
+    }
+}
+
+private struct IngredientPreferenceEditorSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let context: IngredientPreferenceEditorContext
+
+    @State private var searchText: String
+    @State private var searchResults: [BaseIngredient] = []
+    @State private var selectedBaseIngredient: BaseIngredient?
+    @State private var variations: [IngredientVariation] = []
+    @State private var preferredVariationID: String
+    @State private var preferredBrand: String
+    @State private var choiceMode: String
+    @State private var notes: String
+    @State private var isActive: Bool
+    @State private var isSearching = false
+    @State private var isLoadingVariations = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var didLoad = false
+
+    init(context: IngredientPreferenceEditorContext) {
+        self.context = context
+        _searchText = State(initialValue: context.preference?.baseIngredientName ?? "")
+        _preferredVariationID = State(initialValue: context.preference?.preferredVariationId ?? "")
+        _preferredBrand = State(initialValue: context.preference?.preferredBrand ?? "")
+        _choiceMode = State(initialValue: context.preference?.choiceMode ?? "preferred")
+        _notes = State(initialValue: context.preference?.notes ?? "")
+        _isActive = State(initialValue: context.preference?.active ?? true)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Canonical Ingredient") {
+                    TextField("Search ingredients", text: $searchText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+
+                    Button {
+                        Task { await searchIngredients() }
+                    } label: {
+                        HStack {
+                            if isSearching {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text("Search Catalog")
+                        }
+                    }
+                    .disabled(isSearching || searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let selectedBaseIngredient {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(selectedBaseIngredient.name)
+                                .font(.headline)
+                            if !selectedBaseIngredient.category.isEmpty {
+                                Text(selectedBaseIngredient.category)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if !searchResults.isEmpty {
+                        ForEach(searchResults) { ingredient in
+                            Button {
+                                Task { await selectBaseIngredient(ingredient) }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(ingredient.name)
+                                            .foregroundStyle(.primary)
+                                        if !ingredient.category.isEmpty {
+                                            Text(ingredient.category)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    if selectedBaseIngredient?.id == ingredient.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if selectedBaseIngredient != nil {
+                    Section("Preference") {
+                        Picker("Choice mode", selection: $choiceMode) {
+                            ForEach(IngredientChoiceMode.allCases) { mode in
+                                Text(mode.title).tag(mode.rawValue)
+                            }
+                        }
+
+                        if isLoadingVariations {
+                            ProgressView("Loading product variations…")
+                        } else if !variations.isEmpty {
+                            Picker("Preferred variation", selection: $preferredVariationID) {
+                                Text("None").tag("")
+                                ForEach(variations) { variation in
+                                    Text(variationLabel(for: variation)).tag(variation.id)
+                                }
+                            }
+                        } else {
+                            Text("No stored product variations yet for this ingredient.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        TextField("Preferred brand", text: $preferredBrand)
+                            .textInputAutocapitalization(.words)
+
+                        Toggle("Active", isOn: $isActive)
+
+                        TextField("Notes", text: $notes, axis: .vertical)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle(context.preference == nil ? "New Preference" : "Edit Preference")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await savePreference() }
+                    }
+                    .disabled(isSaving || selectedBaseIngredient == nil)
+                }
+            }
+            .task {
+                guard !didLoad else { return }
+                didLoad = true
+                await loadInitialState()
+            }
+        }
+    }
+
+    private func loadInitialState() async {
+        guard let preference = context.preference else { return }
+        do {
+            searchResults = try await appState.searchBaseIngredients(query: preference.baseIngredientName, limit: 20)
+            if let matched = searchResults.first(where: { $0.baseIngredientId == preference.baseIngredientId }) {
+                await selectBaseIngredient(matched)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func searchIngredients() async {
+        do {
+            isSearching = true
+            errorMessage = nil
+            searchResults = try await appState.searchBaseIngredients(query: searchText, limit: 20)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSearching = false
+    }
+
+    private func selectBaseIngredient(_ ingredient: BaseIngredient) async {
+        selectedBaseIngredient = ingredient
+        do {
+            isLoadingVariations = true
+            variations = try await appState.fetchIngredientVariations(baseIngredientID: ingredient.baseIngredientId)
+            if !preferredVariationID.isEmpty,
+               !variations.contains(where: { $0.ingredientVariationId == preferredVariationID }) {
+                preferredVariationID = ""
+            }
+        } catch {
+            variations = []
+            errorMessage = error.localizedDescription
+        }
+        isLoadingVariations = false
+    }
+
+    private func savePreference() async {
+        guard let selectedBaseIngredient else { return }
+        do {
+            isSaving = true
+            _ = try await appState.upsertIngredientPreference(
+                preferenceID: context.preference?.preferenceId,
+                baseIngredientID: selectedBaseIngredient.baseIngredientId,
+                preferredVariationID: preferredVariationID.isEmpty ? nil : preferredVariationID,
+                preferredBrand: preferredBrand.trimmingCharacters(in: .whitespacesAndNewlines),
+                choiceMode: choiceMode,
+                active: isActive,
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSaving = false
+    }
+
+    private func variationLabel(for variation: IngredientVariation) -> String {
+        if variation.brand.isEmpty {
+            return variation.name
+        }
+        return "\(variation.brand) • \(variation.name)"
+    }
+}
+
+private enum IngredientChoiceMode: String, CaseIterable, Identifiable {
+    case preferred
+    case cheapest
+    case bestReviewed = "best_reviewed"
+    case rotate
+    case noPreference = "no_preference"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .preferred:
+            "Preferred"
+        case .cheapest:
+            "Cheapest"
+        case .bestReviewed:
+            "Best Reviewed"
+        case .rotate:
+            "Rotate"
+        case .noPreference:
+            "No Preference"
         }
     }
 }

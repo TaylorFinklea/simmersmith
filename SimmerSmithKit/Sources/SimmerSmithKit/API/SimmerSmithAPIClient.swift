@@ -77,6 +77,16 @@ private struct IngredientResolveBody: Encodable {
     let notes: String
 }
 
+private struct IngredientPreferenceBody: Encodable {
+    let preferenceId: String?
+    let baseIngredientId: String
+    let preferredVariationId: String?
+    let preferredBrand: String
+    let choiceMode: String
+    let active: Bool
+    let notes: String
+}
+
 public final class SimmerSmithAPIClient: @unchecked Sendable {
     private let settingsStore: ConnectionSettingsStore
     private let session: URLSession
@@ -173,6 +183,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/ingredients/\(baseIngredientID)/variations")
     }
 
+    public func fetchIngredientPreferences() async throws -> [IngredientPreference] {
+        try await request(path: "/api/ingredient-preferences")
+    }
+
     public func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
         try await request(
             path: "/api/ingredients/resolve",
@@ -185,6 +199,30 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 prep: ingredient.prep,
                 category: ingredient.category,
                 notes: ingredient.notes
+            )
+        )
+    }
+
+    public func upsertIngredientPreference(
+        preferenceID: String? = nil,
+        baseIngredientID: String,
+        preferredVariationID: String? = nil,
+        preferredBrand: String = "",
+        choiceMode: String = "preferred",
+        active: Bool = true,
+        notes: String = ""
+    ) async throws -> IngredientPreference {
+        try await request(
+            path: "/api/ingredient-preferences",
+            method: "POST",
+            body: IngredientPreferenceBody(
+                preferenceId: preferenceID,
+                baseIngredientId: baseIngredientID,
+                preferredVariationId: preferredVariationID,
+                preferredBrand: preferredBrand,
+                choiceMode: choiceMode,
+                active: active,
+                notes: notes
             )
         )
     }
