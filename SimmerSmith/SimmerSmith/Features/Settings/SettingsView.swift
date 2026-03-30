@@ -68,6 +68,35 @@ struct SettingsView: View {
                     Text(appState.assistantExecutionStatusText)
                         .foregroundStyle(.secondary)
                 }
+
+                Picker("Preferred mode", selection: $appState.aiProviderModeDraft) {
+                    Text("Auto").tag("auto")
+                    Text("MCP").tag("mcp")
+                    Text("Direct").tag("direct")
+                }
+
+                Picker("Direct provider", selection: $appState.aiDirectProviderDraft) {
+                    Text("None").tag("")
+                    Text("OpenAI").tag("openai")
+                    Text("Anthropic").tag("anthropic")
+                }
+
+                SecureField("New direct-provider API key", text: $appState.aiDirectAPIKeyDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                Text(appState.aiDirectAPIKeyConfigured ? "A direct-provider API key is stored on the server. It cannot be read back in the app." : "No direct-provider API key is currently stored on the server.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button("Save AI Settings") {
+                    Task { await appState.saveAISettings() }
+                }
+
+                Button("Clear Stored API Key", role: .destructive) {
+                    Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                }
+                .disabled(!appState.aiDirectAPIKeyConfigured)
             }
 
             Section("Templates") {

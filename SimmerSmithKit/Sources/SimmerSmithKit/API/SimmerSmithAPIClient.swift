@@ -52,6 +52,11 @@ private struct AssistantThreadCreateBody: Encodable {
     let title: String
 }
 
+private struct ProfileUpdateBody: Encodable {
+    let settings: [String: String]
+    let staples: [Staple]?
+}
+
 private struct ManagedListItemBody: Encodable {
     let name: String
 }
@@ -86,6 +91,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func fetchProfile() async throws -> ProfileSnapshot {
         try await request(path: "/api/profile")
+    }
+
+    public func updateProfile(
+        settings: [String: String],
+        staples: [Staple]? = nil
+    ) async throws -> ProfileSnapshot {
+        try await request(
+            path: "/api/profile",
+            method: "PUT",
+            body: ProfileUpdateBody(settings: settings, staples: staples)
+        )
     }
 
     public func fetchCurrentWeek() async throws -> WeekSnapshot? {

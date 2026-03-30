@@ -78,3 +78,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The same server can also run over Streamable HTTP for operator/external-client use.
 - Static bearer-token auth is acceptable for the initial operator-focused HTTP mode.
 - This HTTP mode is for the SimmerSmith MCP server itself, not the Codex bridge and not the in-app Assistant runtime.
+
+## 2026-03-30 - Direct-provider API keys may be set from iOS but remain server-side only
+
+- The native app may send a new OpenAI or Anthropic API key to the backend for storage.
+- The backend must never return the stored key value to the client; it only returns a secret-present flag.
+- Clearing the stored key is an explicit destructive action from the client and is performed by sending an empty server-side secret value.

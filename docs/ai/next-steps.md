@@ -3,6 +3,7 @@
 Use this as the exact short checklist for the next work session.
 
 - [ ] Rebuild and reinstall the iOS app, then manually verify the Assistant works against the local MCP bridge with no saved API keys
+- [ ] Manually verify the new iOS AI settings flow: save a direct-provider key, confirm the app never reads it back, then clear it and confirm the server secret flag resets
 - [ ] Exercise the new `simmersmith` MCP server from Codex or another MCP client against real recipe/week flows and note any tool-shape friction
 - [ ] Manually exercise the new Streamable HTTP mode for the `simmersmith` MCP server from a second client, not just Codex
 - [ ] Expand `docs/ai/mcp-tools.md` with a few end-to-end recipe/week/operator examples after the first real external-client session

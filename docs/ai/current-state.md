@@ -6,6 +6,9 @@
 
 ## Recent Progress
 
+- Added iOS Settings support for server-side-only AI direct-provider key management.
+- The app can now set or clear a stored direct-provider API key on the server without ever reading the key value back into the client.
+- Exposed profile update wiring in `SimmerSmithKit` so the native app can update AI provider mode, direct provider selection, and the stored secret-presence state safely.
 - Added a real standard SimmerSmith MCP server with repo-backed tools for recipes, profile, preferences, weeks, exports, and assistant threads.
 - Added a stable wrapper script so Codex and other MCP clients can launch the SimmerSmith MCP server from anywhere.
 - Registered the standard MCP server in Codex as `simmersmith` and removed the misleading `codex-local` entry.
@@ -27,6 +30,7 @@
 
 ## Recent Commits
 
+- `e15eaa0` `feat: add http mode for simmersmith mcp`
 - `7671198` `feat: add simmersmith mcp server`
 - `011a591` `feat: add local codex mcp bridge`
 - `42b9016` `fix: recover assistant chat after stream decode errors`
@@ -36,17 +40,16 @@
 
 ## Changed Files In The Current Slice
 
-- `app/mcp_server.py`
-- `scripts/run_simmersmith_mcp.py`
-- `docs/ai/mcp-tools.md`
-- `docs/ai/roadmap.md`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty with the SimmerSmith MCP HTTP/auth and tool-guide slice until the current commit is created
+- dirty with the iOS AI key settings slice until the current commit is created
 
 ## Blockers
 
@@ -60,6 +63,7 @@
 - Should the local bridge remain a dev-only helper script, or become a documented operator option for laptop-hosted MCP setups?
 - Which external AI clients do we want to optimize first for the new standard SimmerSmith MCP surface beyond Codex?
 - Do we want to keep static bearer-token auth as the only HTTP auth mode for now, or add a more formal auth story before recommending network exposure?
+- Should server-side AI key management remain in the general Settings form, or move to a dedicated AI configuration screen once more provider controls exist?
 
 ## Validation / Test Status
 
@@ -95,6 +99,11 @@ Latest completed validation for the SimmerSmith MCP HTTP/auth slice:
 - HTTP MCP tool listing returned 47 SimmerSmith tools
 - HTTP MCP `health` tool call -> passed
 
+Latest completed validation for the iOS AI key settings slice:
+
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
 ## Runtime Notes
 
 - The local backend is typically run on `http://localhost:8080`.
@@ -105,3 +114,4 @@ Latest completed validation for the SimmerSmith MCP HTTP/auth slice:
 - Codex is now configured with a global MCP entry named `simmersmith` that launches the repo MCP server over stdio.
 - The SimmerSmith MCP server can also be run over Streamable HTTP with optional static bearer auth by passing `--transport streamable-http --bearer-token ...`.
 - The backend should no longer rely on local `codex exec` for Assistant turns.
+- The iOS app now lets the operator set or clear a direct-provider API key, but the key itself is only stored server-side and is never returned in profile payloads.

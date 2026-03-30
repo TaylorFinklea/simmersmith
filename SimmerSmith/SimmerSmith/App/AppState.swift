@@ -51,6 +51,9 @@ final class AppState {
 
     var serverURLDraft: String
     var authTokenDraft: String
+    var aiProviderModeDraft: String = "auto"
+    var aiDirectProviderDraft: String = ""
+    var aiDirectAPIKeyDraft: String = ""
 
     var profile: ProfileSnapshot?
     var currentWeek: WeekSnapshot?
@@ -112,6 +115,10 @@ final class AppState {
         return hasSavedConnection
     }
 
+    var aiDirectAPIKeyConfigured: Bool {
+        profile?.secretFlags["ai_direct_api_key_present"] ?? false
+    }
+
     var assistantExecutionStatusText: String {
         guard let aiCapabilities else {
             return "AI capability details appear after the server is reachable."
@@ -136,6 +143,9 @@ final class AppState {
 
     func loadCachedData() {
         profile = cacheStore.loadProfile()
+        if let profile {
+            syncAIDrafts(from: profile)
+        }
         currentWeek = cacheStore.loadCurrentWeek()
         recipes = cacheStore.loadRecipes()
         recipeMetadata = cacheStore.loadRecipeMetadata()
@@ -178,6 +188,7 @@ final class AppState {
             let fetchedWeek = try await apiClient.fetchCurrentWeek()
 
             profile = fetchedProfile
+            syncAIDrafts(from: fetchedProfile)
             currentWeek = fetchedWeek
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
@@ -281,6 +292,34 @@ final class AppState {
 
     func estimateRecipeNutrition(_ draft: RecipeDraft) async throws -> NutritionSummary {
         try await apiClient.estimateRecipeNutrition(draft)
+    }
+
+    func saveAISettings(clearStoredAPIKey: Bool = false) async {
+        guard hasSavedConnection else { return }
+        do {
+            var settings: [String: String] = [
+                "ai_provider_mode": aiProviderModeDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                "ai_direct_provider": aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            ]
+            let trimmedKey = aiDirectAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if clearStoredAPIKey {
+                settings["ai_direct_api_key"] = ""
+            } else if !trimmedKey.isEmpty {
+                settings["ai_direct_api_key"] = trimmedKey
+            }
+
+            let fetchedProfile = try await apiClient.updateProfile(settings: settings)
+            profile = fetchedProfile
+            syncAIDrafts(from: fetchedProfile)
+            try? cacheStore.saveProfile(fetchedProfile)
+            if let health = try? await apiClient.fetchHealth() {
+                aiCapabilities = health.aiCapabilities
+            }
+            syncPhase = .synced(.now)
+            lastErrorMessage = nil
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
@@ -555,6 +594,9 @@ final class AppState {
         assistantLaunchContext = nil
         assistantSendingThreadIDs = []
         assistantErrorByThreadID = [:]
+        aiProviderModeDraft = "auto"
+        aiDirectProviderDraft = ""
+        aiDirectAPIKeyDraft = ""
     }
 
     func resetConnection() {
@@ -620,6 +662,13 @@ final class AppState {
             assistantThreads.append(thread)
         }
         assistantThreads.sort { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func syncAIDrafts(from profile: ProfileSnapshot) {
+        let savedMode = profile.settings["ai_provider_mode"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        aiProviderModeDraft = savedMode.isEmpty ? "auto" : savedMode
+        aiDirectProviderDraft = profile.settings["ai_direct_provider"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        aiDirectAPIKeyDraft = ""
     }
 
     private func appendAssistantMessage(_ message: AssistantMessage, to threadID: String) {
