@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.api.ai import router as ai_router
 from app.api.assistant import router as assistant_router
 from app.api.exports import router as exports_router
 from app.api.preferences import router as preferences_router
@@ -34,6 +35,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title='SimmerSmith', lifespan=lifespan)
 protected_dependencies = [Depends(require_api_token)]
+app.include_router(ai_router, dependencies=protected_dependencies)
 app.include_router(assistant_router, dependencies=protected_dependencies)
 app.include_router(preferences_router, dependencies=protected_dependencies)
 app.include_router(exports_router, dependencies=protected_dependencies)

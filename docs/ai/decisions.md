@@ -84,3 +84,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The native app may send a new OpenAI or Anthropic API key to the backend for storage.
 - The backend must never return the stored key value to the client; it only returns a secret-present flag.
 - Clearing the stored key is an explicit destructive action from the client and is performed by sending an empty server-side secret value.
+
+## 2026-03-30 - Direct-provider models are discovered from the provider and selected from iOS
+
+- The iOS app should not ask the operator to type model IDs manually.
+- The backend is responsible for discovering available models from the selected provider using the effective configured key.
+- The chosen model is stored server-side as profile state and read back as normal non-secret settings.

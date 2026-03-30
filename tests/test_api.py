@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from app.api.assistant import encode_sse
+import app.api.ai as ai_api
 from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
 from app.services.assistant_ai import strict_json_schema
 from app.services import recipe_import
@@ -36,6 +37,38 @@ def test_health_route_reports_ai_capabilities(client) -> None:
     assert payload["status"] == "ok"
     assert payload["ai_capabilities"]["supports_user_override"] is True
     assert any(provider["provider_id"] == "mcp" for provider in payload["ai_capabilities"]["available_providers"])
+
+
+def test_provider_models_route_returns_selected_model_and_discovered_options(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        ai_api,
+        "list_provider_models",
+        lambda provider_name, settings, user_settings: {
+            "provider_id": provider_name,
+            "selected_model_id": "gpt-4.1-mini",
+            "models": [
+                {
+                    "provider_id": provider_name,
+                    "model_id": "gpt-4.1-mini",
+                    "display_name": "gpt-4.1-mini",
+                },
+                {
+                    "provider_id": provider_name,
+                    "model_id": "gpt-4.1",
+                    "display_name": "gpt-4.1",
+                },
+            ],
+            "source": "user_override",
+        },
+    )
+
+    response = client.get("/api/ai/providers/openai/models")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider_id"] == "openai"
+    assert payload["selected_model_id"] == "gpt-4.1-mini"
+    assert payload["source"] == "user_override"
+    assert [item["model_id"] for item in payload["models"]] == ["gpt-4.1-mini", "gpt-4.1"]
 
 
 def test_preference_memory_round_trip_and_scoring(client) -> None:

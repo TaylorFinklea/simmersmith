@@ -50,6 +50,19 @@ class AICapabilitiesOut(BaseModel):
     available_providers: list[AIProviderAvailabilityOut] = Field(default_factory=list)
 
 
+class AIModelOptionOut(BaseModel):
+    provider_id: Literal["openai", "anthropic"]
+    model_id: str
+    display_name: str
+
+
+class AIProviderModelsOut(BaseModel):
+    provider_id: Literal["openai", "anthropic"]
+    selected_model_id: str | None = None
+    models: list[AIModelOptionOut] = Field(default_factory=list)
+    source: str = "unconfigured"
+
+
 class PreferenceSignalPayload(BaseModel):
     preference_id: str | None = None
     signal_type: str

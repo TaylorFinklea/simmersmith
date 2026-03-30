@@ -6,6 +6,9 @@
 
 ## Recent Progress
 
+- Added provider-backed model discovery for OpenAI and Anthropic so the iOS app can present a model picker instead of a freeform text field.
+- The native Settings screen now fetches available models for the selected direct provider from the backend and saves the chosen model server-side.
+- Direct-provider model selection is now resolved from server-side profile settings first, then environment defaults.
 - Added iOS Settings support for server-side-only AI direct-provider key management.
 - The app can now set or clear a stored direct-provider API key on the server without ever reading the key value back into the client.
 - Exposed profile update wiring in `SimmerSmithKit` so the native app can update AI provider mode, direct provider selection, and the stored secret-presence state safely.
@@ -40,16 +43,25 @@
 
 ## Changed Files In The Current Slice
 
+- `app/api/ai.py`
+- `app/services/ai.py`
+- `app/services/assistant_ai.py`
+- `app/services/provider_models.py`
+- `app/main.py`
+- `app/schemas.py`
 - `SimmerSmith/SimmerSmith/App/AppState.swift`
 - `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
 - `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `tests/test_api.py`
+- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty with the iOS AI key settings slice until the current commit is created
+- dirty with the provider model discovery slice until the current commit is created
 
 ## Blockers
 
@@ -64,6 +76,7 @@
 - Which external AI clients do we want to optimize first for the new standard SimmerSmith MCP surface beyond Codex?
 - Do we want to keep static bearer-token auth as the only HTTP auth mode for now, or add a more formal auth story before recommending network exposure?
 - Should server-side AI key management remain in the general Settings form, or move to a dedicated AI configuration screen once more provider controls exist?
+- Should we filter the discovered OpenAI model list more aggressively to only reasoning/chat models we explicitly support, or keep the broader provider-visible list?
 
 ## Validation / Test Status
 
@@ -104,6 +117,13 @@ Latest completed validation for the iOS AI key settings slice:
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
+Latest completed validation for the provider model discovery slice:
+
+- `python3 -m compileall app tests` -> passed
+- `.venv/bin/pytest tests/test_api.py -q` -> passed (`24 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
 ## Runtime Notes
 
 - The local backend is typically run on `http://localhost:8080`.
@@ -115,3 +135,4 @@ Latest completed validation for the iOS AI key settings slice:
 - The SimmerSmith MCP server can also be run over Streamable HTTP with optional static bearer auth by passing `--transport streamable-http --bearer-token ...`.
 - The backend should no longer rely on local `codex exec` for Assistant turns.
 - The iOS app now lets the operator set or clear a direct-provider API key, but the key itself is only stored server-side and is never returned in profile payloads.
+- The iOS app now fetches the available model list for the selected direct provider from the backend and stores the chosen model server-side as profile state.

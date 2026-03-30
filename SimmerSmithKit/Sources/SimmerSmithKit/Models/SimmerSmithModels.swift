@@ -74,6 +74,21 @@ public struct AICapabilities: Codable, Hashable, Sendable {
     public let availableProviders: [AIProviderAvailability]
 }
 
+public struct AIModelOption: Codable, Identifiable, Hashable, Sendable {
+    public let providerId: String
+    public let modelId: String
+    public let displayName: String
+
+    public var id: String { modelId }
+}
+
+public struct AIProviderModels: Codable, Hashable, Sendable {
+    public let providerId: String
+    public let selectedModelId: String?
+    public let models: [AIModelOption]
+    public let source: String
+}
+
 public struct ManagedListItem: Codable, Identifiable, Hashable, Sendable {
     public let itemId: String
     public let kind: String

@@ -81,6 +81,28 @@ struct SettingsView: View {
                     Text("Anthropic").tag("anthropic")
                 }
 
+                if !appState.aiDirectProviderDraft.isEmpty {
+                    if !appState.selectedDirectProviderModels.isEmpty {
+                        Picker("Model", selection: $appState.selectedDirectProviderModelDraft) {
+                            ForEach(appState.selectedDirectProviderModels) { model in
+                                Text(model.displayName).tag(model.modelId)
+                            }
+                        }
+                    } else if let modelError = appState.selectedDirectProviderModelError {
+                        Text(modelError)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Discovering available models for the selected provider…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Refresh Models") {
+                        Task { await appState.refreshAIModels(for: appState.aiDirectProviderDraft) }
+                    }
+                }
+
                 SecureField("New direct-provider API key", text: $appState.aiDirectAPIKeyDraft)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -124,6 +146,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .task(id: appState.aiDirectProviderDraft) {
+            await appState.refreshAIModels(for: appState.aiDirectProviderDraft)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 BrandToolbarBadge()

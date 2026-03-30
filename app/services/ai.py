@@ -87,6 +87,40 @@ def direct_provider_availability(
     return False, "unconfigured"
 
 
+def resolve_direct_api_key(
+    provider_name: str,
+    *,
+    settings: Settings,
+    user_settings: dict[str, str],
+) -> str:
+    preferred_provider = str(user_settings.get("ai_direct_provider", "")).strip().lower()
+    override_key = str(user_settings.get("ai_direct_api_key", "")).strip()
+    if preferred_provider == provider_name and override_key:
+        return override_key
+    if provider_name == "openai":
+        return settings.ai_openai_api_key.strip()
+    if provider_name == "anthropic":
+        return settings.ai_anthropic_api_key.strip()
+    return ""
+
+
+def resolve_direct_model(
+    provider_name: str,
+    *,
+    settings: Settings,
+    user_settings: dict[str, str],
+) -> str:
+    override_key = f"ai_{provider_name}_model"
+    override_model = str(user_settings.get(override_key, "")).strip()
+    if override_model:
+        return override_model
+    if provider_name == "openai":
+        return settings.ai_openai_model
+    if provider_name == "anthropic":
+        return settings.ai_anthropic_model
+    return ""
+
+
 def resolve_ai_execution_target(
     settings: Settings,
     user_settings: dict[str, str],

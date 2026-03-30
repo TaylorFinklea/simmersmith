@@ -269,6 +269,36 @@ func decoderHandlesHealthCapabilitiesPayload() throws {
 }
 
 @Test
+func decoderHandlesProviderModelsPayload() throws {
+    let json = """
+    {
+      "provider_id": "openai",
+      "selected_model_id": "gpt-4.1-mini",
+      "source": "user_override",
+      "models": [
+        {
+          "provider_id": "openai",
+          "model_id": "gpt-4.1-mini",
+          "display_name": "gpt-4.1-mini"
+        },
+        {
+          "provider_id": "openai",
+          "model_id": "gpt-4.1",
+          "display_name": "gpt-4.1"
+        }
+      ]
+    }
+    """.data(using: .utf8)!
+
+    let payload = try SimmerSmithJSONCoding.makeDecoder().decode(AIProviderModels.self, from: json)
+
+    #expect(payload.providerId == "openai")
+    #expect(payload.selectedModelId == "gpt-4.1-mini")
+    #expect(payload.models.count == 2)
+    #expect(payload.models.first?.modelId == "gpt-4.1-mini")
+}
+
+@Test
 func decoderHandlesSnakeCaseAcronymFieldsInExportPayloads() throws {
     let json = """
     {

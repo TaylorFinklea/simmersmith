@@ -89,6 +89,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/health", requiresAuth: false)
     }
 
+    public func fetchProviderModels(providerID: String) async throws -> AIProviderModels {
+        try await request(path: "/api/ai/providers/\(providerID)/models")
+    }
+
     public func fetchProfile() async throws -> ProfileSnapshot {
         try await request(path: "/api/profile")
     }

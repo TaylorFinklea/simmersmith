@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
 from app.schemas import AssistantRespondRequest, RecipePayload
-from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability
+from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability, resolve_direct_api_key, resolve_direct_model
 from app.services.mcp_client import run_codex_mcp
 
 
@@ -95,7 +95,7 @@ def resolve_assistant_execution_target(
         available, source = direct_provider_availability(provider_name, settings=settings, user_settings=user_settings)
         if not available:
             continue
-        model = settings.ai_openai_model if provider_name == "openai" else settings.ai_anthropic_model
+        model = resolve_direct_model(provider_name, settings=settings, user_settings=user_settings)
         return AssistantExecutionTarget(
             provider_kind="direct",
             source=source,
@@ -268,15 +268,3 @@ def extract_json_object(raw_output: str) -> str:
     if start == -1 or end == -1 or end <= start:
         return stripped
     return stripped[start : end + 1]
-
-
-def resolve_direct_api_key(provider_name: str, *, settings: Settings, user_settings: dict[str, str]) -> str:
-    preferred_provider = str(user_settings.get("ai_direct_provider", "")).strip().lower()
-    override_key = str(user_settings.get("ai_direct_api_key", "")).strip()
-    if preferred_provider == provider_name and override_key:
-        return override_key
-    if provider_name == "openai":
-        return settings.ai_openai_api_key.strip()
-    if provider_name == "anthropic":
-        return settings.ai_anthropic_api_key.strip()
-    return ""

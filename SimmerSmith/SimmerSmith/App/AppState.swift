@@ -54,6 +54,8 @@ final class AppState {
     var aiProviderModeDraft: String = "auto"
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
+    var aiOpenAIModelDraft: String = ""
+    var aiAnthropicModelDraft: String = ""
 
     var profile: ProfileSnapshot?
     var currentWeek: WeekSnapshot?
@@ -64,6 +66,8 @@ final class AppState {
     var assistantThreads: [AssistantThreadSummary] = []
     var assistantThreadDetails: [String: AssistantThread] = [:]
     var checkedGroceryItemIDs: Set<String> = []
+    var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
+    var aiModelErrorByProvider: [String: String] = [:]
 
     var syncPhase: SyncPhase = .idle
     var lastErrorMessage: String?
@@ -117,6 +121,37 @@ final class AppState {
 
     var aiDirectAPIKeyConfigured: Bool {
         profile?.secretFlags["ai_direct_api_key_present"] ?? false
+    }
+
+    var selectedDirectProviderModelDraft: String {
+        get {
+            switch aiDirectProviderDraft {
+            case "openai":
+                return aiOpenAIModelDraft
+            case "anthropic":
+                return aiAnthropicModelDraft
+            default:
+                return ""
+            }
+        }
+        set {
+            switch aiDirectProviderDraft {
+            case "openai":
+                aiOpenAIModelDraft = newValue
+            case "anthropic":
+                aiAnthropicModelDraft = newValue
+            default:
+                break
+            }
+        }
+    }
+
+    var selectedDirectProviderModels: [AIModelOption] {
+        availableAIModelsByProvider[aiDirectProviderDraft] ?? []
+    }
+
+    var selectedDirectProviderModelError: String? {
+        aiModelErrorByProvider[aiDirectProviderDraft]
     }
 
     var assistantExecutionStatusText: String {
@@ -215,6 +250,7 @@ final class AppState {
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads
             }
+            await refreshAIModels(for: aiDirectProviderDraft)
 
             syncPhase = .synced(.now)
         } catch {
@@ -294,12 +330,35 @@ final class AppState {
         try await apiClient.estimateRecipeNutrition(draft)
     }
 
+    func refreshAIModels(for providerID: String) async {
+        let normalizedProvider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasSavedConnection, !normalizedProvider.isEmpty else { return }
+        do {
+            let payload = try await apiClient.fetchProviderModels(providerID: normalizedProvider)
+            availableAIModelsByProvider[normalizedProvider] = payload.models
+            aiModelErrorByProvider[normalizedProvider] = nil
+            switch normalizedProvider {
+            case "openai":
+                aiOpenAIModelDraft = payload.selectedModelId ?? payload.models.first?.modelId ?? aiOpenAIModelDraft
+            case "anthropic":
+                aiAnthropicModelDraft = payload.selectedModelId ?? payload.models.first?.modelId ?? aiAnthropicModelDraft
+            default:
+                break
+            }
+        } catch {
+            aiModelErrorByProvider[normalizedProvider] = error.localizedDescription
+            availableAIModelsByProvider[normalizedProvider] = []
+        }
+    }
+
     func saveAISettings(clearStoredAPIKey: Bool = false) async {
         guard hasSavedConnection else { return }
         do {
             var settings: [String: String] = [
                 "ai_provider_mode": aiProviderModeDraft.trimmingCharacters(in: .whitespacesAndNewlines),
-                "ai_direct_provider": aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                "ai_direct_provider": aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                "ai_openai_model": aiOpenAIModelDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                "ai_anthropic_model": aiAnthropicModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             ]
             let trimmedKey = aiDirectAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             if clearStoredAPIKey {
@@ -312,6 +371,7 @@ final class AppState {
             profile = fetchedProfile
             syncAIDrafts(from: fetchedProfile)
             try? cacheStore.saveProfile(fetchedProfile)
+            await refreshAIModels(for: aiDirectProviderDraft)
             if let health = try? await apiClient.fetchHealth() {
                 aiCapabilities = health.aiCapabilities
             }
@@ -597,6 +657,10 @@ final class AppState {
         aiProviderModeDraft = "auto"
         aiDirectProviderDraft = ""
         aiDirectAPIKeyDraft = ""
+        aiOpenAIModelDraft = ""
+        aiAnthropicModelDraft = ""
+        availableAIModelsByProvider = [:]
+        aiModelErrorByProvider = [:]
     }
 
     func resetConnection() {
@@ -668,6 +732,8 @@ final class AppState {
         let savedMode = profile.settings["ai_provider_mode"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         aiProviderModeDraft = savedMode.isEmpty ? "auto" : savedMode
         aiDirectProviderDraft = profile.settings["ai_direct_provider"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        aiOpenAIModelDraft = profile.settings["ai_openai_model"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        aiAnthropicModelDraft = profile.settings["ai_anthropic_model"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         aiDirectAPIKeyDraft = ""
     }
 
