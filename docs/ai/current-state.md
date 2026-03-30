@@ -6,6 +6,10 @@
 
 ## Recent Progress
 
+- Confirmed the current iOS import information architecture is misleading:
+  - `Recipes` -> `Create` -> `Import from URL` opens the shared import sheet
+  - that sheet also contains camera scan, photo import, and PDF import actions
+- Re-prioritized the roadmap so recipe import UX and hardening is now the next active phase.
 - Completed the AI/MCP validation pass and confirmed the live backend is healthy on the local token-protected server.
 - Verified the Assistant works end to end with the direct-provider path using the saved OpenAI key:
   - `general` turns stream cleanly
@@ -72,6 +76,7 @@
 
 ## Open Questions
 
+- What should the top-level Recipes create/import IA be: separate import actions, a dedicated import hub, or a renamed create/import sheet?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
 - Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
 - Should the local bridge remain a dev-only helper script, or become a documented operator option for laptop-hosted MCP setups?

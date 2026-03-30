@@ -96,3 +96,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The current AI/MCP/provider-model discovery slice is validated enough to stop blocking the recipe roadmap.
 - The next active product phase is `Import quality lab`, followed by `Scan/photo/PDF import hardening`.
 - Remaining AI/MCP items are follow-up hardening and operator decisions, not blockers for resuming recipe-platform work.
+
+## 2026-03-30 - Recipe import UX and hardening is now the next active roadmap phase
+
+- The current import UI buries camera/photo/PDF import under the `Import from URL` action, which is misleading.
+- The next active phase should treat recipe import as one cohesive workflow covering discoverability, UX, fixtures, and parser hardening.
+- Import UX and hardening now takes precedence over the next AI feature slice.
