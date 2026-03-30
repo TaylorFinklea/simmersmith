@@ -8,6 +8,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - Keep FastAPI as the canonical state and business-logic layer.
 - Use the web app as a secondary admin/proving surface, not the primary product.
 - Keep AI features draft-first and MCP-first, while preserving the direct-provider seam.
+- Expose a standard SimmerSmith MCP surface so external AI clients can operate the same app domains the native app and in-app assistant use.
 
 ## Current Milestones
 
@@ -43,6 +44,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - Browser E2E coverage
 - Cloudflare hosting/deployment/observability
 - Public support/privacy maintenance
+- SimmerSmith MCP surface hardening and tool-contract documentation
 
 ## Constraints
 

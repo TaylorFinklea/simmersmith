@@ -6,6 +6,9 @@
 
 ## Recent Progress
 
+- Added a real standard SimmerSmith MCP server with repo-backed tools for recipes, profile, preferences, weeks, exports, and assistant threads.
+- Added a stable wrapper script so Codex and other MCP clients can launch the SimmerSmith MCP server from anywhere.
+- Registered the standard MCP server in Codex as `simmersmith` and removed the misleading `codex-local` entry.
 - Replaced the Assistant's local `codex exec` fallback with two real execution paths:
   - direct OpenAI / Anthropic APIs when configured
   - remote MCP over Streamable HTTP when direct keys are absent
@@ -22,28 +25,16 @@
 
 ## Recent Commits
 
+- `011a591` `feat: add local codex mcp bridge`
 - `42b9016` `fix: recover assistant chat after stream decode errors`
 - `00249fa` `fix: repair assistant codex fallback stream`
 - `75b8040` `feat: add central assistant chat workflow`
 - `787ccf2` `feat: add recipe companion suggestion drafts`
-- `673b7c8` `docs: add shared ai handoff workflow`
 
 ## Changed Files In The Current Slice
 
-- `pyproject.toml`
-- `app/config.py`
-- `app/main.py`
-- `app/models.py`
-- `app/api/assistant.py`
-- `app/services/ai.py`
-- `app/services/assistant_ai.py`
-- `app/services/mcp_client.py`
-- `scripts/codex_mcp_http_bridge.py`
-- `alembic/versions/20260329_0011_assistant_provider_thread.py`
-- `tests/test_api.py`
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
-- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `app/mcp_server.py`
+- `scripts/run_simmersmith_mcp.py`
 - `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
@@ -51,7 +42,7 @@
 
 ## Working Tree
 
-- dirty with the local MCP bridge verification slice until the current commit is created
+- dirty with the standard SimmerSmith MCP server slice until the current commit is created
 
 ## Blockers
 
@@ -63,6 +54,7 @@
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
 - Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
 - Should the local bridge remain a dev-only helper script, or become a documented operator option for laptop-hosted MCP setups?
+- Which external AI clients do we want to optimize first for the new standard SimmerSmith MCP surface beyond Codex?
 
 ## Validation / Test Status
 
@@ -81,10 +73,20 @@ Latest completed validation for the local MCP bridge slice:
 - end-to-end assistant thread create/respond (`Hi`) over the live API with no direct-provider keys -> passed
 - end-to-end assistant recipe creation turn over the live API with no direct-provider keys -> passed with `assistant.recipe_draft`
 
+Latest completed validation for the standard SimmerSmith MCP server slice:
+
+- `.venv/bin/python -m py_compile app/mcp_server.py scripts/run_simmersmith_mcp.py` -> passed
+- stdio MCP smoke test via the Python MCP client -> passed
+- tool listing returned 47 SimmerSmith tools
+- MCP `health` tool call -> passed
+- Codex global MCP registration now shows `simmersmith` as an enabled stdio MCP server
+
 ## Runtime Notes
 
 - The local backend is typically run on `http://localhost:8080`.
 - Bearer token used in local testing: `2cc40b9addb61756ac8ab7e4405cab696ff68f8e8fe084c8`
 - MCP execution now expects a remote Streamable HTTP MCP server configured via server settings / env vars.
 - For local laptop development, `scripts/codex_mcp_http_bridge.py` can provide a Streamable HTTP MCP endpoint at `http://127.0.0.1:8765/mcp` backed by `codex mcp-server`.
+- For external AI control of the app itself, `scripts/run_simmersmith_mcp.py` launches the standard SimmerSmith MCP server.
+- Codex is now configured with a global MCP entry named `simmersmith` that launches the repo MCP server over stdio.
 - The backend should no longer rely on local `codex exec` for Assistant turns.

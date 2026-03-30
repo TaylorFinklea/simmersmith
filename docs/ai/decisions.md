@@ -65,3 +65,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The app runtime still supports only direct providers or MCP over Streamable HTTP.
 - For local development, a small helper bridge can expose `codex mcp-server` over Streamable HTTP so the backend can exercise the MCP path without saved provider keys.
 - This bridge is a developer/operator tool, not a return to local `codex exec` fallback inside the app server.
+
+## 2026-03-30 - SimmerSmith has its own standard MCP server separate from Codex
+
+- The Codex bridge and the SimmerSmith MCP server are separate concerns.
+- `simmersmith` is the standard MCP surface for operating SimmerSmith app domains directly.
+- The SimmerSmith MCP server should wrap the existing API/service layer so external AI clients act on the same business logic as the app.
