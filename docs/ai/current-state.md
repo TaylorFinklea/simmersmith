@@ -9,6 +9,8 @@
 - Added a real standard SimmerSmith MCP server with repo-backed tools for recipes, profile, preferences, weeks, exports, and assistant threads.
 - Added a stable wrapper script so Codex and other MCP clients can launch the SimmerSmith MCP server from anywhere.
 - Registered the standard MCP server in Codex as `simmersmith` and removed the misleading `codex-local` entry.
+- Added optional Streamable HTTP transport for the standard SimmerSmith MCP server, including simple static bearer-token auth for operator use.
+- Added `docs/ai/mcp-tools.md` to document the SimmerSmith MCP surface, launch modes, auth, and recommended tool usage patterns.
 - Replaced the Assistant's local `codex exec` fallback with two real execution paths:
   - direct OpenAI / Anthropic APIs when configured
   - remote MCP over Streamable HTTP when direct keys are absent
@@ -25,6 +27,7 @@
 
 ## Recent Commits
 
+- `7671198` `feat: add simmersmith mcp server`
 - `011a591` `feat: add local codex mcp bridge`
 - `42b9016` `fix: recover assistant chat after stream decode errors`
 - `00249fa` `fix: repair assistant codex fallback stream`
@@ -35,6 +38,7 @@
 
 - `app/mcp_server.py`
 - `scripts/run_simmersmith_mcp.py`
+- `docs/ai/mcp-tools.md`
 - `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
@@ -42,7 +46,7 @@
 
 ## Working Tree
 
-- dirty with the standard SimmerSmith MCP server slice until the current commit is created
+- dirty with the SimmerSmith MCP HTTP/auth and tool-guide slice until the current commit is created
 
 ## Blockers
 
@@ -55,6 +59,7 @@
 - Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
 - Should the local bridge remain a dev-only helper script, or become a documented operator option for laptop-hosted MCP setups?
 - Which external AI clients do we want to optimize first for the new standard SimmerSmith MCP surface beyond Codex?
+- Do we want to keep static bearer-token auth as the only HTTP auth mode for now, or add a more formal auth story before recommending network exposure?
 
 ## Validation / Test Status
 
@@ -81,6 +86,15 @@ Latest completed validation for the standard SimmerSmith MCP server slice:
 - MCP `health` tool call -> passed
 - Codex global MCP registration now shows `simmersmith` as an enabled stdio MCP server
 
+Latest completed validation for the SimmerSmith MCP HTTP/auth slice:
+
+- `.venv/bin/python -m py_compile app/mcp_server.py` -> passed
+- `scripts/run_simmersmith_mcp.py --transport streamable-http --host 127.0.0.1 --port 8766 --path /mcp --bearer-token test-token` -> server started successfully
+- authenticated `curl` to `http://127.0.0.1:8766/mcp` with `Authorization: Bearer test-token` -> reached MCP server and returned protocol-level response
+- authenticated Python MCP client via `streamable_http_client(...)` -> initialized successfully
+- HTTP MCP tool listing returned 47 SimmerSmith tools
+- HTTP MCP `health` tool call -> passed
+
 ## Runtime Notes
 
 - The local backend is typically run on `http://localhost:8080`.
@@ -89,4 +103,5 @@ Latest completed validation for the standard SimmerSmith MCP server slice:
 - For local laptop development, `scripts/codex_mcp_http_bridge.py` can provide a Streamable HTTP MCP endpoint at `http://127.0.0.1:8765/mcp` backed by `codex mcp-server`.
 - For external AI control of the app itself, `scripts/run_simmersmith_mcp.py` launches the standard SimmerSmith MCP server.
 - Codex is now configured with a global MCP entry named `simmersmith` that launches the repo MCP server over stdio.
+- The SimmerSmith MCP server can also be run over Streamable HTTP with optional static bearer auth by passing `--transport streamable-http --bearer-token ...`.
 - The backend should no longer rely on local `codex exec` for Assistant turns.

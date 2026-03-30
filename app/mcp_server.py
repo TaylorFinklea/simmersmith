@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 
 from app.api.exports import complete_export, export_apple_reminders_payload, export_detail
 from app.api.preferences import get_preferences, post_preferences, post_score_meal
@@ -113,6 +116,23 @@ def _call_route(callback):
         return _json_ready(callback())
     except HTTPException as exc:
         _raise_tool_error(exc)
+
+
+class StaticBearerTokenVerifier(TokenVerifier):
+    def __init__(self, token: str, *, client_id: str = "simmersmith-mcp-client", scopes: list[str] | None = None):
+        self._token = token.strip()
+        self._client_id = client_id
+        self._scopes = scopes or []
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not self._token or token.strip() != self._token:
+            return None
+        return AccessToken(
+            token=token.strip(),
+            client_id=self._client_id,
+            scopes=self._scopes,
+            expires_at=int(time.time()) + 86400,
+        )
 
 
 @asynccontextmanager
@@ -634,16 +654,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--path", default="/mcp")
+    parser.add_argument(
+        "--bearer-token",
+        default="",
+        help="Optional static bearer token for streamable-http mode. Ignored for stdio mode.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     if args.transport == "streamable-http":
-        mcp.settings.host = args.host
-        mcp.settings.port = args.port
-        mcp.settings.streamable_http_path = args.path
-    mcp.run(transport=args.transport)
+        auth = None
+        token_verifier = None
+        if args.bearer_token.strip():
+            auth = AuthSettings(
+                issuer_url=f"http://{args.host}:{args.port}",
+                resource_server_url=f"http://{args.host}:{args.port}{args.path}",
+                required_scopes=[],
+            )
+            token_verifier = StaticBearerTokenVerifier(args.bearer_token.strip())
+        http_mcp = FastMCP(
+            name=mcp.name,
+            instructions=mcp.instructions,
+            tools=mcp._tool_manager.list_tools(),
+            host=args.host,
+            port=args.port,
+            streamable_http_path=args.path,
+            lifespan=lifespan,
+            auth=auth,
+            token_verifier=token_verifier,
+        )
+        http_mcp.run(transport="streamable-http")
+        return
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":

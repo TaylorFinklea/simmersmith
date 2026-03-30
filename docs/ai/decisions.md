@@ -71,3 +71,10 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The Codex bridge and the SimmerSmith MCP server are separate concerns.
 - `simmersmith` is the standard MCP surface for operating SimmerSmith app domains directly.
 - The SimmerSmith MCP server should wrap the existing API/service layer so external AI clients act on the same business logic as the app.
+
+## 2026-03-30 - The SimmerSmith MCP server supports stdio by default and optional Streamable HTTP with simple bearer auth
+
+- `stdio` remains the default transport because it works cleanly with Codex and similar local MCP clients.
+- The same server can also run over Streamable HTTP for operator/external-client use.
+- Static bearer-token auth is acceptable for the initial operator-focused HTTP mode.
+- This HTTP mode is for the SimmerSmith MCP server itself, not the Codex bridge and not the in-app Assistant runtime.
