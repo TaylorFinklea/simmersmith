@@ -7,9 +7,10 @@ Use this as the exact short checklist for the next work session.
   - ingredient variations
   - structured ingredient preferences
   - canonical links on recipe/week/grocery ingredient rows
-- [ ] Add native and web-facing review UX for unresolved or suggested ingredient matches
-- [ ] Redesign the Recipes create/import entry points so URL, camera scan, photo import, and PDF import are first-class and discoverable
-- [ ] Remove or rename the misleading `Import from URL` top-level action if it still contains non-URL import methods
+- [x] Add a first native review UX for unresolved or suggested ingredient matches
+- [ ] Add the matching web-facing review UX for unresolved or suggested ingredient matches
+- [x] Redesign the native Recipes create/import entry points so URL, camera scan, photo import, and PDF import are first-class and discoverable
+- [x] Remove or rename the misleading `Import from URL` top-level action if it still contains non-URL import methods
 - [ ] Build a durable fixture corpus for recipe imports:
   - real recipe URLs
   - OCR text samples
@@ -17,11 +18,13 @@ Use this as the exact short checklist for the next work session.
   - expected ingredient/step parsing outcomes
 - [ ] Add regression coverage around import structure quality, ingredient resolution quality, and grocery resolution quality
 - [ ] Expose structured ingredient preference editing in the app so households can actually choose preferred brands/products
-- [ ] Add a recipe-editor ingredient review flow:
+- [x] Add a first recipe-editor ingredient review flow:
   - accept suggested base ingredient
   - choose a different base ingredient
   - choose or clear a variation
   - optionally lock a recipe ingredient to a specific product
+- [ ] Add “create new base ingredient / variation” actions to the ingredient review flow
+- [ ] Add a bulk review queue for unresolved imported ingredients and grocery items
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether to filter the discovered OpenAI model list to a smaller supported subset or keep the broader provider-visible list

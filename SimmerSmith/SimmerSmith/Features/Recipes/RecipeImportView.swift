@@ -7,11 +7,34 @@ import UniformTypeIdentifiers
 import Vision
 import VisionKit
 
+enum RecipeImportLaunchMode: String, Identifiable {
+    case url
+    case camera
+    case photo
+    case pdf
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .url:
+            "Import from URL"
+        case .camera:
+            "Scan from Camera"
+        case .photo:
+            "Import from Photo"
+        case .pdf:
+            "Import from PDF"
+        }
+    }
+}
+
 struct RecipeImportView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
     let onImported: (RecipeDraft) -> Void
+    let preferredLaunchMode: RecipeImportLaunchMode
 
     @State private var url = ""
     @State private var isImporting = false
@@ -21,6 +44,15 @@ struct RecipeImportView: View {
     @State private var isPDFImporterPresented = false
     @State private var isDocumentScannerPresented = false
     @State private var pendingTextReview: PendingTextImportReview?
+    @State private var didTriggerPreferredAction = false
+
+    init(
+        preferredLaunchMode: RecipeImportLaunchMode = .url,
+        onImported: @escaping (RecipeDraft) -> Void
+    ) {
+        self.preferredLaunchMode = preferredLaunchMode
+        self.onImported = onImported
+    }
 
     var body: some View {
         NavigationStack {
@@ -66,6 +98,16 @@ struct RecipeImportView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if preferredLaunchMode != .url {
+                    Section("Quick Start") {
+                        Text(preferredLaunchMode.title)
+                            .font(.headline)
+                        Text(launchModeHelpText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if isImporting {
                     Section {
                         HStack(spacing: 12) {
@@ -87,6 +129,18 @@ struct RecipeImportView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+            }
+            .task {
+                guard !didTriggerPreferredAction else { return }
+                didTriggerPreferredAction = true
+                switch preferredLaunchMode {
+                case .camera:
+                    isDocumentScannerPresented = true
+                case .pdf:
+                    isPDFImporterPresented = true
+                case .url, .photo:
+                    break
                 }
             }
         }
@@ -126,6 +180,19 @@ struct RecipeImportView: View {
             guard let selectedPhotoItem else { return }
             await importFromPhotoPickerItem(selectedPhotoItem)
             self.selectedPhotoItem = nil
+        }
+    }
+
+    private var launchModeHelpText: String {
+        switch preferredLaunchMode {
+        case .url:
+            "Paste a recipe URL to cleanly import it into an editable draft."
+        case .camera:
+            "Capture a printed recipe or cookbook page and review it before saving."
+        case .photo:
+            "Choose a recipe photo from your library. OCR text still opens as a draft for review."
+        case .pdf:
+            "Import a PDF recipe or recipe card and turn it into an editable draft."
         }
     }
 

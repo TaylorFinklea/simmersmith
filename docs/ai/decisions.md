@@ -118,3 +118,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
   3. resolved recipe variation
   4. base ingredient only
 - This lets recipes stay generic while still turning grocery output into the right household-specific product choice.
+
+## 2026-03-30 - Native import methods are first-class create actions and ingredient review starts as a per-row sheet
+
+- URL, camera scan, photo import, and PDF import should be directly discoverable from the Recipes create menu instead of being hidden behind a misleading URL import entry point.
+- The first native ingredient review UX is a per-ingredient sheet launched from the recipe editor, not a full bulk-review screen.
+- The first sheet supports reviewing the suggested canonical ingredient, choosing a different base ingredient, selecting a stored variation, and optionally locking the recipe to that product.

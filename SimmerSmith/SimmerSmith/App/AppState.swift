@@ -386,6 +386,18 @@ final class AppState {
         try await apiClient.searchNutritionItems(query: query, limit: limit)
     }
 
+    func searchBaseIngredients(query: String = "", limit: Int = 20) async throws -> [BaseIngredient] {
+        try await apiClient.fetchBaseIngredients(query: query, limit: limit)
+    }
+
+    func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
+        try await apiClient.fetchIngredientVariations(baseIngredientID: baseIngredientID)
+    }
+
+    func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
+        try await apiClient.resolveIngredient(ingredient)
+    }
+
     func saveIngredientNutritionMatch(
         ingredientName: String,
         normalizedName: String?,

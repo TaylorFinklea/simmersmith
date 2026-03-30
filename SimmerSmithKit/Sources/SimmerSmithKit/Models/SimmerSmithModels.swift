@@ -171,6 +171,129 @@ public struct IngredientNutritionMatch: Codable, Hashable, Sendable {
     public let updatedAt: Date
 }
 
+public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
+    public let baseIngredientId: String
+    public let name: String
+    public let normalizedName: String
+    public let category: String
+    public let defaultUnit: String
+    public let notes: String
+    public let nutritionReferenceAmount: Double?
+    public let nutritionReferenceUnit: String
+    public let calories: Double?
+    public let updatedAt: Date
+
+    public var id: String { baseIngredientId }
+
+    public init(
+        baseIngredientId: String,
+        name: String,
+        normalizedName: String,
+        category: String = "",
+        defaultUnit: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil,
+        updatedAt: Date
+    ) {
+        self.baseIngredientId = baseIngredientId
+        self.name = name
+        self.normalizedName = normalizedName
+        self.category = category
+        self.defaultUnit = defaultUnit
+        self.notes = notes
+        self.nutritionReferenceAmount = nutritionReferenceAmount
+        self.nutritionReferenceUnit = nutritionReferenceUnit
+        self.calories = calories
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
+    public let ingredientVariationId: String
+    public let baseIngredientId: String
+    public let name: String
+    public let normalizedName: String
+    public let brand: String
+    public let packageSizeAmount: Double?
+    public let packageSizeUnit: String
+    public let countPerPackage: Double?
+    public let productUrl: String
+    public let retailerHint: String
+    public let notes: String
+    public let nutritionReferenceAmount: Double?
+    public let nutritionReferenceUnit: String
+    public let calories: Double?
+    public let updatedAt: Date
+
+    public var id: String { ingredientVariationId }
+
+    public init(
+        ingredientVariationId: String,
+        baseIngredientId: String,
+        name: String,
+        normalizedName: String,
+        brand: String = "",
+        packageSizeAmount: Double? = nil,
+        packageSizeUnit: String = "",
+        countPerPackage: Double? = nil,
+        productUrl: String = "",
+        retailerHint: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil,
+        updatedAt: Date
+    ) {
+        self.ingredientVariationId = ingredientVariationId
+        self.baseIngredientId = baseIngredientId
+        self.name = name
+        self.normalizedName = normalizedName
+        self.brand = brand
+        self.packageSizeAmount = packageSizeAmount
+        self.packageSizeUnit = packageSizeUnit
+        self.countPerPackage = countPerPackage
+        self.productUrl = productUrl
+        self.retailerHint = retailerHint
+        self.notes = notes
+        self.nutritionReferenceAmount = nutritionReferenceAmount
+        self.nutritionReferenceUnit = nutritionReferenceUnit
+        self.calories = calories
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct IngredientResolution: Codable, Hashable, Sendable {
+    public let ingredientName: String
+    public let normalizedName: String
+    public let quantity: Double?
+    public let unit: String
+    public let prep: String
+    public let category: String
+    public let notes: String
+    public let baseIngredientId: String?
+    public let baseIngredientName: String?
+    public let ingredientVariationId: String?
+    public let ingredientVariationName: String?
+    public let resolutionStatus: String
+}
+
+public struct IngredientPreference: Codable, Identifiable, Hashable, Sendable {
+    public let preferenceId: String
+    public let baseIngredientId: String
+    public let baseIngredientName: String
+    public let preferredVariationId: String?
+    public let preferredVariationName: String?
+    public let preferredBrand: String
+    public let choiceMode: String
+    public let active: Bool
+    public let notes: String
+    public let updatedAt: Date
+
+    public var id: String { preferenceId }
+}
+
 public struct RecipeIngredient: Codable, Identifiable, Hashable, Sendable {
     public var ingredientId: String?
     public var ingredientName: String

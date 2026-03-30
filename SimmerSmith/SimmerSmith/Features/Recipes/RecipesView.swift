@@ -10,7 +10,7 @@ struct RecipesView: View {
     @State private var selectedCuisine = ""
     @State private var selectedTags: Set<String> = []
     @State private var showArchived = false
-    @State private var isImportPresented = false
+    @State private var importLaunchMode: RecipeImportLaunchMode?
     @State private var isSelectionMode = false
     @State private var selectedRecipeIDs: Set<String> = []
     @State private var editorContext: RecipeEditorSheetContext?
@@ -89,9 +89,12 @@ struct RecipesView: View {
                             draft: RecipeDraft(name: "", mealType: mealFilter == .all ? "dinner" : mealFilter.rawValue)
                         )
                     }
-                    Button("Import from URL") {
-                        isImportPresented = true
-                    }
+                    Divider()
+                    Button("Import from URL") { importLaunchMode = .url }
+                    Button("Scan from Camera") { importLaunchMode = .camera }
+                    Button("Import from Photo") { importLaunchMode = .photo }
+                    Button("Import from PDF") { importLaunchMode = .pdf }
+                    Divider()
                     Menu("AI Suggestion Draft") {
                         ForEach(RecipeSuggestionGoal.allCases) { goal in
                             Button(goal.title) {
@@ -120,8 +123,8 @@ struct RecipesView: View {
                 .background(.thinMaterial)
             }
         }
-        .sheet(isPresented: $isImportPresented) {
-            RecipeImportView { draft in
+        .sheet(item: $importLaunchMode) { mode in
+            RecipeImportView(preferredLaunchMode: mode) { draft in
                 editorContext = RecipeEditorSheetContext(title: "Imported Recipe", draft: draft)
             }
         }

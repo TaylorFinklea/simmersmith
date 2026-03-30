@@ -67,6 +67,16 @@ private struct IngredientNutritionMatchBody: Encodable {
     let nutritionItemId: String
 }
 
+private struct IngredientResolveBody: Encodable {
+    let ingredientName: String
+    let normalizedName: String?
+    let quantity: Double?
+    let unit: String
+    let prep: String
+    let category: String
+    let notes: String
+}
+
 public final class SimmerSmithAPIClient: @unchecked Sendable {
     private let settingsStore: ConnectionSettingsStore
     private let session: URLSession
@@ -152,6 +162,31 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
     public func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return try await request(path: "/api/recipes/nutrition/search?q=\(encodedQuery)&limit=\(limit)")
+    }
+
+    public func fetchBaseIngredients(query: String = "", limit: Int = 20) async throws -> [BaseIngredient] {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return try await request(path: "/api/ingredients?q=\(encodedQuery)&limit=\(limit)")
+    }
+
+    public func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
+        try await request(path: "/api/ingredients/\(baseIngredientID)/variations")
+    }
+
+    public func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
+        try await request(
+            path: "/api/ingredients/resolve",
+            method: "POST",
+            body: IngredientResolveBody(
+                ingredientName: ingredient.ingredientName,
+                normalizedName: ingredient.normalizedName,
+                quantity: ingredient.quantity,
+                unit: ingredient.unit,
+                prep: ingredient.prep,
+                category: ingredient.category,
+                notes: ingredient.notes
+            )
+        )
     }
 
     public func saveIngredientNutritionMatch(

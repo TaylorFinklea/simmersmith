@@ -6,6 +6,22 @@
 
 ## Recent Progress
 
+- Added the first native ingredient-resolution review UX on top of the canonical ingredient catalog foundation.
+- The iOS recipe editor now shows canonical ingredient status per row and opens a dedicated review sheet for:
+  - suggested/resolved/locked state
+  - base ingredient search/selection
+  - variation selection
+  - optional product lock
+- The native client now has ingredient catalog API coverage for:
+  - base ingredient search
+  - variation listing
+  - ingredient resolution
+- The Recipes create menu now treats import methods as first-class actions:
+  - Import from URL
+  - Scan from Camera
+  - Import from Photo
+  - Import from PDF
+- `RecipeImportView` now accepts a preferred launch mode so camera/PDF launches can jump directly into the relevant capture flow instead of forcing everything through a misleading URL-labeled entry point.
 - Added the canonical ingredient catalog foundation under the active `Recipe import UX and hardening` roadmap milestone.
 - New backend domain model:
   - `base_ingredients`
@@ -62,7 +78,8 @@
 
 ## Recent Commits
 
-- `pending` ingredient catalog foundation commit not created yet in this session
+- `pending` native import UX and ingredient review commit not created yet in this session
+- `fc56fac` `feat: add canonical ingredient catalog foundation`
 - `e40d4e1` `feat: add provider model discovery`
 - `0b4a8fd` `feat: add server-side ai key settings`
 - `e15eaa0` `feat: add http mode for simmersmith mcp`
@@ -75,31 +92,19 @@
 
 ## Changed Files In The Current Slice
 
-- `alembic/versions/20260330_0012_ingredient_catalog.py`
-- `app/api/ingredients.py`
-- `app/api/recipes.py`
-- `app/main.py`
-- `app/mcp_server.py`
-- `app/models.py`
-- `app/schemas.py`
-- `app/services/bootstrap.py`
-- `app/services/drafts.py`
-- `app/services/grocery.py`
-- `app/services/ingredient_catalog.py`
-- `app/services/nutrition.py`
-- `app/services/presenters.py`
-- `app/services/recipes.py`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeImportView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
 - `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
-- `tests/test_api.py`
-- `tests/test_grocery.py`
-- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the ingredient catalog foundation slice until the session-end commit is created
+- dirty during the native import UX and ingredient-review slice until the session-end commit is created
 
 ## Blockers
 
@@ -108,10 +113,10 @@
 
 ## Open Questions
 
-- How should the native recipe editor surface ingredient resolution review: inline per-row controls, a separate review sheet, or both?
+- When should the app offer “create new base ingredient” and “create variation” from the native ingredient review sheet?
+- Should the current sheet-based ingredient review remain the primary UX, or should we also add a dedicated bulk review queue screen for imports and groceries?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
 - When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
-- What should the top-level Recipes create/import IA be: separate import actions, a dedicated import hub, or a renamed create/import sheet?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
 - Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
 - Should the local bridge remain a dev-only helper script, or become a documented operator option for laptop-hosted MCP setups?
@@ -126,6 +131,11 @@ Latest completed validation for the ingredient catalog foundation slice:
 
 - `python3 -m compileall app tests alembic` -> passed
 - `.venv/bin/pytest tests/test_grocery.py tests/test_api.py -q` -> passed (`28 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the native import UX and ingredient review slice:
+
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 

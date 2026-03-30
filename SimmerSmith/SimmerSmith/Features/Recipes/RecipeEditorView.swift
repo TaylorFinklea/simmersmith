@@ -42,6 +42,420 @@ private enum ManagedRecipeField: String, Identifiable {
     }
 }
 
+private struct IngredientResolutionSheetContext: Identifiable {
+    let ingredientID: String
+    let ingredient: RecipeIngredient
+
+    var id: String { ingredientID }
+}
+
+private struct IngredientResolutionSummary: View {
+    let ingredient: RecipeIngredient
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                IngredientResolutionStatusBadge(status: ingredient.resolutionStatus)
+                if let baseName = ingredient.baseIngredientName, !baseName.isEmpty {
+                    Text(baseName)
+                        .font(.footnote.weight(.semibold))
+                } else {
+                    Text("No canonical ingredient selected")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let variationName = ingredient.ingredientVariationName, !variationName.isEmpty {
+                Text(variationName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if ingredient.resolutionStatus == "suggested" {
+                Text("Imported suggestions should be reviewed before shopping and nutrition rely on them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct IngredientResolutionStatusBadge: View {
+    let status: String
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.16), in: Capsule())
+            .foregroundStyle(color)
+    }
+
+    private var label: String {
+        switch status {
+        case "locked":
+            "Locked"
+        case "resolved":
+            "Resolved"
+        case "suggested":
+            "Suggested"
+        default:
+            "Unresolved"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case "locked":
+            .purple
+        case "resolved":
+            .green
+        case "suggested":
+            .orange
+        default:
+            .secondary
+        }
+    }
+}
+
+private struct IngredientResolutionSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let ingredient: RecipeIngredient
+    let onApply: (RecipeIngredient) -> Void
+
+    @State private var searchText: String
+    @State private var searchResults: [BaseIngredient] = []
+    @State private var selectedBaseIngredient: BaseIngredient?
+    @State private var suggestedResolution: IngredientResolution?
+    @State private var variations: [IngredientVariation] = []
+    @State private var selectedVariationID: String
+    @State private var lockToVariation: Bool
+    @State private var isLoadingSuggestion = false
+    @State private var isSearching = false
+    @State private var isLoadingVariations = false
+    @State private var errorMessage: String?
+    @State private var didLoad = false
+
+    init(
+        ingredient: RecipeIngredient,
+        onApply: @escaping (RecipeIngredient) -> Void
+    ) {
+        self.ingredient = ingredient
+        self.onApply = onApply
+        _searchText = State(initialValue: ingredient.baseIngredientName ?? ingredient.ingredientName)
+        _selectedVariationID = State(initialValue: ingredient.ingredientVariationId ?? "")
+        _lockToVariation = State(initialValue: ingredient.resolutionStatus == "locked")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Recipe Ingredient") {
+                    Text(ingredient.ingredientName)
+                    IngredientResolutionSummary(ingredient: currentPreviewIngredient)
+                }
+
+                if let suggestedResolution,
+                   let suggestedBaseName = suggestedResolution.baseIngredientName,
+                   !suggestedBaseName.isEmpty {
+                    Section("Suggested Match") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(suggestedBaseName)
+                                .font(.headline)
+                            if let variationName = suggestedResolution.ingredientVariationName,
+                               !variationName.isEmpty {
+                                Text(variationName)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Use this if it matches the generic ingredient the recipe is talking about.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Use Suggested Match") {
+                            Task { await applySuggestedMatch() }
+                        }
+                    }
+                }
+
+                Section("Find Canonical Ingredient") {
+                    TextField("Search ingredients", text: $searchText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+
+                    Button {
+                        Task { await searchIngredients() }
+                    } label: {
+                        HStack {
+                            if isSearching {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text("Search Catalog")
+                        }
+                    }
+                    .disabled(isSearching || searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if !searchResults.isEmpty {
+                        ForEach(searchResults) { baseIngredient in
+                            Button {
+                                Task { await selectBaseIngredient(baseIngredient) }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(baseIngredient.name)
+                                            .foregroundStyle(.primary)
+                                        if !baseIngredient.category.isEmpty {
+                                            Text(baseIngredient.category)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    if selectedBaseIngredient?.id == baseIngredient.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if let selectedBaseIngredient {
+                    Section("Selected Ingredient") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(selectedBaseIngredient.name)
+                                .font(.headline)
+                            if !selectedBaseIngredient.category.isEmpty {
+                                Text(selectedBaseIngredient.category)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !selectedBaseIngredient.defaultUnit.isEmpty {
+                                Text("Default unit: \(selectedBaseIngredient.defaultUnit)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Section("Product Variation") {
+                        if isLoadingVariations {
+                            ProgressView("Loading product matches…")
+                        } else if variations.isEmpty {
+                            Text("No specific product variations are stored yet. This ingredient can stay generic.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("Variation", selection: $selectedVariationID) {
+                                Text("Generic ingredient").tag("")
+                                ForEach(variations) { variation in
+                                    Text(variationLabel(for: variation)).tag(variation.id)
+                                }
+                            }
+
+                            if !selectedVariationID.isEmpty {
+                                Toggle("Lock this recipe to the selected product", isOn: $lockToVariation)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button("Clear Match", role: .destructive) {
+                        clearSelection()
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Ingredient Match")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Apply") {
+                        applySelection()
+                    }
+                }
+            }
+            .task {
+                guard !didLoad else { return }
+                didLoad = true
+                await loadInitialState()
+            }
+        }
+    }
+
+    private var currentPreviewIngredient: RecipeIngredient {
+        var updated = ingredient
+        updated.baseIngredientId = selectedBaseIngredient?.baseIngredientId
+        updated.baseIngredientName = selectedBaseIngredient?.name
+        if let selectedVariation = selectedVariation {
+            updated.ingredientVariationId = selectedVariation.ingredientVariationId
+            updated.ingredientVariationName = selectedVariation.name
+            updated.resolutionStatus = lockToVariation ? "locked" : "resolved"
+        } else if selectedBaseIngredient != nil {
+            updated.ingredientVariationId = nil
+            updated.ingredientVariationName = nil
+            updated.resolutionStatus = "resolved"
+        } else if let suggestedResolution {
+            updated.baseIngredientId = suggestedResolution.baseIngredientId
+            updated.baseIngredientName = suggestedResolution.baseIngredientName
+            updated.ingredientVariationId = suggestedResolution.ingredientVariationId
+            updated.ingredientVariationName = suggestedResolution.ingredientVariationName
+            updated.resolutionStatus = suggestedResolution.resolutionStatus
+        } else {
+            updated.baseIngredientId = nil
+            updated.baseIngredientName = nil
+            updated.ingredientVariationId = nil
+            updated.ingredientVariationName = nil
+            updated.resolutionStatus = "unresolved"
+        }
+        return updated
+    }
+
+    private var selectedVariation: IngredientVariation? {
+        variations.first(where: { $0.ingredientVariationId == selectedVariationID })
+    }
+
+    private func loadInitialState() async {
+        if let existingBaseName = ingredient.baseIngredientName, !existingBaseName.isEmpty {
+            searchText = existingBaseName
+        }
+        await searchIngredients()
+        if ingredient.baseIngredientId == nil {
+            await loadSuggestedResolution()
+        }
+    }
+
+    private func loadSuggestedResolution() async {
+        do {
+            isLoadingSuggestion = true
+            suggestedResolution = try await appState.resolveIngredient(ingredient)
+            if selectedBaseIngredient == nil,
+               let suggestedBaseID = suggestedResolution?.baseIngredientId {
+                if let matched = searchResults.first(where: { $0.baseIngredientId == suggestedBaseID }) {
+                    await selectBaseIngredient(matched)
+                } else if let suggestedBaseName = suggestedResolution?.baseIngredientName {
+                    searchText = suggestedBaseName
+                    await searchIngredients()
+                    if let matched = searchResults.first(where: { $0.baseIngredientId == suggestedBaseID }) {
+                        await selectBaseIngredient(matched)
+                    }
+                }
+                if let suggestedVariationID = suggestedResolution?.ingredientVariationId {
+                    selectedVariationID = suggestedVariationID
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoadingSuggestion = false
+    }
+
+    private func searchIngredients() async {
+        do {
+            isSearching = true
+            errorMessage = nil
+            searchResults = try await appState.searchBaseIngredients(
+                query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                limit: 20
+            )
+            if let existingBaseID = ingredient.baseIngredientId,
+               let matched = searchResults.first(where: { $0.baseIngredientId == existingBaseID }),
+               selectedBaseIngredient == nil {
+                await selectBaseIngredient(matched)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSearching = false
+    }
+
+    private func selectBaseIngredient(_ baseIngredient: BaseIngredient) async {
+        selectedBaseIngredient = baseIngredient
+        selectedVariationID = ingredient.ingredientVariationId ?? suggestedResolution?.ingredientVariationId ?? ""
+        lockToVariation = ingredient.resolutionStatus == "locked"
+        await loadVariations(for: baseIngredient.baseIngredientId)
+    }
+
+    private func loadVariations(for baseIngredientID: String) async {
+        do {
+            isLoadingVariations = true
+            variations = try await appState.fetchIngredientVariations(baseIngredientID: baseIngredientID)
+            if !selectedVariationID.isEmpty,
+               !variations.contains(where: { $0.ingredientVariationId == selectedVariationID }) {
+                selectedVariationID = ""
+                lockToVariation = false
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            variations = []
+        }
+        isLoadingVariations = false
+    }
+
+    private func applySuggestedMatch() async {
+        guard let suggestedResolution else { return }
+        if let baseIngredientID = suggestedResolution.baseIngredientId,
+           let matched = searchResults.first(where: { $0.baseIngredientId == baseIngredientID }) {
+            await selectBaseIngredient(matched)
+        }
+        selectedVariationID = suggestedResolution.ingredientVariationId ?? ""
+        lockToVariation = suggestedResolution.resolutionStatus == "locked"
+    }
+
+    private func clearSelection() {
+        selectedBaseIngredient = nil
+        selectedVariationID = ""
+        lockToVariation = false
+    }
+
+    private func applySelection() {
+        var updated = ingredient
+        if let selectedBaseIngredient {
+            updated.baseIngredientId = selectedBaseIngredient.baseIngredientId
+            updated.baseIngredientName = selectedBaseIngredient.name
+            updated.normalizedName = updated.normalizedName ?? selectedBaseIngredient.normalizedName
+            if let selectedVariation {
+                updated.ingredientVariationId = selectedVariation.ingredientVariationId
+                updated.ingredientVariationName = selectedVariation.name
+                updated.resolutionStatus = lockToVariation ? "locked" : "resolved"
+            } else {
+                updated.ingredientVariationId = nil
+                updated.ingredientVariationName = nil
+                updated.resolutionStatus = "resolved"
+            }
+        } else {
+            updated.baseIngredientId = nil
+            updated.baseIngredientName = nil
+            updated.ingredientVariationId = nil
+            updated.ingredientVariationName = nil
+            updated.resolutionStatus = "unresolved"
+        }
+        onApply(updated)
+        dismiss()
+    }
+
+    private func variationLabel(for variation: IngredientVariation) -> String {
+        if variation.brand.isEmpty {
+            return variation.name
+        }
+        return "\(variation.brand) • \(variation.name)"
+    }
+}
+
 struct RecipeEditorView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -64,6 +478,7 @@ struct RecipeEditorView: View {
     @State private var pendingManagedValue = ""
     @State private var pendingUnitIngredientID: String?
     @State private var isCreatingManagedValue = false
+    @State private var ingredientResolutionContext: IngredientResolutionSheetContext?
 
     init(
         title: String,
@@ -249,6 +664,22 @@ struct RecipeEditorView: View {
                             LabeledContent("Notes") {
                                 TextField("Optional", text: $ingredient.notes, axis: .vertical)
                                     .multilineTextAlignment(.trailing)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                IngredientResolutionSummary(ingredient: ingredient)
+                                Button {
+                                    ingredientResolutionContext = IngredientResolutionSheetContext(
+                                        ingredientID: ingredient.id,
+                                        ingredient: ingredient
+                                    )
+                                } label: {
+                                    Label(
+                                        ingredient.baseIngredientId == nil ? "Review ingredient match" : "Change ingredient match",
+                                        systemImage: "arrow.triangle.branch"
+                                    )
+                                }
+                                .font(.footnote)
                             }
 
                             HStack {
@@ -472,6 +903,11 @@ struct RecipeEditorView: View {
                     }
                 }
             }
+            .sheet(item: $ingredientResolutionContext) { context in
+                IngredientResolutionSheet(ingredient: context.ingredient) { updatedIngredient in
+                    replaceIngredient(id: context.ingredientID, with: updatedIngredient)
+                }
+            }
             .alert(
                 pendingManagedField?.title ?? "",
                 isPresented: Binding(
@@ -538,6 +974,13 @@ struct RecipeEditorView: View {
 
     private func removeIngredient(_ ingredientID: String) {
         draft.ingredients.removeAll { $0.id == ingredientID }
+    }
+
+    private func replaceIngredient(id ingredientID: String, with updatedIngredient: RecipeIngredient) {
+        guard let index = draft.ingredients.firstIndex(where: { $0.id == ingredientID }) else { return }
+        var ingredient = updatedIngredient
+        ingredient.ingredientId = draft.ingredients[index].ingredientId
+        draft.ingredients[index] = ingredient
     }
 
     private func addTag(_ tag: String) {
