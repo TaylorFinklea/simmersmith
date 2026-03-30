@@ -59,3 +59,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - SimmerSmith should not launch local Codex processes for Assistant turns.
 - MCP-backed Assistant execution connects to a user-managed remote MCP server over Streamable HTTP.
 - Assistant threads persist the external provider thread ID so Codex-backed conversations continue with `codex-reply` instead of restarting every turn.
+
+## 2026-03-30 - Local laptop MCP testing uses an explicit HTTP bridge, not app-owned Codex execution
+
+- The app runtime still supports only direct providers or MCP over Streamable HTTP.
+- For local development, a small helper bridge can expose `codex mcp-server` over Streamable HTTP so the backend can exercise the MCP path without saved provider keys.
+- This bridge is a developer/operator tool, not a return to local `codex exec` fallback inside the app server.

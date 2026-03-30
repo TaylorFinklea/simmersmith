@@ -88,9 +88,6 @@ async def run_codex_mcp(
         arguments: dict[str, object] = {"prompt": prompt}
         if thread_id:
             arguments["threadId"] = thread_id
-        else:
-            arguments["sandbox"] = "read-only"
-            arguments["approval-policy"] = "never"
 
         result = await session.call_tool(tool_name, arguments)
         if result.isError:
