@@ -90,3 +90,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The iOS app should not ask the operator to type model IDs manually.
 - The backend is responsible for discovering available models from the selected provider using the effective configured key.
 - The chosen model is stored server-side as profile state and read back as normal non-secret settings.
+
+## 2026-03-30 - After AI/MCP validation, the roadmap returns to import quality work
+
+- The current AI/MCP/provider-model discovery slice is validated enough to stop blocking the recipe roadmap.
+- The next active product phase is `Import quality lab`, followed by `Scan/photo/PDF import hardening`.
+- Remaining AI/MCP items are follow-up hardening and operator decisions, not blockers for resuming recipe-platform work.

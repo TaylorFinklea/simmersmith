@@ -6,6 +6,18 @@
 
 ## Recent Progress
 
+- Completed the AI/MCP validation pass and confirmed the live backend is healthy on the local token-protected server.
+- Verified the Assistant works end to end with the direct-provider path using the saved OpenAI key:
+  - `general` turns stream cleanly
+  - `recipe_creation` turns return a draft recipe artifact and do not auto-save
+- Verified provider-backed model discovery against the live backend:
+  - OpenAI model discovery returns a populated list
+  - the currently selected saved model resolves as `gpt-5.4-mini`
+- Verified the standard `simmersmith` MCP server from an external Codex session:
+  - `health` works
+  - recipe listing works
+- Re-verified the Streamable HTTP mode for the standard `simmersmith` MCP server with bearer-token auth.
+- The roadmap is now ready to move back to the next product phase: `Import quality lab`.
 - Added provider-backed model discovery for OpenAI and Anthropic so the iOS app can present a model picker instead of a freeform text field.
 - The native Settings screen now fetches available models for the selected direct provider from the backend and saves the chosen model server-side.
 - Direct-provider model selection is now resolved from server-side profile settings first, then environment defaults.
@@ -33,6 +45,8 @@
 
 ## Recent Commits
 
+- `e40d4e1` `feat: add provider model discovery`
+- `0b4a8fd` `feat: add server-side ai key settings`
 - `e15eaa0` `feat: add http mode for simmersmith mcp`
 - `7671198` `feat: add simmersmith mcp server`
 - `011a591` `feat: add local codex mcp bridge`
@@ -43,25 +57,13 @@
 
 ## Changed Files In The Current Slice
 
-- `app/api/ai.py`
-- `app/services/ai.py`
-- `app/services/assistant_ai.py`
-- `app/services/provider_models.py`
-- `app/main.py`
-- `app/schemas.py`
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
-- `tests/test_api.py`
-- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty with the provider model discovery slice until the current commit is created
+- clean before the docs closeout for this validation pass
 
 ## Blockers
 
@@ -120,6 +122,19 @@ Latest completed validation for the iOS AI key settings slice:
 Latest completed validation for the provider model discovery slice:
 
 - `python3 -m compileall app tests` -> passed
+- `.venv/bin/pytest tests/test_api.py -q` -> passed (`24 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the AI/MCP closeout pass:
+
+- `GET /api/health` -> passed
+- `GET /api/ai/providers/openai/models` -> passed, selected model `gpt-5.4-mini`, discovered models returned
+- live Assistant `general` turn over the API with the current OpenAI key -> passed
+- live Assistant `recipe_creation` turn over the API with the current OpenAI key -> passed with `assistant.recipe_draft`
+- `codex exec` using the stdio `simmersmith` MCP server -> passed (`health` + recipe listing)
+- `scripts/run_simmersmith_mcp.py --transport streamable-http ... --bearer-token test-token` + HTTP initialize request -> passed
+- `python3 -m compileall app tests alembic` -> passed
 - `.venv/bin/pytest tests/test_api.py -q` -> passed (`24 passed`)
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
