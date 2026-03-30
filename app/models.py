@@ -112,6 +112,99 @@ class NutritionItem(Base):
     )
 
 
+class BaseIngredient(Base):
+    __tablename__ = "base_ingredients"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    default_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    nutrition_reference_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nutrition_reference_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    calories: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    variations: Mapped[list["IngredientVariation"]] = relationship(
+        back_populates="base_ingredient",
+        cascade="all, delete-orphan",
+        order_by=lambda: IngredientVariation.name,
+    )
+    recipe_ingredients: Mapped[list["RecipeIngredient"]] = relationship(back_populates="base_ingredient")
+    week_meal_ingredients: Mapped[list["WeekMealIngredient"]] = relationship(back_populates="base_ingredient")
+    grocery_items: Mapped[list["GroceryItem"]] = relationship(back_populates="base_ingredient")
+    preferences: Mapped[list["IngredientPreference"]] = relationship(
+        back_populates="base_ingredient",
+        cascade="all, delete-orphan",
+    )
+
+
+class IngredientVariation(Base):
+    __tablename__ = "ingredient_variations"
+    __table_args__ = (UniqueConstraint("base_ingredient_id", "normalized_name", name="uq_variation_base_name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    base_ingredient_id: Mapped[str] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    brand: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    package_size_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    package_size_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    count_per_package: Mapped[float | None] = mapped_column(Float, nullable=True)
+    product_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    retailer_hint: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    nutrition_reference_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nutrition_reference_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    calories: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    base_ingredient: Mapped["BaseIngredient"] = relationship(back_populates="variations")
+    recipe_ingredients: Mapped[list["RecipeIngredient"]] = relationship(back_populates="ingredient_variation")
+    week_meal_ingredients: Mapped[list["WeekMealIngredient"]] = relationship(back_populates="ingredient_variation")
+    grocery_items: Mapped[list["GroceryItem"]] = relationship(back_populates="ingredient_variation")
+    preferences: Mapped[list["IngredientPreference"]] = relationship(back_populates="preferred_variation")
+
+
+class IngredientPreference(Base):
+    __tablename__ = "ingredient_preferences"
+    __table_args__ = (UniqueConstraint("base_ingredient_id", name="uq_ingredient_preference_base"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    base_ingredient_id: Mapped[str] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    preferred_variation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingredient_variations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    preferred_brand: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    choice_mode: Mapped[str] = mapped_column(String(32), default="preferred", nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    base_ingredient: Mapped["BaseIngredient"] = relationship(back_populates="preferences")
+    preferred_variation: Mapped["IngredientVariation | None"] = relationship(back_populates="preferences")
+
+
 class IngredientNutritionMatch(Base):
     __tablename__ = "ingredient_nutrition_matches"
     __table_args__ = (UniqueConstraint("normalized_ingredient_name", name="uq_ingredient_nutrition_match_name"),)
@@ -192,6 +285,16 @@ class RecipeIngredient(Base):
 
     id: Mapped[str] = mapped_column(String(140), primary_key=True)
     recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    base_ingredient_id: Mapped[str | None] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ingredient_variation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingredient_variations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     ingredient_name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -199,12 +302,15 @@ class RecipeIngredient(Base):
     prep: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     category: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    resolution_status: Mapped[str] = mapped_column(String(24), default="unresolved", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
     recipe: Mapped["Recipe"] = relationship(back_populates="ingredients")
+    base_ingredient: Mapped["BaseIngredient | None"] = relationship(back_populates="recipe_ingredients")
+    ingredient_variation: Mapped["IngredientVariation | None"] = relationship(back_populates="recipe_ingredients")
 
 
 class RecipeStep(Base):
@@ -318,6 +424,16 @@ class WeekMealIngredient(Base):
 
     id: Mapped[str] = mapped_column(String(140), primary_key=True)
     week_meal_id: Mapped[str] = mapped_column(ForeignKey("week_meals.id", ondelete="CASCADE"), nullable=False)
+    base_ingredient_id: Mapped[str | None] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ingredient_variation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingredient_variations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     ingredient_name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -325,12 +441,15 @@ class WeekMealIngredient(Base):
     prep: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     category: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    resolution_status: Mapped[str] = mapped_column(String(24), default="unresolved", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
     week_meal: Mapped["WeekMeal"] = relationship(back_populates="inline_ingredients")
+    base_ingredient: Mapped["BaseIngredient | None"] = relationship(back_populates="week_meal_ingredients")
+    ingredient_variation: Mapped["IngredientVariation | None"] = relationship(back_populates="week_meal_ingredients")
 
 
 class GroceryItem(Base):
@@ -338,6 +457,16 @@ class GroceryItem(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     week_id: Mapped[str] = mapped_column(ForeignKey("weeks.id", ondelete="CASCADE"), nullable=False)
+    base_ingredient_id: Mapped[str | None] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ingredient_variation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingredient_variations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     ingredient_name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     total_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -347,12 +476,15 @@ class GroceryItem(Base):
     source_meals: Mapped[str] = mapped_column(Text, default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     review_flag: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    resolution_status: Mapped[str] = mapped_column(String(24), default="unresolved", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
     week: Mapped["Week"] = relationship(back_populates="grocery_items")
+    base_ingredient: Mapped["BaseIngredient | None"] = relationship(back_populates="grocery_items")
+    ingredient_variation: Mapped["IngredientVariation | None"] = relationship(back_populates="grocery_items")
     retailer_prices: Mapped[list["RetailerPrice"]] = relationship(
         back_populates="grocery_item",
         cascade="all, delete-orphan",

@@ -102,3 +102,19 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The current import UI buries camera/photo/PDF import under the `Import from URL` action, which is misleading.
 - The next active phase should treat recipe import as one cohesive workflow covering discoverability, UX, fixtures, and parser hardening.
 - Import UX and hardening now takes precedence over the next AI feature slice.
+
+## 2026-03-30 - Recipe ingredients keep human text but now resolve to canonical ingredient identity
+
+- Recipe, inline meal, and grocery ingredient rows should preserve their human-readable text fields for fidelity and editing.
+- The app should attach canonical ingredient identity alongside that text using `base_ingredient_id`, optional `ingredient_variation_id`, and `resolution_status`.
+- Grocery, nutrition, and preference logic should prefer canonical ingredient identity and only fall back to raw strings when no safe resolution exists.
+
+## 2026-03-30 - Household ingredient preferences resolve groceries unless a recipe explicitly locks a product
+
+- Structured ingredient preferences now live on canonical base ingredients instead of string-only brand or ingredient signals.
+- Grocery resolution precedence is:
+  1. locked recipe variation
+  2. household preferred variation / brand
+  3. resolved recipe variation
+  4. base ingredient only
+- This lets recipes stay generic while still turning grocery output into the right household-specific product choice.

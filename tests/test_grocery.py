@@ -5,6 +5,7 @@ from datetime import date
 from app.db import session_scope
 from app.schemas import DraftFromAIRequest, MealDraftPayload, RecipeIngredientPayload, RecipePayload
 from app.services.drafts import apply_ai_draft
+from app.services.ingredient_catalog import create_or_update_variation, ensure_base_ingredient, upsert_ingredient_preference
 from app.services.weeks import create_or_get_week, get_week
 
 
@@ -89,3 +90,71 @@ def test_inline_meal_ingredients_flow_into_grocery_rows() -> None:
 
     assert refreshed is not None
     assert {item.ingredient_name for item in refreshed.grocery_items} == {"Apples", "Cheddar"}
+
+
+def test_grocery_resolution_prefers_structured_variation_for_base_ingredient() -> None:
+    with session_scope() as session:
+        biscuits = ensure_base_ingredient(
+            session,
+            name="Refrigerated biscuits",
+            normalized_name="refrigerated biscuits",
+            category="Refrigerated",
+            default_unit="can",
+        )
+        pillsbury = create_or_update_variation(
+            session,
+            base_ingredient_id=biscuits.id,
+            name="Pillsbury refrigerated biscuits",
+            brand="Pillsbury",
+            package_size_unit="can",
+            calories=150,
+            nutrition_reference_amount=1,
+            nutrition_reference_unit="ea",
+        )
+        upsert_ingredient_preference(
+            session,
+            base_ingredient_id=biscuits.id,
+            preferred_variation_id=pillsbury.id,
+            choice_mode="preferred",
+        )
+
+        week = create_or_get_week(session, date(2026, 3, 30), "biscuits preference")
+        payload = DraftFromAIRequest(
+            prompt="Breakfast test",
+            recipes=[
+                RecipePayload(
+                    recipe_id="biscuit-breakfast",
+                    name="Biscuit Breakfast",
+                    meal_type="breakfast",
+                    servings=4,
+                    ingredients=[
+                        RecipeIngredientPayload(
+                            ingredient_name="refrigerated biscuits",
+                            quantity=1,
+                            unit="can",
+                            category="Refrigerated",
+                        )
+                    ],
+                )
+            ],
+            meal_plan=[
+                MealDraftPayload(
+                    day_name="Tuesday",
+                    meal_date=date(2026, 3, 31),
+                    slot="breakfast",
+                    recipe_id="biscuit-breakfast",
+                    recipe_name="Biscuit Breakfast",
+                    servings=4,
+                )
+            ],
+        )
+        apply_ai_draft(session, week, payload)
+        refreshed = get_week(session, week.id)
+
+    assert refreshed is not None
+    assert len(refreshed.grocery_items) == 1
+    item = refreshed.grocery_items[0]
+    assert item.base_ingredient_id == biscuits.id
+    assert item.ingredient_variation_id == pillsbury.id
+    assert item.ingredient_name == "Pillsbury refrigerated biscuits"
+    assert item.resolution_status == "resolved"

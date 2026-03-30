@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from app.api.ai import router as ai_router
 from app.api.assistant import router as assistant_router
 from app.api.exports import router as exports_router
+from app.api.ingredients import preferences_router as ingredient_preferences_router
+from app.api.ingredients import router as ingredients_router
 from app.api.preferences import router as preferences_router
 from app.api.profile import router as profile_router
 from app.api.recipes import router as recipes_router
@@ -39,6 +41,8 @@ app.include_router(ai_router, dependencies=protected_dependencies)
 app.include_router(assistant_router, dependencies=protected_dependencies)
 app.include_router(preferences_router, dependencies=protected_dependencies)
 app.include_router(exports_router, dependencies=protected_dependencies)
+app.include_router(ingredients_router, dependencies=protected_dependencies)
+app.include_router(ingredient_preferences_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
 app.include_router(recipes_router, dependencies=protected_dependencies)
 app.include_router(weeks_router, dependencies=protected_dependencies)

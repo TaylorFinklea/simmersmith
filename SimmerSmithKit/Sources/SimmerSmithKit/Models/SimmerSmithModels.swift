@@ -175,6 +175,11 @@ public struct RecipeIngredient: Codable, Identifiable, Hashable, Sendable {
     public var ingredientId: String?
     public var ingredientName: String
     public var normalizedName: String?
+    public var baseIngredientId: String?
+    public var baseIngredientName: String?
+    public var ingredientVariationId: String?
+    public var ingredientVariationName: String?
+    public var resolutionStatus: String
     public var quantity: Double?
     public var unit: String
     public var prep: String
@@ -189,6 +194,11 @@ public struct RecipeIngredient: Codable, Identifiable, Hashable, Sendable {
         ingredientId: String? = nil,
         ingredientName: String,
         normalizedName: String? = nil,
+        baseIngredientId: String? = nil,
+        baseIngredientName: String? = nil,
+        ingredientVariationId: String? = nil,
+        ingredientVariationName: String? = nil,
+        resolutionStatus: String = "unresolved",
         quantity: Double? = nil,
         unit: String = "",
         prep: String = "",
@@ -198,11 +208,49 @@ public struct RecipeIngredient: Codable, Identifiable, Hashable, Sendable {
         self.ingredientId = ingredientId
         self.ingredientName = ingredientName
         self.normalizedName = normalizedName
+        self.baseIngredientId = baseIngredientId
+        self.baseIngredientName = baseIngredientName
+        self.ingredientVariationId = ingredientVariationId
+        self.ingredientVariationName = ingredientVariationName
+        self.resolutionStatus = resolutionStatus
         self.quantity = quantity
         self.unit = unit
         self.prep = prep
         self.category = category
         self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ingredientId
+        case ingredientName
+        case normalizedName
+        case baseIngredientId
+        case baseIngredientName
+        case ingredientVariationId
+        case ingredientVariationName
+        case resolutionStatus
+        case quantity
+        case unit
+        case prep
+        case category
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ingredientId = try container.decodeIfPresent(String.self, forKey: .ingredientId)
+        ingredientName = try container.decode(String.self, forKey: .ingredientName)
+        normalizedName = try container.decodeIfPresent(String.self, forKey: .normalizedName)
+        baseIngredientId = try container.decodeIfPresent(String.self, forKey: .baseIngredientId)
+        baseIngredientName = try container.decodeIfPresent(String.self, forKey: .baseIngredientName)
+        ingredientVariationId = try container.decodeIfPresent(String.self, forKey: .ingredientVariationId)
+        ingredientVariationName = try container.decodeIfPresent(String.self, forKey: .ingredientVariationName)
+        resolutionStatus = try container.decodeIfPresent(String.self, forKey: .resolutionStatus) ?? "unresolved"
+        quantity = try container.decodeIfPresent(Double.self, forKey: .quantity)
+        unit = try container.decodeIfPresent(String.self, forKey: .unit) ?? ""
+        prep = try container.decodeIfPresent(String.self, forKey: .prep) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
     }
 }
 
@@ -629,6 +677,11 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
     public let groceryItemId: String
     public let ingredientName: String
     public let normalizedName: String
+    public let baseIngredientId: String?
+    public let baseIngredientName: String?
+    public let ingredientVariationId: String?
+    public let ingredientVariationName: String?
+    public let resolutionStatus: String
     public let totalQuantity: Double?
     public let unit: String
     public let quantityText: String
@@ -640,6 +693,47 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
     public let retailerPrices: [RetailerPrice]
 
     public var id: String { groceryItemId }
+
+    enum CodingKeys: String, CodingKey {
+        case groceryItemId
+        case ingredientName
+        case normalizedName
+        case baseIngredientId
+        case baseIngredientName
+        case ingredientVariationId
+        case ingredientVariationName
+        case resolutionStatus
+        case totalQuantity
+        case unit
+        case quantityText
+        case category
+        case sourceMeals
+        case notes
+        case reviewFlag
+        case updatedAt
+        case retailerPrices
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groceryItemId = try container.decode(String.self, forKey: .groceryItemId)
+        ingredientName = try container.decode(String.self, forKey: .ingredientName)
+        normalizedName = try container.decode(String.self, forKey: .normalizedName)
+        baseIngredientId = try container.decodeIfPresent(String.self, forKey: .baseIngredientId)
+        baseIngredientName = try container.decodeIfPresent(String.self, forKey: .baseIngredientName)
+        ingredientVariationId = try container.decodeIfPresent(String.self, forKey: .ingredientVariationId)
+        ingredientVariationName = try container.decodeIfPresent(String.self, forKey: .ingredientVariationName)
+        resolutionStatus = try container.decodeIfPresent(String.self, forKey: .resolutionStatus) ?? "unresolved"
+        totalQuantity = try container.decodeIfPresent(Double.self, forKey: .totalQuantity)
+        unit = try container.decodeIfPresent(String.self, forKey: .unit) ?? ""
+        quantityText = try container.decodeIfPresent(String.self, forKey: .quantityText) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        sourceMeals = try container.decodeIfPresent(String.self, forKey: .sourceMeals) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        reviewFlag = try container.decodeIfPresent(String.self, forKey: .reviewFlag) ?? ""
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        retailerPrices = try container.decodeIfPresent([RetailerPrice].self, forKey: .retailerPrices) ?? []
+    }
 }
 
 public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {

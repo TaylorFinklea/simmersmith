@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import GroceryItem, Recipe, RecipeIngredient, Staple, Week, WeekMeal, WeekMealIngredient
+from app.services.ingredient_catalog import choice_for_base_ingredient
 from app.services.weeks import invalidate_week
 
 
@@ -159,12 +160,21 @@ def build_grocery_rows_for_week(session: Session, week: Week) -> list[dict[str, 
             unit = normalize_unit(ingredient.unit)
             quantity = ingredient.quantity * factor if ingredient.quantity is not None else None
             quantity_text = "" if quantity is not None else ""
-            key = (normalized, unit, quantity_text)
+            locked_variation_id = (
+                ingredient.ingredient_variation_id
+                if getattr(ingredient, "resolution_status", "") == "locked"
+                else ""
+            )
+            base_key = getattr(ingredient, "base_ingredient_id", "") or normalized
+            key = (base_key, locked_variation_id, unit, quantity_text)
             bucket = aggregations.get(key)
             if bucket is None:
                 bucket = {
                     "ingredient_name": ingredient_name,
                     "normalized_name": normalized,
+                    "base_ingredient_id": getattr(ingredient, "base_ingredient_id", None),
+                    "ingredient_variation_id": getattr(ingredient, "ingredient_variation_id", None),
+                    "resolution_status": getattr(ingredient, "resolution_status", "unresolved"),
                     "total_quantity": 0.0 if quantity is not None else None,
                     "unit": unit,
                     "quantity_text": "",
@@ -191,20 +201,48 @@ def build_grocery_rows_for_week(session: Session, week: Week) -> list[dict[str, 
 
     rows = []
     for bucket in aggregations.values():
+        base, chosen_variation, chosen_status = choice_for_base_ingredient(
+            session,
+            base_ingredient_id=bucket.get("base_ingredient_id"),
+            recipe_variation_id=bucket.get("ingredient_variation_id"),
+            recipe_resolution_status=str(bucket.get("resolution_status") or "unresolved"),
+        )
+        ingredient_name = (
+            chosen_variation.name
+            if chosen_variation is not None
+            else base.name
+            if base is not None
+            else bucket["ingredient_name"]
+        )
+        normalized_name = (
+            chosen_variation.normalized_name
+            if chosen_variation is not None
+            else base.normalized_name
+            if base is not None
+            else bucket["normalized_name"]
+        )
         total_quantity = bucket["total_quantity"]
         if isinstance(total_quantity, float):
             total_quantity = round(total_quantity, 2)
+        review_flag = bucket["review_flag"]
+        if base is None:
+            review_flag = review_flag or "ingredient review"
         rows.append(
             {
-                "ingredient_name": bucket["ingredient_name"],
-                "normalized_name": bucket["normalized_name"],
+                "ingredient_name": ingredient_name,
+                "normalized_name": normalized_name,
+                "base_ingredient_id": base.id if base is not None else None,
+                "base_ingredient_name": base.name if base is not None else None,
+                "ingredient_variation_id": chosen_variation.id if chosen_variation is not None else None,
+                "ingredient_variation_name": chosen_variation.name if chosen_variation is not None else None,
+                "resolution_status": chosen_status,
                 "total_quantity": total_quantity,
                 "unit": bucket["unit"],
                 "quantity_text": bucket["quantity_text"],
                 "category": bucket["category"],
                 "source_meals": "; ".join(sorted(bucket["source_meals"])),
                 "notes": "; ".join(sorted(bucket["notes"])),
-                "review_flag": bucket["review_flag"],
+                "review_flag": review_flag,
             }
         )
     rows.sort(key=lambda row: ((row.get("category") or "").lower(), row["ingredient_name"].lower()))
@@ -221,6 +259,8 @@ def regenerate_grocery_for_week(session: Session, week: Week) -> list[GroceryIte
     for row in rows:
         grocery_item = GroceryItem(
             week_id=week.id,
+            base_ingredient_id=row["base_ingredient_id"],
+            ingredient_variation_id=row["ingredient_variation_id"],
             ingredient_name=row["ingredient_name"],
             normalized_name=row["normalized_name"],
             total_quantity=row["total_quantity"],
@@ -230,6 +270,7 @@ def regenerate_grocery_for_week(session: Session, week: Week) -> list[GroceryIte
             source_meals=row["source_meals"],
             notes=row["notes"],
             review_flag=row["review_flag"],
+            resolution_status=row["resolution_status"],
         )
         session.add(grocery_item)
         created.append(grocery_item)

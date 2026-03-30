@@ -21,6 +21,7 @@ from app.models import (
 from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
 from app.services.change_history import ai_baseline_changes, build_change_event, record_change_batch
 from app.services.grocery import normalize_name, regenerate_grocery_for_week
+from app.services.ingredient_catalog import resolve_ingredient, resolve_ingredient_payloads
 from app.services.managed_lists import sync_items
 from app.services.recipe_templates import default_template, get_template
 from app.services.recipes import (
@@ -107,6 +108,11 @@ def ingredient_payloads(payload: RecipePayload, session: Session | None = None) 
             "ingredient_id": ingredient.ingredient_id,
             "ingredient_name": ingredient.ingredient_name,
             "normalized_name": ingredient.normalized_name or normalize_name(ingredient.ingredient_name),
+            "base_ingredient_id": ingredient.base_ingredient_id,
+            "base_ingredient_name": ingredient.base_ingredient_name,
+            "ingredient_variation_id": ingredient.ingredient_variation_id,
+            "ingredient_variation_name": ingredient.ingredient_variation_name,
+            "resolution_status": ingredient.resolution_status,
             "quantity": ingredient.quantity,
             "unit": ingredient.unit,
             "prep": ingredient.prep,
@@ -124,6 +130,7 @@ def ingredient_payloads(payload: RecipePayload, session: Session | None = None) 
             canonical_units = sync_items(session, "unit", [unit])
             if canonical_units:
                 ingredient["unit"] = canonical_units[0]
+        normalized_ingredients = resolve_ingredient_payloads(session, normalized_ingredients)
     return normalized_ingredients
 
 
@@ -247,6 +254,8 @@ def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
             RecipeIngredient(
                 id=ingredient_id,
                 recipe_id=recipe.id,
+                base_ingredient_id=str(ingredient.get("base_ingredient_id") or "") or None,
+                ingredient_variation_id=str(ingredient.get("ingredient_variation_id") or "") or None,
                 ingredient_name=str(ingredient["ingredient_name"]),
                 normalized_name=str(ingredient["normalized_name"]),
                 quantity=ingredient["quantity"],
@@ -254,6 +263,7 @@ def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
                 prep=str(ingredient["prep"]),
                 category=str(ingredient["category"]),
                 notes=str(ingredient["notes"]),
+                resolution_status=str(ingredient.get("resolution_status") or "unresolved"),
             )
         )
     for step_record in flattened_step_records(recipe.id, step_payloads):
@@ -317,17 +327,33 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
         session.flush()
 
         for index, ingredient in enumerate(meal.ingredients, start=1):
+            resolved = resolve_ingredient(
+                session,
+                ingredient_name=ingredient.ingredient_name,
+                normalized_name=ingredient.normalized_name,
+                quantity=ingredient.quantity,
+                unit=ingredient.unit,
+                prep=ingredient.prep,
+                category=ingredient.category,
+                notes=ingredient.notes,
+                base_ingredient_id=ingredient.base_ingredient_id,
+                ingredient_variation_id=ingredient.ingredient_variation_id,
+                resolution_status=ingredient.resolution_status,
+            )
             session.add(
                 WeekMealIngredient(
                     id=inline_ingredient_id(week_meal.id, index),
                     week_meal_id=week_meal.id,
-                    ingredient_name=ingredient.ingredient_name,
-                    normalized_name=ingredient.normalized_name or normalize_name(ingredient.ingredient_name),
-                    quantity=ingredient.quantity,
-                    unit=ingredient.unit,
-                    prep=ingredient.prep,
-                    category=ingredient.category,
-                    notes=ingredient.notes,
+                    base_ingredient_id=resolved.base_ingredient_id,
+                    ingredient_variation_id=resolved.ingredient_variation_id,
+                    ingredient_name=resolved.ingredient_name,
+                    normalized_name=resolved.normalized_name,
+                    quantity=resolved.quantity,
+                    unit=resolved.unit,
+                    prep=resolved.prep,
+                    category=resolved.category,
+                    notes=resolved.notes,
+                    resolution_status=resolved.resolution_status,
                 )
             )
 

@@ -37,11 +37,14 @@ def get_recipe(session: Session, recipe_id: str) -> Recipe | None:
         .where(Recipe.id == recipe_id)
         .options(
             selectinload(Recipe.recipe_template),
-            selectinload(Recipe.ingredients),
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.steps),
-            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients),
+            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.base_recipe).selectinload(Recipe.steps),
-            selectinload(Recipe.variants).selectinload(Recipe.ingredients),
+            selectinload(Recipe.variants).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.variants).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.variants).selectinload(Recipe.steps),
         )
     )
@@ -53,11 +56,14 @@ def list_recipes(session: Session, include_archived: bool = False) -> list[Recip
         select(Recipe)
         .options(
             selectinload(Recipe.recipe_template),
-            selectinload(Recipe.ingredients),
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.steps),
-            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients),
+            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.base_recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.base_recipe).selectinload(Recipe.steps),
-            selectinload(Recipe.variants).selectinload(Recipe.ingredients),
+            selectinload(Recipe.variants).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
+            selectinload(Recipe.variants).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.ingredient_variation),
             selectinload(Recipe.variants).selectinload(Recipe.steps),
         )
         .order_by(Recipe.name)
@@ -145,6 +151,13 @@ def ingredient_payload(ingredient: RecipeIngredient) -> dict[str, object]:
         "ingredient_id": ingredient.id,
         "ingredient_name": ingredient.ingredient_name,
         "normalized_name": ingredient.normalized_name,
+        "base_ingredient_id": ingredient.base_ingredient_id,
+        "base_ingredient_name": ingredient.base_ingredient.name if ingredient.base_ingredient is not None else None,
+        "ingredient_variation_id": ingredient.ingredient_variation_id,
+        "ingredient_variation_name": (
+            ingredient.ingredient_variation.name if ingredient.ingredient_variation is not None else None
+        ),
+        "resolution_status": ingredient.resolution_status,
         "quantity": ingredient.quantity,
         "unit": ingredient.unit,
         "prep": ingredient.prep,

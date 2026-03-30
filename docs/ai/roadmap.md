@@ -21,6 +21,8 @@ This file is the durable roadmap source of truth for AI assistants working in th
 ## Near-Term Sequence
 
 1. Recipe import UX and hardening
+   - canonical ingredient catalog and recipe-ingredient resolution foundation
+   - import/editor review UX for unresolved ingredients and household product preferences
 2. AI recipe suggestions
 3. Recipe companion suggestions
 4. Central Assistant tab and conversational recipe creation
@@ -52,6 +54,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - Keep the Assistant as a first-class product surface, not a buried action sheet.
 - Support conversational AI through direct provider APIs or a real remote MCP execution path; do not rely on local `codex exec` fallback.
 - Treat recipe import as a first-class workflow in the Recipes product surface, not as a sub-option hidden under URL import.
+- Keep recipe ingredient text for fidelity, but attach canonical ingredient identity so groceries, nutrition, and preferences do not rely on raw strings alone.
 - Do not let the web app roadmap displace the iOS-first product direction.
 - Keep shared docs updated at session end.
 

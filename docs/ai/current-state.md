@@ -6,6 +6,19 @@
 
 ## Recent Progress
 
+- Added the canonical ingredient catalog foundation under the active `Recipe import UX and hardening` roadmap milestone.
+- New backend domain model:
+  - `base_ingredients`
+  - `ingredient_variations`
+  - `ingredient_preferences`
+- Extended recipe ingredients, inline week-meal ingredients, and grocery items with:
+  - `base_ingredient_id`
+  - `ingredient_variation_id`
+  - `resolution_status`
+- Recipe save/import and inline meal creation now resolve ingredient rows against the catalog while preserving the original recipe-facing text fields.
+- Grocery generation now resolves through canonical ingredient identity and structured ingredient preferences before falling back to raw-string behavior.
+- Nutrition now prefers variation nutrition overrides, then base ingredient nutrition, then the legacy string-matching fallback.
+- Added ingredient catalog HTTP APIs and matching MCP tools so external AI clients can operate the same ingredient system as the app.
 - Confirmed the current iOS import information architecture is misleading:
   - `Recipes` -> `Create` -> `Import from URL` opens the shared import sheet
   - that sheet also contains camera scan, photo import, and PDF import actions
@@ -49,6 +62,7 @@
 
 ## Recent Commits
 
+- `pending` ingredient catalog foundation commit not created yet in this session
 - `e40d4e1` `feat: add provider model discovery`
 - `0b4a8fd` `feat: add server-side ai key settings`
 - `e15eaa0` `feat: add http mode for simmersmith mcp`
@@ -61,13 +75,31 @@
 
 ## Changed Files In The Current Slice
 
+- `alembic/versions/20260330_0012_ingredient_catalog.py`
+- `app/api/ingredients.py`
+- `app/api/recipes.py`
+- `app/main.py`
+- `app/mcp_server.py`
+- `app/models.py`
+- `app/schemas.py`
+- `app/services/bootstrap.py`
+- `app/services/drafts.py`
+- `app/services/grocery.py`
+- `app/services/ingredient_catalog.py`
+- `app/services/nutrition.py`
+- `app/services/presenters.py`
+- `app/services/recipes.py`
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `tests/test_api.py`
+- `tests/test_grocery.py`
+- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- clean before the docs closeout for this validation pass
+- dirty during the ingredient catalog foundation slice until the session-end commit is created
 
 ## Blockers
 
@@ -76,6 +108,9 @@
 
 ## Open Questions
 
+- How should the native recipe editor surface ingredient resolution review: inline per-row controls, a separate review sheet, or both?
+- Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
+- When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
 - What should the top-level Recipes create/import IA be: separate import actions, a dedicated import hub, or a renamed create/import sheet?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
 - Do we want a user-facing server settings surface for MCP configuration later, or keep MCP transport config server-side only?
@@ -86,6 +121,13 @@
 - Should we filter the discovered OpenAI model list more aggressively to only reasoning/chat models we explicitly support, or keep the broader provider-visible list?
 
 ## Validation / Test Status
+
+Latest completed validation for the ingredient catalog foundation slice:
+
+- `python3 -m compileall app tests alembic` -> passed
+- `.venv/bin/pytest tests/test_grocery.py tests/test_api.py -q` -> passed (`28 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 Latest completed validation for the direct/MCP execution refactor:
 

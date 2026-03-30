@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import IngredientNutritionMatch, NutritionItem
+from app.models import BaseIngredient, IngredientNutritionMatch, IngredientVariation, NutritionItem
 from app.services.grocery import normalize_name
 
 
@@ -80,6 +80,38 @@ def nutrition_item_payload(item: NutritionItem) -> dict[str, object]:
         "calories": item.calories,
         "notes": item.notes,
     }
+
+
+def _calories_for_reference(
+    quantity: float | None,
+    unit: str,
+    *,
+    reference_amount: float | None,
+    reference_unit: str,
+    calories: float | None,
+) -> float | None:
+    if calories is None:
+        return None
+    if quantity is None or quantity <= 0:
+        return None
+    if reference_amount is None or reference_amount <= 0:
+        return None
+    recipe_unit = normalize_name(unit)
+    normalized_reference_unit = normalize_name(reference_unit)
+    if recipe_unit == normalized_reference_unit:
+        factor = quantity / reference_amount
+        return round(calories * factor, 2)
+
+    recipe_group = _unit_group(recipe_unit)
+    reference_group = _unit_group(normalized_reference_unit)
+    if recipe_group and reference_group and recipe_group[0] == reference_group[0]:
+        base_quantity = quantity * recipe_group[1]
+        reference_quantity = reference_amount * reference_group[1]
+        if reference_quantity <= 0:
+            return None
+        factor = base_quantity / reference_quantity
+        return round(calories * factor, 2)
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -193,23 +225,46 @@ def _unit_group(unit: str) -> tuple[str, float] | None:
 
 
 def _calories_for_item(quantity: float | None, unit: str, item: NutritionItem) -> float | None:
-    if quantity is None or quantity <= 0:
-        return None
-    recipe_unit = normalize_name(unit)
-    reference_unit = normalize_name(item.reference_unit)
-    if recipe_unit == reference_unit:
-        factor = quantity / item.reference_amount
-        return round(item.calories * factor, 2)
+    return _calories_for_reference(
+        quantity,
+        unit,
+        reference_amount=item.reference_amount,
+        reference_unit=item.reference_unit,
+        calories=item.calories,
+    )
 
-    recipe_group = _unit_group(recipe_unit)
-    reference_group = _unit_group(reference_unit)
-    if recipe_group and reference_group and recipe_group[0] == reference_group[0]:
-        base_quantity = quantity * recipe_group[1]
-        reference_quantity = item.reference_amount * reference_group[1]
-        if reference_quantity <= 0:
-            return None
-        factor = base_quantity / reference_quantity
-        return round(item.calories * factor, 2)
+
+def _lookup_catalog_calories(
+    session: Session,
+    *,
+    base_ingredient_id: str | None,
+    ingredient_variation_id: str | None,
+    quantity: float | None,
+    unit: str,
+) -> float | None:
+    if ingredient_variation_id:
+        variation = session.get(IngredientVariation, ingredient_variation_id)
+        if variation is not None:
+            calories = _calories_for_reference(
+                quantity,
+                unit,
+                reference_amount=variation.nutrition_reference_amount,
+                reference_unit=variation.nutrition_reference_unit,
+                calories=variation.calories,
+            )
+            if calories is not None:
+                return calories
+            base_ingredient_id = variation.base_ingredient_id
+    if base_ingredient_id:
+        base = session.get(BaseIngredient, base_ingredient_id)
+        if base is not None:
+            return _calories_for_reference(
+                quantity,
+                unit,
+                reference_amount=base.nutrition_reference_amount,
+                reference_unit=base.nutrition_reference_unit,
+                calories=base.calories,
+            )
     return None
 
 
@@ -248,8 +303,16 @@ def calculate_recipe_nutrition(
         except (TypeError, ValueError):
             quantity_value = None
         unit = str(ingredient.get("unit") or "").strip()
-        item = _lookup_nutrition_item(session, ingredient_name, normalized_name)
-        calories = _calories_for_item(quantity_value, unit, item) if item is not None else None
+        calories = _lookup_catalog_calories(
+            session,
+            base_ingredient_id=str(ingredient.get("base_ingredient_id") or "") or None,
+            ingredient_variation_id=str(ingredient.get("ingredient_variation_id") or "") or None,
+            quantity=quantity_value,
+            unit=unit,
+        )
+        if calories is None:
+            item = _lookup_nutrition_item(session, ingredient_name, normalized_name)
+            calories = _calories_for_item(quantity_value, unit, item) if item is not None else None
         if calories is None:
             key = normalized_name or normalize_name(ingredient_name)
             if ingredient_name and key not in seen_unmatched:

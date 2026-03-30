@@ -158,6 +158,17 @@ def week_payload(week: Week | None) -> dict[str, object] | None:
                         "ingredient_id": ingredient.id,
                         "ingredient_name": ingredient.ingredient_name,
                         "normalized_name": ingredient.normalized_name,
+                        "base_ingredient_id": ingredient.base_ingredient_id,
+                        "base_ingredient_name": (
+                            ingredient.base_ingredient.name if ingredient.base_ingredient is not None else None
+                        ),
+                        "ingredient_variation_id": ingredient.ingredient_variation_id,
+                        "ingredient_variation_name": (
+                            ingredient.ingredient_variation.name
+                            if ingredient.ingredient_variation is not None
+                            else None
+                        ),
+                        "resolution_status": ingredient.resolution_status,
                         "quantity": ingredient.quantity,
                         "unit": ingredient.unit,
                         "prep": ingredient.prep,
@@ -174,6 +185,13 @@ def week_payload(week: Week | None) -> dict[str, object] | None:
                 "grocery_item_id": item.id,
                 "ingredient_name": item.ingredient_name,
                 "normalized_name": item.normalized_name,
+                "base_ingredient_id": item.base_ingredient_id,
+                "base_ingredient_name": item.base_ingredient.name if item.base_ingredient is not None else None,
+                "ingredient_variation_id": item.ingredient_variation_id,
+                "ingredient_variation_name": (
+                    item.ingredient_variation.name if item.ingredient_variation is not None else None
+                ),
+                "resolution_status": item.resolution_status,
                 "total_quantity": item.total_quantity,
                 "unit": item.unit,
                 "quantity_text": item.quantity_text,

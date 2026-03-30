@@ -16,6 +16,7 @@ from app.schemas import (
     NutritionSummaryOut,
     RecipeImportRequest,
     RecipeAIOptionsOut,
+    RecipeIngredientPayload,
     RecipeMetadataOut,
     RecipeOut,
     RecipePayload,
@@ -27,6 +28,7 @@ from app.schemas import (
 )
 from app.services.ai import profile_settings_map, resolve_ai_execution_target
 from app.services.drafts import upsert_recipe
+from app.services.ingredient_catalog import resolve_ingredient
 from app.services.managed_lists import create_item, metadata_payload
 from app.services.nutrition import (
     calculate_recipe_nutrition,
@@ -45,6 +47,25 @@ router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
 def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePayload:
+    resolved_ingredients = []
+    for ingredient in recipe.ingredients:
+        resolved = resolve_ingredient(
+            session,
+            ingredient_name=ingredient.ingredient_name,
+            normalized_name=ingredient.normalized_name,
+            quantity=ingredient.quantity,
+            unit=ingredient.unit,
+            prep=ingredient.prep,
+            category=ingredient.category,
+            notes=ingredient.notes,
+            base_ingredient_id=ingredient.base_ingredient_id,
+            ingredient_variation_id=ingredient.ingredient_variation_id,
+            resolution_status=ingredient.resolution_status,
+        )
+        resolved_ingredients.append(
+            RecipeIngredientPayload.model_validate({"ingredient_id": ingredient.ingredient_id, **resolved.as_payload()})
+        )
+    recipe.ingredients = resolved_ingredients
     recipe.nutrition_summary = NutritionSummaryOut(
         **calculate_recipe_nutrition(
             session,
@@ -52,6 +73,8 @@ def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePa
                 {
                     "ingredient_name": ingredient.ingredient_name,
                     "normalized_name": ingredient.normalized_name,
+                    "base_ingredient_id": ingredient.base_ingredient_id,
+                    "ingredient_variation_id": ingredient.ingredient_variation_id,
                     "quantity": ingredient.quantity,
                     "unit": ingredient.unit,
                 }
@@ -280,6 +303,8 @@ def estimate_recipe_nutrition_route(
             {
                 "ingredient_name": ingredient.ingredient_name,
                 "normalized_name": ingredient.normalized_name,
+                "base_ingredient_id": ingredient.base_ingredient_id,
+                "ingredient_variation_id": ingredient.ingredient_variation_id,
                 "quantity": ingredient.quantity,
                 "unit": ingredient.unit,
             }

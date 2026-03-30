@@ -132,6 +132,68 @@ def test_preference_memory_round_trip_and_scoring(client) -> None:
     assert any(match["name"] == "Chicken Shawarma" for match in score_payload["matches"])
 
 
+def test_ingredient_catalog_routes_support_resolution_and_preferences(client) -> None:
+    create_response = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Refrigerated biscuits",
+            "category": "Refrigerated",
+            "default_unit": "can",
+            "nutrition_reference_amount": 1,
+            "nutrition_reference_unit": "ea",
+            "calories": 120,
+        },
+    )
+    assert create_response.status_code == 200
+    base = create_response.json()
+    assert base["normalized_name"] == "refrigerated biscuits"
+
+    variation_response = client.post(
+        f"/api/ingredients/{base['base_ingredient_id']}/variations",
+        json={
+            "name": "Pillsbury refrigerated biscuits",
+            "brand": "Pillsbury",
+            "package_size_unit": "can",
+            "nutrition_reference_amount": 1,
+            "nutrition_reference_unit": "ea",
+            "calories": 140,
+        },
+    )
+    assert variation_response.status_code == 200
+    variation = variation_response.json()
+    assert variation["base_ingredient_id"] == base["base_ingredient_id"]
+
+    list_response = client.get("/api/ingredients?q=biscuits")
+    assert list_response.status_code == 200
+    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in list_response.json())
+
+    resolve_response = client.post(
+        "/api/ingredients/resolve",
+        json={"ingredient_name": "3 cans refrigerated biscuits", "normalized_name": "refrigerated biscuits", "unit": "can"},
+    )
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["base_ingredient_id"] == base["base_ingredient_id"]
+    assert resolved["resolution_status"] == "resolved"
+
+    pref_response = client.post(
+        "/api/ingredient-preferences",
+        json={
+            "base_ingredient_id": base["base_ingredient_id"],
+            "preferred_variation_id": variation["ingredient_variation_id"],
+            "choice_mode": "preferred",
+        },
+    )
+    assert pref_response.status_code == 200
+    pref = pref_response.json()
+    assert pref["preferred_variation_id"] == variation["ingredient_variation_id"]
+    assert pref["base_ingredient_name"] == "Refrigerated biscuits"
+
+    pref_list_response = client.get("/api/ingredient-preferences")
+    assert pref_list_response.status_code == 200
+    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in pref_list_response.json())
+
+
 def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) -> None:
     metadata_response = client.get("/api/recipes/metadata")
     assert metadata_response.status_code == 200

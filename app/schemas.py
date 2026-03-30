@@ -122,6 +122,11 @@ class RecipeIngredientPayload(BaseModel):
     ingredient_id: str | None = None
     ingredient_name: str
     normalized_name: str | None = None
+    base_ingredient_id: str | None = None
+    base_ingredient_name: str | None = None
+    ingredient_variation_id: str | None = None
+    ingredient_variation_name: str | None = None
+    resolution_status: Literal["unresolved", "suggested", "resolved", "locked"] = "unresolved"
     quantity: float | None = None
     unit: str = ""
     prep: str = ""
@@ -179,6 +184,89 @@ class IngredientNutritionMatchOut(BaseModel):
     ingredient_name: str
     normalized_name: str
     nutrition_item: NutritionItemOut
+    updated_at: datetime
+
+
+class BaseIngredientPayload(BaseModel):
+    base_ingredient_id: str | None = None
+    name: str
+    normalized_name: str | None = None
+    category: str = ""
+    default_unit: str = ""
+    notes: str = ""
+    nutrition_reference_amount: float | None = None
+    nutrition_reference_unit: str = ""
+    calories: float | None = None
+
+
+class BaseIngredientOut(BaseIngredientPayload):
+    base_ingredient_id: str
+    normalized_name: str
+    updated_at: datetime
+
+
+class IngredientVariationPayload(BaseModel):
+    ingredient_variation_id: str | None = None
+    name: str
+    normalized_name: str | None = None
+    brand: str = ""
+    package_size_amount: float | None = None
+    package_size_unit: str = ""
+    count_per_package: float | None = None
+    product_url: str = ""
+    retailer_hint: str = ""
+    notes: str = ""
+    nutrition_reference_amount: float | None = None
+    nutrition_reference_unit: str = ""
+    calories: float | None = None
+
+
+class IngredientVariationOut(IngredientVariationPayload):
+    ingredient_variation_id: str
+    base_ingredient_id: str
+    normalized_name: str
+    updated_at: datetime
+
+
+class IngredientResolveRequest(BaseModel):
+    ingredient_name: str
+    normalized_name: str | None = None
+    quantity: float | None = None
+    unit: str = ""
+    prep: str = ""
+    category: str = ""
+    notes: str = ""
+
+
+class IngredientResolveOut(BaseModel):
+    ingredient_name: str
+    normalized_name: str
+    quantity: float | None = None
+    unit: str = ""
+    prep: str = ""
+    category: str = ""
+    notes: str = ""
+    base_ingredient_id: str | None = None
+    base_ingredient_name: str | None = None
+    ingredient_variation_id: str | None = None
+    ingredient_variation_name: str | None = None
+    resolution_status: Literal["unresolved", "suggested", "resolved", "locked"] = "unresolved"
+
+
+class IngredientPreferencePayload(BaseModel):
+    preference_id: str | None = None
+    base_ingredient_id: str
+    preferred_variation_id: str | None = None
+    preferred_brand: str = ""
+    choice_mode: Literal["preferred", "cheapest", "best_reviewed", "rotate", "no_preference"] = "preferred"
+    active: bool = True
+    notes: str = ""
+
+
+class IngredientPreferenceOut(IngredientPreferencePayload):
+    preference_id: str
+    base_ingredient_name: str
+    preferred_variation_name: str | None = None
     updated_at: datetime
 
 
@@ -480,6 +568,11 @@ class GroceryItemOut(BaseModel):
     grocery_item_id: str
     ingredient_name: str
     normalized_name: str
+    base_ingredient_id: str | None = None
+    base_ingredient_name: str | None = None
+    ingredient_variation_id: str | None = None
+    ingredient_variation_name: str | None = None
+    resolution_status: Literal["unresolved", "suggested", "resolved", "locked"] = "unresolved"
     total_quantity: float | None
     unit: str
     quantity_text: str
