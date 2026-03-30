@@ -137,6 +137,7 @@ private struct IngredientResolutionSheet: View {
     @State private var isLoadingVariations = false
     @State private var errorMessage: String?
     @State private var didLoad = false
+    @State private var preferenceEditor: IngredientPreferenceEditorContext?
 
     init(
         ingredient: RecipeIngredient,
@@ -262,6 +263,15 @@ private struct IngredientResolutionSheet: View {
                             }
                         }
                     }
+
+                    Section("Household Preference") {
+                        Button("Set Household Preference") {
+                            preferenceEditor = preferenceContext(for: selectedBaseIngredient)
+                        }
+                        Text("Use this when the recipe can stay generic but shopping should prefer a specific brand or product.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
@@ -294,6 +304,9 @@ private struct IngredientResolutionSheet: View {
                 didLoad = true
                 await loadInitialState()
             }
+        }
+        .sheet(item: $preferenceEditor) { context in
+            IngredientPreferenceEditorSheet(context: context)
         }
     }
 
@@ -453,6 +466,17 @@ private struct IngredientResolutionSheet: View {
             return variation.name
         }
         return "\(variation.brand) • \(variation.name)"
+    }
+
+    private func preferenceContext(for baseIngredient: BaseIngredient) -> IngredientPreferenceEditorContext {
+        if let existing = appState.ingredientPreferences.first(where: { $0.baseIngredientId == baseIngredient.baseIngredientId }) {
+            return IngredientPreferenceEditorContext(preference: existing)
+        }
+        return IngredientPreferenceEditorContext(
+            seedBaseIngredientID: baseIngredient.baseIngredientId,
+            seedBaseIngredientName: baseIngredient.name,
+            seedPreferredVariationID: selectedVariationID.isEmpty ? nil : selectedVariationID
+        )
     }
 }
 

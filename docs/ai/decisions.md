@@ -130,3 +130,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first native UI for structured ingredient preferences lives in Settings, not in recipe review or grocery review flows.
 - Preference editing is centralized around canonical base ingredients, optional stored variations, choice mode, optional preferred brand text, and active/inactive state.
 - Recipe review and grocery review can link into the same preference system later, but the first slice keeps creation and editing in one stable operator-facing place.
+
+## 2026-03-30 - Bulk ingredient review is centralized in a shared review queue and reuses existing editors
+
+- The first bulk-review UX is a shared native queue reachable from both `Recipes` and `Grocery`.
+- Recipe-side review items do not get a separate bespoke resolver screen; they route into the existing recipe editor so one canonical recipe-editing workflow remains the source of truth.
+- Grocery-side review items can launch the same household ingredient preference editor when the grocery row already has enough canonical identity to make a household preference meaningful.

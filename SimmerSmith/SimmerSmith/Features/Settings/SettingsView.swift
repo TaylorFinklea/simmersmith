@@ -219,17 +219,27 @@ struct SettingsView: View {
     }
 }
 
-private struct IngredientPreferenceEditorContext: Identifiable {
+struct IngredientPreferenceEditorContext: Identifiable {
+    let id = UUID()
     let preference: IngredientPreference?
+    let seedBaseIngredientID: String?
+    let seedBaseIngredientName: String?
+    let seedPreferredVariationID: String?
 
-    var id: String { preference?.preferenceId ?? "new" }
-
-    init(preference: IngredientPreference? = nil) {
+    init(
+        preference: IngredientPreference? = nil,
+        seedBaseIngredientID: String? = nil,
+        seedBaseIngredientName: String? = nil,
+        seedPreferredVariationID: String? = nil
+    ) {
         self.preference = preference
+        self.seedBaseIngredientID = seedBaseIngredientID
+        self.seedBaseIngredientName = seedBaseIngredientName
+        self.seedPreferredVariationID = seedPreferredVariationID
     }
 }
 
-private struct IngredientPreferenceEditorSheet: View {
+struct IngredientPreferenceEditorSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
@@ -252,8 +262,8 @@ private struct IngredientPreferenceEditorSheet: View {
 
     init(context: IngredientPreferenceEditorContext) {
         self.context = context
-        _searchText = State(initialValue: context.preference?.baseIngredientName ?? "")
-        _preferredVariationID = State(initialValue: context.preference?.preferredVariationId ?? "")
+        _searchText = State(initialValue: context.preference?.baseIngredientName ?? context.seedBaseIngredientName ?? "")
+        _preferredVariationID = State(initialValue: context.preference?.preferredVariationId ?? context.seedPreferredVariationID ?? "")
         _preferredBrand = State(initialValue: context.preference?.preferredBrand ?? "")
         _choiceMode = State(initialValue: context.preference?.choiceMode ?? "preferred")
         _notes = State(initialValue: context.preference?.notes ?? "")
@@ -381,10 +391,13 @@ private struct IngredientPreferenceEditorSheet: View {
     }
 
     private func loadInitialState() async {
-        guard let preference = context.preference else { return }
+        let baseIngredientName = context.preference?.baseIngredientName ?? context.seedBaseIngredientName
+        let baseIngredientID = context.preference?.baseIngredientId ?? context.seedBaseIngredientID
+        guard let baseIngredientName else { return }
         do {
-            searchResults = try await appState.searchBaseIngredients(query: preference.baseIngredientName, limit: 20)
-            if let matched = searchResults.first(where: { $0.baseIngredientId == preference.baseIngredientId }) {
+            searchResults = try await appState.searchBaseIngredients(query: baseIngredientName, limit: 20)
+            if let baseIngredientID,
+               let matched = searchResults.first(where: { $0.baseIngredientId == baseIngredientID }) {
                 await selectBaseIngredient(matched)
             }
         } catch {

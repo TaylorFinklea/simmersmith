@@ -23,9 +23,9 @@ Use this as the exact short checklist for the next work session.
   - choose a different base ingredient
   - choose or clear a variation
   - optionally lock a recipe ingredient to a specific product
-- [ ] Surface ingredient preference editing from recipe review and grocery review flows instead of Settings only
+- [x] Surface ingredient preference editing from recipe review and grocery review flows instead of Settings only
 - [ ] Add “create new base ingredient / variation” actions to the ingredient review flow
-- [ ] Add a bulk review queue for unresolved imported ingredients and grocery items
+- [x] Add a bulk review queue for unresolved imported ingredients and grocery items
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether to filter the discovered OpenAI model list to a smaller supported subset or keep the broader provider-visible list

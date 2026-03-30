@@ -1,5 +1,6 @@
 import Foundation
 import SimmerSmithKit
+import SwiftUI
 
 struct RecipeEditorSheetContext: Identifiable {
     let id = UUID()
@@ -283,6 +284,256 @@ extension NutritionSummary {
             return "Partial estimate"
         default:
             return "No estimate yet"
+        }
+    }
+}
+
+private struct IngredientReviewRecipeGroup: Identifiable {
+    let recipe: RecipeSummary
+    let ingredients: [RecipeIngredient]
+
+    var id: String { recipe.recipeId }
+}
+
+struct IngredientReviewQueueView: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var editorContext: RecipeEditorSheetContext?
+    @State private var preferenceEditor: IngredientPreferenceEditorContext?
+    @State private var isRefreshing = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if recipeGroupsNeedingReview.isEmpty && groceryItemsNeedingReview.isEmpty {
+                    ContentUnavailableView(
+                        "No Ingredient Review Needed",
+                        systemImage: "checkmark.circle",
+                        description: Text("Imported recipe ingredients and grocery items that need follow-up will appear here.")
+                    )
+                } else {
+                    List {
+                        if !recipeGroupsNeedingReview.isEmpty {
+                            Section("Recipes Needing Review") {
+                                ForEach(recipeGroupsNeedingReview) { group in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack(alignment: .top) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(group.recipe.name)
+                                                    .font(.headline)
+                                                Text("\(group.ingredients.count) ingredient\(group.ingredients.count == 1 ? "" : "s") need review")
+                                                    .font(.footnote)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                            Button("Open Recipe") {
+                                                editorContext = RecipeEditorSheetContext(
+                                                    title: group.recipe.name,
+                                                    draft: group.recipe.editingDraft()
+                                                )
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+
+                                        ForEach(group.ingredients, id: \.ingredientId) { ingredient in
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack(spacing: 8) {
+                                                    IngredientReviewStatusBadge(status: ingredient.resolutionStatus)
+                                                    Text(ingredient.ingredientName)
+                                                        .font(.subheadline.weight(.medium))
+                                                }
+                                                if let baseIngredientName = ingredient.baseIngredientName, !baseIngredientName.isEmpty {
+                                                    Text(baseIngredientName)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                } else {
+                                                    Text("No canonical ingredient selected yet")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            .padding(.leading, 2)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+
+                        if !groceryItemsNeedingReview.isEmpty {
+                            Section("Grocery Items Needing Review") {
+                                ForEach(groceryItemsNeedingReview) { item in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(alignment: .top) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack(spacing: 8) {
+                                                    IngredientReviewStatusBadge(status: item.resolutionStatus)
+                                                    Text(item.ingredientName)
+                                                        .font(.headline)
+                                                }
+                                                if !item.sourceMeals.isEmpty {
+                                                    Text(item.sourceMeals)
+                                                        .font(.footnote)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                if !item.reviewFlag.isEmpty {
+                                                    Label(item.reviewFlag, systemImage: "exclamationmark.circle")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.orange)
+                                                }
+                                                if let baseIngredientName = item.baseIngredientName, !baseIngredientName.isEmpty {
+                                                    Text(baseIngredientName)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                if let variationName = item.ingredientVariationName, !variationName.isEmpty {
+                                                    Text(variationName)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                        }
+
+                                        if let context = preferenceContext(for: item) {
+                                            Button("Set Preference") {
+                                                preferenceEditor = context
+                                            }
+                                            .buttonStyle(.bordered)
+                                        } else {
+                                            Text("Resolve this ingredient in a recipe first before setting a household preference.")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle("Review Queue")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await refreshQueue() }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                }
+            }
+            .task {
+                if appState.recipes.isEmpty || appState.currentWeek == nil {
+                    await refreshQueue()
+                }
+            }
+        }
+        .sheet(item: $editorContext) { context in
+            RecipeEditorView(title: context.title, initialDraft: context.draft) { _ in
+                Task {
+                    await appState.refreshRecipes()
+                    await appState.refreshWeek()
+                }
+            }
+        }
+        .sheet(item: $preferenceEditor) { context in
+            IngredientPreferenceEditorSheet(context: context)
+        }
+    }
+
+    private var recipeGroupsNeedingReview: [IngredientReviewRecipeGroup] {
+        appState.recipes
+            .map { recipe in
+                IngredientReviewRecipeGroup(
+                    recipe: recipe,
+                    ingredients: recipe.ingredients.filter { ingredient in
+                        ingredient.resolutionStatus == "unresolved" || ingredient.resolutionStatus == "suggested"
+                    }
+                )
+            }
+            .filter { !$0.ingredients.isEmpty }
+            .sorted { $0.recipe.name.localizedCaseInsensitiveCompare($1.recipe.name) == .orderedAscending }
+    }
+
+    private var groceryItemsNeedingReview: [GroceryItem] {
+        (appState.currentWeek?.groceryItems ?? [])
+            .filter { item in
+                !item.reviewFlag.isEmpty || item.resolutionStatus == "unresolved" || item.resolutionStatus == "suggested"
+            }
+            .sorted { $0.ingredientName.localizedCaseInsensitiveCompare($1.ingredientName) == .orderedAscending }
+    }
+
+    private func preferenceContext(for item: GroceryItem) -> IngredientPreferenceEditorContext? {
+        if let existing = appState.ingredientPreferences.first(where: { $0.baseIngredientId == item.baseIngredientId }) {
+            return IngredientPreferenceEditorContext(preference: existing)
+        }
+        guard let baseIngredientID = item.baseIngredientId,
+              let baseIngredientName = item.baseIngredientName,
+              !baseIngredientName.isEmpty else {
+            return nil
+        }
+        return IngredientPreferenceEditorContext(
+            seedBaseIngredientID: baseIngredientID,
+            seedBaseIngredientName: baseIngredientName,
+            seedPreferredVariationID: item.ingredientVariationId
+        )
+    }
+
+    private func refreshQueue() async {
+        isRefreshing = true
+        await appState.refreshRecipes()
+        await appState.refreshWeek()
+        await appState.refreshIngredientPreferences()
+        isRefreshing = false
+    }
+}
+
+private struct IngredientReviewStatusBadge: View {
+    let status: String
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.16), in: Capsule())
+            .foregroundStyle(color)
+    }
+
+    private var label: String {
+        switch status {
+        case "locked":
+            "Locked"
+        case "resolved":
+            "Resolved"
+        case "suggested":
+            "Suggested"
+        default:
+            "Unresolved"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case "locked":
+            .purple
+        case "resolved":
+            .green
+        case "suggested":
+            .orange
+        default:
+            .secondary
         }
     }
 }

@@ -5,6 +5,7 @@ struct GroceryView: View {
     @Environment(AppState.self) private var appState
 
     @State private var selectedItem: GroceryItem?
+    @State private var showingReviewQueue = false
 
     var body: some View {
         Group {
@@ -76,11 +77,21 @@ struct GroceryView: View {
                     Image(systemName: "arrow.clockwise")
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingReviewQueue = true
+                } label: {
+                    Image(systemName: groceryReviewCount == 0 ? "list.bullet.clipboard" : "exclamationmark.circle")
+                }
+            }
         }
         .sheet(item: $selectedItem) { item in
             FeedbackComposerView(title: item.ingredientName) { sentiment, notes in
                 try await appState.submitGroceryFeedback(for: item, sentiment: sentiment, notes: notes)
             }
+        }
+        .sheet(isPresented: $showingReviewQueue) {
+            IngredientReviewQueueView()
         }
     }
 
@@ -91,5 +102,11 @@ struct GroceryView: View {
         return grouped
             .map { key, value in (key, value.sorted { $0.ingredientName.localizedCaseInsensitiveCompare($1.ingredientName) == .orderedAscending }) }
             .sorted { $0.category.localizedCaseInsensitiveCompare($1.category) == .orderedAscending }
+    }
+
+    private var groceryReviewCount: Int {
+        (appState.currentWeek?.groceryItems ?? []).filter { item in
+            !item.reviewFlag.isEmpty || item.resolutionStatus == "unresolved" || item.resolutionStatus == "suggested"
+        }.count
     }
 }

@@ -17,6 +17,7 @@ struct RecipesView: View {
     @State private var assignmentContext: RecipeAssignmentSheetContext?
     @State private var isGeneratingSuggestion = false
     @State private var suggestionErrorMessage: String?
+    @State private var showingReviewQueue = false
 
     var body: some View {
         List {
@@ -69,6 +70,9 @@ struct RecipesView: View {
                 Menu("Organize") {
                     Button("Refresh") {
                         Task { await appState.refreshRecipes() }
+                    }
+                    Button(reviewQueueButtonTitle) {
+                        showingReviewQueue = true
                     }
                     Button(showArchived ? "Hide archived" : "Show archived") {
                         showArchived.toggle()
@@ -137,6 +141,9 @@ struct RecipesView: View {
         }
         .sheet(item: $assignmentContext) { context in
             RecipeWeekAssignmentView(recipes: context.recipes)
+        }
+        .sheet(isPresented: $showingReviewQueue) {
+            IngredientReviewQueueView()
         }
         .alert("AI Suggestion Failed", isPresented: Binding(
             get: { suggestionErrorMessage != nil },
@@ -302,6 +309,16 @@ struct RecipesView: View {
         } else {
             selectedTags.insert(tag)
         }
+    }
+
+    private var reviewQueueButtonTitle: String {
+        let reviewCount = appState.recipes.reduce(into: 0) { count, recipe in
+            count += recipe.ingredients.filter { $0.resolutionStatus == "unresolved" || $0.resolutionStatus == "suggested" }.count
+        }
+        if reviewCount == 0 {
+            return "Review queue"
+        }
+        return "Review queue (\(reviewCount))"
     }
 }
 

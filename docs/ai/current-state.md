@@ -6,6 +6,16 @@
 
 ## Recent Progress
 
+- Added a shared native ingredient review queue that centralizes:
+  - unresolved or suggested recipe ingredients across the recipe library
+  - grocery items with review flags or unresolved canonical matches
+- The review queue is now reachable from both the `Recipes` and `Grocery` tabs.
+- Review queue actions now route into the existing workflows instead of duplicating edit logic:
+  - `Open Recipe` launches the existing recipe editor on the selected recipe
+  - grocery review rows can open the structured household ingredient preference editor directly
+- Structured ingredient preferences are no longer Settings-only:
+  - recipe ingredient review can launch the same preference editor for the selected canonical base ingredient
+  - grocery review can launch the same preference editor from queue rows when the grocery item is canonically resolved enough
 - Added the first in-app structured ingredient preference editor in native Settings.
 - Households can now list, add, and edit canonical ingredient preferences server-side using:
   - base ingredient search
@@ -88,7 +98,8 @@
 
 ## Recent Commits
 
-- `pending` structured ingredient preference settings commit not created yet in this session
+- `pending` bulk ingredient review queue commit not created yet in this session
+- `b3446b8` `feat: add ingredient preference settings`
 - `76873ba` `feat: improve native recipe import review`
 - `fc56fac` `feat: add canonical ingredient catalog foundation`
 - `e40d4e1` `feat: add provider model discovery`
@@ -103,17 +114,18 @@
 
 ## Changed Files In The Current Slice
 
+- `SimmerSmith/SimmerSmith/Features/Grocery/GroceryView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeSupport.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
 - `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the structured ingredient preference settings slice until the session-end commit is created
+- dirty during the bulk ingredient review queue slice until the session-end commit is created
 
 ## Blockers
 
@@ -123,8 +135,7 @@
 ## Open Questions
 
 - When should the app offer “create new base ingredient” and “create variation” from the native ingredient review sheet?
-- Should the current sheet-based ingredient review remain the primary UX, or should we also add a dedicated bulk review queue screen for imports and groceries?
-- Should ingredient preferences also be editable from grocery-item review and recipe-editor ingredient review, or stay centralized in Settings until the bulk-review queue exists?
+- Should the current review queue remain a lightweight entry point into existing editors, or eventually gain inline resolution controls for bulk triage?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
 - When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
@@ -150,6 +161,11 @@ Latest completed validation for the native import UX and ingredient review slice
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 Latest completed validation for the structured ingredient preference settings slice:
+
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the bulk ingredient review queue slice:
 
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
