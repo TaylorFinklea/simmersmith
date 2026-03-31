@@ -178,3 +178,15 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The user no longer wants the web frontend to be a supported product surface.
 - New roadmap effort should prioritize backend API, iOS, and MCP workflows.
 - The existing web frontend should only receive maintenance needed to keep the repo stable until decommissioning is handled deliberately.
+
+## 2026-03-31 - Ingredient preferences need a browseable catalog, not search-only setup
+
+- The first settings-only preference editor was too hidden and too dependent on guessing the right search text.
+- Settings now includes a lightweight ingredient catalog browser so preference editing can start from real base ingredients already in the system.
+- This is still a first step, not a full ingredient-management console; edit/merge/archive behavior is a follow-up decision.
+
+## 2026-03-31 - Failed assistant turns must render as explicit errors, not blank bubbles
+
+- If a provider turn fails after the user sends a message, the persisted assistant message should carry readable error text.
+- The iOS assistant UI should render stored error text before falling back to an empty bubble.
+- This is especially important for Anthropic troubleshooting, where schema-output failures otherwise look like blank assistant replies.

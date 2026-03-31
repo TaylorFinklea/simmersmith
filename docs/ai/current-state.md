@@ -6,6 +6,16 @@
 
 ## Recent Progress
 
+- Added a native ingredient catalog browser in Settings so the operator can browse real base ingredients and launch preference editing from the catalog.
+- Improved the ingredient preference editor:
+  - it loads a first page of ingredients even with an empty query
+  - search can be triggered from keyboard submit
+  - empty states now explain whether the user is browsing or saw no matches
+- Adjusted ingredient search ordering so cleaner generic matches rank ahead of more literal auto-created names.
+- Tightened assistant direct-provider handling:
+  - prompts now explicitly require non-empty `assistant_markdown`
+  - failed assistant turns persist a visible error message instead of an empty-looking bubble
+  - iOS assistant bubbles now render stored error text instead of appearing blank
 - Fixed the first QA bug bundle from live iOS testing:
   - unresolved ingredient actions no longer route taps into the unit picker
   - quantity and unit are now on separate lines in the native recipe editor
@@ -143,7 +153,8 @@
 
 ## Recent Commits
 
-- `pending` QA fix bundle commit not created yet in this session
+- `pending` ingredient-management and Anthropic UX fix commit not created yet in this session
+- `0dc16e7` `fix: address ios qa issues`
 - `4c7ea74` `feat: add ingredient catalog creation in review flow`
 - `798b900` `test: add recipe import fixture corpus`
 - `5cb5374` `feat: add bulk ingredient review queue`
@@ -162,25 +173,18 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
 - `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
 - `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
-- `app/services/ai.py`
+- `app/api/assistant.py`
 - `app/services/assistant_ai.py`
 - `app/services/ingredient_catalog.py`
-- `app/services/provider_models.py`
-- `app/services/recipe_import.py`
-- `tests/test_api.py`
-- `tests/test_recipe_import.py`
-- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the iOS/backend QA fix slice until the session-end commit is created
+- dirty during the ingredient-management and Anthropic UX fix slice until the session-end commit is created
 
 ## Blockers
 
@@ -191,6 +195,7 @@
 
 - Should exact branded-import matches auto-create/lock product variations, or only resolve to generic base ingredients unless the user confirms the product?
 - Do we want to normalize obviously bad auto-created base ingredient names such as `1 can refrigerated biscuits` into cleaner generic catalog entries during import resolution, or leave that for the review workflow?
+- Should Settings grow from a lightweight ingredient browser into a fuller catalog-management surface with edit/merge/archive actions for base ingredients and variations?
 - When decommissioning the web frontend, do we want to remove it in one pass or freeze it first and only keep minimal maintenance while native/backend parity is confirmed?
 - Should the current review queue remain a lightweight entry point into existing editors, or eventually gain inline resolution controls for bulk triage?
 - Should the grocery web view also gain direct ingredient-resolution actions, or remain recipe-first for canonical review?
@@ -289,6 +294,17 @@ Latest completed validation for the provider model discovery slice:
 - live API smoke checks after backend restart:
   - `GET /api/health` -> passed
   - `GET /api/ingredients?q=biscuit&limit=20` -> passed
+  - `GET /api/ingredient-preferences` -> passed
+
+Latest completed validation for the ingredient-management and Anthropic UX follow-up slice:
+
+- `python3 -m compileall app tests` -> passed
+- `.venv/bin/pytest tests/test_api.py tests/test_recipe_import.py -q` -> passed (`38 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+- live API smoke checks after backend restart:
+  - `GET /api/health` -> passed with both direct providers available
+  - `GET /api/ingredients?q=biscuit&limit=20` -> passed, with `Refrigerated biscuits` ranked first
   - `GET /api/ingredient-preferences` -> passed
 
 - `python3 -m compileall app tests` -> passed

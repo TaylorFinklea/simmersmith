@@ -28,8 +28,13 @@ Use this as the exact short checklist for the next work session.
 - [x] Add a bulk review queue for unresolved imported ingredients and grocery items
 - [x] Fix the first live iOS QA regressions around ingredient review actions, provider-specific AI settings, assistant fallback rendering, and collapsed imported step parsing
 - [x] Restart and validate the local backend against the current code so new ingredient APIs are actually live for the iOS app
+- [x] Add a native ingredient-catalog browser in Settings so ingredient preferences can be seeded from real base ingredients
+- [x] Improve failed assistant-turn rendering so provider errors do not appear as blank bubbles in the conversation
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
+- [ ] Mature ingredient management beyond the first browser:
+  - decide whether base ingredients and variations need edit/merge/archive flows
+  - decide where product-variation management should live in native UI
 - [ ] Decide whether to filter the discovered OpenAI model list to a smaller supported subset or keep the broader provider-visible list
 - [ ] Decide whether to document `scripts/codex_mcp_http_bridge.py` as a supported operator workflow or keep it as a local dev helper only
 - [ ] Decide whether the Streamable HTTP bearer-token mode is sufficient for local/operator use or if stronger auth is needed before broader exposure

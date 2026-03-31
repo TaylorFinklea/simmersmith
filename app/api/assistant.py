@@ -189,7 +189,7 @@ async def respond_route(
                         live_thread,
                         live_message,
                         status="failed",
-                        content_markdown="",
+                        content_markdown=f"Assistant request failed: {detail}",
                         error=detail,
                     )
                 stream_session.add(

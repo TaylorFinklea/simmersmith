@@ -343,6 +343,10 @@ private struct AssistantMessageBubble: View {
         if !trimmed.isEmpty {
             return trimmed
         }
+        let errorText = message.error.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !errorText.isEmpty {
+            return "Assistant request failed: \(errorText)"
+        }
         if message.status == "streaming" {
             return "Thinking…"
         }

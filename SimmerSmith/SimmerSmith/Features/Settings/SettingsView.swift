@@ -4,6 +4,7 @@ import SimmerSmithKit
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
+    @State private var ingredientCatalogPresented = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -194,6 +195,17 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Ingredients") {
+                Text("Browse the canonical ingredient catalog, then seed or edit household preferences from real ingredients instead of guessing search terms.")
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    ingredientCatalogPresented = true
+                } label: {
+                    Label("Browse Ingredient Catalog", systemImage: "square.stack.3d.up")
+                }
+            }
+
             Section("Data") {
                 Button("Clear Local Cache", role: .destructive) {
                     appState.clearLocalCache()
@@ -215,6 +227,15 @@ struct SettingsView: View {
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
+        }
+        .sheet(isPresented: $ingredientCatalogPresented) {
+            IngredientCatalogSheet { ingredient in
+                ingredientCatalogPresented = false
+                preferenceEditor = IngredientPreferenceEditorContext(
+                    seedBaseIngredientID: ingredient.baseIngredientId,
+                    seedBaseIngredientName: ingredient.name
+                )
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -292,6 +313,10 @@ struct IngredientPreferenceEditorSheet: View {
                     TextField("Search ingredients", text: $searchText)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .onSubmit {
+                            Task { await searchIngredients() }
+                        }
 
                     Button {
                         Task { await searchIngredients() }
@@ -304,7 +329,7 @@ struct IngredientPreferenceEditorSheet: View {
                             Text("Search Catalog")
                         }
                     }
-                    .disabled(isSearching || searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSearching)
 
                     if let selectedBaseIngredient {
                         VStack(alignment: .leading, spacing: 4) {
@@ -342,6 +367,10 @@ struct IngredientPreferenceEditorSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    } else if !isSearching {
+                        Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Browse the first page of catalog ingredients or search for a specific one." : "No matching ingredients found.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -408,9 +437,9 @@ struct IngredientPreferenceEditorSheet: View {
     private func loadInitialState() async {
         let baseIngredientName = context.preference?.baseIngredientName ?? context.seedBaseIngredientName
         let baseIngredientID = context.preference?.baseIngredientId ?? context.seedBaseIngredientID
-        guard let baseIngredientName else { return }
         do {
-            searchResults = try await appState.searchBaseIngredients(query: baseIngredientName, limit: 20)
+            searchResults = try await appState.searchBaseIngredients(query: baseIngredientName ?? "", limit: 50)
+            guard let baseIngredientName else { return }
             if let baseIngredientID,
                let matched = searchResults.first(where: { $0.baseIngredientId == baseIngredientID }) {
                 await selectBaseIngredient(matched)
@@ -424,7 +453,7 @@ struct IngredientPreferenceEditorSheet: View {
         do {
             isSearching = true
             errorMessage = nil
-            searchResults = try await appState.searchBaseIngredients(query: searchText, limit: 20)
+            searchResults = try await appState.searchBaseIngredients(query: searchText, limit: 50)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -472,6 +501,105 @@ struct IngredientPreferenceEditorSheet: View {
             return variation.name
         }
         return "\(variation.brand) • \(variation.name)"
+    }
+}
+
+struct IngredientCatalogSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let selectIngredient: (BaseIngredient) -> Void
+
+    @State private var searchText = ""
+    @State private var ingredients: [BaseIngredient] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    TextField("Search ingredients", text: $searchText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .onSubmit {
+                            Task { await loadIngredients() }
+                        }
+
+                    Button {
+                        Task { await loadIngredients() }
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text("Search Catalog")
+                        }
+                    }
+                    .disabled(isLoading)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Base Ingredients") {
+                    if ingredients.isEmpty, !isLoading {
+                        Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No base ingredients found yet." : "No ingredients matched that search.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(ingredients) { ingredient in
+                            Button {
+                                selectIngredient(ingredient)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(ingredient.name)
+                                        .foregroundStyle(.primary)
+                                    HStack(spacing: 8) {
+                                        if !ingredient.category.isEmpty {
+                                            Text(ingredient.category)
+                                        }
+                                        if !ingredient.defaultUnit.isEmpty {
+                                            Text("Unit: \(ingredient.defaultUnit)")
+                                        }
+                                    }
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Ingredient Catalog")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .task {
+                guard ingredients.isEmpty else { return }
+                await loadIngredients()
+            }
+        }
+    }
+
+    private func loadIngredients() async {
+        do {
+            isLoading = true
+            errorMessage = nil
+            ingredients = try await appState.searchBaseIngredients(query: searchText, limit: 100)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }
 

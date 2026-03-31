@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -122,15 +122,19 @@ def _normalized_or_name(name: str, normalized_name: str | None = None) -> str:
 
 
 def search_base_ingredients(session: Session, query: str = "", limit: int = 20) -> list[BaseIngredient]:
-    statement = select(BaseIngredient).order_by(BaseIngredient.name).limit(max(1, min(limit, 50)))
+    statement = (
+        select(BaseIngredient)
+        .order_by(func.length(BaseIngredient.name), BaseIngredient.name)
+        .limit(max(1, min(limit, 100)))
+    )
     normalized_query = normalize_name(query)
     if normalized_query:
         like_value = f"%{normalized_query}%"
         statement = (
             select(BaseIngredient)
             .where(BaseIngredient.normalized_name.like(like_value))
-            .order_by(BaseIngredient.name)
-            .limit(max(1, min(limit, 50)))
+            .order_by(func.length(BaseIngredient.name), BaseIngredient.name)
+            .limit(max(1, min(limit, 100)))
         )
     return list(session.scalars(statement).all())
 
