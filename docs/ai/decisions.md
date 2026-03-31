@@ -136,3 +136,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first bulk-review UX is a shared native queue reachable from both `Recipes` and `Grocery`.
 - Recipe-side review items do not get a separate bespoke resolver screen; they route into the existing recipe editor so one canonical recipe-editing workflow remains the source of truth.
 - Grocery-side review items can launch the same household ingredient preference editor when the grocery row already has enough canonical identity to make a household preference meaningful.
+
+## 2026-03-31 - Recipe import regressions now live in a fixture corpus on disk
+
+- Import regressions should be captured as files under `tests/fixtures/recipe_import` instead of only as inline strings inside test functions.
+- The fixture corpus should cover URL imports, direct text imports, and OCR/PDF-style noisy text so parser and cleanup regressions can be reproduced from the repo alone.
+- Real-world bug reports, such as the Burnt Ends ingredient parsing failure, should be preserved as durable regression fixtures when practical.

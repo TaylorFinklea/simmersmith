@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.recipe_import import import_recipe_from_text, parse_ingredient_line
+from tests.fixture_loader import load_fixture_text
 
 
 def test_parse_ingredient_line_handles_common_quantities_and_units() -> None:
@@ -104,17 +105,7 @@ def test_parse_ingredient_line_handles_alternative_notes_and_category_inference(
 
 def test_import_recipe_from_text_infers_sections_when_headings_are_missing() -> None:
     imported = import_recipe_from_text(
-        """
-        Whole Wheat Waffles
-        Servings: 4
-        2 cups whole wheat flour
-        2 eggs
-        1 3/4 cups milk
-        4 tbsp melted butter
-        1. Whisk the dry ingredients together.
-        2. Add the wet ingredients and stir until combined.
-        3. Cook in a waffle iron until crisp.
-        """.strip(),
+        load_fixture_text("recipe_import/scan_whole_wheat_waffles_no_headings.txt"),
         source_label="Family recipe card",
     )
 
@@ -134,19 +125,7 @@ def test_import_recipe_from_text_infers_sections_when_headings_are_missing() -> 
 
 def test_import_recipe_from_text_strips_page_markers_and_joins_wrapped_lines() -> None:
     imported = import_recipe_from_text(
-        """
-        Best Pancakes
-        Page 1 of 2
-        Ingredients
-        1 (14-ounce)
-        can diced tomatoes, drained
-        1 cup milk,
-        lukewarm
-        Instructions
-        1. Stir everything together.
-        2/2
-        2. Simmer for 10 minutes.
-        """.strip()
+        load_fixture_text("recipe_import/scan_wrapped_lines_pages.txt")
     )
 
     assert [ingredient.ingredient_name for ingredient in imported.ingredients] == ["diced tomatoes", "milk"]
@@ -156,3 +135,33 @@ def test_import_recipe_from_text_strips_page_markers_and_joins_wrapped_lines() -
         "Stir everything together.",
         "Simmer for 10 minutes.",
     ]
+
+
+def test_import_recipe_from_text_fixture_preserves_expected_structure() -> None:
+    imported = import_recipe_from_text(
+        load_fixture_text("recipe_import/text_whole_wheat_waffles.txt"),
+        title="Whole Wheat Waffles",
+        source="scan_import",
+        source_label="Family recipe card",
+    )
+
+    assert imported.name == "Whole Wheat Waffles"
+    assert imported.servings == 4
+    assert imported.prep_minutes == 10
+    assert imported.cook_minutes == 12
+    assert imported.tags == ["breakfast", "freezer-friendly"]
+    assert [ingredient.ingredient_name for ingredient in imported.ingredients] == [
+        "whole wheat flour",
+        "eggs",
+        "milk",
+        "butter",
+    ]
+    assert imported.ingredients[2].quantity == 1.75
+    assert imported.ingredients[2].unit == "cup"
+    assert imported.ingredients[3].prep == "melted"
+    assert [step.instruction for step in imported.steps] == [
+        "Whisk the dry ingredients together.",
+        "Add the wet ingredients and stir until combined.",
+        "Cook in a waffle iron until crisp.",
+    ]
+    assert imported.notes == "Do not overmix the batter."

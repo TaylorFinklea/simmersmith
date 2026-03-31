@@ -11,12 +11,12 @@ Use this as the exact short checklist for the next work session.
 - [ ] Add the matching web-facing review UX for unresolved or suggested ingredient matches
 - [x] Redesign the native Recipes create/import entry points so URL, camera scan, photo import, and PDF import are first-class and discoverable
 - [x] Remove or rename the misleading `Import from URL` top-level action if it still contains non-URL import methods
-- [ ] Build a durable fixture corpus for recipe imports:
+- [x] Build a durable fixture corpus for recipe imports:
   - real recipe URLs
   - OCR text samples
   - PDF samples
   - expected ingredient/step parsing outcomes
-- [ ] Add regression coverage around import structure quality, ingredient resolution quality, and grocery resolution quality
+- [x] Add regression coverage around import structure quality, ingredient resolution quality, and grocery resolution quality
 - [x] Expose structured ingredient preference editing in the app so households can actually choose preferred brands/products
 - [x] Add a first recipe-editor ingredient review flow:
   - accept suggested base ingredient

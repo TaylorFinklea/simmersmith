@@ -6,6 +6,19 @@
 
 ## Recent Progress
 
+- Added a durable recipe import fixture corpus under `tests/fixtures/recipe_import` for:
+  - URL import HTML / JSON-LD samples
+  - direct text import samples
+  - OCR / scan / PDF-style noisy text samples
+- Moved the import tests away from large inline strings and onto the fixture corpus so new real-world failures can be added as files instead of buried in test code.
+- Added a real-world-shaped Burnt Ends URL regression fixture that locks in structured parsing for:
+  - `3 pounds beef chuck roast`
+  - `2 Tablespoons yellow mustard`
+  - alternative-note handling on rub / BBQ sauce lines
+- Expanded regression coverage around:
+  - import structure quality
+  - ingredient parsing quality
+  - grocery resolution quality via the canonical ingredient path
 - Added a shared native ingredient review queue that centralizes:
   - unresolved or suggested recipe ingredients across the recipe library
   - grocery items with review flags or unresolved canonical matches
@@ -98,7 +111,8 @@
 
 ## Recent Commits
 
-- `pending` bulk ingredient review queue commit not created yet in this session
+- `pending` import fixture corpus and regression coverage commit not created yet in this session
+- `5cb5374` `feat: add bulk ingredient review queue`
 - `b3446b8` `feat: add ingredient preference settings`
 - `76873ba` `feat: improve native recipe import review`
 - `fc56fac` `feat: add canonical ingredient catalog foundation`
@@ -114,18 +128,23 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmith/SimmerSmith/Features/Grocery/GroceryView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeSupport.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
-- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `tests/fixture_loader.py`
+- `tests/fixtures/recipe_import/README.md`
+- `tests/fixtures/recipe_import/url_lemon_pasta.html`
+- `tests/fixtures/recipe_import/url_fallback_stir_fry.html`
+- `tests/fixtures/recipe_import/url_poor_mans_burnt_ends.html`
+- `tests/fixtures/recipe_import/text_whole_wheat_waffles.txt`
+- `tests/fixtures/recipe_import/scan_whole_wheat_waffles_no_headings.txt`
+- `tests/fixtures/recipe_import/scan_wrapped_lines_pages.txt`
+- `tests/test_api.py`
+- `tests/test_recipe_import.py`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the bulk ingredient review queue slice until the session-end commit is created
+- dirty during the import fixture corpus and regression coverage slice until the session-end commit is created
 
 ## Blockers
 
@@ -169,6 +188,11 @@ Latest completed validation for the bulk ingredient review queue slice:
 
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the import fixture corpus and regression coverage slice:
+
+- `python3 -m compileall tests app` -> passed
+- `.venv/bin/pytest tests/test_recipe_import.py tests/test_api.py tests/test_grocery.py -q` -> passed (`37 passed`)
 
 Latest completed validation for the direct/MCP execution refactor:
 

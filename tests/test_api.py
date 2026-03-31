@@ -8,6 +8,7 @@ import app.api.ai as ai_api
 from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
 from app.services.assistant_ai import strict_json_schema
 from app.services import recipe_import
+from tests.fixture_loader import load_fixture_text
 
 
 def test_root_route_serves_html_shell(client) -> None:
@@ -316,43 +317,7 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
 
 
 def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_metadata(client, monkeypatch) -> None:
-    html = """
-    <html>
-      <head>
-        <title>Best Lemon Pasta</title>
-        <script type="application/ld+json">
-          {
-            "@context": "https://schema.org",
-            "@type": "Recipe",
-            "name": "Lemon Pasta",
-            "recipeCuisine": "Italian",
-            "recipeYield": "4 servings",
-            "prepTime": "PT15M",
-            "cookTime": "PT20M",
-            "keywords": "quick, weeknight, pasta",
-            "recipeIngredient": [
-              "1 lb spaghetti",
-              "2 lemons",
-              "Ingredients"
-            ],
-            "recipeInstructions": [
-              {
-                "@type": "HowToSection",
-                "name": "Cook the pasta",
-                "itemListElement": [
-                  {"@type": "HowToStep", "text": "Boil the pasta."},
-                  {"@type": "HowToStep", "text": "Reserve the pasta water."}
-                ]
-              },
-              {"@type": "HowToStep", "text": "Toss with lemon juice and butter."}
-            ],
-            "publisher": {"@type": "Organization", "name": "Serious Eats"}
-          }
-        </script>
-      </head>
-      <body><article>Ignore the blog chrome.</article></body>
-    </html>
-    """.strip()
+    html = load_fixture_text("recipe_import/url_lemon_pasta.html")
 
     class FakeResponse:
         def __init__(self, body: str) -> None:
@@ -405,31 +370,7 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
 
 
 def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_are_empty(client, monkeypatch) -> None:
-    html = """
-    <html>
-      <head>
-        <script type="application/ld+json">
-          {
-            "@context": "https://schema.org",
-            "@type": "Recipe",
-            "name": "Fallback Stir Fry",
-            "recipeIngredient": ["1 bag slaw mix"],
-            "recipeInstructions": [],
-            "publisher": {"@type": "Organization", "name": "Example Site"}
-          }
-        </script>
-      </head>
-      <body>
-        <article>
-          <h2>Instructions</h2>
-          <ol>
-            <li>Heat the skillet.</li>
-            <li>Toss in the vegetables.</li>
-          </ol>
-        </article>
-      </body>
-    </html>
-    """.strip()
+    html = load_fixture_text("recipe_import/url_fallback_stir_fry.html")
 
     class FakeResponse:
         def __init__(self, body: str) -> None:
@@ -463,27 +404,7 @@ def test_recipe_import_from_text_returns_editable_draft(client) -> None:
             "title": "Whole Wheat Waffles",
             "source": "scan_import",
             "source_label": "Family recipe card",
-            "text": """
-Whole Wheat Waffles
-Servings: 4
-Prep Time: 10 minutes
-Cook Time: 12 minutes
-Tags: breakfast, freezer-friendly
-
-Ingredients
-- 2 cups whole wheat flour
-- 2 eggs
-- 1 3/4 cups milk
-- 4 tbsp melted butter
-
-Instructions
-1. Whisk the dry ingredients together.
-2. Add the wet ingredients and stir until combined.
-3. Cook in a waffle iron until crisp.
-
-Notes
-Do not overmix the batter.
-            """.strip(),
+            "text": load_fixture_text("recipe_import/text_whole_wheat_waffles.txt"),
         },
     )
 
@@ -525,18 +446,7 @@ def test_recipe_import_from_text_infers_scan_sections_without_headings(client) -
         json={
             "source": "scan_import",
             "source_label": "Cookbook photo",
-            "text": """
-Whole Wheat Waffles
-Page 1 of 2
-Servings: 4
-2 cups whole wheat flour
-2 eggs
-1 3/4 cups milk
-4 tbsp melted butter
-1. Whisk the dry ingredients together.
-2. Add the wet ingredients and stir until combined.
-3. Cook in a waffle iron until crisp.
-            """.strip(),
+            "text": load_fixture_text("recipe_import/scan_whole_wheat_waffles_no_headings.txt"),
         },
     )
 
@@ -554,6 +464,52 @@ Servings: 4
         "Add the wet ingredients and stir until combined.",
         "Cook in a waffle iron until crisp.",
     ]
+
+
+def test_recipe_import_from_url_fixture_preserves_burnt_ends_structure(client, monkeypatch) -> None:
+    html = load_fixture_text("recipe_import/url_poor_mans_burnt_ends.html")
+
+    class FakeResponse:
+        def __init__(self, body: str) -> None:
+            self._body = body.encode("utf-8")
+            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html))
+
+    import_response = client.post(
+        "/api/recipes/import-from-url",
+        json={"url": "https://heygrillhey.com/poor-mans-burnt-ends/"},
+    )
+    assert import_response.status_code == 200
+    imported = import_response.json()
+
+    assert imported["name"] == "Poor Man's Burnt Ends"
+    assert imported["source_label"] == "Hey Grill Hey"
+    assert imported["servings"] == 8
+    assert imported["prep_minutes"] == 20
+    assert imported["cook_minutes"] == 300
+    assert imported["ingredients"][0]["ingredient_name"] == "beef chuck roast"
+    assert imported["ingredients"][0]["quantity"] == 3
+    assert imported["ingredients"][0]["unit"] == "lb"
+    assert imported["ingredients"][0]["category"] == "Meat"
+    assert imported["ingredients"][1]["ingredient_name"] == "yellow mustard"
+    assert imported["ingredients"][1]["quantity"] == 2
+    assert imported["ingredients"][1]["unit"] == "tbsp"
+    assert imported["ingredients"][1]["category"] == "Condiments"
+    assert imported["ingredients"][2]["notes"] == "or 1 Tablespoon each coarse salt, ground black pepper, and garlic powder"
+    assert imported["ingredients"][3]["quantity"] == 0.5
+    assert imported["ingredients"][3]["unit"] == "cup"
+    assert imported["ingredients"][3]["category"] == "Condiments"
+    assert imported["ingredients"][3]["notes"] == "or your favorite ketchup-based BBQ sauce"
 
 
 def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> None:
