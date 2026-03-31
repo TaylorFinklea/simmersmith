@@ -26,12 +26,15 @@ Use this as the exact short checklist for the next work session.
 - [x] Surface ingredient preference editing from recipe review and grocery review flows instead of Settings only
 - [x] Add “create new base ingredient / variation” actions to the ingredient review flow
 - [x] Add a bulk review queue for unresolved imported ingredients and grocery items
+- [x] Fix the first live iOS QA regressions around ingredient review actions, provider-specific AI settings, assistant fallback rendering, and collapsed imported step parsing
+- [x] Restart and validate the local backend against the current code so new ingredient APIs are actually live for the iOS app
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
-- [ ] Decide whether grocery review on the web should stay recipe-first or gain direct canonical ingredient resolution actions
 - [ ] Decide whether to filter the discovered OpenAI model list to a smaller supported subset or keep the broader provider-visible list
 - [ ] Decide whether to document `scripts/codex_mcp_http_bridge.py` as a supported operator workflow or keep it as a local dev helper only
 - [ ] Decide whether the Streamable HTTP bearer-token mode is sufficient for local/operator use or if stronger auth is needed before broader exposure
 - [ ] Reduce or suppress the noisy upstream `codex/event` validation logs emitted by the local MCP bridge session
 - [ ] Manually verify the read-only Assistant empty state and disabled composer when neither MCP nor direct providers are available
 - [ ] Expand `docs/ai/mcp-tools.md` with a few end-to-end recipe/week/operator examples after the first real external-client session
+- [ ] Decide whether exact branded ingredient matches should immediately create clean generic base ingredients plus suggested product variations instead of today’s more literal base-ingredient auto-creation
+- [ ] Decommission the web frontend from the roadmap and codebase in a controlled way once native/backend flows cover the remaining operator needs

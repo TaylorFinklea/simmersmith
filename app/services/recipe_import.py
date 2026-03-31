@@ -863,28 +863,48 @@ def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
         current_substeps = []
 
     for raw_line in lines:
-        line = strip_leading_bullet(clean_text_line(raw_line))
-        if not line or TEXT_HEADING_RE.fullmatch(line):
-            continue
+        for exploded_line in explode_compound_step_line(raw_line):
+            line = strip_leading_bullet(clean_text_line(exploded_line))
+            if not line or TEXT_HEADING_RE.fullmatch(line):
+                continue
 
-        if match := STEP_PREFIX_RE.match(line):
-            flush_step()
-            current_instruction = match.group("text")
-            continue
+            if match := STEP_PREFIX_RE.match(line):
+                flush_step()
+                current_instruction = match.group("text")
+                continue
 
-        if match := SUBSTEP_PREFIX_RE.match(line):
-            substep_text = clean_text_line(match.group("text"))
-            if substep_text:
-                current_substeps.append(substep_text)
-            continue
+            if match := SUBSTEP_PREFIX_RE.match(line):
+                substep_text = clean_text_line(match.group("text"))
+                if substep_text:
+                    current_substeps.append(substep_text)
+                continue
 
-        if current_instruction:
-            current_instruction = f"{current_instruction} {line}".strip()
-        else:
-            current_instruction = line
+            if current_instruction:
+                current_instruction = f"{current_instruction} {line}".strip()
+            else:
+                current_instruction = line
 
     flush_step()
     return steps
+
+
+def explode_compound_step_line(raw_line: str) -> list[str]:
+    line = clean_text_line(raw_line)
+    if not line:
+        return []
+
+    matches = list(re.finditer(r"(?<!\S)(?:step\s*)?\d+[\).\:-]\s*", line, re.IGNORECASE))
+    if len(matches) <= 1:
+        return [line]
+
+    segments: list[str] = []
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+        segment = clean_text_line(line[start:end])
+        if segment:
+            segments.append(segment)
+    return segments or [line]
 
 
 def import_recipe_from_text(

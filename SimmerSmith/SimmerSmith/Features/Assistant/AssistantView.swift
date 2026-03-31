@@ -303,7 +303,7 @@ private struct AssistantMessageBubble: View {
     var body: some View {
         VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(message.contentMarkdown.isEmpty && message.status == "streaming" ? "Thinking…" : message.contentMarkdown)
+                Text(displayText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let recipeDraft = message.recipeDraft {
                     VStack(alignment: .leading, spacing: 8) {
@@ -336,5 +336,19 @@ private struct AssistantMessageBubble: View {
 
     private var bubbleBackground: some ShapeStyle {
         message.role == "user" ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.thinMaterial)
+    }
+
+    private var displayText: String {
+        let trimmed = message.contentMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+        if message.status == "streaming" {
+            return "Thinking…"
+        }
+        if message.recipeDraft != nil {
+            return "I put together a draft recipe for you to review below."
+        }
+        return ""
     }
 }

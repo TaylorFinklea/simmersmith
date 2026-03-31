@@ -875,30 +875,29 @@ struct RecipeEditorView: View {
                                     .multilineTextAlignment(.trailing)
                             }
 
-                            HStack {
-                                LabeledContent("Quantity") {
-                                    TextField("Amount", text: binding(for: $ingredient.quantity))
-                                        .keyboardType(.decimalPad)
-                                        .multilineTextAlignment(.trailing)
-                                }
+                            LabeledContent("Quantity") {
+                                TextField("Amount", text: binding(for: $ingredient.quantity))
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
                                 Picker("Unit", selection: $ingredient.unit) {
                                     Text("None").tag("")
                                     ForEach(appState.recipeMetadata?.units ?? []) { unit in
                                         Text(unit.name).tag(unit.name)
                                     }
                                 }
-                            }
+                                .pickerStyle(.navigationLink)
 
-                            HStack {
                                 Button {
                                     pendingManagedField = .unit
                                     pendingManagedValue = ""
                                     pendingUnitIngredientID = ingredient.id
                                 } label: {
-                                    Label("Add unit", systemImage: "plus.circle")
+                                    Label("Add custom unit", systemImage: "plus.circle")
                                 }
-
-                                Spacer()
+                                .buttonStyle(.borderless)
                             }
 
                             LabeledContent("Prep") {
@@ -930,6 +929,7 @@ struct RecipeEditorView: View {
                                     )
                                 }
                                 .font(.footnote)
+                                .buttonStyle(.borderless)
                             }
 
                             HStack {
@@ -938,6 +938,7 @@ struct RecipeEditorView: View {
                                     removeIngredient(ingredient.id)
                                 }
                                 .font(.footnote)
+                                .buttonStyle(.borderless)
                             }
                         }
                         .padding(.vertical, 6)

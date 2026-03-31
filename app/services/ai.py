@@ -11,7 +11,12 @@ from app.models import ProfileSetting
 from app.services.mcp_client import mcp_is_configured, probe_codex_mcp
 
 
-AI_SECRET_KEYS = {"ai_direct_api_key"}
+LEGACY_DIRECT_API_KEY = "ai_direct_api_key"
+PROVIDER_PROFILE_API_KEY_KEYS = {
+    "openai": "ai_openai_api_key",
+    "anthropic": "ai_anthropic_api_key",
+}
+AI_SECRET_KEYS = {LEGACY_DIRECT_API_KEY, *PROVIDER_PROFILE_API_KEY_KEYS.values()}
 SUPPORTED_DIRECT_PROVIDERS = ("openai", "anthropic")
 
 
@@ -71,17 +76,27 @@ def secret_profile_flags(settings: dict[str, str]) -> dict[str, bool]:
     return {f"{key}_present": bool(str(settings.get(key, "")).strip()) for key in AI_SECRET_KEYS}
 
 
+def _profile_direct_api_key(provider_name: str, user_settings: dict[str, str]) -> tuple[str, str]:
+    provider_key = str(user_settings.get(PROVIDER_PROFILE_API_KEY_KEYS[provider_name], "")).strip()
+    if provider_key:
+        return provider_key, "user_override"
+    profile_provider = str(user_settings.get("ai_direct_provider", "")).strip().lower()
+    legacy_key = str(user_settings.get(LEGACY_DIRECT_API_KEY, "")).strip()
+    if profile_provider == provider_name and legacy_key:
+        return legacy_key, "user_override"
+    return "", "unconfigured"
+
+
 def direct_provider_availability(
     provider_name: str,
     *,
     settings: Settings,
     user_settings: dict[str, str],
 ) -> tuple[bool, str]:
-    profile_provider = str(user_settings.get("ai_direct_provider", "")).strip().lower()
-    profile_key = str(user_settings.get("ai_direct_api_key", "")).strip()
+    profile_key, profile_source = _profile_direct_api_key(provider_name, user_settings)
     env_key = getattr(settings, f"ai_{provider_name}_api_key", "").strip()
-    if profile_provider == provider_name and profile_key:
-        return True, "user_override"
+    if profile_key:
+        return True, profile_source
     if env_key:
         return True, "server_key"
     return False, "unconfigured"
@@ -93,9 +108,8 @@ def resolve_direct_api_key(
     settings: Settings,
     user_settings: dict[str, str],
 ) -> str:
-    preferred_provider = str(user_settings.get("ai_direct_provider", "")).strip().lower()
-    override_key = str(user_settings.get("ai_direct_api_key", "")).strip()
-    if preferred_provider == provider_name and override_key:
+    override_key, _ = _profile_direct_api_key(provider_name, user_settings)
+    if override_key:
         return override_key
     if provider_name == "openai":
         return settings.ai_openai_api_key.strip()
@@ -230,7 +244,10 @@ async def ai_capabilities_payload(settings: Settings, user_settings: dict[str, s
         "supports_user_override": True,
         "preferred_mode": preferred_mode,
         "user_override_provider": preferred_direct or None,
-        "user_override_configured": bool(str(user_settings.get("ai_direct_api_key", "")).strip()),
+        "user_override_configured": any(
+            bool(_profile_direct_api_key(provider_name, user_settings)[0])
+            for provider_name in SUPPORTED_DIRECT_PROVIDERS
+        ),
         "default_target": effective_target.as_payload() if effective_target is not None else None,
         "available_providers": available_providers,
     }

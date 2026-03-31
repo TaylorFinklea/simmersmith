@@ -8,11 +8,32 @@ from app.config import Settings
 from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability, resolve_direct_api_key, resolve_direct_model
 
 
-OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4")
+OPENAI_MODEL_PREFERENCES = (
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "o3",
+    "o4-mini",
+)
+OPENAI_MODEL_PREFIXES = tuple({model_id.split("-")[0] for model_id in OPENAI_MODEL_PREFERENCES})
 
 
 def _is_openai_chat_model(model_id: str) -> bool:
-    return model_id.startswith(OPENAI_CHAT_PREFIXES)
+    return model_id.startswith(("gpt-", "o",))
+
+
+def _is_supported_openai_model(model_id: str) -> bool:
+    return any(model_id == candidate or model_id.startswith(f"{candidate}-") for candidate in OPENAI_MODEL_PREFERENCES)
+
+
+def _openai_sort_key(model_id: str) -> tuple[int, str]:
+    for index, candidate in enumerate(OPENAI_MODEL_PREFERENCES):
+        if model_id == candidate or model_id.startswith(f"{candidate}-"):
+            return index, model_id
+    return len(OPENAI_MODEL_PREFERENCES), model_id
 
 
 def _append_saved_model(
@@ -73,7 +94,7 @@ def _list_openai_models(api_key: str, *, timeout: int) -> list[dict[str, str]]:
     models = []
     for item in data:
         model_id = str(item.get("id", "")).strip()
-        if not model_id or not _is_openai_chat_model(model_id):
+        if not model_id or not _is_openai_chat_model(model_id) or not _is_supported_openai_model(model_id):
             continue
         models.append(
             {
@@ -82,7 +103,7 @@ def _list_openai_models(api_key: str, *, timeout: int) -> list[dict[str, str]]:
                 "display_name": model_id,
             }
         )
-    models.sort(key=lambda item: item["model_id"])
+    models.sort(key=lambda item: _openai_sort_key(item["model_id"]))
     return models
 
 

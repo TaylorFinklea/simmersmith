@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from app.api.assistant import encode_sse
 import app.api.ai as ai_api
 from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
-from app.services.assistant_ai import strict_json_schema
+from app.services.assistant_ai import parse_provider_envelope, strict_json_schema
 from app.services import recipe_import
 from tests.fixture_loader import load_fixture_text
 
@@ -28,7 +28,33 @@ def test_profile_defaults_are_available(client) -> None:
     assert payload["updated_at"] is not None
     assert payload["settings"]["week_start_day"] == "Monday"
     assert payload["secret_flags"]["ai_direct_api_key_present"] is False
+    assert payload["secret_flags"]["ai_openai_api_key_present"] is False
+    assert payload["secret_flags"]["ai_anthropic_api_key_present"] is False
     assert any(staple["normalized_name"] == "olive oil" for staple in payload["staples"])
+
+
+def test_profile_keeps_provider_specific_ai_keys_server_side(client) -> None:
+    update_response = client.put(
+        "/api/profile",
+        json={
+            "settings": {
+                "ai_direct_provider": "anthropic",
+                "ai_openai_api_key": "openai-secret",
+                "ai_anthropic_api_key": "anthropic-secret",
+            }
+        },
+    )
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert "ai_openai_api_key" not in payload["settings"]
+    assert "ai_anthropic_api_key" not in payload["settings"]
+    assert payload["secret_flags"]["ai_openai_api_key_present"] is True
+    assert payload["secret_flags"]["ai_anthropic_api_key_present"] is True
+
+    health_response = client.get("/api/health")
+    assert health_response.status_code == 200
+    health_payload = health_response.json()
+    assert health_payload["ai_capabilities"]["default_target"]["provider_name"] == "anthropic"
 
 
 def test_health_route_reports_ai_capabilities(client) -> None:
@@ -554,6 +580,43 @@ def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> No
     list_response = client.get("/api/recipes?include_archived=true")
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
+
+
+def test_variation_draft_can_be_saved_as_recipe(client) -> None:
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Simple Biscuits and Sausage Gravy",
+            "meal_type": "breakfast",
+            "cuisine": "American",
+            "servings": 4,
+            "source": "manual",
+            "ingredients": [
+                {"ingredient_name": "1 can refrigerated biscuits"},
+                {"ingredient_name": "1 lb sausage"},
+            ],
+            "steps": [
+                {"instruction": "Bake the biscuits."},
+                {"instruction": "Cook the sausage and make the gravy."},
+            ],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+
+    variation_response = client.post(
+        f"/api/recipes/{recipe['recipe_id']}/ai/variation-draft",
+        json={"goal": "Kid-Friendly"},
+    )
+    assert variation_response.status_code == 200
+    draft = variation_response.json()["draft"]
+
+    save_response = client.post("/api/recipes", json=draft)
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["recipe_id"] is not None
+    assert saved["base_recipe_id"] == recipe["recipe_id"]
+    assert saved["name"] == draft["name"]
 
 
 def test_recipe_suggestion_draft_route_returns_library_grounded_draft(client) -> None:
@@ -1205,3 +1268,21 @@ def test_assistant_strict_schema_marks_all_object_properties_required() -> None:
 
     serialized = json.dumps(schema)
     assert '"additionalProperties": false' in serialized
+
+
+def test_parse_provider_envelope_fills_blank_markdown_when_draft_exists() -> None:
+    envelope = parse_provider_envelope(
+        json.dumps(
+            {
+                "assistant_markdown": "",
+                "recipe_draft": {
+                    "name": "Elevated Biscuits and Gravy",
+                    "meal_type": "breakfast",
+                    "ingredients": [{"ingredient_name": "biscuits"}],
+                    "steps": [{"instruction": "Bake the biscuits."}],
+                },
+            }
+        )
+    )
+    assert envelope.recipe_draft is not None
+    assert envelope.assistant_markdown == "I put together a draft recipe for you to review below."

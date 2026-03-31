@@ -370,6 +370,16 @@ def resolve_ingredient(
                 calories=nutrition_item.calories,
             )
 
+    if base is None and normalized:
+        base = ensure_base_ingredient(
+            session,
+            name=cleaned_name,
+            normalized_name=normalized,
+            category=cleaned_category,
+            default_unit=cleaned_unit,
+            notes=cleaned_notes,
+        )
+
     if resolution_status in RESOLUTION_STATUSES:
         final_status = resolution_status
     elif locked and variation is not None:

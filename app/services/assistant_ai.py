@@ -254,6 +254,8 @@ def parse_provider_envelope(raw_output: str) -> AssistantProviderEnvelope:
     except ValidationError as exc:
         raise RuntimeError("AI provider returned an unexpected payload shape.") from exc
     envelope.assistant_markdown = envelope.assistant_markdown.strip()
+    if not envelope.assistant_markdown and envelope.recipe_draft is not None:
+        envelope.assistant_markdown = "I put together a draft recipe for you to review below."
     if not envelope.assistant_markdown and envelope.recipe_draft is None:
         raise RuntimeError("AI provider returned an empty assistant response.")
     return envelope

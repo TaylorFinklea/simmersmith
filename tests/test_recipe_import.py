@@ -137,6 +137,27 @@ def test_import_recipe_from_text_strips_page_markers_and_joins_wrapped_lines() -
     ]
 
 
+def test_import_recipe_from_text_splits_compound_numbered_step_lines() -> None:
+    imported = import_recipe_from_text(
+        "\n".join(
+            [
+                "Quick Tomato Soup",
+                "Ingredients",
+                "1 can diced tomatoes",
+                "1 cup milk",
+                "Instructions",
+                "1. Stir everything together. 2. Simmer for 10 minutes. 3. Serve hot.",
+            ]
+        )
+    )
+
+    assert [step.instruction for step in imported.steps] == [
+        "Stir everything together.",
+        "Simmer for 10 minutes.",
+        "Serve hot.",
+    ]
+
+
 def test_import_recipe_from_text_fixture_preserves_expected_structure() -> None:
     imported = import_recipe_from_text(
         load_fixture_text("recipe_import/text_whole_wheat_waffles.txt"),

@@ -154,3 +154,27 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first web ingredient-review slice should mirror the existing recipe-level workflow instead of introducing a separate catalog-management surface.
 - Operators should be able to find review-needed recipes from the Recipes page and resolve ingredient matches inside the recipe editor.
 - Grocery review on the web remains recipe-first for now; canonical ingredient corrections still happen in the source recipe editor rather than directly on grocery rows.
+
+## 2026-03-31 - Direct-provider API keys are stored per provider, not as one shared secret
+
+- OpenAI and Anthropic now have separate server-side profile secret keys.
+- Switching providers should not require overwriting or re-entering the other provider's key.
+- The client still only receives provider-specific secret-present flags; it must never read stored key values back.
+
+## 2026-03-31 - Assistant bubbles need fallback text when a provider returns only a draft artifact
+
+- Providers may legitimately return a recipe draft without companion markdown.
+- The backend and iOS UI should both synthesize a short fallback message instead of rendering a visually blank assistant response.
+- This keeps OpenAI and Anthropic turns aligned at the UI layer even when their structured outputs differ.
+
+## 2026-03-31 - New import-time ingredient resolution may create immediate base ingredients to keep review searchable
+
+- When import resolution cannot find an existing safe catalog match, the server may create a base ingredient immediately so the ingredient becomes searchable in preferences and review flows without a later reseed.
+- This is a pragmatic bridge for the current catalog rollout, not the final branded-import policy.
+- Follow-up work should refine how literal those auto-created base ingredient names are and when product variations should be suggested or locked.
+
+## 2026-03-31 - Product work should focus on backend, iOS, and MCP; the web frontend is being decommissioned
+
+- The user no longer wants the web frontend to be a supported product surface.
+- New roadmap effort should prioritize backend API, iOS, and MCP workflows.
+- The existing web frontend should only receive maintenance needed to keep the repo stable until decommissioning is handled deliberately.

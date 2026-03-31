@@ -121,7 +121,10 @@ final class AppState {
     }
 
     var aiDirectAPIKeyConfigured: Bool {
-        profile?.secretFlags["ai_direct_api_key_present"] ?? false
+        if !aiDirectProviderDraft.isEmpty {
+            return providerAPIKeyConfigured(providerID: aiDirectProviderDraft)
+        }
+        return ["openai", "anthropic"].contains { providerAPIKeyConfigured(providerID: $0) }
     }
 
     var selectedDirectProviderModelDraft: String {
@@ -336,7 +339,12 @@ final class AppState {
 
     func refreshAIModels(for providerID: String) async {
         let normalizedProvider = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard hasSavedConnection, !normalizedProvider.isEmpty else { return }
+        guard hasSavedConnection else { return }
+        guard !normalizedProvider.isEmpty else {
+            availableAIModelsByProvider = [:]
+            aiModelErrorByProvider = [:]
+            return
+        }
         do {
             let payload = try await apiClient.fetchProviderModels(providerID: normalizedProvider)
             availableAIModelsByProvider[normalizedProvider] = payload.models
@@ -364,11 +372,16 @@ final class AppState {
                 "ai_openai_model": aiOpenAIModelDraft.trimmingCharacters(in: .whitespacesAndNewlines),
                 "ai_anthropic_model": aiAnthropicModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             ]
+            let normalizedProvider = aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            let selectedProviderKey = selectedProviderAPIKeySetting(for: normalizedProvider)
             let trimmedKey = aiDirectAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             if clearStoredAPIKey {
+                if let selectedProviderKey {
+                    settings[selectedProviderKey] = ""
+                }
                 settings["ai_direct_api_key"] = ""
-            } else if !trimmedKey.isEmpty {
-                settings["ai_direct_api_key"] = trimmedKey
+            } else if !trimmedKey.isEmpty, let selectedProviderKey {
+                settings[selectedProviderKey] = trimmedKey
             }
 
             let fetchedProfile = try await apiClient.updateProfile(settings: settings)
@@ -841,6 +854,28 @@ final class AppState {
         aiOpenAIModelDraft = profile.settings["ai_openai_model"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         aiAnthropicModelDraft = profile.settings["ai_anthropic_model"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         aiDirectAPIKeyDraft = ""
+    }
+
+    private func providerAPIKeyConfigured(providerID: String) -> Bool {
+        let normalizedProvider = providerID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedProvider.isEmpty else { return false }
+        let perProviderFlag = "ai_\(normalizedProvider)_api_key_present"
+        if profile?.secretFlags[perProviderFlag] == true {
+            return true
+        }
+        return profile?.settings["ai_direct_provider"]?.lowercased() == normalizedProvider &&
+            (profile?.secretFlags["ai_direct_api_key_present"] ?? false)
+    }
+
+    private func selectedProviderAPIKeySetting(for providerID: String) -> String? {
+        switch providerID.lowercased() {
+        case "openai":
+            return "ai_openai_api_key"
+        case "anthropic":
+            return "ai_anthropic_api_key"
+        default:
+            return nil
+        }
     }
 
     private func appendAssistantMessage(_ message: AssistantMessage, to threadID: String) {

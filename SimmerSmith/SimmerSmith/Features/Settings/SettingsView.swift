@@ -105,11 +105,16 @@ struct SettingsView: View {
                     }
                 }
 
-                SecureField("New direct-provider API key", text: $appState.aiDirectAPIKeyDraft)
+                SecureField(
+                    appState.aiDirectProviderDraft.isEmpty
+                        ? "New direct-provider API key"
+                        : "New \(appState.aiDirectProviderDraft.capitalized) API key",
+                    text: $appState.aiDirectAPIKeyDraft
+                )
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 
-                Text(appState.aiDirectAPIKeyConfigured ? "A direct-provider API key is stored on the server. It cannot be read back in the app." : "No direct-provider API key is currently stored on the server.")
+                Text(apiKeyStatusText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -216,6 +221,16 @@ struct SettingsView: View {
                 BrandToolbarBadge()
             }
         }
+    }
+
+    private var apiKeyStatusText: String {
+        if appState.aiDirectProviderDraft.isEmpty {
+            return "Select a direct provider to save or clear that provider's server-side API key."
+        }
+        if appState.aiDirectAPIKeyConfigured {
+            return "A \(appState.aiDirectProviderDraft.capitalized) API key is stored on the server. It cannot be read back in the app."
+        }
+        return "No \(appState.aiDirectProviderDraft.capitalized) API key is currently stored on the server."
     }
 }
 

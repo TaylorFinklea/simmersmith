@@ -6,6 +6,19 @@
 
 ## Recent Progress
 
+- Fixed the first QA bug bundle from live iOS testing:
+  - unresolved ingredient actions no longer route taps into the unit picker
+  - quantity and unit are now on separate lines in the native recipe editor
+  - assistant bubbles now show fallback text when a provider returns a recipe draft without markdown
+  - provider-specific API keys are now stored and resolved separately for OpenAI and Anthropic instead of sharing one direct-provider secret
+  - OpenAI model discovery is filtered to a smaller supported set instead of a broad provider dump
+  - ingredient resolution now creates a base ingredient immediately when no safe existing match exists, so new imports become searchable without a server reseed
+  - text import parsing now splits collapsed numbered-step lines such as `1. Mix. 2. Bake. 3. Serve.`
+- Restarted the local backend on `http://localhost:8080` against the current code after discovering the previous process was stale.
+- Re-verified the previously broken live endpoints:
+  - `GET /api/ingredients?q=biscuit&limit=20` now returns catalog results
+  - `GET /api/ingredient-preferences` now returns `200`
+- Confirmed the current user direction is to decommission the web frontend and focus product work on the backend API, iOS app, and MCP surface.
 - Added the first matching web-facing ingredient review UX so catalog resolution is no longer native-only.
 - The web Recipes page now surfaces recipe-level review status:
   - recipes with unresolved or suggested ingredients show review-needed badges
@@ -130,7 +143,7 @@
 
 ## Recent Commits
 
-- `pending` web ingredient review UX commit not created yet in this session
+- `pending` QA fix bundle commit not created yet in this session
 - `4c7ea74` `feat: add ingredient catalog creation in review flow`
 - `798b900` `test: add recipe import fixture corpus`
 - `5cb5374` `feat: add bulk ingredient review queue`
@@ -149,26 +162,36 @@
 
 ## Changed Files In The Current Slice
 
-- `frontend/src/lib/types.ts`
-- `frontend/src/lib/api.ts`
-- `frontend/src/features/recipes/recipes-page.tsx`
-- `frontend/src/features/recipes/components/recipe-card.tsx`
-- `frontend/src/features/recipes/components/recipe-editor-dialog.tsx`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `app/services/ai.py`
+- `app/services/assistant_ai.py`
+- `app/services/ingredient_catalog.py`
+- `app/services/provider_models.py`
+- `app/services/recipe_import.py`
+- `tests/test_api.py`
+- `tests/test_recipe_import.py`
+- `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the web ingredient review UX slice until the session-end commit is created
+- dirty during the iOS/backend QA fix slice until the session-end commit is created
 
 ## Blockers
 
 - none in code
-- the local MCP bridge currently emits noisy `codex/event` validation logs from the upstream MCP SDK during tool execution, but calls still complete successfully
+- the local MCP bridge still emits noisy `codex/event` validation logs from the upstream MCP SDK during tool execution, but calls still complete successfully
 
 ## Open Questions
 
+- Should exact branded-import matches auto-create/lock product variations, or only resolve to generic base ingredients unless the user confirms the product?
+- Do we want to normalize obviously bad auto-created base ingredient names such as `1 can refrigerated biscuits` into cleaner generic catalog entries during import resolution, or leave that for the review workflow?
+- When decommissioning the web frontend, do we want to remove it in one pass or freeze it first and only keep minimal maintenance while native/backend parity is confirmed?
 - Should the current review queue remain a lightweight entry point into existing editors, or eventually gain inline resolution controls for bulk triage?
 - Should the grocery web view also gain direct ingredient-resolution actions, or remain recipe-first for canonical review?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
@@ -258,6 +281,15 @@ Latest completed validation for the iOS AI key settings slice:
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 Latest completed validation for the provider model discovery slice:
+
+- `python3 -m compileall app tests` -> passed
+- `.venv/bin/pytest tests/test_recipe_import.py tests/test_api.py -q` -> passed (`38 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+- live API smoke checks after backend restart:
+  - `GET /api/health` -> passed
+  - `GET /api/ingredients?q=biscuit&limit=20` -> passed
+  - `GET /api/ingredient-preferences` -> passed
 
 - `python3 -m compileall app tests` -> passed
 - `.venv/bin/pytest tests/test_api.py -q` -> passed (`24 passed`)

@@ -6,7 +6,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 
 - Keep SimmerSmith Apple-first: iOS is the primary client.
 - Keep FastAPI as the canonical state and business-logic layer.
-- Use the web app as a secondary admin/proving surface, not the primary product.
+- Treat the backend API and native iOS app as the product surface; the web frontend is slated for decommissioning and should not drive roadmap priorities.
 - Keep AI features draft-first and MCP-first, while preserving the direct-provider seam.
 - Expose a standard SimmerSmith MCP surface so external AI clients can operate the same app domains the native app and in-app assistant use.
 
@@ -41,9 +41,6 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - iOS UI automation expansion
 - iOS release pipeline hardening
 - iOS metadata/compliance synchronization
-- Web admin design-system consolidation
-- Browser E2E coverage
-- Cloudflare hosting/deployment/observability
 - Public support/privacy maintenance
 - SimmerSmith MCP surface hardening and tool-contract documentation
 
@@ -55,7 +52,7 @@ This file is the durable roadmap source of truth for AI assistants working in th
 - Support conversational AI through direct provider APIs or a real remote MCP execution path; do not rely on local `codex exec` fallback.
 - Treat recipe import as a first-class workflow in the Recipes product surface, not as a sub-option hidden under URL import.
 - Keep recipe ingredient text for fidelity, but attach canonical ingredient identity so groceries, nutrition, and preferences do not rely on raw strings alone.
-- Do not let the web app roadmap displace the iOS-first product direction.
+- Do not spend new roadmap effort on the web frontend beyond maintenance needed to keep the repo stable during decommissioning.
 - Keep shared docs updated at session end.
 
 ## Non-Goals
