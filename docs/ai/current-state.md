@@ -6,6 +6,14 @@
 
 ## Recent Progress
 
+- Native ingredient review can now create missing catalog entities in place instead of forcing users to leave the current recipe flow.
+- The recipe editor ingredient review sheet now supports:
+  - creating a new base ingredient from the current ingredient row or search text
+  - creating a new product variation under the selected base ingredient
+  - immediately selecting the newly created catalog entity back into the current ingredient resolution flow
+- Added native client API wiring for:
+  - `POST /api/ingredients`
+  - `POST /api/ingredients/{base_ingredient_id}/variations`
 - Added a durable recipe import fixture corpus under `tests/fixtures/recipe_import` for:
   - URL import HTML / JSON-LD samples
   - direct text import samples
@@ -111,7 +119,8 @@
 
 ## Recent Commits
 
-- `pending` import fixture corpus and regression coverage commit not created yet in this session
+- `pending` ingredient review catalog-creation commit not created yet in this session
+- `798b900` `test: add recipe import fixture corpus`
 - `5cb5374` `feat: add bulk ingredient review queue`
 - `b3446b8` `feat: add ingredient preference settings`
 - `76873ba` `feat: improve native recipe import review`
@@ -128,23 +137,16 @@
 
 ## Changed Files In The Current Slice
 
-- `tests/fixture_loader.py`
-- `tests/fixtures/recipe_import/README.md`
-- `tests/fixtures/recipe_import/url_lemon_pasta.html`
-- `tests/fixtures/recipe_import/url_fallback_stir_fry.html`
-- `tests/fixtures/recipe_import/url_poor_mans_burnt_ends.html`
-- `tests/fixtures/recipe_import/text_whole_wheat_waffles.txt`
-- `tests/fixtures/recipe_import/scan_whole_wheat_waffles_no_headings.txt`
-- `tests/fixtures/recipe_import/scan_wrapped_lines_pages.txt`
-- `tests/test_api.py`
-- `tests/test_recipe_import.py`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the import fixture corpus and regression coverage slice until the session-end commit is created
+- dirty during the ingredient review catalog-creation slice until the session-end commit is created
 
 ## Blockers
 
@@ -153,7 +155,6 @@
 
 ## Open Questions
 
-- When should the app offer “create new base ingredient” and “create variation” from the native ingredient review sheet?
 - Should the current review queue remain a lightweight entry point into existing editors, or eventually gain inline resolution controls for bulk triage?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
 - When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
@@ -193,6 +194,11 @@ Latest completed validation for the import fixture corpus and regression coverag
 
 - `python3 -m compileall tests app` -> passed
 - `.venv/bin/pytest tests/test_recipe_import.py tests/test_api.py tests/test_grocery.py -q` -> passed (`37 passed`)
+
+Latest completed validation for the ingredient review catalog-creation slice:
+
+- `swift test --package-path SimmerSmithKit` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
 
 Latest completed validation for the direct/MCP execution refactor:
 

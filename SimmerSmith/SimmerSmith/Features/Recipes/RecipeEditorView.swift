@@ -138,6 +138,8 @@ private struct IngredientResolutionSheet: View {
     @State private var errorMessage: String?
     @State private var didLoad = false
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
+    @State private var newBaseIngredientContext: NewBaseIngredientContext?
+    @State private var newVariationContext: NewVariationContext?
 
     init(
         ingredient: RecipeIngredient,
@@ -223,6 +225,16 @@ private struct IngredientResolutionSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    } else if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSearching {
+                        Button {
+                            newBaseIngredientContext = NewBaseIngredientContext(
+                                suggestedName: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                                suggestedCategory: ingredient.category,
+                                suggestedDefaultUnit: ingredient.unit
+                            )
+                        } label: {
+                            Label("Create Base Ingredient", systemImage: "plus.circle")
+                        }
                     }
                 }
 
@@ -261,6 +273,18 @@ private struct IngredientResolutionSheet: View {
                             if !selectedVariationID.isEmpty {
                                 Toggle("Lock this recipe to the selected product", isOn: $lockToVariation)
                             }
+                        }
+
+                        Button {
+                            newVariationContext = NewVariationContext(
+                                baseIngredient: selectedBaseIngredient,
+                                suggestedName: ingredient.ingredientName,
+                                suggestedPackageSizeAmount: ingredient.quantity,
+                                suggestedPackageSizeUnit: ingredient.unit,
+                                suggestedNotes: ingredient.notes
+                            )
+                        } label: {
+                            Label("Create Product Variation", systemImage: "plus.circle")
                         }
                     }
 
@@ -307,6 +331,24 @@ private struct IngredientResolutionSheet: View {
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
+        }
+        .sheet(item: $newBaseIngredientContext) { context in
+            NewBaseIngredientSheet(context: context) { created in
+                Task {
+                    searchText = created.name
+                    searchResults = [created]
+                    await selectBaseIngredient(created)
+                }
+            }
+        }
+        .sheet(item: $newVariationContext) { context in
+            NewIngredientVariationSheet(context: context) { created in
+                Task {
+                    await loadVariations(for: created.baseIngredientId)
+                    selectedVariationID = created.ingredientVariationId
+                    lockToVariation = true
+                }
+            }
         }
     }
 
@@ -477,6 +519,190 @@ private struct IngredientResolutionSheet: View {
             seedBaseIngredientName: baseIngredient.name,
             seedPreferredVariationID: selectedVariationID.isEmpty ? nil : selectedVariationID
         )
+    }
+}
+
+private struct NewBaseIngredientContext: Identifiable {
+    let id = UUID()
+    let suggestedName: String
+    let suggestedCategory: String
+    let suggestedDefaultUnit: String
+}
+
+private struct NewVariationContext: Identifiable {
+    let id = UUID()
+    let baseIngredient: BaseIngredient
+    let suggestedName: String
+    let suggestedPackageSizeAmount: Double?
+    let suggestedPackageSizeUnit: String
+    let suggestedNotes: String
+}
+
+private struct NewBaseIngredientSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let context: NewBaseIngredientContext
+    let onCreated: (BaseIngredient) -> Void
+
+    @State private var name: String
+    @State private var category: String
+    @State private var defaultUnit: String
+    @State private var notes = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(context: NewBaseIngredientContext, onCreated: @escaping (BaseIngredient) -> Void) {
+        self.context = context
+        self.onCreated = onCreated
+        _name = State(initialValue: context.suggestedName)
+        _category = State(initialValue: context.suggestedCategory)
+        _defaultUnit = State(initialValue: context.suggestedDefaultUnit)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Base Ingredient") {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
+                    TextField("Category", text: $category)
+                        .textInputAutocapitalization(.words)
+                    TextField("Default unit", text: $defaultUnit)
+                        .textInputAutocapitalization(.never)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("New Base Ingredient")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        do {
+            isSaving = true
+            let created = try await appState.createBaseIngredient(
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                category: category.trimmingCharacters(in: .whitespacesAndNewlines),
+                defaultUnit: defaultUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            onCreated(created)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSaving = false
+    }
+}
+
+private struct NewIngredientVariationSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let context: NewVariationContext
+    let onCreated: (IngredientVariation) -> Void
+
+    @State private var name: String
+    @State private var brand = ""
+    @State private var packageSizeAmountText: String
+    @State private var packageSizeUnit: String
+    @State private var notes: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(context: NewVariationContext, onCreated: @escaping (IngredientVariation) -> Void) {
+        self.context = context
+        self.onCreated = onCreated
+        _name = State(initialValue: context.suggestedName)
+        _packageSizeAmountText = State(initialValue: context.suggestedPackageSizeAmount.map { $0.formatted() } ?? "")
+        _packageSizeUnit = State(initialValue: context.suggestedPackageSizeUnit)
+        _notes = State(initialValue: context.suggestedNotes)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Base Ingredient") {
+                    Text(context.baseIngredient.name)
+                        .font(.headline)
+                    if !context.baseIngredient.category.isEmpty {
+                        Text(context.baseIngredient.category)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Product Variation") {
+                    TextField("Variation name", text: $name)
+                        .textInputAutocapitalization(.words)
+                    TextField("Brand", text: $brand)
+                        .textInputAutocapitalization(.words)
+                    TextField("Package amount", text: $packageSizeAmountText)
+                        .keyboardType(.decimalPad)
+                    TextField("Package unit", text: $packageSizeUnit)
+                        .textInputAutocapitalization(.never)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("New Variation")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        do {
+            isSaving = true
+            let created = try await appState.createIngredientVariation(
+                baseIngredientID: context.baseIngredient.baseIngredientId,
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
+                packageSizeAmount: Double(packageSizeAmountText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                packageSizeUnit: packageSizeUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            onCreated(created)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSaving = false
     }
 }
 

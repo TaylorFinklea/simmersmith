@@ -142,3 +142,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - Import regressions should be captured as files under `tests/fixtures/recipe_import` instead of only as inline strings inside test functions.
 - The fixture corpus should cover URL imports, direct text imports, and OCR/PDF-style noisy text so parser and cleanup regressions can be reproduced from the repo alone.
 - Real-world bug reports, such as the Burnt Ends ingredient parsing failure, should be preserved as durable regression fixtures when practical.
+
+## 2026-03-31 - Ingredient review can create catalog entities in place
+
+- Users should be able to create missing base ingredients and product variations directly from the native ingredient review sheet.
+- Newly created catalog entities should be immediately selected back into the current ingredient-resolution workflow instead of forcing a second manual lookup.
+- This keeps recipe import and cleanup momentum inside one editing flow and reduces the need to bounce into separate admin/catalog screens.

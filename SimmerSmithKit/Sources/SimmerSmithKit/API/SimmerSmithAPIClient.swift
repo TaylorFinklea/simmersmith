@@ -87,6 +87,34 @@ private struct IngredientPreferenceBody: Encodable {
     let notes: String
 }
 
+private struct BaseIngredientBody: Encodable {
+    let baseIngredientId: String?
+    let name: String
+    let normalizedName: String?
+    let category: String
+    let defaultUnit: String
+    let notes: String
+    let nutritionReferenceAmount: Double?
+    let nutritionReferenceUnit: String
+    let calories: Double?
+}
+
+private struct IngredientVariationBody: Encodable {
+    let ingredientVariationId: String?
+    let name: String
+    let normalizedName: String?
+    let brand: String
+    let packageSizeAmount: Double?
+    let packageSizeUnit: String
+    let countPerPackage: Double?
+    let productUrl: String
+    let retailerHint: String
+    let notes: String
+    let nutritionReferenceAmount: Double?
+    let nutritionReferenceUnit: String
+    let calories: Double?
+}
+
 public final class SimmerSmithAPIClient: @unchecked Sendable {
     private let settingsStore: ConnectionSettingsStore
     private let session: URLSession
@@ -181,6 +209,69 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
         try await request(path: "/api/ingredients/\(baseIngredientID)/variations")
+    }
+
+    public func createBaseIngredient(
+        name: String,
+        normalizedName: String? = nil,
+        category: String = "",
+        defaultUnit: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> BaseIngredient {
+        try await request(
+            path: "/api/ingredients",
+            method: "POST",
+            body: BaseIngredientBody(
+                baseIngredientId: nil,
+                name: name,
+                normalizedName: normalizedName,
+                category: category,
+                defaultUnit: defaultUnit,
+                notes: notes,
+                nutritionReferenceAmount: nutritionReferenceAmount,
+                nutritionReferenceUnit: nutritionReferenceUnit,
+                calories: calories
+            )
+        )
+    }
+
+    public func createIngredientVariation(
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        brand: String = "",
+        packageSizeAmount: Double? = nil,
+        packageSizeUnit: String = "",
+        countPerPackage: Double? = nil,
+        productUrl: String = "",
+        retailerHint: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> IngredientVariation {
+        try await request(
+            path: "/api/ingredients/\(baseIngredientID)/variations",
+            method: "POST",
+            body: IngredientVariationBody(
+                ingredientVariationId: nil,
+                name: name,
+                normalizedName: normalizedName,
+                brand: brand,
+                packageSizeAmount: packageSizeAmount,
+                packageSizeUnit: packageSizeUnit,
+                countPerPackage: countPerPackage,
+                productUrl: productUrl,
+                retailerHint: retailerHint,
+                notes: notes,
+                nutritionReferenceAmount: nutritionReferenceAmount,
+                nutritionReferenceUnit: nutritionReferenceUnit,
+                calories: calories
+            )
+        )
     }
 
     public func fetchIngredientPreferences() async throws -> [IngredientPreference] {

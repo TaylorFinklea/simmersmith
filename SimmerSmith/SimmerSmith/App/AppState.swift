@@ -398,6 +398,60 @@ final class AppState {
         try await apiClient.fetchIngredientVariations(baseIngredientID: baseIngredientID)
     }
 
+    func createBaseIngredient(
+        name: String,
+        normalizedName: String? = nil,
+        category: String = "",
+        defaultUnit: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> BaseIngredient {
+        try await apiClient.createBaseIngredient(
+            name: name,
+            normalizedName: normalizedName,
+            category: category,
+            defaultUnit: defaultUnit,
+            notes: notes,
+            nutritionReferenceAmount: nutritionReferenceAmount,
+            nutritionReferenceUnit: nutritionReferenceUnit,
+            calories: calories
+        )
+    }
+
+    func createIngredientVariation(
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        brand: String = "",
+        packageSizeAmount: Double? = nil,
+        packageSizeUnit: String = "",
+        countPerPackage: Double? = nil,
+        productUrl: String = "",
+        retailerHint: String = "",
+        notes: String = "",
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> IngredientVariation {
+        try await apiClient.createIngredientVariation(
+            baseIngredientID: baseIngredientID,
+            name: name,
+            normalizedName: normalizedName,
+            brand: brand,
+            packageSizeAmount: packageSizeAmount,
+            packageSizeUnit: packageSizeUnit,
+            countPerPackage: countPerPackage,
+            productUrl: productUrl,
+            retailerHint: retailerHint,
+            notes: notes,
+            nutritionReferenceAmount: nutritionReferenceAmount,
+            nutritionReferenceUnit: nutritionReferenceUnit,
+            calories: calories
+        )
+    }
+
     func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
         try await apiClient.resolveIngredient(ingredient)
     }
