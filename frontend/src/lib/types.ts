@@ -48,6 +48,11 @@ export interface RecipeIngredientPayload {
   prep: string
   category: string
   notes: string
+  base_ingredient_id?: string | null
+  base_ingredient_name?: string | null
+  ingredient_variation_id?: string | null
+  ingredient_variation_name?: string | null
+  resolution_status?: 'unresolved' | 'suggested' | 'resolved' | 'locked'
 }
 
 export interface RecipeOut {
@@ -120,7 +125,41 @@ export interface GroceryItemOut {
   source_meals: string
   notes: string
   review_flag: string
+  base_ingredient_id?: string | null
+  base_ingredient_name?: string | null
+  ingredient_variation_id?: string | null
+  ingredient_variation_name?: string | null
+  resolution_status?: 'unresolved' | 'suggested' | 'resolved' | 'locked'
   retailer_prices: RetailerPriceOut[]
+}
+
+export interface BaseIngredient {
+  base_ingredient_id: string
+  name: string
+  normalized_name: string
+  category: string
+  default_unit: string
+  notes: string
+  nutrition_reference_amount?: number | null
+  nutrition_reference_unit: string
+  calories?: number | null
+}
+
+export interface IngredientVariation {
+  ingredient_variation_id: string
+  base_ingredient_id: string
+  name: string
+  normalized_name: string
+  brand: string
+  package_size_amount?: number | null
+  package_size_unit: string
+  count_per_package?: number | null
+  product_url: string
+  retailer_hint: string
+  notes: string
+  nutrition_reference_amount?: number | null
+  nutrition_reference_unit: string
+  calories?: number | null
 }
 
 export interface WeekMealOut {

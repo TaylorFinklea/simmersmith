@@ -1,6 +1,8 @@
 import type {
+  BaseIngredient,
   ExportRunOut,
   FeedbackEntryPayload,
+  IngredientVariation,
   MealUpdatePayload,
   PreferenceContextResponse,
   PricingResponse,
@@ -41,6 +43,45 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getPreferences: () => fetchJson<PreferenceContextResponse>('/api/preferences'),
+  searchBaseIngredients: (query: string, limit = 12) =>
+    fetchJson<BaseIngredient[]>(`/api/ingredients?q=${encodeURIComponent(query)}&limit=${limit}`),
+  createBaseIngredient: (payload: {
+    name: string
+    normalized_name?: string | null
+    category?: string
+    default_unit?: string
+    notes?: string
+    nutrition_reference_amount?: number | null
+    nutrition_reference_unit?: string
+    calories?: number | null
+  }) =>
+    fetchJson<BaseIngredient>('/api/ingredients', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getIngredientVariations: (baseIngredientId: string) =>
+    fetchJson<IngredientVariation[]>(`/api/ingredients/${baseIngredientId}/variations`),
+  createIngredientVariation: (
+    baseIngredientId: string,
+    payload: {
+      name: string
+      normalized_name?: string | null
+      brand?: string
+      package_size_amount?: number | null
+      package_size_unit?: string
+      count_per_package?: number | null
+      product_url?: string
+      retailer_hint?: string
+      notes?: string
+      nutrition_reference_amount?: number | null
+      nutrition_reference_unit?: string
+      calories?: number | null
+    },
+  ) =>
+    fetchJson<IngredientVariation>(`/api/ingredients/${baseIngredientId}/variations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getRecipes: (includeArchived = false) =>
     fetchJson<RecipeOut[]>(`/api/recipes${includeArchived ? '?include_archived=true' : ''}`),
   saveRecipe: (payload: RecipePayload) =>

@@ -19,6 +19,9 @@ interface RecipeCardProps {
 }
 
 export function RecipeCard({ recipe, onEdit, onToggleFavorite, onArchive, onRestore, onDelete, actionsDisabled = false }: RecipeCardProps) {
+  const unresolvedIngredientCount = recipe.ingredients.filter((ingredient) =>
+    ['unresolved', 'suggested'].includes(ingredient.resolution_status ?? 'unresolved'),
+  ).length
   const metadata = [
     recipe.meal_type,
     recipe.cuisine,
@@ -39,6 +42,7 @@ export function RecipeCard({ recipe, onEdit, onToggleFavorite, onArchive, onRest
                 <Badge key={item} variant="muted">{item}</Badge>
               ))}
               {recipe.archived ? <Badge variant="warning">Archived</Badge> : null}
+              {unresolvedIngredientCount > 0 ? <Badge variant="warning">Needs review {unresolvedIngredientCount}</Badge> : null}
               {recipe.favorite ? (
                 <Badge variant="secondary" className="gap-1">
                   <Heart className="size-3 fill-current" /> Favorite

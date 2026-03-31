@@ -6,6 +6,17 @@
 
 ## Recent Progress
 
+- Added the first matching web-facing ingredient review UX so catalog resolution is no longer native-only.
+- The web Recipes page now surfaces recipe-level review status:
+  - recipes with unresolved or suggested ingredients show review-needed badges
+  - the page can filter down to only recipes that still need ingredient review
+- The web recipe editor now supports ingredient resolution per row:
+  - visible canonical status badges
+  - canonical base ingredient search/selection
+  - product variation selection
+  - product locking
+  - in-place creation of new base ingredients and product variations
+- Extended the web client types and API layer so recipe and grocery payloads carry canonical ingredient identity in the admin UI.
 - Native ingredient review can now create missing catalog entities in place instead of forcing users to leave the current recipe flow.
 - The recipe editor ingredient review sheet now supports:
   - creating a new base ingredient from the current ingredient row or search text
@@ -119,7 +130,8 @@
 
 ## Recent Commits
 
-- `pending` ingredient review catalog-creation commit not created yet in this session
+- `pending` web ingredient review UX commit not created yet in this session
+- `4c7ea74` `feat: add ingredient catalog creation in review flow`
 - `798b900` `test: add recipe import fixture corpus`
 - `5cb5374` `feat: add bulk ingredient review queue`
 - `b3446b8` `feat: add ingredient preference settings`
@@ -137,16 +149,18 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift`
+- `frontend/src/lib/types.ts`
+- `frontend/src/lib/api.ts`
+- `frontend/src/features/recipes/recipes-page.tsx`
+- `frontend/src/features/recipes/components/recipe-card.tsx`
+- `frontend/src/features/recipes/components/recipe-editor-dialog.tsx`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the ingredient review catalog-creation slice until the session-end commit is created
+- dirty during the web ingredient review UX slice until the session-end commit is created
 
 ## Blockers
 
@@ -156,6 +170,7 @@
 ## Open Questions
 
 - Should the current review queue remain a lightweight entry point into existing editors, or eventually gain inline resolution controls for bulk triage?
+- Should the grocery web view also gain direct ingredient-resolution actions, or remain recipe-first for canonical review?
 - Should import flows auto-accept exact base-ingredient matches silently and only surface variation/product review when household preferences exist?
 - When a recipe explicitly names a branded ingredient, should that always become a locked variation or remain a resolved-but-editable suggestion?
 - Should the existing heuristic suggestion / companion / variation routes migrate onto the same direct/MCP execution layer next, or stay lightweight until after import hardening?
@@ -199,6 +214,11 @@ Latest completed validation for the ingredient review catalog-creation slice:
 
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the web ingredient review UX slice:
+
+- `cd frontend && npm run build` -> passed
+- `cd frontend && npm test` -> passed (`2 files, 5 tests`)
 
 Latest completed validation for the direct/MCP execution refactor:
 

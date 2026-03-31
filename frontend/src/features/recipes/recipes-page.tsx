@@ -21,6 +21,7 @@ import { RecipeSearch } from './components/recipe-search'
 export function RecipesPage() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'active' | 'all' | 'archived'>('active')
+  const [reviewOnly, setReviewOnly] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [editingRecipe, setEditingRecipe] = useState<RecipeOut | RecipePayload | null>(null)
@@ -47,17 +48,28 @@ export function RecipesPage() {
       if (filter === 'archived') return recipe.archived
       return true
     })
-    if (!normalizedQuery) return visibleRecipes
-    return visibleRecipes.filter((recipe) =>
+    const reviewFilteredRecipes = visibleRecipes.filter((recipe) => {
+      if (!reviewOnly) return true
+      return recipe.ingredients.some((ingredient) =>
+        ['unresolved', 'suggested'].includes(ingredient.resolution_status ?? 'unresolved'),
+      )
+    })
+    if (!normalizedQuery) return reviewFilteredRecipes
+    return reviewFilteredRecipes.filter((recipe) =>
       [recipe.name, recipe.cuisine, recipe.meal_type, recipe.tags, recipe.instructions_summary, recipe.source_label, recipe.ingredients.map((i) => i.ingredient_name).join(' ')]
         .join(' ')
         .toLowerCase()
         .includes(normalizedQuery),
     )
-  }, [filter, query, recipes])
+  }, [filter, query, recipes, reviewOnly])
 
   const activeCount = recipes?.filter((recipe) => !recipe.archived).length ?? 0
   const archivedCount = recipes?.filter((recipe) => recipe.archived).length ?? 0
+  const reviewCount = recipes?.filter((recipe) =>
+    recipe.ingredients.some((ingredient) =>
+      ['unresolved', 'suggested'].includes(ingredient.resolution_status ?? 'unresolved'),
+    ),
+  ).length ?? 0
   const actionsDisabled =
     saveRecipeMutation.isPending ||
     archiveRecipeMutation.isPending ||
@@ -120,13 +132,24 @@ export function RecipesPage() {
           ))}
         </div>
       ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={reviewOnly ? 'default' : 'outline'}
+          onClick={() => setReviewOnly((current) => !current)}
+        >
+          {reviewOnly ? 'Showing review-needed only' : `Review needed ${reviewCount}`}
+        </Button>
+      </div>
 
       {filteredRecipes.length === 0 ? (
         <EmptyState
-          title={query.trim() ? 'No matching recipes' : filter === 'archived' ? 'No archived recipes' : 'No recipes yet'}
+          title={query.trim() ? 'No matching recipes' : reviewOnly ? 'No recipes need review' : filter === 'archived' ? 'No archived recipes' : 'No recipes yet'}
           description={
             query.trim()
               ? 'Try a broader query, or start a new recipe from here.'
+              : reviewOnly
+                ? 'Every visible recipe ingredient is already resolved well enough for now.'
               : filter === 'archived'
                 ? 'Archived recipes will land here when you want them out of the active rotation.'
                 : 'Start with a name only. You can fill in ingredients and notes when the recipe becomes a keeper.'

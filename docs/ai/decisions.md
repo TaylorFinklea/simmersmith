@@ -148,3 +148,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - Users should be able to create missing base ingredients and product variations directly from the native ingredient review sheet.
 - Newly created catalog entities should be immediately selected back into the current ingredient-resolution workflow instead of forcing a second manual lookup.
 - This keeps recipe import and cleanup momentum inside one editing flow and reduces the need to bounce into separate admin/catalog screens.
+
+## 2026-03-31 - The web admin mirrors the recipe-level ingredient review flow first
+
+- The first web ingredient-review slice should mirror the existing recipe-level workflow instead of introducing a separate catalog-management surface.
+- Operators should be able to find review-needed recipes from the Recipes page and resolve ingredient matches inside the recipe editor.
+- Grocery review on the web remains recipe-first for now; canonical ingredient corrections still happen in the source recipe editor rather than directly on grocery rows.
