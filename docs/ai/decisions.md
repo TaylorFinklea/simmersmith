@@ -208,3 +208,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - SimmerSmith now exposes a dedicated `SIMMERSMITH_USDA_API_KEY` server setting.
 - The ingredient seed script prefers that server-side setting automatically and only falls back to `DEMO_KEY` if neither the CLI flag nor the env var is set.
 - Docker also passes the USDA key through so local production-style runs and seed workflows can share the same configuration.
+
+## 2026-04-02 - Live ingredient seeding should target the Docker-backed app database, not only temp local databases
+
+- The first real operator seed should run inside the `simmersmith` container from `/workspace` so it uses the same migrations, config, and writable SQLite file as the live app.
+- Temp local seed databases are still useful for smoke tests, but they are not enough to prove the live product catalog is populated.
+- The first live USDA-backed seed worked, but the resulting corpus still needs review for search quality and noisy matches before treating it as the final default catalog experience.

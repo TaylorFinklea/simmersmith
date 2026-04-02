@@ -27,6 +27,9 @@
   - Open Food Facts for branded/package products and variation seeding
 - Added a dedicated `SIMMERSMITH_USDA_API_KEY` server setting and Docker passthrough so the ingredient seed script can use a real USDA key without requiring the operator to pass it on the command line every run.
 - Added local ignored `.env` support for the USDA key on this machine and rebuilt the Docker service so the container picks up the new configuration.
+- Ran the first real USDA-backed catalog seed against the live Docker-backed database instead of only temp seed databases.
+- Confirmed the live ingredient API now returns source-backed USDA rows with provenance, including examples like `Jam`, `Honey`, and `Mustard`.
+- Confirmed biscuit search now returns live catalog results, including `Refrigerated biscuits`, against the main app database.
 - Verified the ingest pipeline against isolated temp databases:
   - USDA requests now fail cleanly under public `DEMO_KEY` throttling instead of crashing the run
   - Open Food Facts ingest created base ingredients and product variations while skipping intermittent `503` responses safely
@@ -282,6 +285,8 @@ Latest completed validation for the ingredient-management and ingest slice:
 - `docker compose up --build -d` -> passed
 - `curl http://localhost:8080/api/health` -> passed
 - `.venv/bin/python -c "from app.config import get_settings; print('set' if bool(get_settings().usda_api_key) else 'missing')"` -> passed (`set`)
+- `docker compose exec simmersmith sh -lc 'cd /workspace && PYTHONPATH=/workspace python scripts/seed_ingredient_catalog.py --page-size 25 --max-pages 1'` -> passed against the live database; USDA-backed ingredient rows are now visible via `/api/ingredients`
+- `curl 'http://localhost:8080/api/ingredients?q=biscuit&limit=20'` -> passed; live biscuit-related catalog rows are now visible
 
 Latest completed validation for the bulk ingredient review queue slice:
 
