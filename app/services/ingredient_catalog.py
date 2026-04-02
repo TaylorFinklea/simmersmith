@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -12,6 +13,7 @@ from app.models import (
     IngredientPreference,
     IngredientVariation,
     NutritionItem,
+    Recipe,
     RecipeIngredient,
     WeekMealIngredient,
     utcnow,
@@ -113,6 +115,22 @@ class IngredientResolution:
         }
 
 
+@dataclass(frozen=True)
+class IngredientUsageSummary:
+    linked_recipe_ids: list[str]
+    linked_recipe_names: list[str]
+    linked_grocery_item_ids: list[str]
+    linked_grocery_names: list[str]
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "linked_recipe_ids": self.linked_recipe_ids,
+            "linked_recipe_names": self.linked_recipe_names,
+            "linked_grocery_item_ids": self.linked_grocery_item_ids,
+            "linked_grocery_names": self.linked_grocery_names,
+        }
+
+
 def _clean_category(category: str) -> str:
     return str(category or "").strip()
 
@@ -121,26 +139,124 @@ def _normalized_or_name(name: str, normalized_name: str | None = None) -> str:
     return normalize_name(normalized_name or name)
 
 
-def search_base_ingredients(session: Session, query: str = "", limit: int = 20) -> list[BaseIngredient]:
-    statement = (
-        select(BaseIngredient)
-        .order_by(func.length(BaseIngredient.name), BaseIngredient.name)
-        .limit(max(1, min(limit, 100)))
-    )
+def search_base_ingredients(
+    session: Session,
+    query: str = "",
+    *,
+    limit: int = 20,
+    include_archived: bool = False,
+    provisional_only: bool = False,
+    with_preferences: bool = False,
+    with_variations: bool = False,
+) -> list[BaseIngredient]:
+    statement = select(BaseIngredient)
+    if not include_archived:
+        statement = statement.where(BaseIngredient.archived_at.is_(None), BaseIngredient.active.is_(True))
+    if provisional_only:
+        statement = statement.where(BaseIngredient.provisional.is_(True))
+    if with_preferences:
+        statement = statement.where(
+            BaseIngredient.id.in_(select(IngredientPreference.base_ingredient_id).where(IngredientPreference.active.is_(True)))
+        )
+    if with_variations:
+        statement = statement.where(
+            BaseIngredient.id.in_(
+                select(IngredientVariation.base_ingredient_id).where(
+                    IngredientVariation.archived_at.is_(None),
+                    IngredientVariation.active.is_(True),
+                )
+            )
+        )
     normalized_query = normalize_name(query)
     if normalized_query:
         like_value = f"%{normalized_query}%"
-        statement = (
-            select(BaseIngredient)
-            .where(BaseIngredient.normalized_name.like(like_value))
-            .order_by(func.length(BaseIngredient.name), BaseIngredient.name)
-            .limit(max(1, min(limit, 100)))
+        statement = statement.where(
+            or_(
+                BaseIngredient.normalized_name.like(like_value),
+                BaseIngredient.name.ilike(f"%{query.strip()}%"),
+                BaseIngredient.id.in_(
+                    select(IngredientVariation.base_ingredient_id).where(
+                        or_(
+                            IngredientVariation.normalized_name.like(like_value),
+                            IngredientVariation.name.ilike(f"%{query.strip()}%"),
+                            IngredientVariation.brand.ilike(f"%{query.strip()}%"),
+                            IngredientVariation.upc.ilike(f"%{query.strip()}%"),
+                        ),
+                        IngredientVariation.archived_at.is_(None),
+                        IngredientVariation.active.is_(True),
+                    )
+                ),
+            )
         )
+    statement = statement.order_by(
+        BaseIngredient.provisional.asc(),
+        func.length(BaseIngredient.name),
+        BaseIngredient.name,
+    ).limit(max(1, min(limit, 200)))
     return list(session.scalars(statement).all())
 
 
 def get_base_ingredient(session: Session, base_ingredient_id: str) -> BaseIngredient | None:
     return session.get(BaseIngredient, base_ingredient_id)
+
+
+def ingredient_usage_summary(session: Session, base_ingredient_id: str) -> IngredientUsageSummary:
+    recipe_rows = list(
+        session.execute(
+            select(Recipe.id, Recipe.name)
+            .join(RecipeIngredient, RecipeIngredient.recipe_id == Recipe.id)
+            .where(RecipeIngredient.base_ingredient_id == base_ingredient_id)
+            .order_by(Recipe.name)
+        )
+    )
+    grocery_rows = list(
+        session.execute(
+            select(GroceryItem.id, GroceryItem.ingredient_name)
+            .where(GroceryItem.base_ingredient_id == base_ingredient_id)
+            .order_by(GroceryItem.ingredient_name)
+        )
+    )
+    seen_recipe_ids: set[str] = set()
+    linked_recipe_ids: list[str] = []
+    linked_recipe_names: list[str] = []
+    for recipe_id, ingredient_name in recipe_rows:
+        if recipe_id in seen_recipe_ids:
+            continue
+        seen_recipe_ids.add(recipe_id)
+        linked_recipe_ids.append(recipe_id)
+        linked_recipe_names.append(ingredient_name)
+
+    return IngredientUsageSummary(
+        linked_recipe_ids=linked_recipe_ids[:20],
+        linked_recipe_names=linked_recipe_names[:20],
+        linked_grocery_item_ids=[row[0] for row in grocery_rows[:20]],
+        linked_grocery_names=[row[1] for row in grocery_rows[:20]],
+    )
+
+
+def ingredient_counts(session: Session, base_ingredient_id: str) -> dict[str, int]:
+    return {
+        "variation_count": session.scalar(
+            select(func.count(IngredientVariation.id)).where(
+                IngredientVariation.base_ingredient_id == base_ingredient_id,
+                IngredientVariation.archived_at.is_(None),
+                IngredientVariation.active.is_(True),
+            )
+        )
+        or 0,
+        "preference_count": session.scalar(
+            select(func.count(IngredientPreference.id)).where(IngredientPreference.base_ingredient_id == base_ingredient_id)
+        )
+        or 0,
+        "recipe_usage_count": session.scalar(
+            select(func.count(RecipeIngredient.id)).where(RecipeIngredient.base_ingredient_id == base_ingredient_id)
+        )
+        or 0,
+        "grocery_usage_count": session.scalar(
+            select(func.count(GroceryItem.id)).where(GroceryItem.base_ingredient_id == base_ingredient_id)
+        )
+        or 0,
+    }
 
 
 def ensure_base_ingredient(
@@ -151,6 +267,12 @@ def ensure_base_ingredient(
     category: str = "",
     default_unit: str = "",
     notes: str = "",
+    source_name: str = "",
+    source_record_id: str = "",
+    source_url: str = "",
+    source_payload: dict[str, Any] | None = None,
+    provisional: bool = False,
+    active: bool = True,
     nutrition_reference_amount: float | None = None,
     nutrition_reference_unit: str = "",
     calories: float | None = None,
@@ -165,6 +287,12 @@ def ensure_base_ingredient(
             category=_clean_category(category),
             default_unit=normalize_unit(default_unit),
             notes=str(notes or "").strip(),
+            source_name=str(source_name or "").strip(),
+            source_record_id=str(source_record_id or "").strip(),
+            source_url=str(source_url or "").strip(),
+            source_payload_json=json.dumps(source_payload or {}, sort_keys=True),
+            provisional=provisional,
+            active=active,
             nutrition_reference_amount=nutrition_reference_amount,
             nutrition_reference_unit=normalize_unit(nutrition_reference_unit),
             calories=calories,
@@ -179,6 +307,16 @@ def ensure_base_ingredient(
             existing.default_unit = normalize_unit(default_unit)
         if notes and not existing.notes:
             existing.notes = str(notes).strip()
+        if source_name and not existing.source_name:
+            existing.source_name = str(source_name).strip()
+        if source_record_id and not existing.source_record_id:
+            existing.source_record_id = str(source_record_id).strip()
+        if source_url and not existing.source_url:
+            existing.source_url = str(source_url).strip()
+        if source_payload and existing.source_payload_json in {"", "{}"}:
+            existing.source_payload_json = json.dumps(source_payload, sort_keys=True)
+        existing.provisional = existing.provisional and provisional
+        existing.active = active or existing.active
         if existing.nutrition_reference_amount is None and nutrition_reference_amount is not None:
             existing.nutrition_reference_amount = nutrition_reference_amount
         if not existing.nutrition_reference_unit and nutrition_reference_unit:
@@ -193,7 +331,11 @@ def ensure_base_ingredient(
 def list_variations(session: Session, base_ingredient_id: str) -> list[IngredientVariation]:
     statement = (
         select(IngredientVariation)
-        .where(IngredientVariation.base_ingredient_id == base_ingredient_id)
+        .where(
+            IngredientVariation.base_ingredient_id == base_ingredient_id,
+            IngredientVariation.archived_at.is_(None),
+            IngredientVariation.active.is_(True),
+        )
         .order_by(IngredientVariation.name)
     )
     return list(session.scalars(statement).all())
@@ -207,12 +349,18 @@ def create_or_update_variation(
     name: str,
     normalized_name: str | None = None,
     brand: str = "",
+    upc: str = "",
     package_size_amount: float | None = None,
     package_size_unit: str = "",
     count_per_package: float | None = None,
     product_url: str = "",
     retailer_hint: str = "",
     notes: str = "",
+    source_name: str = "",
+    source_record_id: str = "",
+    source_url: str = "",
+    source_payload: dict[str, Any] | None = None,
+    active: bool = True,
     nutrition_reference_amount: float | None = None,
     nutrition_reference_unit: str = "",
     calories: float | None = None,
@@ -240,12 +388,18 @@ def create_or_update_variation(
             name=cleaned_name or normalized,
             normalized_name=normalized,
             brand=str(brand or "").strip(),
+            upc=str(upc or "").strip(),
             package_size_amount=package_size_amount,
             package_size_unit=normalize_unit(package_size_unit),
             count_per_package=count_per_package,
             product_url=str(product_url or "").strip(),
             retailer_hint=str(retailer_hint or "").strip(),
             notes=str(notes or "").strip(),
+            source_name=str(source_name or "").strip(),
+            source_record_id=str(source_record_id or "").strip(),
+            source_url=str(source_url or "").strip(),
+            source_payload_json=json.dumps(source_payload or {}, sort_keys=True),
+            active=active,
             nutrition_reference_amount=nutrition_reference_amount,
             nutrition_reference_unit=normalize_unit(nutrition_reference_unit),
             calories=calories,
@@ -256,12 +410,22 @@ def create_or_update_variation(
         variation.name = cleaned_name or variation.name
         variation.normalized_name = normalized
         variation.brand = str(brand or "").strip()
+        variation.upc = str(upc or "").strip()
         variation.package_size_amount = package_size_amount
         variation.package_size_unit = normalize_unit(package_size_unit)
         variation.count_per_package = count_per_package
         variation.product_url = str(product_url or "").strip()
         variation.retailer_hint = str(retailer_hint or "").strip()
         variation.notes = str(notes or "").strip()
+        if source_name and not variation.source_name:
+            variation.source_name = str(source_name).strip()
+        if source_record_id and not variation.source_record_id:
+            variation.source_record_id = str(source_record_id).strip()
+        if source_url and not variation.source_url:
+            variation.source_url = str(source_url).strip()
+        if source_payload and variation.source_payload_json in {"", "{}"}:
+            variation.source_payload_json = json.dumps(source_payload, sort_keys=True)
+        variation.active = active or variation.active
         variation.nutrition_reference_amount = nutrition_reference_amount
         variation.nutrition_reference_unit = normalize_unit(nutrition_reference_unit)
         variation.calories = calories
@@ -318,6 +482,199 @@ def list_ingredient_preferences(session: Session) -> list[IngredientPreference]:
     return list(session.scalars(statement).all())
 
 
+def ingredient_preference_for_base(session: Session, base_ingredient_id: str) -> IngredientPreference | None:
+    return session.scalar(
+        select(IngredientPreference).where(IngredientPreference.base_ingredient_id == base_ingredient_id)
+    )
+
+
+def update_base_ingredient(
+    session: Session,
+    *,
+    base_ingredient_id: str,
+    name: str,
+    normalized_name: str | None = None,
+    category: str = "",
+    default_unit: str = "",
+    notes: str = "",
+    source_name: str = "",
+    source_record_id: str = "",
+    source_url: str = "",
+    provisional: bool = False,
+    active: bool = True,
+    nutrition_reference_amount: float | None = None,
+    nutrition_reference_unit: str = "",
+    calories: float | None = None,
+) -> BaseIngredient:
+    item = get_base_ingredient(session, base_ingredient_id)
+    if item is None:
+        raise ValueError("Base ingredient not found")
+    item.name = str(name).strip() or item.name
+    item.normalized_name = _normalized_or_name(item.name, normalized_name)
+    item.category = _clean_category(category)
+    item.default_unit = normalize_unit(default_unit)
+    item.notes = str(notes or "").strip()
+    item.source_name = str(source_name or "").strip()
+    item.source_record_id = str(source_record_id or "").strip()
+    item.source_url = str(source_url or "").strip()
+    item.provisional = provisional
+    item.active = active
+    item.nutrition_reference_amount = nutrition_reference_amount
+    item.nutrition_reference_unit = normalize_unit(nutrition_reference_unit)
+    item.calories = calories
+    item.updated_at = utcnow()
+    session.flush()
+    return item
+
+
+def archive_base_ingredient(session: Session, base_ingredient_id: str) -> BaseIngredient:
+    item = get_base_ingredient(session, base_ingredient_id)
+    if item is None:
+        raise ValueError("Base ingredient not found")
+    item.active = False
+    item.archived_at = utcnow()
+    item.updated_at = utcnow()
+    session.flush()
+    return item
+
+
+def merge_base_ingredients(session: Session, *, source_id: str, target_id: str) -> BaseIngredient:
+    if source_id == target_id:
+        raise ValueError("Source and target ingredient must differ")
+    source = get_base_ingredient(session, source_id)
+    target = get_base_ingredient(session, target_id)
+    if source is None or target is None:
+        raise ValueError("Base ingredient not found")
+    for row in session.scalars(select(RecipeIngredient).where(RecipeIngredient.base_ingredient_id == source.id)).all():
+        row.base_ingredient_id = target.id
+        if row.resolution_status == "unresolved":
+            row.resolution_status = "resolved"
+    for row in session.scalars(select(WeekMealIngredient).where(WeekMealIngredient.base_ingredient_id == source.id)).all():
+        row.base_ingredient_id = target.id
+        if row.resolution_status == "unresolved":
+            row.resolution_status = "resolved"
+    for row in session.scalars(select(GroceryItem).where(GroceryItem.base_ingredient_id == source.id)).all():
+        row.base_ingredient_id = target.id
+        if row.resolution_status == "unresolved":
+            row.resolution_status = "resolved"
+    for row in session.scalars(select(IngredientVariation).where(IngredientVariation.base_ingredient_id == source.id)).all():
+        row.base_ingredient_id = target.id
+    preference = ingredient_preference_for_base(session, source.id)
+    if preference is not None:
+        existing = ingredient_preference_for_base(session, target.id)
+        if existing is None:
+            preference.base_ingredient_id = target.id
+        else:
+            if not existing.preferred_variation_id and preference.preferred_variation_id:
+                existing.preferred_variation_id = preference.preferred_variation_id
+            if not existing.preferred_brand and preference.preferred_brand:
+                existing.preferred_brand = preference.preferred_brand
+            if not existing.notes and preference.notes:
+                existing.notes = preference.notes
+            session.delete(preference)
+    source.active = False
+    source.archived_at = utcnow()
+    source.merged_into_id = target.id
+    source.updated_at = utcnow()
+    target.updated_at = utcnow()
+    session.flush()
+    return target
+
+
+def update_variation(
+    session: Session,
+    *,
+    ingredient_variation_id: str,
+    base_ingredient_id: str,
+    name: str,
+    normalized_name: str | None = None,
+    brand: str = "",
+    upc: str = "",
+    package_size_amount: float | None = None,
+    package_size_unit: str = "",
+    count_per_package: float | None = None,
+    product_url: str = "",
+    retailer_hint: str = "",
+    notes: str = "",
+    source_name: str = "",
+    source_record_id: str = "",
+    source_url: str = "",
+    active: bool = True,
+    nutrition_reference_amount: float | None = None,
+    nutrition_reference_unit: str = "",
+    calories: float | None = None,
+) -> IngredientVariation:
+    return create_or_update_variation(
+        session,
+        base_ingredient_id=base_ingredient_id,
+        variation_id=ingredient_variation_id,
+        name=name,
+        normalized_name=normalized_name,
+        brand=brand,
+        upc=upc,
+        package_size_amount=package_size_amount,
+        package_size_unit=package_size_unit,
+        count_per_package=count_per_package,
+        product_url=product_url,
+        retailer_hint=retailer_hint,
+        notes=notes,
+        source_name=source_name,
+        source_record_id=source_record_id,
+        source_url=source_url,
+        active=active,
+        nutrition_reference_amount=nutrition_reference_amount,
+        nutrition_reference_unit=nutrition_reference_unit,
+        calories=calories,
+    )
+
+
+def archive_variation(session: Session, ingredient_variation_id: str) -> IngredientVariation:
+    item = session.get(IngredientVariation, ingredient_variation_id)
+    if item is None:
+        raise ValueError("Ingredient variation not found")
+    item.active = False
+    item.archived_at = utcnow()
+    item.updated_at = utcnow()
+    session.flush()
+    return item
+
+
+def merge_variations(session: Session, *, source_id: str, target_id: str) -> IngredientVariation:
+    if source_id == target_id:
+        raise ValueError("Source and target variation must differ")
+    source = session.get(IngredientVariation, source_id)
+    target = session.get(IngredientVariation, target_id)
+    if source is None or target is None:
+        raise ValueError("Ingredient variation not found")
+    for row in session.scalars(
+        select(RecipeIngredient).where(RecipeIngredient.ingredient_variation_id == source.id)
+    ).all():
+        row.ingredient_variation_id = target.id
+        row.base_ingredient_id = target.base_ingredient_id
+    for row in session.scalars(
+        select(WeekMealIngredient).where(WeekMealIngredient.ingredient_variation_id == source.id)
+    ).all():
+        row.ingredient_variation_id = target.id
+        row.base_ingredient_id = target.base_ingredient_id
+    for row in session.scalars(
+        select(GroceryItem).where(GroceryItem.ingredient_variation_id == source.id)
+    ).all():
+        row.ingredient_variation_id = target.id
+        row.base_ingredient_id = target.base_ingredient_id
+    for preference in session.scalars(
+        select(IngredientPreference).where(IngredientPreference.preferred_variation_id == source.id)
+    ).all():
+        preference.preferred_variation_id = target.id
+        preference.base_ingredient_id = target.base_ingredient_id
+    source.active = False
+    source.archived_at = utcnow()
+    source.merged_into_id = target.id
+    source.updated_at = utcnow()
+    target.updated_at = utcnow()
+    session.flush()
+    return target
+
+
 def resolve_ingredient(
     session: Session,
     *,
@@ -344,20 +701,34 @@ def resolve_ingredient(
     locked = resolution_status == "locked"
     if ingredient_variation_id:
         variation = session.get(IngredientVariation, ingredient_variation_id)
-        if variation is not None:
+        if variation is not None and variation.archived_at is None and variation.active:
             base = variation.base_ingredient
             locked = locked or True
     if base is None and base_ingredient_id:
         base = session.get(BaseIngredient, base_ingredient_id)
+        if base is not None and (base.archived_at is not None or not base.active):
+            base = None
 
     if variation is None and normalized:
-        variation = session.scalar(select(IngredientVariation).where(IngredientVariation.normalized_name == normalized))
+        variation = session.scalar(
+            select(IngredientVariation).where(
+                IngredientVariation.normalized_name == normalized,
+                IngredientVariation.archived_at.is_(None),
+                IngredientVariation.active.is_(True),
+            )
+        )
         if variation is not None:
             base = variation.base_ingredient
             locked = True
 
     if base is None and normalized:
-        base = session.scalar(select(BaseIngredient).where(BaseIngredient.normalized_name == normalized))
+        base = session.scalar(
+            select(BaseIngredient).where(
+                BaseIngredient.normalized_name == normalized,
+                BaseIngredient.archived_at.is_(None),
+                BaseIngredient.active.is_(True),
+            )
+        )
 
     if base is None and normalized:
         nutrition_item = session.scalar(select(NutritionItem).where(NutritionItem.normalized_name == normalized))
@@ -382,6 +753,7 @@ def resolve_ingredient(
             category=cleaned_category,
             default_unit=cleaned_unit,
             notes=cleaned_notes,
+            provisional=True,
         )
 
     if resolution_status in RESOLUTION_STATUSES:
@@ -444,6 +816,10 @@ def choice_for_base_ingredient(
 ) -> tuple[BaseIngredient | None, IngredientVariation | None, str]:
     base = session.get(BaseIngredient, base_ingredient_id) if base_ingredient_id else None
     recipe_variation = session.get(IngredientVariation, recipe_variation_id) if recipe_variation_id else None
+    if base is not None and (base.archived_at is not None or not base.active):
+        base = None
+    if recipe_variation is not None and (recipe_variation.archived_at is not None or not recipe_variation.active):
+        recipe_variation = None
     if recipe_variation is not None:
         base = recipe_variation.base_ingredient
     if recipe_variation is not None and recipe_resolution_status == "locked":

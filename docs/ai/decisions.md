@@ -190,3 +190,15 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - If a provider turn fails after the user sends a message, the persisted assistant message should carry readable error text.
 - The iOS assistant UI should render stored error text before falling back to an empty bubble.
 - This is especially important for Anthropic troubleshooting, where schema-output failures otherwise look like blank assistant replies.
+
+## 2026-04-01 - Ingredient management now lives in a dedicated native area, not only inside Settings search flows
+
+- The app now has a dedicated native `Ingredients` management experience for browsing and maintaining canonical ingredient data.
+- Ingredient management is reachable from both `Settings` and `Recipes`, but it is treated as a real product surface with detail/edit/merge/archive flows.
+- Recipe text remains the source of truth for user-facing ingredient phrasing, while the `Ingredients` area manages canonical base ingredients and product variations behind that text.
+
+## 2026-04-01 - Ingredient catalog seeding is source-aware and must fail gracefully under external API limits
+
+- USDA FoodData Central and Open Food Facts are the initial external sources for generic calories and branded/package product data.
+- The seed pipeline should continue running and report skipped requests when external APIs throttle or intermittently fail; transient third-party issues should not crash the entire ingest run.
+- Production seeding strategy is still undecided, but the code path assumes source provenance and local SimmerSmith overrides are first-class.

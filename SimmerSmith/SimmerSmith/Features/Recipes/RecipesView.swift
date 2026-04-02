@@ -18,6 +18,7 @@ struct RecipesView: View {
     @State private var isGeneratingSuggestion = false
     @State private var suggestionErrorMessage: String?
     @State private var showingReviewQueue = false
+    @State private var showingIngredientManager = false
 
     var body: some View {
         List {
@@ -73,6 +74,9 @@ struct RecipesView: View {
                     }
                     Button(reviewQueueButtonTitle) {
                         showingReviewQueue = true
+                    }
+                    Button("Manage ingredients") {
+                        showingIngredientManager = true
                     }
                     Button(showArchived ? "Hide archived" : "Show archived") {
                         showArchived.toggle()
@@ -144,6 +148,9 @@ struct RecipesView: View {
         }
         .sheet(isPresented: $showingReviewQueue) {
             IngredientReviewQueueView()
+        }
+        .navigationDestination(isPresented: $showingIngredientManager) {
+            IngredientsView()
         }
         .alert("AI Suggestion Failed", isPresented: Binding(
             get: { suggestionErrorMessage != nil },

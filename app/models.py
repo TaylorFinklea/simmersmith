@@ -121,6 +121,19 @@ class BaseIngredient(Base):
     category: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     default_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_name: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    override_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    provisional: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    merged_into_id: Mapped[str | None] = mapped_column(
+        ForeignKey("base_ingredients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     nutrition_reference_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     nutrition_reference_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     calories: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -141,6 +154,7 @@ class BaseIngredient(Base):
         back_populates="base_ingredient",
         cascade="all, delete-orphan",
     )
+    merged_into: Mapped["BaseIngredient | None"] = relationship(remote_side=lambda: BaseIngredient.id)
 
 
 class IngredientVariation(Base):
@@ -156,12 +170,25 @@ class IngredientVariation(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     brand: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    upc: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     package_size_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     package_size_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     count_per_package: Mapped[float | None] = mapped_column(Float, nullable=True)
     product_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
     retailer_hint: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_name: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    override_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    merged_into_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingredient_variations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     nutrition_reference_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     nutrition_reference_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     calories: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -175,6 +202,7 @@ class IngredientVariation(Base):
     week_meal_ingredients: Mapped[list["WeekMealIngredient"]] = relationship(back_populates="ingredient_variation")
     grocery_items: Mapped[list["GroceryItem"]] = relationship(back_populates="ingredient_variation")
     preferences: Mapped[list["IngredientPreference"]] = relationship(back_populates="preferred_variation")
+    merged_into: Mapped["IngredientVariation | None"] = relationship(remote_side=lambda: IngredientVariation.id)
 
 
 class IngredientPreference(Base):

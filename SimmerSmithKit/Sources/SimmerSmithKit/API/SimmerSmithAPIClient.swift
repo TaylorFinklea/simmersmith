@@ -94,6 +94,11 @@ private struct BaseIngredientBody: Encodable {
     let category: String
     let defaultUnit: String
     let notes: String
+    let sourceName: String
+    let sourceRecordId: String
+    let sourceURL: String
+    let provisional: Bool
+    let active: Bool
     let nutritionReferenceAmount: Double?
     let nutritionReferenceUnit: String
     let calories: Double?
@@ -104,15 +109,24 @@ private struct IngredientVariationBody: Encodable {
     let name: String
     let normalizedName: String?
     let brand: String
+    let upc: String
     let packageSizeAmount: Double?
     let packageSizeUnit: String
     let countPerPackage: Double?
     let productUrl: String
     let retailerHint: String
     let notes: String
+    let sourceName: String
+    let sourceRecordId: String
+    let sourceURL: String
+    let active: Bool
     let nutritionReferenceAmount: Double?
     let nutritionReferenceUnit: String
     let calories: Double?
+}
+
+private struct IngredientMergeBody: Encodable {
+    let targetId: String
 }
 
 public final class SimmerSmithAPIClient: @unchecked Sendable {
@@ -202,9 +216,33 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         return try await request(path: "/api/recipes/nutrition/search?q=\(encodedQuery)&limit=\(limit)")
     }
 
-    public func fetchBaseIngredients(query: String = "", limit: Int = 20) async throws -> [BaseIngredient] {
+    public func fetchBaseIngredients(
+        query: String = "",
+        limit: Int = 20,
+        includeArchived: Bool = false,
+        provisionalOnly: Bool = false,
+        withPreferences: Bool = false,
+        withVariations: Bool = false
+    ) async throws -> [BaseIngredient] {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return try await request(path: "/api/ingredients?q=\(encodedQuery)&limit=\(limit)")
+        var path = "/api/ingredients?q=\(encodedQuery)&limit=\(limit)"
+        if includeArchived {
+            path += "&include_archived=true"
+        }
+        if provisionalOnly {
+            path += "&provisional_only=true"
+        }
+        if withPreferences {
+            path += "&with_preferences=true"
+        }
+        if withVariations {
+            path += "&with_variations=true"
+        }
+        return try await request(path: path)
+    }
+
+    public func fetchBaseIngredientDetail(baseIngredientID: String) async throws -> BaseIngredientDetail {
+        try await request(path: "/api/ingredients/\(baseIngredientID)")
     }
 
     public func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
@@ -217,6 +255,11 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         category: String = "",
         defaultUnit: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        provisional: Bool = false,
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
@@ -231,10 +274,65 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 category: category,
                 defaultUnit: defaultUnit,
                 notes: notes,
+                sourceName: sourceName,
+                sourceRecordId: sourceRecordId,
+                sourceURL: sourceURL,
+                provisional: provisional,
+                active: active,
                 nutritionReferenceAmount: nutritionReferenceAmount,
                 nutritionReferenceUnit: nutritionReferenceUnit,
                 calories: calories
             )
+        )
+    }
+
+    public func updateBaseIngredient(
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        category: String = "",
+        defaultUnit: String = "",
+        notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        provisional: Bool = false,
+        active: Bool = true,
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> BaseIngredient {
+        try await request(
+            path: "/api/ingredients",
+            method: "POST",
+            body: BaseIngredientBody(
+                baseIngredientId: baseIngredientID,
+                name: name,
+                normalizedName: normalizedName,
+                category: category,
+                defaultUnit: defaultUnit,
+                notes: notes,
+                sourceName: sourceName,
+                sourceRecordId: sourceRecordId,
+                sourceURL: sourceURL,
+                provisional: provisional,
+                active: active,
+                nutritionReferenceAmount: nutritionReferenceAmount,
+                nutritionReferenceUnit: nutritionReferenceUnit,
+                calories: calories
+            )
+        )
+    }
+
+    public func archiveBaseIngredient(baseIngredientID: String) async throws -> BaseIngredient {
+        try await request(path: "/api/ingredients/\(baseIngredientID)/archive", method: "POST", body: EmptyBody())
+    }
+
+    public func mergeBaseIngredient(sourceID: String, targetID: String) async throws -> BaseIngredient {
+        try await request(
+            path: "/api/ingredients/\(sourceID)/merge",
+            method: "POST",
+            body: IngredientMergeBody(targetId: targetID)
         )
     }
 
@@ -243,12 +341,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         name: String,
         normalizedName: String? = nil,
         brand: String = "",
+        upc: String = "",
         packageSizeAmount: Double? = nil,
         packageSizeUnit: String = "",
         countPerPackage: Double? = nil,
         productUrl: String = "",
         retailerHint: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
@@ -261,16 +364,84 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 name: name,
                 normalizedName: normalizedName,
                 brand: brand,
+                upc: upc,
                 packageSizeAmount: packageSizeAmount,
                 packageSizeUnit: packageSizeUnit,
                 countPerPackage: countPerPackage,
                 productUrl: productUrl,
                 retailerHint: retailerHint,
                 notes: notes,
+                sourceName: sourceName,
+                sourceRecordId: sourceRecordId,
+                sourceURL: sourceURL,
+                active: active,
                 nutritionReferenceAmount: nutritionReferenceAmount,
                 nutritionReferenceUnit: nutritionReferenceUnit,
                 calories: calories
             )
+        )
+    }
+
+    public func updateIngredientVariation(
+        ingredientVariationID: String,
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        brand: String = "",
+        upc: String = "",
+        packageSizeAmount: Double? = nil,
+        packageSizeUnit: String = "",
+        countPerPackage: Double? = nil,
+        productUrl: String = "",
+        retailerHint: String = "",
+        notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        active: Bool = true,
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> IngredientVariation {
+        try await request(
+            path: "/api/ingredients/\(baseIngredientID)/variations",
+            method: "POST",
+            body: IngredientVariationBody(
+                ingredientVariationId: ingredientVariationID,
+                name: name,
+                normalizedName: normalizedName,
+                brand: brand,
+                upc: upc,
+                packageSizeAmount: packageSizeAmount,
+                packageSizeUnit: packageSizeUnit,
+                countPerPackage: countPerPackage,
+                productUrl: productUrl,
+                retailerHint: retailerHint,
+                notes: notes,
+                sourceName: sourceName,
+                sourceRecordId: sourceRecordId,
+                sourceURL: sourceURL,
+                active: active,
+                nutritionReferenceAmount: nutritionReferenceAmount,
+                nutritionReferenceUnit: nutritionReferenceUnit,
+                calories: calories
+            )
+        )
+    }
+
+    public func archiveIngredientVariation(ingredientVariationID: String) async throws -> IngredientVariation {
+        try await request(
+            path: "/api/ingredients/variations/\(ingredientVariationID)/archive",
+            method: "POST",
+            body: EmptyBody()
+        )
+    }
+
+    public func mergeIngredientVariation(sourceID: String, targetID: String) async throws -> IngredientVariation {
+        try await request(
+            path: "/api/ingredients/variations/\(sourceID)/merge",
+            method: "POST",
+            body: IngredientMergeBody(targetId: targetID)
         )
     }
 

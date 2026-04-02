@@ -403,12 +403,30 @@ final class AppState {
         try await apiClient.searchNutritionItems(query: query, limit: limit)
     }
 
-    func searchBaseIngredients(query: String = "", limit: Int = 20) async throws -> [BaseIngredient] {
-        try await apiClient.fetchBaseIngredients(query: query, limit: limit)
+    func searchBaseIngredients(
+        query: String = "",
+        limit: Int = 20,
+        includeArchived: Bool = false,
+        provisionalOnly: Bool = false,
+        withPreferences: Bool = false,
+        withVariations: Bool = false
+    ) async throws -> [BaseIngredient] {
+        try await apiClient.fetchBaseIngredients(
+            query: query,
+            limit: limit,
+            includeArchived: includeArchived,
+            provisionalOnly: provisionalOnly,
+            withPreferences: withPreferences,
+            withVariations: withVariations
+        )
     }
 
     func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
         try await apiClient.fetchIngredientVariations(baseIngredientID: baseIngredientID)
+    }
+
+    func fetchBaseIngredientDetail(baseIngredientID: String) async throws -> BaseIngredientDetail {
+        try await apiClient.fetchBaseIngredientDetail(baseIngredientID: baseIngredientID)
     }
 
     func createBaseIngredient(
@@ -417,6 +435,11 @@ final class AppState {
         category: String = "",
         defaultUnit: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordID: String = "",
+        sourceURL: String = "",
+        provisional: Bool = false,
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
@@ -427,10 +450,57 @@ final class AppState {
             category: category,
             defaultUnit: defaultUnit,
             notes: notes,
+            sourceName: sourceName,
+            sourceRecordId: sourceRecordID,
+            sourceURL: sourceURL,
+            provisional: provisional,
+            active: active,
             nutritionReferenceAmount: nutritionReferenceAmount,
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+    }
+
+    func updateBaseIngredient(
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        category: String = "",
+        defaultUnit: String = "",
+        notes: String = "",
+        sourceName: String = "",
+        sourceRecordID: String = "",
+        sourceURL: String = "",
+        provisional: Bool = false,
+        active: Bool = true,
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> BaseIngredient {
+        try await apiClient.updateBaseIngredient(
+            baseIngredientID: baseIngredientID,
+            name: name,
+            normalizedName: normalizedName,
+            category: category,
+            defaultUnit: defaultUnit,
+            notes: notes,
+            sourceName: sourceName,
+            sourceRecordId: sourceRecordID,
+            sourceURL: sourceURL,
+            provisional: provisional,
+            active: active,
+            nutritionReferenceAmount: nutritionReferenceAmount,
+            nutritionReferenceUnit: nutritionReferenceUnit,
+            calories: calories
+        )
+    }
+
+    func archiveBaseIngredient(baseIngredientID: String) async throws -> BaseIngredient {
+        try await apiClient.archiveBaseIngredient(baseIngredientID: baseIngredientID)
+    }
+
+    func mergeBaseIngredient(sourceID: String, targetID: String) async throws -> BaseIngredient {
+        try await apiClient.mergeBaseIngredient(sourceID: sourceID, targetID: targetID)
     }
 
     func createIngredientVariation(
@@ -438,12 +508,17 @@ final class AppState {
         name: String,
         normalizedName: String? = nil,
         brand: String = "",
+        upc: String = "",
         packageSizeAmount: Double? = nil,
         packageSizeUnit: String = "",
         countPerPackage: Double? = nil,
         productUrl: String = "",
         retailerHint: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordID: String = "",
+        sourceURL: String = "",
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
@@ -453,16 +528,73 @@ final class AppState {
             name: name,
             normalizedName: normalizedName,
             brand: brand,
+            upc: upc,
             packageSizeAmount: packageSizeAmount,
             packageSizeUnit: packageSizeUnit,
             countPerPackage: countPerPackage,
             productUrl: productUrl,
             retailerHint: retailerHint,
             notes: notes,
+            sourceName: sourceName,
+            sourceRecordId: sourceRecordID,
+            sourceURL: sourceURL,
+            active: active,
             nutritionReferenceAmount: nutritionReferenceAmount,
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+    }
+
+    func updateIngredientVariation(
+        ingredientVariationID: String,
+        baseIngredientID: String,
+        name: String,
+        normalizedName: String? = nil,
+        brand: String = "",
+        upc: String = "",
+        packageSizeAmount: Double? = nil,
+        packageSizeUnit: String = "",
+        countPerPackage: Double? = nil,
+        productUrl: String = "",
+        retailerHint: String = "",
+        notes: String = "",
+        sourceName: String = "",
+        sourceRecordID: String = "",
+        sourceURL: String = "",
+        active: Bool = true,
+        nutritionReferenceAmount: Double? = nil,
+        nutritionReferenceUnit: String = "",
+        calories: Double? = nil
+    ) async throws -> IngredientVariation {
+        try await apiClient.updateIngredientVariation(
+            ingredientVariationID: ingredientVariationID,
+            baseIngredientID: baseIngredientID,
+            name: name,
+            normalizedName: normalizedName,
+            brand: brand,
+            upc: upc,
+            packageSizeAmount: packageSizeAmount,
+            packageSizeUnit: packageSizeUnit,
+            countPerPackage: countPerPackage,
+            productUrl: productUrl,
+            retailerHint: retailerHint,
+            notes: notes,
+            sourceName: sourceName,
+            sourceRecordId: sourceRecordID,
+            sourceURL: sourceURL,
+            active: active,
+            nutritionReferenceAmount: nutritionReferenceAmount,
+            nutritionReferenceUnit: nutritionReferenceUnit,
+            calories: calories
+        )
+    }
+
+    func archiveIngredientVariation(ingredientVariationID: String) async throws -> IngredientVariation {
+        try await apiClient.archiveIngredientVariation(ingredientVariationID: ingredientVariationID)
+    }
+
+    func mergeIngredientVariation(sourceID: String, targetID: String) async throws -> IngredientVariation {
+        try await apiClient.mergeIngredientVariation(sourceID: sourceID, targetID: targetID)
     }
 
     func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {

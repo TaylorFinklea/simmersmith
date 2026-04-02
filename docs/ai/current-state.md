@@ -6,6 +6,30 @@
 
 ## Recent Progress
 
+- Added a first-class native `Ingredients` management area instead of leaving ingredient operations buried in Settings-only search flows.
+- The app can now browse and search all known base ingredients with filters for:
+  - needs review
+  - ingredients with preferences
+  - ingredients with product variations
+- Added ingredient detail management on iOS:
+  - edit canonical base ingredient fields
+  - add and edit product variations
+  - archive ingredients and variations
+  - merge duplicate base ingredients
+  - inspect source provenance, usage, and linked household preference state
+- Moved ingredient-management entry points into the real product surface:
+  - `Settings` now links into the dedicated `Ingredients` area
+  - `Recipes` now has a `Manage ingredients` action that opens the same screen
+- Added the first source-aware ingredient ingest pipeline:
+  - `app/services/ingredient_ingest.py`
+  - `scripts/seed_ingredient_catalog.py`
+  - USDA FoodData Central for generic ingredients and calories
+  - Open Food Facts for branded/package products and variation seeding
+- Verified the ingest pipeline against isolated temp databases:
+  - USDA requests now fail cleanly under public `DEMO_KEY` throttling instead of crashing the run
+  - Open Food Facts ingest created base ingredients and product variations while skipping intermittent `503` responses safely
+- Fixed the in-progress backend/API slice so source-aware ingredient detail/edit/archive/merge behavior lines up with the current SQLAlchemy and native client contracts.
+- Regenerated the Xcode project after adding the new native ingredient-management feature file and fixed the SwiftUI compile issues in the new screen structure.
 - Added a native ingredient catalog browser in Settings so the operator can browse real base ingredients and launch preference editing from the catalog.
 - Improved the ingredient preference editor:
   - it loads a first page of ingredients even with an empty query
@@ -173,18 +197,28 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
+- `SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
 - `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
-- `app/api/assistant.py`
-- `app/services/assistant_ai.py`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `alembic/versions/20260401_0013_ingredient_sources_and_management.py`
+- `app/api/ingredients.py`
+- `app/models.py`
+- `app/schemas.py`
 - `app/services/ingredient_catalog.py`
+- `app/services/ingredient_ingest.py`
+- `scripts/seed_ingredient_catalog.py`
+- `tests/test_api.py`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
 - `docs/ai/decisions.md`
 
 ## Working Tree
 
-- dirty during the ingredient-management and Anthropic UX fix slice until the session-end commit is created
+- dirty during this ingredient-management slice until the session-end commit is created
 
 ## Blockers
 
@@ -193,6 +227,12 @@
 
 ## Open Questions
 
+- Should the dedicated `Ingredients` area stay reachable from `Settings` and `Recipes`, or eventually become its own top-level tab?
+- Should the first production catalog seed rely on:
+  - a real USDA API key provided by the operator
+  - a checked-in/generated local snapshot
+  - or a mixed strategy with cached seed artifacts committed into the repo
+- Do we want to keep Open Food Facts as best-effort enrichment only, given the intermittent `503` availability seen during smoke tests?
 - Should exact branded-import matches auto-create/lock product variations, or only resolve to generic base ingredients unless the user confirms the product?
 - Do we want to normalize obviously bad auto-created base ingredient names such as `1 can refrigerated biscuits` into cleaner generic catalog entries during import resolution, or leave that for the review workflow?
 - Should Settings grow from a lightweight ingredient browser into a fuller catalog-management surface with edit/merge/archive actions for base ingredients and variations?
@@ -227,6 +267,18 @@ Latest completed validation for the structured ingredient preference settings sl
 
 - `swift test --package-path SimmerSmithKit` -> passed
 - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+
+Latest completed validation for the ingredient-management and ingest slice:
+
+- `python3 -m compileall app tests alembic scripts` -> passed
+- `.venv/bin/pytest tests/test_api.py tests/test_grocery.py tests/test_recipe_import.py -q` -> passed (`42 passed`)
+- `swift test --package-path SimmerSmithKit` -> passed (`12 tests`)
+- `xcodegen generate --spec SimmerSmith/project.yml` -> passed
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO` -> passed
+- `SIMMERSMITH_DATA_DIR=/tmp/simmersmith-seed SIMMERSMITH_DB_PATH=/tmp/simmersmith-seed/ingredients.db .venv/bin/python scripts/seed_ingredient_catalog.py --page-size 5 --max-pages 1` -> passed end to end with graceful USDA `429` skips
+- `SIMMERSMITH_DATA_DIR=/tmp/simmersmith-seed-off SIMMERSMITH_DB_PATH=/tmp/simmersmith-seed-off/ingredients.db .venv/bin/python scripts/seed_ingredient_catalog.py --no-usda --include-open-food-facts --page-size 3` -> passed end to end with partial Open Food Facts ingest and graceful `503` skips
+- `docker compose up --build -d` -> passed
+- `curl http://localhost:8080/api/health` -> passed
 
 Latest completed validation for the bulk ingredient review queue slice:
 

@@ -4,7 +4,6 @@ import SimmerSmithKit
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
-    @State private var ingredientCatalogPresented = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -196,13 +195,13 @@ struct SettingsView: View {
             }
 
             Section("Ingredients") {
-                Text("Browse the canonical ingredient catalog, then seed or edit household preferences from real ingredients instead of guessing search terms.")
+                Text("Manage canonical ingredients, product variations, nutrition, and household preferences from one dedicated catalog area.")
                     .foregroundStyle(.secondary)
 
-                Button {
-                    ingredientCatalogPresented = true
+                NavigationLink {
+                    IngredientsView()
                 } label: {
-                    Label("Browse Ingredient Catalog", systemImage: "square.stack.3d.up")
+                    Label("Manage Ingredient Catalog", systemImage: "square.stack.3d.up")
                 }
             }
 
@@ -227,15 +226,6 @@ struct SettingsView: View {
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
-        }
-        .sheet(isPresented: $ingredientCatalogPresented) {
-            IngredientCatalogSheet { ingredient in
-                ingredientCatalogPresented = false
-                preferenceEditor = IngredientPreferenceEditorContext(
-                    seedBaseIngredientID: ingredient.baseIngredientId,
-                    seedBaseIngredientName: ingredient.name
-                )
-            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -439,7 +429,6 @@ struct IngredientPreferenceEditorSheet: View {
         let baseIngredientID = context.preference?.baseIngredientId ?? context.seedBaseIngredientID
         do {
             searchResults = try await appState.searchBaseIngredients(query: baseIngredientName ?? "", limit: 50)
-            guard let baseIngredientName else { return }
             if let baseIngredientID,
                let matched = searchResults.first(where: { $0.baseIngredientId == baseIngredientID }) {
                 await selectBaseIngredient(matched)

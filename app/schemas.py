@@ -194,6 +194,11 @@ class BaseIngredientPayload(BaseModel):
     category: str = ""
     default_unit: str = ""
     notes: str = ""
+    source_name: str = ""
+    source_record_id: str = ""
+    source_url: str = ""
+    provisional: bool = False
+    active: bool = True
     nutrition_reference_amount: float | None = None
     nutrition_reference_unit: str = ""
     calories: float | None = None
@@ -202,6 +207,12 @@ class BaseIngredientPayload(BaseModel):
 class BaseIngredientOut(BaseIngredientPayload):
     base_ingredient_id: str
     normalized_name: str
+    archived_at: datetime | None = None
+    merged_into_id: str | None = None
+    variation_count: int = 0
+    preference_count: int = 0
+    recipe_usage_count: int = 0
+    grocery_usage_count: int = 0
     updated_at: datetime
 
 
@@ -210,12 +221,17 @@ class IngredientVariationPayload(BaseModel):
     name: str
     normalized_name: str | None = None
     brand: str = ""
+    upc: str = ""
     package_size_amount: float | None = None
     package_size_unit: str = ""
     count_per_package: float | None = None
     product_url: str = ""
     retailer_hint: str = ""
     notes: str = ""
+    source_name: str = ""
+    source_record_id: str = ""
+    source_url: str = ""
+    active: bool = True
     nutrition_reference_amount: float | None = None
     nutrition_reference_unit: str = ""
     calories: float | None = None
@@ -225,7 +241,27 @@ class IngredientVariationOut(IngredientVariationPayload):
     ingredient_variation_id: str
     base_ingredient_id: str
     normalized_name: str
+    archived_at: datetime | None = None
+    merged_into_id: str | None = None
     updated_at: datetime
+
+
+class IngredientUsageSummaryOut(BaseModel):
+    linked_recipe_ids: list[str] = Field(default_factory=list)
+    linked_recipe_names: list[str] = Field(default_factory=list)
+    linked_grocery_item_ids: list[str] = Field(default_factory=list)
+    linked_grocery_names: list[str] = Field(default_factory=list)
+
+
+class BaseIngredientDetailOut(BaseModel):
+    ingredient: BaseIngredientOut
+    variations: list[IngredientVariationOut] = Field(default_factory=list)
+    preference: IngredientPreferenceOut | None = None
+    usage: IngredientUsageSummaryOut = Field(default_factory=IngredientUsageSummaryOut)
+
+
+class IngredientMergeRequest(BaseModel):
+    target_id: str
 
 
 class IngredientResolveRequest(BaseModel):

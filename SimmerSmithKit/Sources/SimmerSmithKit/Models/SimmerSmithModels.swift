@@ -178,9 +178,20 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
     public let category: String
     public let defaultUnit: String
     public let notes: String
+    public let sourceName: String
+    public let sourceRecordId: String
+    public let sourceURL: String
+    public let provisional: Bool
+    public let active: Bool
     public let nutritionReferenceAmount: Double?
     public let nutritionReferenceUnit: String
     public let calories: Double?
+    public let archivedAt: Date?
+    public let mergedIntoId: String?
+    public let variationCount: Int
+    public let preferenceCount: Int
+    public let recipeUsageCount: Int
+    public let groceryUsageCount: Int
     public let updatedAt: Date
 
     public var id: String { baseIngredientId }
@@ -192,9 +203,20 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         category: String = "",
         defaultUnit: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        provisional: Bool = false,
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil,
+        archivedAt: Date? = nil,
+        mergedIntoId: String? = nil,
+        variationCount: Int = 0,
+        preferenceCount: Int = 0,
+        recipeUsageCount: Int = 0,
+        groceryUsageCount: Int = 0,
         updatedAt: Date
     ) {
         self.baseIngredientId = baseIngredientId
@@ -203,9 +225,20 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         self.category = category
         self.defaultUnit = defaultUnit
         self.notes = notes
+        self.sourceName = sourceName
+        self.sourceRecordId = sourceRecordId
+        self.sourceURL = sourceURL
+        self.provisional = provisional
+        self.active = active
         self.nutritionReferenceAmount = nutritionReferenceAmount
         self.nutritionReferenceUnit = nutritionReferenceUnit
         self.calories = calories
+        self.archivedAt = archivedAt
+        self.mergedIntoId = mergedIntoId
+        self.variationCount = variationCount
+        self.preferenceCount = preferenceCount
+        self.recipeUsageCount = recipeUsageCount
+        self.groceryUsageCount = groceryUsageCount
         self.updatedAt = updatedAt
     }
 }
@@ -216,15 +249,22 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
     public let name: String
     public let normalizedName: String
     public let brand: String
+    public let upc: String
     public let packageSizeAmount: Double?
     public let packageSizeUnit: String
     public let countPerPackage: Double?
     public let productUrl: String
     public let retailerHint: String
     public let notes: String
+    public let sourceName: String
+    public let sourceRecordId: String
+    public let sourceURL: String
+    public let active: Bool
     public let nutritionReferenceAmount: Double?
     public let nutritionReferenceUnit: String
     public let calories: Double?
+    public let archivedAt: Date?
+    public let mergedIntoId: String?
     public let updatedAt: Date
 
     public var id: String { ingredientVariationId }
@@ -235,15 +275,22 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
         name: String,
         normalizedName: String,
         brand: String = "",
+        upc: String = "",
         packageSizeAmount: Double? = nil,
         packageSizeUnit: String = "",
         countPerPackage: Double? = nil,
         productUrl: String = "",
         retailerHint: String = "",
         notes: String = "",
+        sourceName: String = "",
+        sourceRecordId: String = "",
+        sourceURL: String = "",
+        active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
         calories: Double? = nil,
+        archivedAt: Date? = nil,
+        mergedIntoId: String? = nil,
         updatedAt: Date
     ) {
         self.ingredientVariationId = ingredientVariationId
@@ -251,17 +298,38 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
         self.name = name
         self.normalizedName = normalizedName
         self.brand = brand
+        self.upc = upc
         self.packageSizeAmount = packageSizeAmount
         self.packageSizeUnit = packageSizeUnit
         self.countPerPackage = countPerPackage
         self.productUrl = productUrl
         self.retailerHint = retailerHint
         self.notes = notes
+        self.sourceName = sourceName
+        self.sourceRecordId = sourceRecordId
+        self.sourceURL = sourceURL
+        self.active = active
         self.nutritionReferenceAmount = nutritionReferenceAmount
         self.nutritionReferenceUnit = nutritionReferenceUnit
         self.calories = calories
+        self.archivedAt = archivedAt
+        self.mergedIntoId = mergedIntoId
         self.updatedAt = updatedAt
     }
+}
+
+public struct IngredientUsageSummary: Codable, Hashable, Sendable {
+    public let linkedRecipeIds: [String]
+    public let linkedRecipeNames: [String]
+    public let linkedGroceryItemIds: [String]
+    public let linkedGroceryNames: [String]
+}
+
+public struct BaseIngredientDetail: Codable, Hashable, Sendable {
+    public let ingredient: BaseIngredient
+    public let variations: [IngredientVariation]
+    public let preference: IngredientPreference?
+    public let usage: IngredientUsageSummary
 }
 
 public struct IngredientResolution: Codable, Hashable, Sendable {

@@ -32,9 +32,12 @@ Use this as the exact short checklist for the next work session.
 - [x] Improve failed assistant-turn rendering so provider errors do not appear as blank bubbles in the conversation
 - [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
-- [ ] Mature ingredient management beyond the first browser:
-  - decide whether base ingredients and variations need edit/merge/archive flows
-  - decide where product-variation management should live in native UI
+- [x] Mature ingredient management beyond the first browser:
+  - base ingredients can now be browsed and edited in a dedicated native `Ingredients` area
+  - base ingredients can now be merged and archived
+  - product variations can now be created, edited, and archived from ingredient detail
+  - ingredient management is reachable from both `Settings` and `Recipes`
+- [x] Add a first source-aware ingredient seed pipeline for generic ingredients, branded products, and calories
 - [ ] Decide whether to filter the discovered OpenAI model list to a smaller supported subset or keep the broader provider-visible list
 - [ ] Decide whether to document `scripts/codex_mcp_http_bridge.py` as a supported operator workflow or keep it as a local dev helper only
 - [ ] Decide whether the Streamable HTTP bearer-token mode is sufficient for local/operator use or if stronger auth is needed before broader exposure
@@ -43,3 +46,9 @@ Use this as the exact short checklist for the next work session.
 - [ ] Expand `docs/ai/mcp-tools.md` with a few end-to-end recipe/week/operator examples after the first real external-client session
 - [ ] Decide whether exact branded ingredient matches should immediately create clean generic base ingredients plus suggested product variations instead of today’s more literal base-ingredient auto-creation
 - [ ] Decommission the web frontend from the roadmap and codebase in a controlled way once native/backend flows cover the remaining operator needs
+- [ ] Decide and implement the first production catalog-seed strategy:
+  - operator-provided USDA key
+  - checked-in/generated snapshot
+  - or hybrid cached seed artifacts
+- [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
+- [ ] Decide whether the new `Ingredients` area should remain under `Settings`/`Recipes` entry points or graduate into a top-level tab

@@ -220,6 +220,61 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
     assert pref_list_response.status_code == 200
     assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in pref_list_response.json())
 
+    detail_response = client.get(f"/api/ingredients/{base['base_ingredient_id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["ingredient"]["base_ingredient_id"] == base["base_ingredient_id"]
+    assert detail["preference"]["preference_id"] == pref["preference_id"]
+    assert detail["variations"][0]["ingredient_variation_id"] == variation["ingredient_variation_id"]
+
+    filtered_response = client.get("/api/ingredients?with_preferences=true")
+    assert filtered_response.status_code == 200
+    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in filtered_response.json())
+
+
+def test_ingredient_catalog_merge_and_archive_routes(client) -> None:
+    source_response = client.post(
+        "/api/ingredients",
+        json={"name": "Can refrigerated biscuits", "category": "Refrigerated", "provisional": True},
+    )
+    target_response = client.post(
+        "/api/ingredients",
+        json={"name": "Refrigerated biscuits", "category": "Refrigerated"},
+    )
+    assert source_response.status_code == 200
+    assert target_response.status_code == 200
+    source = source_response.json()
+    target = target_response.json()
+
+    variation_response = client.post(
+        f"/api/ingredients/{source['base_ingredient_id']}/variations",
+        json={"name": "Pillsbury Grands Biscuits", "brand": "Pillsbury"},
+    )
+    assert variation_response.status_code == 200
+    variation = variation_response.json()
+
+    merge_response = client.post(
+        f"/api/ingredients/{source['base_ingredient_id']}/merge",
+        json={"target_id": target["base_ingredient_id"]},
+    )
+    assert merge_response.status_code == 200
+    merged_target = merge_response.json()
+    assert merged_target["base_ingredient_id"] == target["base_ingredient_id"]
+
+    source_detail = client.get(f"/api/ingredients/{source['base_ingredient_id']}")
+    assert source_detail.status_code == 200
+    assert source_detail.json()["ingredient"]["merged_into_id"] == target["base_ingredient_id"]
+
+    merged_variations = client.get(f"/api/ingredients/{target['base_ingredient_id']}/variations")
+    assert merged_variations.status_code == 200
+    assert any(item["ingredient_variation_id"] == variation["ingredient_variation_id"] for item in merged_variations.json())
+
+    archive_response = client.post(f"/api/ingredients/{target['base_ingredient_id']}/archive")
+    assert archive_response.status_code == 200
+    archived = archive_response.json()
+    assert archived["active"] is False
+    assert archived["archived_at"] is not None
+
 
 def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) -> None:
     metadata_response = client.get("/api/recipes/metadata")
