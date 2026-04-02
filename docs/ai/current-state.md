@@ -25,6 +25,8 @@
   - `scripts/seed_ingredient_catalog.py`
   - USDA FoodData Central for generic ingredients and calories
   - Open Food Facts for branded/package products and variation seeding
+- Added a dedicated `SIMMERSMITH_USDA_API_KEY` server setting and Docker passthrough so the ingredient seed script can use a real USDA key without requiring the operator to pass it on the command line every run.
+- Added local ignored `.env` support for the USDA key on this machine and rebuilt the Docker service so the container picks up the new configuration.
 - Verified the ingest pipeline against isolated temp databases:
   - USDA requests now fail cleanly under public `DEMO_KEY` throttling instead of crashing the run
   - Open Food Facts ingest created base ingredients and product variations while skipping intermittent `503` responses safely
@@ -279,6 +281,7 @@ Latest completed validation for the ingredient-management and ingest slice:
 - `SIMMERSMITH_DATA_DIR=/tmp/simmersmith-seed-off SIMMERSMITH_DB_PATH=/tmp/simmersmith-seed-off/ingredients.db .venv/bin/python scripts/seed_ingredient_catalog.py --no-usda --include-open-food-facts --page-size 3` -> passed end to end with partial Open Food Facts ingest and graceful `503` skips
 - `docker compose up --build -d` -> passed
 - `curl http://localhost:8080/api/health` -> passed
+- `.venv/bin/python -c "from app.config import get_settings; print('set' if bool(get_settings().usda_api_key) else 'missing')"` -> passed (`set`)
 
 Latest completed validation for the bulk ingredient review queue slice:
 

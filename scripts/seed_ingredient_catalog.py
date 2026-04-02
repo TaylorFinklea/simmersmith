@@ -18,7 +18,7 @@ from app.services.ingredient_ingest import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Seed the SimmerSmith ingredient catalog from external food datasets.")
-    parser.add_argument("--usda-api-key", default="DEMO_KEY", help="USDA FoodData Central API key.")
+    parser.add_argument("--usda-api-key", default="", help="USDA FoodData Central API key. Defaults to SIMMERSMITH_USDA_API_KEY, then DEMO_KEY.")
     parser.add_argument("--no-usda", action="store_true", help="Skip USDA ingest.")
     parser.add_argument("--include-open-food-facts", action="store_true", help="Also ingest branded products from Open Food Facts.")
     parser.add_argument("--terms-file", default="", help="Optional newline-delimited file of ingredient/product search terms.")
@@ -31,6 +31,7 @@ def main() -> None:
     args = parse_args()
     run_migrations()
     settings = get_settings()
+    usda_api_key = args.usda_api_key or settings.usda_api_key or "DEMO_KEY"
     terms_file = Path(args.terms_file).expanduser() if args.terms_file else None
     seed_terms = seed_terms_from_file(terms_file) if terms_file and terms_file.exists() else USDA_DEFAULT_SEED_TERMS
 
@@ -40,7 +41,7 @@ def main() -> None:
         if not args.no_usda:
             result = ingest_usda_terms(
                 session,
-                api_key=args.usda_api_key,
+                api_key=usda_api_key,
                 terms=seed_terms,
                 page_size=args.page_size,
                 max_pages=args.max_pages,

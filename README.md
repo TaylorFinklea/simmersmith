@@ -76,6 +76,16 @@ Set `SIMMERSMITH_API_TOKEN` to require `Authorization: Bearer <token>` on all AP
 
 This is intended for the native iOS client and private self-hosted deployments. If the variable is unset, the API remains open for local development.
 
+### Optional USDA ingredient seed key
+
+Set `SIMMERSMITH_USDA_API_KEY` to a real USDA FoodData Central key if you want the ingredient seed script to use production rate limits by default:
+
+```bash
+.venv/bin/python scripts/seed_ingredient_catalog.py
+```
+
+If the variable is unset, the seed script falls back to `DEMO_KEY`.
+
 ### Production-style local run
 
 ```bash

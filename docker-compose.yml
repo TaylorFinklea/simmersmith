@@ -10,5 +10,6 @@ services:
       SIMMERSMITH_DATA_DIR: ${SIMMERSMITH_DATA_DIR:-/app/data}
       SIMMERSMITH_DB_PATH: ${SIMMERSMITH_DB_PATH:-/app/data/meals.db}
       SIMMERSMITH_BASE_URL: ${SIMMERSMITH_BASE_URL:-http://localhost:8080}
+      SIMMERSMITH_USDA_API_KEY: ${SIMMERSMITH_USDA_API_KEY:-}
     volumes:
       - /Users/tfinklea/codex/meals/data:/app/data

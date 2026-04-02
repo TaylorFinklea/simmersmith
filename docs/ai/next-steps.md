@@ -50,5 +50,6 @@ Use this as the exact short checklist for the next work session.
   - operator-provided USDA key
   - checked-in/generated snapshot
   - or hybrid cached seed artifacts
+- [ ] Run the first real catalog seed against the main data store using `SIMMERSMITH_USDA_API_KEY` and decide whether the resulting corpus is large/clean enough or needs a curated snapshot step
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether the new `Ingredients` area should remain under `Settings`/`Recipes` entry points or graduate into a top-level tab

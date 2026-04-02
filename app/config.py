@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     ai_anthropic_api_key: str = ""
     ai_openai_model: str = "gpt-4.1-mini"
     ai_anthropic_model: str = "claude-3-5-sonnet-latest"
+    usda_api_key: str = ""
     ai_timeout_seconds: int = 120
     data_dir: Path = Path("/Users/tfinklea/codex/meals/data")
     db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")

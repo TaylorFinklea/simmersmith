@@ -202,3 +202,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - USDA FoodData Central and Open Food Facts are the initial external sources for generic calories and branded/package product data.
 - The seed pipeline should continue running and report skipped requests when external APIs throttle or intermittently fail; transient third-party issues should not crash the entire ingest run.
 - Production seeding strategy is still undecided, but the code path assumes source provenance and local SimmerSmith overrides are first-class.
+
+## 2026-04-02 - USDA seed credentials are server-side config, not command-line-only inputs
+
+- SimmerSmith now exposes a dedicated `SIMMERSMITH_USDA_API_KEY` server setting.
+- The ingredient seed script prefers that server-side setting automatically and only falls back to `DEMO_KEY` if neither the CLI flag nor the env var is set.
+- Docker also passes the USDA key through so local production-style runs and seed workflows can share the same configuration.
