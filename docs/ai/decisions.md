@@ -214,3 +214,9 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first real operator seed should run inside the `simmersmith` container from `/workspace` so it uses the same migrations, config, and writable SQLite file as the live app.
 - Temp local seed databases are still useful for smoke tests, but they are not enough to prove the live product catalog is populated.
 - The first live USDA-backed seed worked, but the resulting corpus still needs review for search quality and noisy matches before treating it as the final default catalog experience.
+
+## 2026-04-02 - USDA ingest should seed one curated base ingredient per term, not one row per search hit
+
+- The first naive USDA seed produced too much catalog noise because it created a base ingredient for every matching USDA search result.
+- The current ingest path now picks one best USDA candidate per curated seed term and stores that candidate's provenance and nutrition on the canonical ingredient for the term.
+- Search now uses phrase-aware matching plus singular/plural variants so ingredient lookups behave like ingredient search rather than raw substring matching.

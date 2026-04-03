@@ -11,6 +11,7 @@ from app.services.ingredient_ingest import (
     OPEN_FOOD_FACTS_DEFAULT_TERMS,
     USDA_DEFAULT_SEED_TERMS,
     ingest_open_food_facts_terms,
+    prune_usda_seed_rows,
     ingest_usda_terms,
     seed_terms_from_file,
 )
@@ -50,6 +51,8 @@ def main() -> None:
                 f"{result.source_label}: processed {result.bases_created_or_updated} base ingredient hits "
                 f"with {result.skipped_terms} skipped term/page requests into {settings.db_path}"
             )
+            archived_count = prune_usda_seed_rows(session, allowed_terms=seed_terms)
+            print(f"{result.source_label}: archived {archived_count} noisy live seed rows not in the curated term set")
 
         if args.include_open_food_facts:
             off_terms = seed_terms if terms_file else OPEN_FOOD_FACTS_DEFAULT_TERMS

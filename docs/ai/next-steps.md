@@ -52,5 +52,12 @@ Use this as the exact short checklist for the next work session.
   - or hybrid cached seed artifacts
 - [x] Run the first real catalog seed against the main data store using `SIMMERSMITH_USDA_API_KEY`
 - [ ] Review the first live USDA-seeded corpus and decide whether it is clean enough as-is or needs a curated snapshot / filtering step before broader operator use
+- [x] Tighten the first live USDA/catalog search cleanup enough that:
+  - curated seed terms create one base ingredient instead of many noisy USDA rows
+  - raw substring false positives no longer dominate ingredient search
+  - literal imported names rank below cleaner generic ingredient names
+- [ ] Continue catalog cleanup with product-focused decisions:
+  - decide whether imported brand/product rows should stay as base ingredients or become variations under cleaner generic bases
+  - decide whether seeded product-heavy results should be hidden from default ingredient browse and only shown in product/detail flows
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether the new `Ingredients` area should remain under `Settings`/`Recipes` entry points or graduate into a top-level tab

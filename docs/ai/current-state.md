@@ -30,6 +30,12 @@
 - Ran the first real USDA-backed catalog seed against the live Docker-backed database instead of only temp seed databases.
 - Confirmed the live ingredient API now returns source-backed USDA rows with provenance, including examples like `Jam`, `Honey`, and `Mustard`.
 - Confirmed biscuit search now returns live catalog results, including `Refrigerated biscuits`, against the main app database.
+- Tightened the ingredient-catalog cleanup path after the first live seed exposed too much USDA noise:
+  - USDA ingest now selects one best ingredient candidate per curated seed term instead of creating a row for every USDA search hit
+  - USDA seed terms now use only `Foundation` and `SR Legacy` result sets instead of also ingesting `Survey (FNDDS)` rows
+  - ingredient search now uses phrase-aware matching and singular/plural query variants instead of raw substring matching
+  - literal imported names like `1 can refrigerated biscuits` are now ranked below cleaner generic catalog matches like `Refrigerated biscuits`
+- Rebuilt and restarted the Docker backend after the catalog-search cleanup so the live app/API now use the refined ranking and matching rules.
 - Verified the ingest pipeline against isolated temp databases:
   - USDA requests now fail cleanly under public `DEMO_KEY` throttling instead of crashing the run
   - Open Food Facts ingest created base ingredients and product variations while skipping intermittent `503` responses safely
@@ -287,6 +293,11 @@ Latest completed validation for the ingredient-management and ingest slice:
 - `.venv/bin/python -c "from app.config import get_settings; print('set' if bool(get_settings().usda_api_key) else 'missing')"` -> passed (`set`)
 - `docker compose exec simmersmith sh -lc 'cd /workspace && PYTHONPATH=/workspace python scripts/seed_ingredient_catalog.py --page-size 25 --max-pages 1'` -> passed against the live database; USDA-backed ingredient rows are now visible via `/api/ingredients`
 - `curl 'http://localhost:8080/api/ingredients?q=biscuit&limit=20'` -> passed; live biscuit-related catalog rows are now visible
+- `python3 -m compileall app tests scripts` -> passed after curated USDA ingest + search cleanup
+- `.venv/bin/pytest tests/test_ingredient_ingest.py tests/test_api.py -q` -> passed (`34 passed`)
+- `docker compose up --build -d` -> passed after the ingredient-search cleanup patch
+- `curl 'http://localhost:8080/api/ingredients?q=jam&limit=20'` -> passed; no unrelated `jambon` false-positive row remains in the live result set
+- `curl 'http://localhost:8080/api/ingredients?q=biscuit&limit=20'` -> passed; `Refrigerated biscuits` now ranks ahead of the literal `1 can refrigerated biscuits` row
 
 Latest completed validation for the bulk ingredient review queue slice:
 

@@ -139,6 +139,47 @@ def _normalized_or_name(name: str, normalized_name: str | None = None) -> str:
     return normalize_name(normalized_name or name)
 
 
+def _ingredient_search_score(item: BaseIngredient, normalized_query: str) -> tuple[int, int, int, int, str]:
+    normalized_name = item.normalized_name
+    is_exact = int(normalized_name == normalized_query)
+    starts_with = int(normalized_name.startswith(normalized_query))
+    contains = int(normalized_query in normalized_name)
+    leading_token = normalized_name.split(" ", 1)[0] if normalized_name else ""
+    literal_penalty = int(leading_token.isdigit() or leading_token in {"can", "cans", "pkg", "package", "packages"})
+    source_penalty = int(bool(item.source_name))
+    return (
+        -is_exact,
+        -starts_with,
+        -contains,
+        literal_penalty,
+        source_penalty,
+        len(normalized_name),
+        normalized_name,
+    )
+
+
+def _normalized_phrase_match(column, normalized_query: str):
+    variants = {normalized_query}
+    parts = normalized_query.split()
+    if parts:
+        last = parts[-1]
+        if last.endswith("s") and len(last) > 3:
+            variants.add(" ".join([*parts[:-1], last[:-1]]))
+        elif len(last) > 2:
+            variants.add(" ".join([*parts[:-1], f"{last}s"]))
+    clauses = []
+    for variant in variants:
+        clauses.extend(
+            [
+                column == variant,
+                column.like(f"{variant} %"),
+                column.like(f"% {variant} %"),
+                column.like(f"% {variant}"),
+            ]
+        )
+    return or_(*clauses)
+
+
 def search_base_ingredients(
     session: Session,
     query: str = "",
@@ -169,16 +210,13 @@ def search_base_ingredients(
         )
     normalized_query = normalize_name(query)
     if normalized_query:
-        like_value = f"%{normalized_query}%"
         statement = statement.where(
             or_(
-                BaseIngredient.normalized_name.like(like_value),
-                BaseIngredient.name.ilike(f"%{query.strip()}%"),
+                _normalized_phrase_match(BaseIngredient.normalized_name, normalized_query),
                 BaseIngredient.id.in_(
                     select(IngredientVariation.base_ingredient_id).where(
                         or_(
-                            IngredientVariation.normalized_name.like(like_value),
-                            IngredientVariation.name.ilike(f"%{query.strip()}%"),
+                            _normalized_phrase_match(IngredientVariation.normalized_name, normalized_query),
                             IngredientVariation.brand.ilike(f"%{query.strip()}%"),
                             IngredientVariation.upc.ilike(f"%{query.strip()}%"),
                         ),
@@ -188,11 +226,16 @@ def search_base_ingredients(
                 ),
             )
         )
+    safe_limit = max(1, min(limit, 200))
+    if normalized_query:
+        items = list(session.scalars(statement.limit(200)).all())
+        items.sort(key=lambda item: _ingredient_search_score(item, normalized_query))
+        return items[:safe_limit]
     statement = statement.order_by(
         BaseIngredient.provisional.asc(),
         func.length(BaseIngredient.name),
         BaseIngredient.name,
-    ).limit(max(1, min(limit, 200)))
+    ).limit(safe_limit)
     return list(session.scalars(statement).all())
 
 

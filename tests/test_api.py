@@ -276,6 +276,41 @@ def test_ingredient_catalog_merge_and_archive_routes(client) -> None:
     assert archived["archived_at"] is not None
 
 
+def test_ingredient_search_uses_phrase_matching_not_raw_substrings(client) -> None:
+    jam_response = client.post("/api/ingredients", json={"name": "Jam", "category": "Pantry"})
+    tortellini_response = client.post("/api/ingredients", json={"name": "Tortellini", "category": "Pasta"})
+    assert jam_response.status_code == 200
+    assert tortellini_response.status_code == 200
+    tortellini = tortellini_response.json()
+
+    variation_response = client.post(
+        f"/api/ingredients/{tortellini['base_ingredient_id']}/variations",
+        json={"name": "Pates tortellini jambon fromage", "brand": "Barilla"},
+    )
+    assert variation_response.status_code == 200
+
+    search_response = client.get("/api/ingredients?q=jam")
+    assert search_response.status_code == 200
+    payload = search_response.json()
+    assert any(item["normalized_name"] == "jam" for item in payload)
+    assert all(item["normalized_name"] != "tortellini" for item in payload)
+
+
+def test_ingredient_search_prefers_clean_generic_match_over_literal_import_name(client) -> None:
+    literal_response = client.post("/api/ingredients", json={"name": "1 can refrigerated biscuits"})
+    generic_response = client.post(
+        "/api/ingredients",
+        json={"name": "Refrigerated biscuits", "default_unit": "can"},
+    )
+    assert literal_response.status_code == 200
+    assert generic_response.status_code == 200
+
+    search_response = client.get("/api/ingredients?q=biscuit")
+    assert search_response.status_code == 200
+    payload = search_response.json()
+    assert payload[0]["normalized_name"] == "refrigerated biscuits"
+
+
 def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) -> None:
     metadata_response = client.get("/api/recipes/metadata")
     assert metadata_response.status_code == 200
