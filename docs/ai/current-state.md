@@ -6,6 +6,14 @@
 
 ## Recent Progress
 
+- Fixed the native `Clear Local Cache` behavior so it now immediately refetches from the saved server connection instead of leaving the app in an empty local-only state.
+- This directly addresses the live QA regression where clearing cache made `Recipes` appear empty and `Manage Ingredient Catalog` show `Not found` even though the backend still had data.
+- Re-verified the backend still contains live recipes after the cache-clear report:
+  - `GET /api/recipes` currently returns 12 recipes
+  - examples include `Simple Biscuits and Sausage Gravy` and `Poor Man's Burnt Ends`
+- Validated the iOS/client slice with:
+  - `swift test --package-path SimmerSmithKit`
+  - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO`
 - Tightened the live ingredient-catalog search and browse behavior so the default app experience is now generic-first instead of product-heavy.
 - Added a `product_like` classification to base ingredients and exposed it through the API/native models.
 - Ingredient search and browse now hide product-like rows by default unless the caller explicitly opts in, while still allowing product-heavy rows to remain available in ingredient detail and review flows.
@@ -203,7 +211,8 @@
 
 ## Recent Commits
 
-- `pending` ingredient catalog generic-first cleanup commit not created yet in this session
+- `pending` cache-clear auto-resync commit not created yet in this session
+- `e57d9a1` `feat: clean up ingredient catalog search`
 - `0dc16e7` `fix: address ios qa issues`
 - `4c7ea74` `feat: add ingredient catalog creation in review flow`
 - `798b900` `test: add recipe import fixture corpus`
@@ -246,6 +255,9 @@
 
 ## Validation / Test Status
 
+- `GET /api/recipes` confirms the backend still has 12 recipes after the cache-clear report
+- `swift test --package-path SimmerSmithKit`
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO`
 - `python3 -m compileall app tests scripts`
 - `.venv/bin/pytest tests/test_ingredient_ingest.py tests/test_api.py -q`
 - live Docker rebuild via `docker compose up --build -d`

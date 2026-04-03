@@ -914,6 +914,12 @@ final class AppState {
         aiAnthropicModelDraft = ""
         availableAIModelsByProvider = [:]
         aiModelErrorByProvider = [:]
+        if hasSavedConnection {
+            syncPhase = .loading
+            Task {
+                await refreshAll()
+            }
+        }
     }
 
     func resetConnection() {

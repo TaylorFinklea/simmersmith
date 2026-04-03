@@ -227,6 +227,12 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - Product-heavy or package-form rows remain in the catalog, but they are hidden from default browse/search unless the client explicitly opts into `include_product_like=true`.
 - Product-like classification should catch not only branded OFF rows, but also packaging-heavy names such as `... jar`, `... bottle`, or literal imported rows like `1 can refrigerated biscuits`.
 
+## 2026-04-03 - Clearing local cache should immediately resync when a server connection is saved
+
+- `Clear Local Cache` is a local-state reset, not a disconnect.
+- If the app still has a saved server URL/token, clearing cache should immediately trigger a fresh server sync instead of leaving screens empty until the user manually reconstructs state.
+- This keeps cache clearing safe for QA and troubleshooting without making the app look like server data was deleted.
+
 ## 2026-04-03 - TestFlight prep produces a signed IPA locally, but upload depends on separate ASC credentials
 
 - Local release prep can be split into two phases:

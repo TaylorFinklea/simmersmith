@@ -6,6 +6,10 @@ Use this as the exact short checklist for the next work session.
   - repair Xcode/App Store Connect account credentials on this machine
   - or switch the repo to an App Store Connect API key upload flow
   - rerun the upload using the already-exported IPA or a fresh archive if needed
+- [ ] Rebuild/reinstall the latest iOS app and verify the cache-clear recovery path:
+  - clear local cache
+  - confirm recipes repopulate automatically from the saved server connection
+  - confirm `Manage Ingredient Catalog` loads instead of showing `Not found`
 - [ ] While the user tests the current build, continue the ingredient catalog cleanup with product-focused decisions:
   - decide whether imported/seeded branded rows should stay as base ingredients or become variations under cleaner generic bases
   - make ingredient preference search reliably favor clean generic bases over noisy product/import literals
@@ -69,7 +73,7 @@ Use this as the exact short checklist for the next work session.
   - decide how aggressive product-like classification should be for package-form names that are still generic enough to browse directly
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether the new `Ingredients` area should remain under `Settings`/`Recipes` entry points or graduate into a top-level tab
-- [ ] Rebuild/reinstall the latest iOS app and manually recheck ingredient browse and preference search with:
+- [ ] Manually recheck ingredient browse and preference search with the rebuilt iOS app:
   - `biscuit`
   - `mustard`
   - `milk`
