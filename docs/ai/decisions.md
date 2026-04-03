@@ -220,3 +220,14 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The first naive USDA seed produced too much catalog noise because it created a base ingredient for every matching USDA search result.
 - The current ingest path now picks one best USDA candidate per curated seed term and stores that candidate's provenance and nutrition on the canonical ingredient for the term.
 - Search now uses phrase-aware matching plus singular/plural variants so ingredient lookups behave like ingredient search rather than raw substring matching.
+
+## 2026-04-03 - TestFlight prep produces a signed IPA locally, but upload depends on separate ASC credentials
+
+- Local release prep can be split into two phases:
+  1. archive + export a valid App Store Connect IPA
+  2. upload that IPA to App Store Connect
+- Code signing identities and provisioning on this machine are sufficient for archive/export, but they are not enough to guarantee upload.
+- App Store Connect upload should now be treated as requiring its own verified credential path:
+  - working Xcode account auth on the machine
+  - or a dedicated App Store Connect API key flow
+  - or a later CI/release automation path

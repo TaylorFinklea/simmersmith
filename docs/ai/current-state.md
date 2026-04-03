@@ -6,6 +6,13 @@
 
 ## Recent Progress
 
+- Prepared the latest iOS build for TestFlight distribution:
+  - bumped `CURRENT_PROJECT_VERSION` from `1` to `2`
+  - regenerated `SimmerSmith.xcodeproj`
+  - produced a signed archive at `/tmp/SimmerSmith-TestFlight.xcarchive`
+  - exported a valid App Store Connect IPA at `/tmp/SimmerSmith-TestFlight-export/SimmerSmith.ipa`
+- Verified the exported IPA is correctly signed for `app.simmersmith.ios` with version `1.0`, build `2`, Apple Distribution signing, and an App Store provisioning profile suitable for TestFlight.
+- Attempted direct App Store Connect upload from local Xcode tooling, but the upload is blocked on this machine by unusable local App Store Connect/Xcode account credentials.
 - Added a first-class native `Ingredients` management area instead of leaving ingredient operations buried in Settings-only search flows.
 - The app can now browse and search all known base ingredients with filters for:
   - needs review
@@ -229,15 +236,17 @@
 
 ## Working Tree
 
-- dirty during this ingredient-management slice until the session-end commit is created
+- dirty during the TestFlight prep slice until the session-end commit is created
 
 ## Blockers
 
-- none in code
+- TestFlight upload is currently blocked by `xcodebuild -exportArchive ... destination=upload` failing with `Failed to Use Accounts`.
+- The machine has valid signing identities and can archive/export successfully, but the local Xcode/App Store Connect account is not currently usable for upload.
 - the local MCP bridge still emits noisy `codex/event` validation logs from the upstream MCP SDK during tool execution, but calls still complete successfully
 
 ## Open Questions
 
+- Should local TestFlight/App Store Connect uploads in this repo rely on repaired Xcode account credentials, an App Store Connect API key flow, or a future CI/release pipeline?
 - Should the dedicated `Ingredients` area stay reachable from `Settings` and `Recipes`, or eventually become its own top-level tab?
 - Should the first production catalog seed rely on:
   - a real USDA API key provided by the operator
@@ -261,6 +270,13 @@
 - Should we filter the discovered OpenAI model list more aggressively to only reasoning/chat models we explicitly support, or keep the broader provider-visible list?
 
 ## Validation / Test Status
+
+Latest completed validation for the TestFlight prep slice:
+
+- `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -configuration Release -destination generic/platform=iOS -archivePath /tmp/SimmerSmith-TestFlight.xcarchive -allowProvisioningUpdates archive` -> passed
+- `xcodebuild -exportArchive -archivePath /tmp/SimmerSmith-TestFlight.xcarchive -exportPath /tmp/SimmerSmith-TestFlight-export -exportOptionsPlist /tmp/SimmerSmith-ExportOptions.plist -allowProvisioningUpdates` -> passed
+- exported IPA present at `/tmp/SimmerSmith-TestFlight-export/SimmerSmith.ipa`
+- `xcodebuild -exportArchive ... destination=upload ...` -> failed with `Failed to Use Accounts`; upload not completed
 
 Latest completed validation for the ingredient catalog foundation slice:
 

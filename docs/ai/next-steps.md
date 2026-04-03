@@ -2,6 +2,14 @@
 
 Use this as the exact short checklist for the next work session.
 
+- [ ] Fix the local TestFlight upload path:
+  - repair Xcode/App Store Connect account credentials on this machine
+  - or switch the repo to an App Store Connect API key upload flow
+  - rerun the upload using the already-exported IPA or a fresh archive if needed
+- [ ] While the user tests the current build, continue the ingredient catalog cleanup with product-focused decisions:
+  - decide whether imported/seeded branded rows should stay as base ingredients or become variations under cleaner generic bases
+  - decide whether product-heavy seeded results should be hidden from default ingredient browse/search and shown mainly in product/detail flows
+  - make ingredient preference search reliably favor clean generic bases over noisy product/import literals
 - [x] Add the canonical ingredient catalog foundation:
   - base ingredients
   - ingredient variations
