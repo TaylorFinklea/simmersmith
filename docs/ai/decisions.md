@@ -221,6 +221,12 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - The current ingest path now picks one best USDA candidate per curated seed term and stores that candidate's provenance and nutrition on the canonical ingredient for the term.
 - Search now uses phrase-aware matching plus singular/plural variants so ingredient lookups behave like ingredient search rather than raw substring matching.
 
+## 2026-04-03 - Default ingredient browse/search is generic-first; product-like rows are opt-in
+
+- The default ingredient browse/search experience should favor clean generic bases that make sense for recipe resolution and household preferences.
+- Product-heavy or package-form rows remain in the catalog, but they are hidden from default browse/search unless the client explicitly opts into `include_product_like=true`.
+- Product-like classification should catch not only branded OFF rows, but also packaging-heavy names such as `... jar`, `... bottle`, or literal imported rows like `1 can refrigerated biscuits`.
+
 ## 2026-04-03 - TestFlight prep produces a signed IPA locally, but upload depends on separate ASC credentials
 
 - Local release prep can be split into two phases:

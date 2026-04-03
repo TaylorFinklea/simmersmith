@@ -409,7 +409,8 @@ final class AppState {
         includeArchived: Bool = false,
         provisionalOnly: Bool = false,
         withPreferences: Bool = false,
-        withVariations: Bool = false
+        withVariations: Bool = false,
+        includeProductLike: Bool = false
     ) async throws -> [BaseIngredient] {
         try await apiClient.fetchBaseIngredients(
             query: query,
@@ -417,7 +418,8 @@ final class AppState {
             includeArchived: includeArchived,
             provisionalOnly: provisionalOnly,
             withPreferences: withPreferences,
-            withVariations: withVariations
+            withVariations: withVariations,
+            includeProductLike: includeProductLike
         )
     }
 

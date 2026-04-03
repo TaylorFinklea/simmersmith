@@ -23,6 +23,7 @@ from app.services.ingredient_catalog import (
     ingredient_counts,
     ingredient_preference_for_base,
     ingredient_usage_summary,
+    is_product_like_base_ingredient,
     list_ingredient_preferences,
     list_variations,
     merge_base_ingredients,
@@ -61,6 +62,7 @@ def _base_payload(session: Session, item) -> dict[str, object]:
         "archived_at": item.archived_at,
         "merged_into_id": item.merged_into_id,
         **counts,
+        "product_like": is_product_like_base_ingredient(item),
         "updated_at": item.updated_at,
     }
 
@@ -115,6 +117,7 @@ def list_ingredients_route(
     provisional_only: bool = False,
     with_preferences: bool = False,
     with_variations: bool = False,
+    include_product_like: bool = False,
     session: Session = Depends(get_session),
 ) -> list[dict[str, object]]:
     return [
@@ -127,6 +130,7 @@ def list_ingredients_route(
             provisional_only=provisional_only,
             with_preferences=with_preferences,
             with_variations=with_variations,
+            include_product_like=include_product_like,
         )
     ]
 

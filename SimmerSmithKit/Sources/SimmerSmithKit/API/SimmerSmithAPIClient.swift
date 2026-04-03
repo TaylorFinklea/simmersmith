@@ -222,7 +222,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         includeArchived: Bool = false,
         provisionalOnly: Bool = false,
         withPreferences: Bool = false,
-        withVariations: Bool = false
+        withVariations: Bool = false,
+        includeProductLike: Bool = false
     ) async throws -> [BaseIngredient] {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         var path = "/api/ingredients?q=\(encodedQuery)&limit=\(limit)"
@@ -237,6 +238,9 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         }
         if withVariations {
             path += "&with_variations=true"
+        }
+        if includeProductLike {
+            path += "&include_product_like=true"
         }
         return try await request(path: path)
     }

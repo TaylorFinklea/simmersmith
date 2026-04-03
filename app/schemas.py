@@ -213,6 +213,7 @@ class BaseIngredientOut(BaseIngredientPayload):
     preference_count: int = 0
     recipe_usage_count: int = 0
     grocery_usage_count: int = 0
+    product_like: bool = False
     updated_at: datetime
 
 

@@ -8,7 +8,6 @@ Use this as the exact short checklist for the next work session.
   - rerun the upload using the already-exported IPA or a fresh archive if needed
 - [ ] While the user tests the current build, continue the ingredient catalog cleanup with product-focused decisions:
   - decide whether imported/seeded branded rows should stay as base ingredients or become variations under cleaner generic bases
-  - decide whether product-heavy seeded results should be hidden from default ingredient browse/search and shown mainly in product/detail flows
   - make ingredient preference search reliably favor clean generic bases over noisy product/import literals
 - [x] Add the canonical ingredient catalog foundation:
   - base ingredients
@@ -64,8 +63,13 @@ Use this as the exact short checklist for the next work session.
   - curated seed terms create one base ingredient instead of many noisy USDA rows
   - raw substring false positives no longer dominate ingredient search
   - literal imported names rank below cleaner generic ingredient names
+- [x] Hide product-heavy seeded rows from default ingredient browse/search while still allowing explicit product-like browsing when needed
 - [ ] Continue catalog cleanup with product-focused decisions:
   - decide whether imported brand/product rows should stay as base ingredients or become variations under cleaner generic bases
-  - decide whether seeded product-heavy results should be hidden from default ingredient browse and only shown in product/detail flows
+  - decide how aggressive product-like classification should be for package-form names that are still generic enough to browse directly
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [ ] Decide whether the new `Ingredients` area should remain under `Settings`/`Recipes` entry points or graduate into a top-level tab
+- [ ] Rebuild/reinstall the latest iOS app and manually recheck ingredient browse and preference search with:
+  - `biscuit`
+  - `mustard`
+  - `milk`

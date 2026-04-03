@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,6 +63,49 @@ UNIT_MAP = {
     "cloves": "clove",
     "slice": "slice",
     "slices": "slice",
+}
+
+LEADING_QUANTITY_PATTERN = re.compile(
+    r"^\s*\d+(?:\s+\d+/\d+|\.\d+|/\d+)?\s*(?:%|count|counts|ct|each|ea|lb|lbs|pound|pounds|oz|ounce|ounces|"
+    r"fl oz|fluid ounce|fluid ounces|gal|gallon|gallons|cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|"
+    r"teaspoons|pkg|package|packages|can|cans|bag|bags|bunch|bunches|clove|cloves|slice|slices)?\s+",
+    re.IGNORECASE,
+)
+PACKAGE_SIZE_PATTERN = re.compile(
+    r"\b\d+(?:\.\d+)?\s?(?:g|kg|oz|lb|lbs|ml|l|ct|count|pack|pk)\b",
+    re.IGNORECASE,
+)
+MARKETING_PREFIXES = {
+    "classic",
+    "natural",
+    "organic",
+    "original",
+    "prepared",
+    "traditional",
+}
+PACKAGING_TOKENS = {
+    "bag",
+    "bags",
+    "bottle",
+    "bottles",
+    "box",
+    "boxes",
+    "can",
+    "cans",
+    "carton",
+    "cartons",
+    "jar",
+    "jars",
+    "pack",
+    "packs",
+    "package",
+    "packages",
+    "pouch",
+    "pouches",
+    "tin",
+    "tins",
+    "tube",
+    "tubes",
 }
 
 
@@ -131,6 +175,64 @@ class IngredientUsageSummary:
         }
 
 
+def _source_payload(item: BaseIngredient) -> dict[str, Any]:
+    try:
+        return json.loads(item.source_payload_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def cleaned_base_ingredient_name(name: str, *, source_name: str = "", source_payload: dict[str, Any] | None = None) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return ""
+
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = LEADING_QUANTITY_PATTERN.sub("", text)
+    text = PACKAGE_SIZE_PATTERN.sub(" ", text)
+    text = re.sub(r"\b\d+%\b", " ", text)
+
+    if source_name == "Open Food Facts" and source_payload:
+        brand_text = str(source_payload.get("brands") or "").split(",")[0].strip()
+        if brand_text:
+            brand_pattern = re.compile(rf"\b{re.escape(brand_text)}\b", re.IGNORECASE)
+            text = brand_pattern.sub(" ", text)
+
+    text = re.sub(r"[,;/]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    tokens = text.split()
+    while tokens and normalize_name(tokens[0]) in MARKETING_PREFIXES:
+        tokens = tokens[1:]
+    text = " ".join(tokens)
+    text = re.sub(r"\bprepared mustard\b", "mustard", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    if not text:
+        return ""
+    return text[:1].upper() + text[1:]
+
+
+def is_product_like_base_ingredient(item: BaseIngredient) -> bool:
+    payload = _source_payload(item)
+    cleaned = cleaned_base_ingredient_name(item.name, source_name=item.source_name, source_payload=payload)
+    normalized_cleaned = normalize_name(cleaned)
+    tokens = item.normalized_name.split()
+    if item.source_name == "Open Food Facts":
+        if payload.get("brands"):
+            return True
+        if normalized_cleaned and normalized_cleaned != item.normalized_name:
+            return True
+    leading_token = item.normalized_name.split(" ", 1)[0] if item.normalized_name else ""
+    if leading_token.isdigit():
+        return True
+    if tokens and tokens[-1] in PACKAGING_TOKENS:
+        return True
+    if PACKAGE_SIZE_PATTERN.search(item.name):
+        return True
+    if normalized_cleaned and normalized_cleaned != item.normalized_name and bool(LEADING_QUANTITY_PATTERN.match(item.name)):
+        return True
+    return False
+
+
 def _clean_category(category: str) -> str:
     return str(category or "").strip()
 
@@ -139,19 +241,21 @@ def _normalized_or_name(name: str, normalized_name: str | None = None) -> str:
     return normalize_name(normalized_name or name)
 
 
-def _ingredient_search_score(item: BaseIngredient, normalized_query: str) -> tuple[int, int, int, int, str]:
+def _ingredient_search_score(item: BaseIngredient, normalized_query: str) -> tuple[int, int, int, int, int, str]:
     normalized_name = item.normalized_name
     is_exact = int(normalized_name == normalized_query)
     starts_with = int(normalized_name.startswith(normalized_query))
     contains = int(normalized_query in normalized_name)
     leading_token = normalized_name.split(" ", 1)[0] if normalized_name else ""
     literal_penalty = int(leading_token.isdigit() or leading_token in {"can", "cans", "pkg", "package", "packages"})
-    source_penalty = int(bool(item.source_name))
+    product_like_penalty = int(is_product_like_base_ingredient(item))
+    source_penalty = int(bool(item.source_name and item.source_name != "USDA FoodData Central"))
     return (
         -is_exact,
         -starts_with,
         -contains,
         literal_penalty,
+        product_like_penalty,
         source_penalty,
         len(normalized_name),
         normalized_name,
@@ -189,6 +293,7 @@ def search_base_ingredients(
     provisional_only: bool = False,
     with_preferences: bool = False,
     with_variations: bool = False,
+    include_product_like: bool = False,
 ) -> list[BaseIngredient]:
     statement = select(BaseIngredient)
     if not include_archived:
@@ -229,14 +334,21 @@ def search_base_ingredients(
     safe_limit = max(1, min(limit, 200))
     if normalized_query:
         items = list(session.scalars(statement.limit(200)).all())
+        if not include_product_like:
+            items = [item for item in items if not is_product_like_base_ingredient(item)]
         items.sort(key=lambda item: _ingredient_search_score(item, normalized_query))
         return items[:safe_limit]
+    if not include_product_like:
+        statement = statement.where(BaseIngredient.source_name != "Open Food Facts")
     statement = statement.order_by(
         BaseIngredient.provisional.asc(),
         func.length(BaseIngredient.name),
         BaseIngredient.name,
     ).limit(safe_limit)
-    return list(session.scalars(statement).all())
+    items = list(session.scalars(statement).all())
+    if not include_product_like:
+        items = [item for item in items if not is_product_like_base_ingredient(item)]
+    return items[:safe_limit]
 
 
 def get_base_ingredient(session: Session, base_ingredient_id: str) -> BaseIngredient | None:
@@ -624,6 +736,52 @@ def merge_base_ingredients(session: Session, *, source_id: str, target_id: str) 
     return target
 
 
+def normalize_product_like_base_ingredients(session: Session) -> int:
+    merged_count = 0
+    rows = list(
+        session.scalars(
+            select(BaseIngredient).where(
+                BaseIngredient.archived_at.is_(None),
+                BaseIngredient.active.is_(True),
+            )
+        ).all()
+    )
+    for row in rows:
+        if row.archived_at is not None or not row.active:
+            continue
+        if not is_product_like_base_ingredient(row):
+            continue
+        cleaned_name = cleaned_base_ingredient_name(
+            row.name,
+            source_name=row.source_name,
+            source_payload=_source_payload(row),
+        )
+        if not cleaned_name:
+            continue
+        normalized_cleaned = normalize_name(cleaned_name)
+        if not normalized_cleaned or normalized_cleaned == row.normalized_name:
+            continue
+        target = ensure_base_ingredient(
+            session,
+            name=cleaned_name,
+            normalized_name=normalized_cleaned,
+            category=row.category,
+            default_unit=row.default_unit,
+            notes=row.notes,
+            provisional=row.provisional,
+            active=True,
+            nutrition_reference_amount=row.nutrition_reference_amount,
+            nutrition_reference_unit=row.nutrition_reference_unit,
+            calories=row.calories,
+        )
+        if target.id == row.id:
+            continue
+        merge_base_ingredients(session, source_id=row.id, target_id=target.id)
+        merged_count += 1
+    session.flush()
+    return merged_count
+
+
 def update_variation(
     session: Session,
     *,
@@ -789,10 +947,11 @@ def resolve_ingredient(
             )
 
     if base is None and normalized:
+        cleaned_provisional_name = cleaned_base_ingredient_name(cleaned_name)
         base = ensure_base_ingredient(
             session,
-            name=cleaned_name,
-            normalized_name=normalized,
+            name=cleaned_provisional_name or cleaned_name,
+            normalized_name=normalize_name(cleaned_provisional_name or cleaned_name),
             category=cleaned_category,
             default_unit=cleaned_unit,
             notes=cleaned_notes,

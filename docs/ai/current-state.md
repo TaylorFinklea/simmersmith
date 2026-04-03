@@ -6,6 +6,14 @@
 
 ## Recent Progress
 
+- Tightened the live ingredient-catalog search and browse behavior so the default app experience is now generic-first instead of product-heavy.
+- Added a `product_like` classification to base ingredients and exposed it through the API/native models.
+- Ingredient search and browse now hide product-like rows by default unless the caller explicitly opts in, while still allowing product-heavy rows to remain available in ingredient detail and review flows.
+- Improved the cleanup heuristics so packaging-heavy names such as `French Chestnut Mustard Jar` are treated as product-like even when they do not carry strong source-brand metadata.
+- Rebuilt the Docker backend, reran the live catalog cleanup, and re-verified the live API:
+  - `GET /api/ingredients?q=biscuit&limit=20` now returns only `Refrigerated biscuits` by default
+  - `GET /api/ingredients?q=mustard&limit=20` now returns only `Yellow Mustard` by default
+  - `GET /api/ingredients?q=mustard&limit=20&include_product_like=true` still exposes the fuller product-heavy set when explicitly requested
 - Prepared the latest iOS build for TestFlight distribution:
   - bumped `CURRENT_PROJECT_VERSION` from `1` to `2`
   - regenerated `SimmerSmith.xcodeproj`
@@ -195,7 +203,7 @@
 
 ## Recent Commits
 
-- `pending` ingredient-management and Anthropic UX fix commit not created yet in this session
+- `pending` ingredient catalog generic-first cleanup commit not created yet in this session
 - `0dc16e7` `fix: address ios qa issues`
 - `4c7ea74` `feat: add ingredient catalog creation in review flow`
 - `798b900` `test: add recipe import fixture corpus`
@@ -215,9 +223,36 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj`
 - `SimmerSmith/SimmerSmith/App/AppState.swift`
 - `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `app/api/ingredients.py`
+- `app/schemas.py`
+- `app/services/ingredient_catalog.py`
+- `scripts/seed_ingredient_catalog.py`
+- `tests/test_api.py`
+- `tests/test_ingredient_ingest.py`
+
+## Blockers
+
+- TestFlight upload is still blocked on local App Store Connect credential state even though archive/export succeeded.
+- Product modeling is still unsettled for imported/branded rows: some items likely belong as product variations under generic bases instead of remaining top-level base ingredients.
+
+## Open Questions
+
+- Should seeded branded/product rows eventually be converted into product variations under cleaner generic bases automatically, or only through explicit merge/review flows?
+- Should the native `Ingredients` area keep product-like rows behind a toggle everywhere, or only in the main browse/search experience?
+
+## Validation / Test Status
+
+- `python3 -m compileall app tests scripts`
+- `.venv/bin/pytest tests/test_ingredient_ingest.py tests/test_api.py -q`
+- live Docker rebuild via `docker compose up --build -d`
+- live API verification:
+  - `curl -s 'http://localhost:8080/api/ingredients?q=biscuit&limit=20'`
+  - `curl -s 'http://localhost:8080/api/ingredients?q=mustard&limit=20'`
+  - `curl -s 'http://localhost:8080/api/ingredients?q=mustard&limit=20&include_product_like=true'`
 - `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
 - `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
 - `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`

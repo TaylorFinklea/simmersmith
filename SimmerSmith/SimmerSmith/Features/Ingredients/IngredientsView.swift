@@ -7,6 +7,7 @@ struct IngredientsView: View {
     @State private var searchText = ""
     @State private var filter = IngredientCatalogFilter.all
     @State private var includeArchived = false
+    @State private var includeProductLike = false
     @State private var ingredients: [BaseIngredient] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -22,6 +23,7 @@ struct IngredientsView: View {
                 }
 
                 Toggle("Show archived ingredients", isOn: $includeArchived)
+                Toggle("Show product-like rows", isOn: $includeProductLike)
             }
 
             if let errorMessage {
@@ -92,6 +94,7 @@ struct IngredientsView: View {
             searchText.trimmingCharacters(in: .whitespacesAndNewlines),
             filter.rawValue,
             includeArchived.description,
+            includeProductLike.description,
         ].joined(separator: "|")
     }
 
@@ -112,7 +115,8 @@ struct IngredientsView: View {
                 includeArchived: includeArchived,
                 provisionalOnly: filter == .provisional,
                 withPreferences: filter == .withPreferences,
-                withVariations: filter == .withProducts
+                withVariations: filter == .withProducts,
+                includeProductLike: includeProductLike
             )
         } catch {
             errorMessage = error.localizedDescription
@@ -133,6 +137,8 @@ private struct IngredientCatalogRow: View {
                 Spacer()
                 if ingredient.provisional {
                     IngredientBadge(title: "Review", tint: .orange)
+                } else if ingredient.productLike {
+                    IngredientBadge(title: "Product-like", tint: .blue)
                 } else if !ingredient.active {
                     IngredientBadge(title: "Archived", tint: .secondary)
                 }
@@ -927,7 +933,8 @@ struct BaseIngredientMergeSheet: View {
             candidates = try await appState.searchBaseIngredients(
                 query: searchText,
                 limit: 100,
-                includeArchived: false
+                includeArchived: false,
+                includeProductLike: true
             )
         } catch {
             errorMessage = error.localizedDescription

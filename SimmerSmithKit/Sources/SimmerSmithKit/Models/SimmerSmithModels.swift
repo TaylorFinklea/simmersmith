@@ -192,6 +192,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
     public let preferenceCount: Int
     public let recipeUsageCount: Int
     public let groceryUsageCount: Int
+    public let productLike: Bool
     public let updatedAt: Date
 
     public var id: String { baseIngredientId }
@@ -217,6 +218,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         preferenceCount: Int = 0,
         recipeUsageCount: Int = 0,
         groceryUsageCount: Int = 0,
+        productLike: Bool = false,
         updatedAt: Date
     ) {
         self.baseIngredientId = baseIngredientId
@@ -239,6 +241,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         self.preferenceCount = preferenceCount
         self.recipeUsageCount = recipeUsageCount
         self.groceryUsageCount = groceryUsageCount
+        self.productLike = productLike
         self.updatedAt = updatedAt
     }
 }

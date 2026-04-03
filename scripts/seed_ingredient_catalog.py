@@ -6,7 +6,7 @@ from pathlib import Path
 from app.config import get_settings
 from app.db import session_scope
 from app.services.bootstrap import run_migrations
-from app.services.ingredient_catalog import ensure_catalog_defaults
+from app.services.ingredient_catalog import ensure_catalog_defaults, normalize_product_like_base_ingredients
 from app.services.ingredient_ingest import (
     OPEN_FOOD_FACTS_DEFAULT_TERMS,
     USDA_DEFAULT_SEED_TERMS,
@@ -66,6 +66,9 @@ def main() -> None:
                 f"{result.variations_created_or_updated} product variations with {result.skipped_terms} skipped requests "
                 f"into {settings.db_path}"
             )
+
+        normalized_count = normalize_product_like_base_ingredients(session)
+        print(f"Catalog cleanup: normalized {normalized_count} product-like base ingredient rows into cleaner generic bases")
 
 
 if __name__ == "__main__":

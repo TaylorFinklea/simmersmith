@@ -311,6 +311,35 @@ def test_ingredient_search_prefers_clean_generic_match_over_literal_import_name(
     assert payload[0]["normalized_name"] == "refrigerated biscuits"
 
 
+def test_ingredient_search_hides_product_like_rows_by_default_but_can_include_them(client) -> None:
+    generic_response = client.post(
+        "/api/ingredients",
+        json={"name": "Yellow mustard", "category": "Condiments", "source_name": "USDA FoodData Central"},
+    )
+    product_like_response = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Classic Yellow Mustard",
+            "category": "Condiments",
+            "source_name": "Open Food Facts",
+            "source_record_id": "0123456789",
+        },
+    )
+    assert generic_response.status_code == 200
+    assert product_like_response.status_code == 200
+
+    hidden_response = client.get("/api/ingredients?q=mustard")
+    assert hidden_response.status_code == 200
+    hidden_payload = hidden_response.json()
+    assert any(item["normalized_name"] == "yellow mustard" for item in hidden_payload)
+    assert all(item["normalized_name"] != "classic yellow mustard" for item in hidden_payload)
+
+    included_response = client.get("/api/ingredients?q=mustard&include_product_like=true")
+    assert included_response.status_code == 200
+    included_payload = included_response.json()
+    assert any(item["normalized_name"] == "classic yellow mustard" for item in included_payload)
+
+
 def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) -> None:
     metadata_response = client.get("/api/recipes/metadata")
     assert metadata_response.status_code == 200
