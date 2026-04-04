@@ -2,6 +2,7 @@
 
 Use this as the exact short checklist for the next work session.
 
+- [ ] If local Codex again reports `MCP startup incomplete (failed: supabase, vercel)`, refresh those OAuth sessions with `codex mcp logout <name>` and `codex mcp login <name>` before treating it as an app-side regression
 - [ ] Fix the local TestFlight upload path:
   - repair Xcode/App Store Connect account credentials on this machine
   - or switch the repo to an App Store Connect API key upload flow

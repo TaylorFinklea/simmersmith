@@ -6,6 +6,8 @@
 
 ## Recent Progress
 
+- Repaired the local Codex MCP OAuth sessions for `vercel` and `supabase` after stale refresh tokens caused `MCP startup incomplete` warnings during Codex startup.
+- Cleared the cached OAuth state with `codex mcp logout`, re-ran `codex mcp login` for both servers, and verified a fresh `codex exec` turn completed without the prior `supabase` / `vercel` startup failures.
 - Fixed the native `Clear Local Cache` behavior so it now immediately refetches from the saved server connection instead of leaving the app in an empty local-only state.
 - This directly addresses the live QA regression where clearing cache made `Recipes` appear empty and `Manage Ingredient Catalog` show `Not found` even though the backend still had data.
 - Re-verified the backend still contains live recipes after the cache-clear report:
@@ -254,6 +256,12 @@
 - Should the native `Ingredients` area keep product-like rows behind a toggle everywhere, or only in the main browse/search experience?
 
 ## Validation / Test Status
+
+- `codex mcp logout vercel` -> passed
+- `codex mcp logout supabase` -> passed
+- `codex mcp login vercel` -> passed
+- `codex mcp login supabase` -> passed
+- `codex exec --color never --json "Reply with OK and nothing else."` -> passed; completed a fresh Codex run without the earlier `MCP startup incomplete (failed: supabase, vercel)` warning
 
 - `GET /api/recipes` confirms the backend still has 12 recipes after the cache-clear report
 - `swift test --package-path SimmerSmithKit`
