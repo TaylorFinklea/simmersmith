@@ -2,7 +2,15 @@
 
 Use this as the exact short checklist for the next work session.
 
+- [ ] Pull work from two lanes, not one:
+  - formal phase lane: finish recipe trustworthiness and the remaining import/product-model decisions
+  - small-model-safe backlog lane: run explicit low-risk backlog items in parallel when smaller-assistant capacity is available
 - [ ] If local Codex again reports `MCP startup incomplete (failed: supabase, vercel)`, refresh those OAuth sessions with `codex mcp logout <name>` and `codex mcp login <name>` before treating it as an app-side regression
+- [ ] Small-model-safe parallel options ready now:
+  - expand Swift Testing around ingredient review, ingredient management, and cache-clear recovery
+  - add API coverage for ingredient browse/search filters and product-like toggle behavior
+  - expand `docs/ai/mcp-tools.md` with recipe, week, export, and assistant-thread examples
+  - add UI automation smoke coverage for cache-clear recovery and ingredient browse/search
 - [ ] Fix the local TestFlight upload path:
   - repair Xcode/App Store Connect account credentials on this machine
   - or switch the repo to an App Store Connect API key upload flow

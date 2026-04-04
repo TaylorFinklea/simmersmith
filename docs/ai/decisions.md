@@ -243,3 +243,12 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
   - working Xcode account auth on the machine
   - or a dedicated App Store Connect API key flow
   - or a later CI/release automation path
+
+## 2026-04-04 - The roadmap now separates formal phases from a small-model-safe backlog
+
+- The roadmap now has two explicit lanes:
+  1. formal premium-model phases for architecture, product-policy, and contract-shaping work
+  2. a parallel small-model-safe backlog for narrow, localized, low-risk work that can run alongside those phases
+- Smaller assistants may own localized code cleanup, tests, docs, release hygiene, CI/build hygiene, and similarly bounded maintenance work.
+- Smaller assistants may not decide architecture, API or MCP contracts, import-policy behavior, ingredient-model policy, AI workflow policy, or migration design.
+- Backlog items should be tagged by area plus delegation safety, and if a backlog task exposes a deeper issue it should be promoted into formal roadmap or ADR work and stopped rather than completed opportunistically.

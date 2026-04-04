@@ -6,6 +6,11 @@
 
 ## Recent Progress
 
+- Retuned the shared roadmap so it now separates formal premium-model phases from a parallel small-model-safe backlog.
+- Added explicit backlog governance to the roadmap:
+  - smaller assistants may take narrow, localized, low-risk work in parallel
+  - core product decisions, architecture, and contract changes stay out of that backlog lane
+  - deeper findings should be promoted into formal roadmap or ADR work instead of being solved opportunistically
 - Repaired the local Codex MCP OAuth sessions for `vercel` and `supabase` after stale refresh tokens caused `MCP startup incomplete` warnings during Codex startup.
 - Cleared the cached OAuth state with `codex mcp logout`, re-ran `codex mcp login` for both servers, and verified a fresh `codex exec` turn completed without the prior `supabase` / `vercel` startup failures.
 - Fixed the native `Clear Local Cache` behavior so it now immediately refetches from the saved server connection instead of leaving the app in an empty local-only state.
@@ -234,16 +239,10 @@
 
 ## Changed Files In The Current Slice
 
-- `SimmerSmith/SimmerSmith/App/AppState.swift`
-- `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
-- `app/api/ingredients.py`
-- `app/schemas.py`
-- `app/services/ingredient_catalog.py`
-- `scripts/seed_ingredient_catalog.py`
-- `tests/test_api.py`
-- `tests/test_ingredient_ingest.py`
+- `docs/ai/roadmap.md`
+- `docs/ai/current-state.md`
+- `docs/ai/next-steps.md`
+- `docs/ai/decisions.md`
 
 ## Blockers
 
@@ -257,6 +256,12 @@
 
 ## Validation / Test Status
 
+- roadmap and handoff docs reviewed for consistency across:
+  - `docs/ai/roadmap.md`
+  - `docs/ai/current-state.md`
+  - `docs/ai/next-steps.md`
+  - `docs/ai/decisions.md`
+- `git diff --check` -> passed
 - `codex mcp logout vercel` -> passed
 - `codex mcp logout supabase` -> passed
 - `codex mcp login vercel` -> passed
