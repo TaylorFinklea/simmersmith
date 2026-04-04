@@ -28,6 +28,169 @@ func connectionSettingsStoreLoadsTokenFromFallbackDefaults() {
 }
 
 @Test
+func decoderHandlesProductLikeBaseIngredientPayload() throws {
+    let json = """
+    {
+      "base_ingredient_id": "ingredient-1",
+      "name": "Classic Yellow Mustard",
+      "normalized_name": "classic yellow mustard",
+      "category": "Condiments",
+      "default_unit": "jar",
+      "notes": "Package-form product",
+      "source_name": "Open Food Facts",
+      "source_record_id": "0123456789",
+      "source_u_r_l": "https://example.com/mustard",
+      "provisional": false,
+      "active": true,
+      "nutrition_reference_amount": 15,
+      "nutrition_reference_unit": "g",
+      "calories": 20,
+      "archived_at": null,
+      "merged_into_id": null,
+      "variation_count": 2,
+      "preference_count": 1,
+      "recipe_usage_count": 4,
+      "grocery_usage_count": 3,
+      "product_like": true,
+      "updated_at": "2026-03-23T19:30:00Z"
+    }
+    """.data(using: .utf8)!
+
+    let ingredient = try SimmerSmithJSONCoding.makeDecoder().decode(BaseIngredient.self, from: json)
+
+    #expect(ingredient.id == "ingredient-1")
+    #expect(ingredient.productLike)
+    #expect(ingredient.sourceName == "Open Food Facts")
+    #expect(ingredient.variationCount == 2)
+    #expect(ingredient.nutritionReferenceUnit == "g")
+}
+
+@Test
+func decoderHandlesAssistantThreadPayloadWithNestedRecipeDraft() throws {
+    let json = """
+    {
+      "thread_id": "thread-1",
+      "title": "Dinner ideas",
+      "preview": "Try a lighter weeknight bowl.",
+      "created_at": "2026-03-23T19:30:00Z",
+      "updated_at": "2026-03-23T19:45:00Z",
+      "messages": [
+        {
+          "message_id": "message-1",
+          "thread_id": "thread-1",
+          "role": "assistant",
+          "status": "completed",
+          "content_markdown": "Here is a draft.",
+          "recipe_draft": {
+            "name": "Weeknight Bowl",
+            "meal_type": "dinner",
+            "cuisine": "fusion",
+            "servings": 4,
+            "tags": ["quick", "balanced"],
+            "favorite": false,
+            "source": "assistant",
+            "source_label": "codex",
+            "source_url": "",
+            "notes": "Keep the sauce light.",
+            "memories": "",
+            "ingredients": [
+              {
+                "ingredient_name": "Chicken",
+                "normalized_name": "chicken",
+                "resolution_status": "resolved",
+                "quantity": 1,
+                "unit": "lb",
+                "prep": "cubed",
+                "category": "Protein",
+                "notes": ""
+              }
+            ],
+            "steps": [
+              {
+                "sort_order": 1,
+                "instruction": "Sear the chicken."
+              }
+            ]
+          },
+          "attached_recipe_id": "recipe-1",
+          "created_at": "2026-03-23T19:30:00Z",
+          "completed_at": "2026-03-23T19:31:00Z",
+          "error": ""
+        },
+        {
+          "message_id": "message-2",
+          "thread_id": "thread-1",
+          "role": "assistant",
+          "status": "failed",
+          "content_markdown": "",
+          "recipe_draft": null,
+          "attached_recipe_id": null,
+          "created_at": "2026-03-23T19:32:00Z",
+          "completed_at": null,
+          "error": "Provider timeout"
+        }
+      ]
+    }
+    """.data(using: .utf8)!
+
+    let thread = try SimmerSmithJSONCoding.makeDecoder().decode(AssistantThread.self, from: json)
+
+    #expect(thread.id == "thread-1")
+    #expect(thread.messages.count == 2)
+    #expect(thread.messages.first?.recipeDraft?.ingredients.first?.resolutionStatus == "resolved")
+    #expect(thread.messages.last?.error == "Provider timeout")
+}
+
+@Test
+func decoderHandlesExportRunPayloadWithItemsAndOptionalCompletionState() throws {
+    let json = """
+    {
+      "export_id": "export-1",
+      "destination": "apple_reminders",
+      "export_type": "meal_plan",
+      "status": "pending",
+      "item_count": 2,
+      "payload_json": "{\\"week_id\\":\\"week-1\\"}",
+      "error": "",
+      "external_ref": "",
+      "created_at": "2026-03-23T19:30:00Z",
+      "completed_at": null,
+      "updated_at": "2026-03-23T19:31:00Z",
+      "items": [
+        {
+          "export_item_id": "export-item-1",
+          "sort_order": 1,
+          "list_name": "meal_plan",
+          "title": "Monday - Dinner: Turkey Bowls",
+          "notes": "",
+          "metadata_json": "{}",
+          "status": "pending"
+        },
+        {
+          "export_item_id": "export-item-2",
+          "sort_order": 2,
+          "list_name": "meal_plan",
+          "title": "Tuesday - Lunch: Yogurt Parfait",
+          "notes": "",
+          "metadata_json": "{}",
+          "status": "pending"
+        }
+      ]
+    }
+    """.data(using: .utf8)!
+
+    let exportRun = try SimmerSmithJSONCoding.makeDecoder().decode(ExportRun.self, from: json)
+
+    #expect(exportRun.id == "export-1")
+    #expect(exportRun.itemCount == 2)
+    #expect(exportRun.completedAt == nil)
+    #expect(exportRun.items.map(\.title) == [
+        "Monday - Dinner: Turkey Bowls",
+        "Tuesday - Lunch: Yogurt Parfait"
+    ])
+}
+
+@Test
 func decoderHandlesDateOnlyAndDateTimePayloads() throws {
     let json = """
     {
