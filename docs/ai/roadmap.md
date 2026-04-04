@@ -42,6 +42,8 @@ This file is the durable roadmap source of truth for AI assistants working in th
 
 ## Parallel Backlog For Smaller Assistants
 
+<!-- tier3_owner: claude -->
+
 Smaller assistants may take explicit backlog work in parallel with the formal phases when the task is narrow, localized, and low-risk.
 
 - Allowed: localized product-code changes, test expansion, docs, CI/build hygiene, release maintenance, and operator tooling maintenance.
