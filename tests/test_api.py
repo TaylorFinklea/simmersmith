@@ -239,6 +239,36 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
     assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in filtered_response.json())
 
 
+def test_inferred_exact_variation_match_returns_suggested_not_locked(client) -> None:
+    base_response = client.post(
+        "/api/ingredients",
+        json={"name": "Refrigerated biscuits", "category": "Refrigerated", "default_unit": "can"},
+    )
+    assert base_response.status_code == 200
+    base = base_response.json()
+
+    variation_response = client.post(
+        f"/api/ingredients/{base['base_ingredient_id']}/variations",
+        json={"name": "Pillsbury refrigerated biscuits", "brand": "Pillsbury"},
+    )
+    assert variation_response.status_code == 200
+    variation = variation_response.json()
+
+    resolve_response = client.post(
+        "/api/ingredients/resolve",
+        json={
+            "ingredient_name": "Pillsbury refrigerated biscuits",
+            "category": "Refrigerated",
+        },
+    )
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["base_ingredient_id"] == base["base_ingredient_id"]
+    assert resolved["ingredient_variation_id"] == variation["ingredient_variation_id"]
+    assert resolved["ingredient_variation_name"] == "Pillsbury refrigerated biscuits"
+    assert resolved["resolution_status"] == "suggested"
+
+
 def test_ingredient_catalog_merge_and_archive_routes(client) -> None:
     source_response = client.post(
         "/api/ingredients",
@@ -590,6 +620,46 @@ def test_recipe_import_from_text_returns_editable_draft(client) -> None:
         "Cook in a waffle iron until crisp.",
     ]
     assert imported["notes"] == "Do not overmix the batter."
+
+
+def test_recipe_save_preserves_inferred_variation_match_as_suggested(client) -> None:
+    base_response = client.post(
+        "/api/ingredients",
+        json={"name": "Refrigerated biscuits", "category": "Refrigerated", "default_unit": "can"},
+    )
+    assert base_response.status_code == 200
+    base = base_response.json()
+
+    variation_response = client.post(
+        f"/api/ingredients/{base['base_ingredient_id']}/variations",
+        json={"name": "Pillsbury refrigerated biscuits", "brand": "Pillsbury"},
+    )
+    assert variation_response.status_code == 200
+    variation = variation_response.json()
+
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Biscuit Breakfast",
+            "meal_type": "breakfast",
+            "servings": 4,
+            "ingredients": [
+                {
+                    "ingredient_name": "Pillsbury refrigerated biscuits",
+                    "quantity": 1,
+                    "unit": "can",
+                    "category": "Refrigerated",
+                }
+            ],
+            "steps": [{"instruction": "Bake the biscuits."}],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+    ingredient = recipe["ingredients"][0]
+    assert ingredient["base_ingredient_id"] == base["base_ingredient_id"]
+    assert ingredient["ingredient_variation_id"] == variation["ingredient_variation_id"]
+    assert ingredient["resolution_status"] == "suggested"
 
 
 def test_recipe_import_from_text_infers_scan_sections_without_headings(client) -> None:

@@ -9,8 +9,9 @@ Use this as the exact short checklist for the next work session.
 - [x] Add API coverage for ingredient browse/search filters, product-like toggles, and week export listing behavior
 - [x] Expand `docs/ai/mcp-tools.md` with recipe, week, export, and assistant-thread examples
 - [x] Expand `SimmerSmithKit` payload decoding coverage for assistant threads, export runs, product-like ingredients, and recipe-ingredient fallback identity
+- [x] Expand native Swift Testing coverage for core app request/model defaults and recipe-ingredient fallback identity
 - [ ] Remaining small-model-safe parallel options ready now:
-  - expand Swift Testing around ingredient review, ingredient management, and cache-clear recovery beyond the current payload coverage
+  - expand Swift Testing around ingredient review, ingredient management, and cache-clear recovery beyond the current request/model coverage
   - add UI automation smoke coverage for cache-clear recovery and ingredient browse/search
 - [ ] Fix the local TestFlight upload path:
   - repair Xcode/App Store Connect account credentials on this machine
@@ -51,7 +52,10 @@ Use this as the exact short checklist for the next work session.
 - [x] Restart and validate the local backend against the current code so new ingredient APIs are actually live for the iOS app
 - [x] Add a native ingredient-catalog browser in Settings so ingredient preferences can be seeded from real base ingredients
 - [x] Improve failed assistant-turn rendering so provider errors do not appear as blank bubbles in the conversation
-- [ ] Decide whether exact branded ingredient matches from imports should become `locked` automatically or only `resolved`
+- [x] Keep exact inferred branded/product variation matches reviewable as `suggested` instead of auto-locking them
+- [ ] Manually verify the updated branded-match review behavior in the rebuilt iOS app:
+  - import or create a recipe row that exactly matches a stored branded variation
+  - confirm the ingredient remains `suggested` in review surfaces unless the user explicitly locks it
 - [ ] Extend retailer/pricing matching to use canonical ingredient and variation identity instead of raw ingredient strings alone
 - [x] Mature ingredient management beyond the first browser:
   - base ingredients can now be browsed and edited in a dedicated native `Ingredients` area

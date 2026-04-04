@@ -252,3 +252,10 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - Smaller assistants may own localized code cleanup, tests, docs, release hygiene, CI/build hygiene, and similarly bounded maintenance work.
 - Smaller assistants may not decide architecture, API or MCP contracts, import-policy behavior, ingredient-model policy, AI workflow policy, or migration design.
 - Backlog items should be tagged by area plus delegation safety, and if a backlog task exposes a deeper issue it should be promoted into formal roadmap or ADR work and stopped rather than completed opportunistically.
+
+## 2026-04-04 - Inferred exact branded variation matches stay suggested unless the user explicitly locks them
+
+- If ingredient resolution infers a stored variation from an exact normalized-name match, that match should remain `suggested`, not `locked`.
+- The app should only persist an override `resolution_status` when the client explicitly set one; schema-default `unresolved` values from omitted fields must not wipe out inferred resolution.
+- Explicit user locks and other explicit client-supplied statuses still win over inference.
+- This keeps branded/product import matches reviewable during the current trustworthiness phase while preserving a clear path for user-approved locking.

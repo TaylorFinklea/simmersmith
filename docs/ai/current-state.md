@@ -6,6 +6,19 @@
 
 ## Recent Progress
 
+- Continued the formal `Finish recipe trustworthiness` phase with a concrete branded-resolution policy change:
+  - exact inferred matches to a stored ingredient variation no longer auto-lock just because the variation name matches
+  - those matches now persist as `suggested` unless the client explicitly supplied a `resolution_status` such as `locked`
+  - this keeps import-time branded/product matches reviewable instead of silently hardening them
+- Fixed the payload-default bug behind that policy:
+  - omitted `resolution_status` values from recipe/import/AI-draft payloads were previously arriving as schema-default `unresolved`
+  - save/import/draft paths now only treat `resolution_status` as an override when the client explicitly set it
+- Added focused regression coverage for the new behavior:
+  - ingredient resolution API keeps inferred exact variation matches as `suggested`
+  - recipe save preserves the inferred `suggested` status
+  - grocery regeneration from AI week drafts preserves the inferred `suggested` status
+- Burned through one additional small-model-safe backlog slice in parallel:
+  - expanded `SimmerSmith/SimmerSmithTests/SimmerSmithTests.swift` with additive coverage for assistant request defaults, meal/week request defaults, and recipe-ingredient fallback identity
 - Burned through three small-model-safe backlog items in parallel:
   - expanded `docs/ai/mcp-tools.md` with concrete recipe, week, export, and assistant-thread flows for external MCP clients
   - added API coverage for ingredient browse/search filter behavior and week export listing behavior
@@ -195,6 +208,10 @@
   - recipe listing works
 - Re-verified the Streamable HTTP mode for the standard `simmersmith` MCP server with bearer-token auth.
 - The roadmap is now ready to move back to the next product phase: `Import quality lab`.
+- Validated the current recipe-trustworthiness/backend slice with:
+  - `.venv/bin/pytest tests/test_api.py -k "inferred_exact_variation_match_returns_suggested_not_locked or recipe_save_preserves_inferred_variation_match_as_suggested or test_recipe_import_from_text_returns_editable_draft" -q`
+  - `.venv/bin/pytest tests/test_grocery.py -k "grocery_resolution_keeps_inferred_exact_variation_match_as_suggested or grocery_resolution_prefers_structured_variation_for_base_ingredient" -q`
+  - `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO -only-testing:SimmerSmithTests test`
 - Added provider-backed model discovery for OpenAI and Anthropic so the iOS app can present a model picker instead of a freeform text field.
 - The native Settings screen now fetches available models for the selected direct provider from the backend and saves the chosen model server-side.
 - Direct-provider model selection is now resolved from server-side profile settings first, then environment defaults.

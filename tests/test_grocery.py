@@ -158,3 +158,65 @@ def test_grocery_resolution_prefers_structured_variation_for_base_ingredient() -
     assert item.ingredient_variation_id == pillsbury.id
     assert item.ingredient_name == "Pillsbury refrigerated biscuits"
     assert item.resolution_status == "resolved"
+
+
+def test_grocery_resolution_keeps_inferred_exact_variation_match_as_suggested() -> None:
+    with session_scope() as session:
+        biscuits = ensure_base_ingredient(
+            session,
+            name="Refrigerated biscuits",
+            normalized_name="refrigerated biscuits",
+            category="Refrigerated",
+            default_unit="can",
+        )
+        pillsbury = create_or_update_variation(
+            session,
+            base_ingredient_id=biscuits.id,
+            name="Pillsbury refrigerated biscuits",
+            brand="Pillsbury",
+            package_size_unit="can",
+            calories=150,
+            nutrition_reference_amount=1,
+            nutrition_reference_unit="ea",
+        )
+
+        week = create_or_get_week(session, date(2026, 4, 6), "inferred variation suggestion")
+        payload = DraftFromAIRequest(
+            prompt="Breakfast test",
+            recipes=[
+                RecipePayload(
+                    recipe_id="brand-biscuits",
+                    name="Brand Biscuits",
+                    meal_type="breakfast",
+                    servings=4,
+                    ingredients=[
+                        RecipeIngredientPayload(
+                            ingredient_name="Pillsbury refrigerated biscuits",
+                            quantity=1,
+                            unit="can",
+                            category="Refrigerated",
+                        )
+                    ],
+                )
+            ],
+            meal_plan=[
+                MealDraftPayload(
+                    day_name="Monday",
+                    meal_date=date(2026, 4, 6),
+                    slot="breakfast",
+                    recipe_id="brand-biscuits",
+                    recipe_name="Brand Biscuits",
+                    servings=4,
+                )
+            ],
+        )
+        apply_ai_draft(session, week, payload)
+        refreshed = get_week(session, week.id)
+
+    assert refreshed is not None
+    assert len(refreshed.grocery_items) == 1
+    item = refreshed.grocery_items[0]
+    assert item.base_ingredient_id == biscuits.id
+    assert item.ingredient_variation_id == pillsbury.id
+    assert item.ingredient_name == "Pillsbury refrigerated biscuits"
+    assert item.resolution_status == "suggested"

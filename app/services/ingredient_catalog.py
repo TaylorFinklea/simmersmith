@@ -900,6 +900,7 @@ def resolve_ingredient(
     variation = None
     base = None
     locked = resolution_status == "locked"
+    inferred_variation = False
     if ingredient_variation_id:
         variation = session.get(IngredientVariation, ingredient_variation_id)
         if variation is not None and variation.archived_at is None and variation.active:
@@ -920,7 +921,7 @@ def resolve_ingredient(
         )
         if variation is not None:
             base = variation.base_ingredient
-            locked = True
+            inferred_variation = True
 
     if base is None and normalized:
         base = session.scalar(
@@ -962,6 +963,8 @@ def resolve_ingredient(
         final_status = resolution_status
     elif locked and variation is not None:
         final_status = "locked"
+    elif inferred_variation and variation is not None:
+        final_status = "suggested"
     elif variation is not None or base is not None:
         final_status = "resolved"
     else:

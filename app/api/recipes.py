@@ -27,7 +27,7 @@ from app.schemas import (
     RecipeVariationDraftRequest,
 )
 from app.services.ai import profile_settings_map, resolve_ai_execution_target
-from app.services.drafts import upsert_recipe
+from app.services.drafts import resolution_status_override, upsert_recipe
 from app.services.ingredient_catalog import resolve_ingredient
 from app.services.managed_lists import create_item, metadata_payload
 from app.services.nutrition import (
@@ -60,7 +60,7 @@ def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePa
             notes=ingredient.notes,
             base_ingredient_id=ingredient.base_ingredient_id,
             ingredient_variation_id=ingredient.ingredient_variation_id,
-            resolution_status=ingredient.resolution_status,
+            resolution_status=resolution_status_override(ingredient),
         )
         resolved_ingredients.append(
             RecipeIngredientPayload.model_validate({"ingredient_id": ingredient.ingredient_id, **resolved.as_payload()})

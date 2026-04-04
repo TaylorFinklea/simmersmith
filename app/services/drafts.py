@@ -102,6 +102,14 @@ def summarized_steps(step_payloads: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def resolution_status_override(ingredient: object) -> str | None:
+    fields_set = getattr(ingredient, "model_fields_set", set())
+    if "resolution_status" not in fields_set:
+        return None
+    value = str(getattr(ingredient, "resolution_status", "") or "").strip()
+    return value or None
+
+
 def ingredient_payloads(payload: RecipePayload, session: Session | None = None) -> list[dict[str, object]]:
     normalized_ingredients = [
         {
@@ -112,7 +120,7 @@ def ingredient_payloads(payload: RecipePayload, session: Session | None = None) 
             "base_ingredient_name": ingredient.base_ingredient_name,
             "ingredient_variation_id": ingredient.ingredient_variation_id,
             "ingredient_variation_name": ingredient.ingredient_variation_name,
-            "resolution_status": ingredient.resolution_status,
+            "resolution_status": resolution_status_override(ingredient),
             "quantity": ingredient.quantity,
             "unit": ingredient.unit,
             "prep": ingredient.prep,
@@ -338,7 +346,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
                 notes=ingredient.notes,
                 base_ingredient_id=ingredient.base_ingredient_id,
                 ingredient_variation_id=ingredient.ingredient_variation_id,
-                resolution_status=ingredient.resolution_status,
+                resolution_status=resolution_status_override(ingredient),
             )
             session.add(
                 WeekMealIngredient(
