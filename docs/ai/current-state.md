@@ -6,6 +6,10 @@
 
 ## Recent Progress
 
+- Burned through three small-model-safe backlog items in parallel:
+  - expanded `docs/ai/mcp-tools.md` with concrete recipe, week, export, and assistant-thread flows for external MCP clients
+  - added API coverage for ingredient browse/search filter behavior and week export listing behavior
+  - expanded `SimmerSmithKit` payload decoding coverage for product-like ingredients, export runs, assistant threads, and recipe-ingredient fallback identity
 - Retuned the shared roadmap so it now separates formal premium-model phases from a parallel small-model-safe backlog.
 - Added explicit backlog governance to the roadmap:
   - smaller assistants may take narrow, localized, low-risk work in parallel
@@ -218,7 +222,10 @@
 
 ## Recent Commits
 
-- `pending` cache-clear auto-resync commit not created yet in this session
+- `a8facb8` `test: expand SimmerSmithKit payload coverage`
+- `0bb6625` `test: cover ingredient and export api edges`
+- `0463dab` `docs: add mcp tool flow examples`
+- `1485e62` `docs: retune roadmap and backlog lanes`
 - `e57d9a1` `feat: clean up ingredient catalog search`
 - `0dc16e7` `fix: address ios qa issues`
 - `4c7ea74` `feat: add ingredient catalog creation in review flow`
@@ -239,6 +246,9 @@
 
 ## Changed Files In The Current Slice
 
+- `docs/ai/mcp-tools.md`
+- `tests/test_api.py`
+- `SimmerSmithKit/Tests/SimmerSmithKitTests/SimmerSmithKitTests.swift`
 - `docs/ai/roadmap.md`
 - `docs/ai/current-state.md`
 - `docs/ai/next-steps.md`
@@ -262,6 +272,9 @@
   - `docs/ai/next-steps.md`
   - `docs/ai/decisions.md`
 - `git diff --check` -> passed
+- `.venv/bin/pytest tests/test_api.py -k "ingredient_search_hides_product_like_rows_by_default_but_can_include_them or ingredient_search_prefers_clean_generic_match_over_literal_import_name" -q` -> passed
+- `.venv/bin/pytest tests/test_api.py -k "ingredient_catalog_routes_support_resolution_and_preferences or recipe_lifecycle_and_library_edits_do_not_change_planned_meals" -q` -> passed
+- `swift test --package-path SimmerSmithKit` -> passed
 - `codex mcp logout vercel` -> passed
 - `codex mcp logout supabase` -> passed
 - `codex mcp login vercel` -> passed
