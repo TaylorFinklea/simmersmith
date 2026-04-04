@@ -6,6 +6,12 @@
 
 ## Recent Progress
 
+- Burned through two more small-model-safe verification items:
+  - expanded grocery fallback coverage so canonical grocery resolution now has explicit regression tests for household preferred-brand fallback and locked recipe-variation precedence over household preferences
+  - expanded `SimmerSmithKit` payload decoding coverage for nested ingredient-detail payloads and archived/merged ingredient-variation metadata
+- Validated those low-risk backlog slices with:
+  - `.venv/bin/pytest tests/test_grocery.py -k "prefers_structured_variation_for_base_ingredient or keeps_inferred_exact_variation_match_as_suggested or prefers_household_brand_match_when_recipe_stays_generic or locked_recipe_variation_beats_household_preference" -q`
+  - `swift test --package-path SimmerSmithKit`
 - Continued the formal `Finish recipe trustworthiness` phase with a concrete branded-resolution policy change:
   - exact inferred matches to a stored ingredient variation no longer auto-lock just because the variation name matches
   - those matches now persist as `suggested` unless the client explicitly supplied a `resolution_status` such as `locked`

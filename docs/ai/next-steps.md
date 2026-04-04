@@ -10,6 +10,8 @@ Use this as the exact short checklist for the next work session.
 - [x] Expand `docs/ai/mcp-tools.md` with recipe, week, export, and assistant-thread examples
 - [x] Expand `SimmerSmithKit` payload decoding coverage for assistant threads, export runs, product-like ingredients, and recipe-ingredient fallback identity
 - [x] Expand native Swift Testing coverage for core app request/model defaults and recipe-ingredient fallback identity
+- [x] Add focused grocery fallback tests for household preferred-brand selection and locked recipe-variation precedence
+- [x] Expand `SimmerSmithKit` ingredient-management decoding coverage for nested ingredient detail and archived/merged variation metadata
 - [ ] Remaining small-model-safe parallel options ready now:
   - expand Swift Testing around ingredient review, ingredient management, and cache-clear recovery beyond the current request/model coverage
   - add UI automation smoke coverage for cache-clear recovery and ingredient browse/search

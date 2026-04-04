@@ -509,6 +509,127 @@ func decoderHandlesIngredientPreferencePayload() throws {
 }
 
 @Test
+func decoderHandlesBaseIngredientDetailPayloadWithUsageAndNestedVariation() throws {
+    let json = """
+    {
+      "ingredient": {
+        "base_ingredient_id": "base-1",
+        "name": "Refrigerated biscuits",
+        "normalized_name": "refrigerated biscuits",
+        "category": "Refrigerated",
+        "default_unit": "can",
+        "notes": "",
+        "source_name": "USDA",
+        "source_record_id": "fdc-1",
+        "source_u_r_l": "https://example.com/base",
+        "provisional": false,
+        "active": true,
+        "nutrition_reference_amount": 1,
+        "nutrition_reference_unit": "can",
+        "calories": 320,
+        "archived_at": null,
+        "merged_into_id": null,
+        "variation_count": 1,
+        "preference_count": 1,
+        "recipe_usage_count": 2,
+        "grocery_usage_count": 3,
+        "product_like": false,
+        "updated_at": "2026-04-04T14:00:00Z"
+      },
+      "variations": [
+        {
+          "ingredient_variation_id": "var-1",
+          "base_ingredient_id": "base-1",
+          "name": "Pillsbury refrigerated biscuits",
+          "normalized_name": "pillsbury refrigerated biscuits",
+          "brand": "Pillsbury",
+          "upc": "0123456789",
+          "package_size_amount": 1,
+          "package_size_unit": "can",
+          "count_per_package": 8,
+          "product_url": "https://example.com/variation",
+          "retailer_hint": "Target",
+          "notes": "",
+          "source_name": "Open Food Facts",
+          "source_record_id": "off-1",
+          "source_u_r_l": "https://example.com/off",
+          "active": true,
+          "nutrition_reference_amount": 1,
+          "nutrition_reference_unit": "ea",
+          "calories": 160,
+          "archived_at": null,
+          "merged_into_id": null,
+          "updated_at": "2026-04-04T14:00:00Z"
+        }
+      ],
+      "preference": {
+        "preference_id": "pref-1",
+        "base_ingredient_id": "base-1",
+        "base_ingredient_name": "Refrigerated biscuits",
+        "preferred_variation_id": "var-1",
+        "preferred_variation_name": "Pillsbury refrigerated biscuits",
+        "preferred_brand": "Pillsbury",
+        "choice_mode": "preferred",
+        "active": true,
+        "notes": "",
+        "updated_at": "2026-04-04T14:00:00Z"
+      },
+      "usage": {
+        "linked_recipe_ids": ["recipe-1", "recipe-2"],
+        "linked_recipe_names": ["Biscuits and Gravy", "Breakfast Bake"],
+        "linked_grocery_item_ids": ["grocery-1"],
+        "linked_grocery_names": ["Pillsbury refrigerated biscuits"]
+      }
+    }
+    """.data(using: .utf8)!
+
+    let detail = try SimmerSmithJSONCoding.makeDecoder().decode(BaseIngredientDetail.self, from: json)
+
+    #expect(detail.ingredient.id == "base-1")
+    #expect(detail.variations.count == 1)
+    #expect(detail.variations.first?.brand == "Pillsbury")
+    #expect(detail.preference?.preferredVariationId == "var-1")
+    #expect(detail.usage.linkedRecipeIds == ["recipe-1", "recipe-2"])
+}
+
+@Test
+func decoderHandlesIngredientVariationArchivedAndMergedMetadata() throws {
+    let json = """
+    {
+      "ingredient_variation_id": "var-archived",
+      "base_ingredient_id": "base-1",
+      "name": "Old store brand biscuits",
+      "normalized_name": "old store brand biscuits",
+      "brand": "Store Brand",
+      "upc": "",
+      "package_size_amount": 1,
+      "package_size_unit": "can",
+      "count_per_package": 8,
+      "product_url": "",
+      "retailer_hint": "",
+      "notes": "Merged into a cleaner variation.",
+      "source_name": "",
+      "source_record_id": "",
+      "source_u_r_l": "",
+      "active": false,
+      "nutrition_reference_amount": null,
+      "nutrition_reference_unit": "",
+      "calories": null,
+      "archived_at": "2026-04-01T12:00:00Z",
+      "merged_into_id": "var-1",
+      "updated_at": "2026-04-04T14:00:00Z"
+    }
+    """.data(using: .utf8)!
+
+    let variation = try SimmerSmithJSONCoding.makeDecoder().decode(IngredientVariation.self, from: json)
+
+    #expect(variation.id == "var-archived")
+    #expect(variation.active == false)
+    #expect(variation.archivedAt != nil)
+    #expect(variation.mergedIntoId == "var-1")
+}
+
+@Test
 func decoderHandlesSnakeCaseAcronymFieldsInExportPayloads() throws {
     let json = """
     {
