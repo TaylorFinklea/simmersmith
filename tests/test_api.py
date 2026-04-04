@@ -220,6 +220,13 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
     assert pref_list_response.status_code == 200
     assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in pref_list_response.json())
 
+    variations_filtered_response = client.get("/api/ingredients?with_variations=true")
+    assert variations_filtered_response.status_code == 200
+    variations_filtered_payload = variations_filtered_response.json()
+    base_row = next(item for item in variations_filtered_payload if item["base_ingredient_id"] == base["base_ingredient_id"])
+    assert base_row["variation_count"] == 1
+    assert base_row["product_like"] is False
+
     detail_response = client.get(f"/api/ingredients/{base['base_ingredient_id']}")
     assert detail_response.status_code == 200
     detail = detail_response.json()
@@ -1094,6 +1101,13 @@ def test_week_flow_and_pricing_round_trip(client) -> None:
     shopping_export = shopping_export_response.json()
     assert shopping_export["status"] == "pending"
     assert shopping_export["item_count"] == len(updated_week["grocery_items"])
+
+    exports_response = client.get(f"/api/weeks/{week_id}/exports")
+    assert exports_response.status_code == 200
+    exports_payload = exports_response.json()
+    assert len(exports_payload) == 2
+    assert any(item["export_id"] == meal_export["export_id"] for item in exports_payload)
+    assert any(item["export_id"] == shopping_export["export_id"] for item in exports_payload)
 
     current_week_response = client.get("/api/weeks/current")
     assert current_week_response.status_code == 200
