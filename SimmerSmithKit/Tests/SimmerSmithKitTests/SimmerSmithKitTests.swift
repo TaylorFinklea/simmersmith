@@ -142,6 +142,27 @@ func decoderHandlesAssistantThreadPayloadWithNestedRecipeDraft() throws {
 }
 
 @Test
+func decoderHandlesRecipeIngredientDefaultsAndIdentityFallback() throws {
+    let json = """
+    {
+      "ingredient_name": "Bread",
+      "quantity": 2,
+      "unit": "slice",
+      "prep": "toasted",
+      "category": "Bakery",
+      "notes": "Use day-old bread."
+    }
+    """.data(using: .utf8)!
+
+    let ingredient = try SimmerSmithJSONCoding.makeDecoder().decode(RecipeIngredient.self, from: json)
+
+    #expect(ingredient.id == "Bread")
+    #expect(ingredient.resolutionStatus == "unresolved")
+    #expect(ingredient.quantity == 2)
+    #expect(ingredient.unit == "slice")
+}
+
+@Test
 func decoderHandlesExportRunPayloadWithItemsAndOptionalCompletionState() throws {
     let json = """
     {
