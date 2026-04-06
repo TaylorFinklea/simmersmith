@@ -17,6 +17,7 @@ DerivedData/
 **/.DS_Store
 .env
 .tmp-ios-token
+.supabase/
 app_data/
 *.pyc
 *.pyo
