@@ -72,7 +72,7 @@ Ship it.
 
 ### Sonnet (some architectural judgment)
 - [x] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
-- [ ] Add UI automation smoke tests for core iOS flows — `SimmerSmith/`
+- [~] Add UI automation smoke tests for core iOS flows — `SimmerSmith/`
 - [ ] Split `app/services/ingredient_catalog.py` (1,495 lines) — extract search, product-rewrite, and variation modules
 - [ ] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
 - [ ] Split `app/mcp_server.py` (835 lines) — extract per-domain route modules (recipes, ingredients, weeks, etc.)
