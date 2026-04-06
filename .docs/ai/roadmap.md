@@ -68,7 +68,7 @@ Ship it.
 - [x] Add `# type: ignore` justification comment — `app/config.py:38`
 - [x] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
 - [x] Add return type hints to ingredient route handlers — `app/api/ingredients.py` (10 functions)
-- [~] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
+- [x] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
 
 ### Sonnet (some architectural judgment)
 - [ ] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
