@@ -64,7 +64,7 @@ Ship it.
 - [x] Add `.gitignore` entries for Supabase local dev files
 - [x] Fix 4 bare `except Exception:` blocks — add structured logging instead of silently swallowing — `app/db.py:34,56`, `app/services/assistant_threads.py:100`, `app/services/mcp_client.py:64`
 - [x] Replace `print()` calls with `logging` in library code — `app/services/ingredient_ingest.py:331,393`
-- [ ] Extract magic numbers to named constants — `app/services/ingredient_catalog.py:522` (MAX_LINKED_ITEMS=20), `app/services/assistant_threads.py:89,102` (title/preview char limits)
+- [~] Extract magic numbers to named constants — `app/services/ingredient_catalog.py:522` (MAX_LINKED_ITEMS=20), `app/services/assistant_threads.py:89,102` (title/preview char limits)
 - [ ] Add `# type: ignore` justification comment — `app/config.py:38`
 - [ ] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
 - [ ] Add return type hints to ingredient route handlers — `app/api/ingredients.py` (10 functions)

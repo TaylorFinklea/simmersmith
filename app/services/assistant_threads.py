@@ -11,6 +11,9 @@ from app.schemas import RecipePayload
 
 logger = logging.getLogger(__name__)
 
+THREAD_TITLE_MAX_LEN = 60
+THREAD_PREVIEW_MAX_LEN = 120
+
 
 def list_threads(session: Session) -> list[AssistantThread]:
     return session.scalars(
@@ -92,7 +95,8 @@ def refresh_thread_metadata(thread: AssistantThread) -> None:
         )
         if first_user_message is not None:
             thread.title = (
-                summarize_text(first_user_message.content_markdown, 60) or "New Assistant Chat"
+                summarize_text(first_user_message.content_markdown, THREAD_TITLE_MAX_LEN)
+                or "New Assistant Chat"
             )
         else:
             thread.title = "New Assistant Chat"
@@ -112,7 +116,7 @@ def refresh_thread_metadata(thread: AssistantThread) -> None:
                     thread.id,
                 )
                 preview_source = "Recipe draft"
-        thread.preview = summarize_text(preview_source, 120)
+        thread.preview = summarize_text(preview_source, THREAD_PREVIEW_MAX_LEN)
     thread.updated_at = utcnow()
 
 
