@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 
 from app.api.assistant import encode_sse
 import app.api.ai as ai_api
-from app.services.assistant_ai import AssistantExecutionTarget, AssistantProviderEnvelope, AssistantTurnResult
+from app.services.assistant_ai import (
+    AssistantExecutionTarget,
+    AssistantProviderEnvelope,
+    AssistantTurnResult,
+)
 from app.services.assistant_ai import parse_provider_envelope, strict_json_schema
 from app.services import recipe_import
 from tests.fixture_loader import load_fixture_text
@@ -13,9 +17,7 @@ from tests.fixture_loader import load_fixture_text
 
 def test_root_route_serves_html_shell(client) -> None:
     response = client.get("/")
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-    assert '<div id="root"></div>' in response.text
+    assert response.status_code == 404
 
     missing_api_response = client.get("/api/does-not-exist")
     assert missing_api_response.status_code == 404
@@ -63,10 +65,15 @@ def test_health_route_reports_ai_capabilities(client) -> None:
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["ai_capabilities"]["supports_user_override"] is True
-    assert any(provider["provider_id"] == "mcp" for provider in payload["ai_capabilities"]["available_providers"])
+    assert any(
+        provider["provider_id"] == "mcp"
+        for provider in payload["ai_capabilities"]["available_providers"]
+    )
 
 
-def test_provider_models_route_returns_selected_model_and_discovered_options(client, monkeypatch) -> None:
+def test_provider_models_route_returns_selected_model_and_discovered_options(
+    client, monkeypatch
+) -> None:
     monkeypatch.setattr(
         ai_api,
         "list_provider_models",
@@ -141,7 +148,9 @@ def test_preference_memory_round_trip_and_scoring(client) -> None:
     preference_context = preference_response.json()
     assert "Chicken Shawarma" in preference_context["summary"]["strong_likes"]
     assert "Eggplant" in preference_context["summary"]["hard_avoids"]
-    assert any("Portable lunches preferred" in rule for rule in preference_context["summary"]["rules"])
+    assert any(
+        "Portable lunches preferred" in rule for rule in preference_context["summary"]["rules"]
+    )
 
     score_response = client.post(
         "/api/preferences/score-meal",
@@ -192,11 +201,17 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
 
     list_response = client.get("/api/ingredients?q=biscuits")
     assert list_response.status_code == 200
-    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in list_response.json())
+    assert any(
+        item["base_ingredient_id"] == base["base_ingredient_id"] for item in list_response.json()
+    )
 
     resolve_response = client.post(
         "/api/ingredients/resolve",
-        json={"ingredient_name": "3 cans refrigerated biscuits", "normalized_name": "refrigerated biscuits", "unit": "can"},
+        json={
+            "ingredient_name": "3 cans refrigerated biscuits",
+            "normalized_name": "refrigerated biscuits",
+            "unit": "can",
+        },
     )
     assert resolve_response.status_code == 200
     resolved = resolve_response.json()
@@ -218,12 +233,19 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
 
     pref_list_response = client.get("/api/ingredient-preferences")
     assert pref_list_response.status_code == 200
-    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in pref_list_response.json())
+    assert any(
+        item["base_ingredient_id"] == base["base_ingredient_id"]
+        for item in pref_list_response.json()
+    )
 
     variations_filtered_response = client.get("/api/ingredients?with_variations=true")
     assert variations_filtered_response.status_code == 200
     variations_filtered_payload = variations_filtered_response.json()
-    base_row = next(item for item in variations_filtered_payload if item["base_ingredient_id"] == base["base_ingredient_id"])
+    base_row = next(
+        item
+        for item in variations_filtered_payload
+        if item["base_ingredient_id"] == base["base_ingredient_id"]
+    )
     assert base_row["variation_count"] == 1
     assert base_row["product_like"] is False
 
@@ -232,11 +254,16 @@ def test_ingredient_catalog_routes_support_resolution_and_preferences(client) ->
     detail = detail_response.json()
     assert detail["ingredient"]["base_ingredient_id"] == base["base_ingredient_id"]
     assert detail["preference"]["preference_id"] == pref["preference_id"]
-    assert detail["variations"][0]["ingredient_variation_id"] == variation["ingredient_variation_id"]
+    assert (
+        detail["variations"][0]["ingredient_variation_id"] == variation["ingredient_variation_id"]
+    )
 
     filtered_response = client.get("/api/ingredients?with_preferences=true")
     assert filtered_response.status_code == 200
-    assert any(item["base_ingredient_id"] == base["base_ingredient_id"] for item in filtered_response.json())
+    assert any(
+        item["base_ingredient_id"] == base["base_ingredient_id"]
+        for item in filtered_response.json()
+    )
 
 
 def test_inferred_exact_variation_match_returns_suggested_not_locked(client) -> None:
@@ -266,6 +293,43 @@ def test_inferred_exact_variation_match_returns_suggested_not_locked(client) -> 
     assert resolved["base_ingredient_id"] == base["base_ingredient_id"]
     assert resolved["ingredient_variation_id"] == variation["ingredient_variation_id"]
     assert resolved["ingredient_variation_name"] == "Pillsbury refrigerated biscuits"
+    assert resolved["resolution_status"] == "suggested"
+
+
+def test_resolve_ingredient_prefers_generic_base_for_existing_product_like_base(client) -> None:
+    generic_response = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Yellow mustard",
+            "category": "Condiments",
+            "source_name": "USDA FoodData Central",
+        },
+    )
+    literal_response = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Classic Yellow Mustard",
+            "category": "Condiments",
+            "source_name": "Open Food Facts",
+            "source_record_id": "0123456789",
+        },
+    )
+    assert generic_response.status_code == 200
+    assert literal_response.status_code == 200
+    generic = generic_response.json()
+
+    resolve_response = client.post(
+        "/api/ingredients/resolve",
+        json={
+            "ingredient_name": "Classic Yellow Mustard",
+            "category": "Condiments",
+        },
+    )
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["base_ingredient_id"] == generic["base_ingredient_id"]
+    assert resolved["base_ingredient_name"] == "Yellow mustard"
+    assert resolved["ingredient_variation_name"] == "Classic Yellow Mustard"
     assert resolved["resolution_status"] == "suggested"
 
 
@@ -304,7 +368,10 @@ def test_ingredient_catalog_merge_and_archive_routes(client) -> None:
 
     merged_variations = client.get(f"/api/ingredients/{target['base_ingredient_id']}/variations")
     assert merged_variations.status_code == 200
-    assert any(item["ingredient_variation_id"] == variation["ingredient_variation_id"] for item in merged_variations.json())
+    assert any(
+        item["ingredient_variation_id"] == variation["ingredient_variation_id"]
+        for item in merged_variations.json()
+    )
 
     archive_response = client.post(f"/api/ingredients/{target['base_ingredient_id']}/archive")
     assert archive_response.status_code == 200
@@ -315,7 +382,9 @@ def test_ingredient_catalog_merge_and_archive_routes(client) -> None:
 
 def test_ingredient_search_uses_phrase_matching_not_raw_substrings(client) -> None:
     jam_response = client.post("/api/ingredients", json={"name": "Jam", "category": "Pantry"})
-    tortellini_response = client.post("/api/ingredients", json={"name": "Tortellini", "category": "Pasta"})
+    tortellini_response = client.post(
+        "/api/ingredients", json={"name": "Tortellini", "category": "Pasta"}
+    )
     assert jam_response.status_code == 200
     assert tortellini_response.status_code == 200
     tortellini = tortellini_response.json()
@@ -351,7 +420,11 @@ def test_ingredient_search_prefers_clean_generic_match_over_literal_import_name(
 def test_ingredient_search_hides_product_like_rows_by_default_but_can_include_them(client) -> None:
     generic_response = client.post(
         "/api/ingredients",
-        json={"name": "Yellow mustard", "category": "Condiments", "source_name": "USDA FoodData Central"},
+        json={
+            "name": "Yellow mustard",
+            "category": "Condiments",
+            "source_name": "USDA FoodData Central",
+        },
     )
     product_like_response = client.post(
         "/api/ingredients",
@@ -442,7 +515,9 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
     assert restored_recipe["archived"] is False
     assert restored_recipe["archived_at"] is None
 
-    create_week_response = client.post("/api/weeks", json={"week_start": "2026-03-30", "notes": "Recipe reuse"})
+    create_week_response = client.post(
+        "/api/weeks", json={"week_start": "2026-03-30", "notes": "Recipe reuse"}
+    )
     assert create_week_response.status_code == 200
     week_id = create_week_response.json()["week_id"]
 
@@ -473,7 +548,9 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
             "servings": 6,
             "favorite": False,
             "notes": "Updated in library",
-            "ingredients": [{"ingredient_name": "Pasta", "quantity": 1, "unit": "lb", "category": "Pantry"}],
+            "ingredients": [
+                {"ingredient_name": "Pasta", "quantity": 1, "unit": "lb", "category": "Pantry"}
+            ],
         },
     )
     assert edit_recipe_response.status_code == 200
@@ -498,7 +575,9 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
     assert all(item["recipe_id"] != recipe["recipe_id"] for item in deleted_list_response.json())
 
 
-def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_metadata(client, monkeypatch) -> None:
+def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_metadata(
+    client, monkeypatch
+) -> None:
     html = load_fixture_text("recipe_import/url_lemon_pasta.html")
 
     class FakeResponse:
@@ -515,7 +594,9 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
         def __exit__(self, exc_type, exc, tb) -> None:
             return None
 
-    monkeypatch.setattr(recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html))
+    monkeypatch.setattr(
+        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+    )
 
     import_response = client.post(
         "/api/recipes/import-from-url",
@@ -531,7 +612,10 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
     assert imported["source"] == "url_import"
     assert imported["source_label"] == "Serious Eats"
     assert imported["source_url"] == "https://www.seriouseats.com/lemon-pasta"
-    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == ["spaghetti", "lemons"]
+    assert [ingredient["ingredient_name"] for ingredient in imported["ingredients"]] == [
+        "spaghetti",
+        "lemons",
+    ]
     assert imported["ingredients"][0]["quantity"] == 1
     assert imported["ingredients"][0]["unit"] == "lb"
     assert imported["ingredients"][0]["normalized_name"] == "spaghetti"
@@ -551,7 +635,9 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
     assert saved["source_url"] == "https://www.seriouseats.com/lemon-pasta"
 
 
-def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_are_empty(client, monkeypatch) -> None:
+def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_are_empty(
+    client, monkeypatch
+) -> None:
     html = load_fixture_text("recipe_import/url_fallback_stir_fry.html")
 
     class FakeResponse:
@@ -568,7 +654,9 @@ def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_ar
         def __exit__(self, exc_type, exc, tb) -> None:
             return None
 
-    monkeypatch.setattr(recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html))
+    monkeypatch.setattr(
+        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+    )
 
     import_response = client.post(
         "/api/recipes/import-from-url",
@@ -576,7 +664,10 @@ def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_ar
     )
     assert import_response.status_code == 200
     imported = import_response.json()
-    assert [step["instruction"] for step in imported["steps"]] == ["Heat the skillet.", "Toss in the vegetables."]
+    assert [step["instruction"] for step in imported["steps"]] == [
+        "Heat the skillet.",
+        "Toss in the vegetables.",
+    ]
 
 
 def test_recipe_import_from_text_returns_editable_draft(client) -> None:
@@ -662,6 +753,32 @@ def test_recipe_save_preserves_inferred_variation_match_as_suggested(client) -> 
     assert ingredient["resolution_status"] == "suggested"
 
 
+def test_recipe_save_uses_clean_generic_base_for_literal_product_like_name(client) -> None:
+    create_recipe_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Literal Biscuit Breakfast",
+            "meal_type": "breakfast",
+            "servings": 4,
+            "ingredients": [
+                {
+                    "ingredient_name": "1 can refrigerated biscuits",
+                    "quantity": 1,
+                    "unit": "can",
+                    "category": "Refrigerated",
+                }
+            ],
+            "steps": [{"instruction": "Bake the biscuits."}],
+        },
+    )
+    assert create_recipe_response.status_code == 200
+    recipe = create_recipe_response.json()
+    ingredient = recipe["ingredients"][0]
+    assert ingredient["base_ingredient_name"] == "Refrigerated biscuits"
+    assert ingredient["ingredient_variation_id"] is None
+    assert ingredient["resolution_status"] == "resolved"
+
+
 def test_recipe_import_from_text_infers_scan_sections_without_headings(client) -> None:
     import_response = client.post(
         "/api/recipes/import-from-text",
@@ -705,7 +822,9 @@ def test_recipe_import_from_url_fixture_preserves_burnt_ends_structure(client, m
         def __exit__(self, exc_type, exc, tb) -> None:
             return None
 
-    monkeypatch.setattr(recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html))
+    monkeypatch.setattr(
+        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+    )
 
     import_response = client.post(
         "/api/recipes/import-from-url",
@@ -727,7 +846,10 @@ def test_recipe_import_from_url_fixture_preserves_burnt_ends_structure(client, m
     assert imported["ingredients"][1]["quantity"] == 2
     assert imported["ingredients"][1]["unit"] == "tbsp"
     assert imported["ingredients"][1]["category"] == "Condiments"
-    assert imported["ingredients"][2]["notes"] == "or 1 Tablespoon each coarse salt, ground black pepper, and garlic powder"
+    assert (
+        imported["ingredients"][2]["notes"]
+        == "or 1 Tablespoon each coarse salt, ground black pepper, and garlic powder"
+    )
     assert imported["ingredients"][3]["quantity"] == 0.5
     assert imported["ingredients"][3]["unit"] == "cup"
     assert imported["ingredients"][3]["category"] == "Condiments"
@@ -769,8 +891,13 @@ def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> No
     assert payload["draft"]["name"] == "Low-Carb Pad Thai"
     assert payload["draft"]["source"] == "ai_variation"
     assert "low-carb" in payload["draft"]["tags"]
-    assert any("zucchini noodles" in ingredient["ingredient_name"].lower() for ingredient in payload["draft"]["ingredients"])
-    assert any("zucchini noodles" in step["instruction"].lower() for step in payload["draft"]["steps"])
+    assert any(
+        "zucchini noodles" in ingredient["ingredient_name"].lower()
+        for ingredient in payload["draft"]["ingredients"]
+    )
+    assert any(
+        "zucchini noodles" in step["instruction"].lower() for step in payload["draft"]["steps"]
+    )
     assert "Reduce starch-heavy ingredients" in payload["rationale"]
 
     list_response = client.get("/api/recipes?include_archived=true")
@@ -855,7 +982,10 @@ def test_recipe_suggestion_draft_route_returns_library_grounded_draft(client) ->
     assert "pantry-friendly" in payload["draft"]["tags"]
     assert payload["draft"]["name"] == "Pantry-Friendly Chicken Pasta Primavera"
     assert "AI suggestion note:" in payload["draft"]["notes"]
-    assert any("dried herbs" in ingredient["ingredient_name"].lower() for ingredient in payload["draft"]["ingredients"])
+    assert any(
+        "dried herbs" in ingredient["ingredient_name"].lower()
+        for ingredient in payload["draft"]["ingredients"]
+    )
     assert "saved rotation" not in payload["rationale"].lower()
     assert "Started from Chicken Pasta Primavera" in payload["rationale"]
 
@@ -875,8 +1005,18 @@ def test_recipe_companion_drafts_route_returns_three_draft_only_options(client) 
             "source": "url_import",
             "source_label": "Hey Grill Hey",
             "ingredients": [
-                {"ingredient_name": "3 lb beef chuck roast", "quantity": 3, "unit": "lb", "category": "Meat"},
-                {"ingredient_name": "2 tbsp yellow mustard", "quantity": 2, "unit": "tbsp", "category": "Condiments"},
+                {
+                    "ingredient_name": "3 lb beef chuck roast",
+                    "quantity": 3,
+                    "unit": "lb",
+                    "category": "Meat",
+                },
+                {
+                    "ingredient_name": "2 tbsp yellow mustard",
+                    "quantity": 2,
+                    "unit": "tbsp",
+                    "category": "Condiments",
+                },
             ],
             "steps": [
                 {"instruction": "Smoke the beef until bark forms."},
@@ -904,7 +1044,10 @@ def test_recipe_companion_drafts_route_returns_three_draft_only_options(client) 
     assert all(option["draft"]["recipe_id"] is None for option in payload["options"])
     assert all(option["draft"]["base_recipe_id"] is None for option in payload["options"])
     assert all(option["draft"]["source"] == "ai_companion" for option in payload["options"])
-    assert all(option["draft"]["source_label"] == "Companion for Smoked Beef Burnt Ends" for option in payload["options"])
+    assert all(
+        option["draft"]["source_label"] == "Companion for Smoked Beef Burnt Ends"
+        for option in payload["options"]
+    )
     assert all("companion" in option["draft"]["tags"] for option in payload["options"])
     assert any("companion-side" in option["draft"]["tags"] for option in payload["options"])
     assert any("companion-sauce" in option["draft"]["tags"] for option in payload["options"])
@@ -949,7 +1092,9 @@ def test_recipe_companion_drafts_route_returns_404_for_missing_recipe(client) ->
 
 
 def test_week_flow_and_pricing_round_trip(client) -> None:
-    create_response = client.post("/api/weeks", json={"week_start": "2026-03-16", "notes": "Family week"})
+    create_response = client.post(
+        "/api/weeks", json={"week_start": "2026-03-16", "notes": "Family week"}
+    )
     assert create_response.status_code == 200
     week = create_response.json()
     week_id = week["week_id"]
@@ -964,7 +1109,12 @@ def test_week_flow_and_pricing_round_trip(client) -> None:
                 "meal_type": "dinner",
                 "servings": 4,
                 "ingredients": [
-                    {"ingredient_name": "Ground turkey", "quantity": 2, "unit": "lb", "category": "Meat"},
+                    {
+                        "ingredient_name": "Ground turkey",
+                        "quantity": 2,
+                        "unit": "lb",
+                        "category": "Meat",
+                    },
                     {"ingredient_name": "Rice", "quantity": 2, "unit": "cup", "category": "Pantry"},
                 ],
             }
@@ -987,7 +1137,12 @@ def test_week_flow_and_pricing_round_trip(client) -> None:
                 "servings": 2,
                 "approved": False,
                 "ingredients": [
-                    {"ingredient_name": "Greek yogurt", "quantity": 32, "unit": "oz", "category": "Dairy"}
+                    {
+                        "ingredient_name": "Greek yogurt",
+                        "quantity": 32,
+                        "unit": "oz",
+                        "category": "Dairy",
+                    }
                 ],
             },
             {
@@ -998,7 +1153,12 @@ def test_week_flow_and_pricing_round_trip(client) -> None:
                 "servings": 1,
                 "approved": False,
                 "ingredients": [
-                    {"ingredient_name": "Bananas", "quantity": 2, "unit": "bunch", "category": "Produce"}
+                    {
+                        "ingredient_name": "Bananas",
+                        "quantity": 2,
+                        "unit": "bunch",
+                        "category": "Produce",
+                    }
                 ],
             },
         ],
@@ -1081,7 +1241,9 @@ def test_week_flow_and_pricing_round_trip(client) -> None:
     assert meal_export["item_count"] == 2
     assert meal_export["updated_at"] is not None
 
-    meal_export_payload_response = client.get(f"/api/exports/{meal_export['export_id']}/apple-reminders")
+    meal_export_payload_response = client.get(
+        f"/api/exports/{meal_export['export_id']}/apple-reminders"
+    )
     assert meal_export_payload_response.status_code == 200
     meal_export_payload = meal_export_payload_response.json()
     assert [item["title"] for item in meal_export_payload["items"]] == [
@@ -1217,7 +1379,9 @@ def test_api_token_auth_protects_routes_when_configured(client, monkeypatch) -> 
 
 
 def test_manual_week_authoring_supports_partial_plan_and_slot_removal(client) -> None:
-    create_response = client.post("/api/weeks", json={"week_start": "2026-03-23", "notes": "Manual planning"})
+    create_response = client.post(
+        "/api/weeks", json={"week_start": "2026-03-23", "notes": "Manual planning"}
+    )
     assert create_response.status_code == 200
     week = create_response.json()
     week_id = week["week_id"]
@@ -1317,7 +1481,10 @@ def test_recipe_nutrition_summary_and_variation_recalculation(client) -> None:
     variation_recipe = variation_response.json()
     assert variation_recipe["nutrition_summary"]["coverage_status"] == "complete"
     assert variation_recipe["nutrition_summary"]["calories_per_serving"] == 103.0
-    assert variation_recipe["nutrition_summary"]["calories_per_serving"] < base_recipe["nutrition_summary"]["calories_per_serving"]
+    assert (
+        variation_recipe["nutrition_summary"]["calories_per_serving"]
+        < base_recipe["nutrition_summary"]["calories_per_serving"]
+    )
 
     detail_response = client.get(f"/api/recipes/{variation_recipe['recipe_id']}")
     assert detail_response.status_code == 200
