@@ -125,7 +125,7 @@ def _raise_tool_error(exc: HTTPException) -> None:
     raise ValueError(detail) from exc
 
 
-def _call_route(callback):
+def _call_route(callback) -> Any:
     try:
         return _json_ready(callback())
     except HTTPException as exc:
@@ -133,7 +133,13 @@ def _call_route(callback):
 
 
 class StaticBearerTokenVerifier(TokenVerifier):
-    def __init__(self, token: str, *, client_id: str = "simmersmith-mcp-client", scopes: list[str] | None = None):
+    def __init__(
+        self,
+        token: str,
+        *,
+        client_id: str = "simmersmith-mcp-client",
+        scopes: list[str] | None = None,
+    ):
         self._token = token.strip()
         self._client_id = client_id
         self._scopes = scopes or []
@@ -173,7 +179,9 @@ async def health() -> dict[str, Any]:
 
 
 @mcp.tool(description="List recipes in SimmerSmith.")
-def recipes_list(include_archived: bool = False, cuisine: str = "", tags: list[str] | None = None) -> list[dict[str, Any]]:
+def recipes_list(
+    include_archived: bool = False, cuisine: str = "", tags: list[str] | None = None
+) -> list[dict[str, Any]]:
     with session_scope() as session:
         return _call_route(
             lambda: recipes_payload(
@@ -201,7 +209,9 @@ def recipes_save(payload: RecipePayload) -> dict[str, Any]:
 def recipes_import_from_url(url: str) -> dict[str, Any]:
     with session_scope() as session:
         payload = RecipeImportRequest(url=url)
-        return _call_route(lambda: import_recipe_route(payload, session=session).model_dump(mode="json"))
+        return _call_route(
+            lambda: import_recipe_route(payload, session=session).model_dump(mode="json")
+        )
 
 
 @mcp.tool(description="Import a recipe draft from extracted text, OCR, or pasted content.")
@@ -220,7 +230,9 @@ def recipes_import_from_text(
             source_label=source_label,
             source_url=source_url,
         )
-        return _call_route(lambda: import_recipe_text_route(payload, session=session).model_dump(mode="json"))
+        return _call_route(
+            lambda: import_recipe_text_route(payload, session=session).model_dump(mode="json")
+        )
 
 
 @mcp.tool(description="List recipe metadata including cuisines, tags, units, and templates.")
@@ -240,7 +252,9 @@ def recipes_add_metadata_item(kind: str, name: str) -> dict[str, Any]:
 def recipes_suggestion_draft(goal: str) -> dict[str, Any]:
     with session_scope() as session:
         payload = RecipeSuggestionDraftRequest(goal=goal)
-        return _call_route(lambda: recipe_suggestion_draft_route(payload, session=session, settings=_settings()))
+        return _call_route(
+            lambda: recipe_suggestion_draft_route(payload, session=session, settings=_settings())
+        )
 
 
 @mcp.tool(description="Generate three companion recipe drafts for a recipe.")
@@ -284,7 +298,9 @@ def recipes_nutrition_search(query: str = "", limit: int = 20) -> list[dict[str,
 
 
 @mcp.tool(description="Save or update a nutrition-item match for an ingredient.")
-def recipes_nutrition_match(ingredient_name: str, normalized_name: str | None, nutrition_item_id: str) -> dict[str, Any]:
+def recipes_nutrition_match(
+    ingredient_name: str, normalized_name: str | None, nutrition_item_id: str
+) -> dict[str, Any]:
     with session_scope() as session:
         payload = IngredientNutritionMatchRequest(
             ingredient_name=ingredient_name,
@@ -331,7 +347,9 @@ def ingredients_create(
         return _call_route(lambda: create_ingredient_route(payload, session=session))
 
 
-@mcp.tool(description="Resolve a recipe or grocery ingredient line against the canonical ingredient catalog.")
+@mcp.tool(
+    description="Resolve a recipe or grocery ingredient line against the canonical ingredient catalog."
+)
 def ingredients_resolve(
     ingredient_name: str,
     normalized_name: str | None = None,
@@ -391,7 +409,9 @@ def ingredients_create_variation(
             nutrition_reference_unit=nutrition_reference_unit,
             calories=calories,
         )
-        return _call_route(lambda: create_variation_route(base_ingredient_id, payload, session=session))
+        return _call_route(
+            lambda: create_variation_route(base_ingredient_id, payload, session=session)
+        )
 
 
 @mcp.tool(description="List structured ingredient shopping preferences.")
@@ -450,7 +470,9 @@ def profile_get() -> dict[str, Any]:
 
 
 @mcp.tool(description="Update the household profile settings and staples.")
-def profile_update(settings: dict[str, str], staples: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def profile_update(
+    settings: dict[str, str], staples: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     with session_scope() as session:
         payload = ProfileUpdateRequest(settings=settings, staples=staples)
         return _call_route(lambda: put_profile(payload, session=session))
@@ -592,7 +614,9 @@ def weeks_get_pricing(week_id: str) -> dict[str, Any]:
 
 
 @mcp.tool(description="Import pricing candidates for a week.")
-def weeks_import_pricing(week_id: str, retailers: list[str], items: list[dict[str, Any]]) -> dict[str, Any]:
+def weeks_import_pricing(
+    week_id: str, retailers: list[str], items: list[dict[str, Any]]
+) -> dict[str, Any]:
     with session_scope() as session:
         payload = PricingImportRequest(retailers=retailers, items=items)
         return _call_route(lambda: import_week_pricing(week_id, payload, session=session))
@@ -638,7 +662,9 @@ def exports_complete(
 @mcp.tool(description="List assistant threads.")
 def assistant_list_threads() -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _json_ready([assistant_thread_summary_payload(thread) for thread in list_threads(session)])
+        return _json_ready(
+            [assistant_thread_summary_payload(thread) for thread in list_threads(session)]
+        )
 
 
 @mcp.tool(description="Create a new assistant thread.")
@@ -693,7 +719,9 @@ def assistant_respond(
         if attached_recipe_payload is None and request.attached_recipe_id:
             attached_recipe = get_recipe(session, request.attached_recipe_id)
             if attached_recipe is not None:
-                attached_recipe_payload = RecipePayload.model_validate(recipe_payload(session, attached_recipe))
+                attached_recipe_payload = RecipePayload.model_validate(
+                    recipe_payload(session, attached_recipe)
+                )
 
         user_message = create_message(
             session,
