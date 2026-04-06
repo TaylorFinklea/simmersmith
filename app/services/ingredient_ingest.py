@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +13,14 @@ from urllib import request as urllib_request
 from sqlalchemy.orm import Session
 
 from app.models import BaseIngredient, utcnow
-from app.services.ingredient_catalog import create_or_update_variation, ensure_base_ingredient, ingredient_counts, normalize_name
+from app.services.ingredient_catalog import (
+    create_or_update_variation,
+    ensure_base_ingredient,
+    ingredient_counts,
+    normalize_name,
+)
+
+logger = logging.getLogger(__name__)
 
 
 USDA_API_BASE = "https://api.nal.usda.gov/fdc/v1/foods/search"
@@ -166,7 +174,9 @@ class IngestResult:
 
 
 def _tokenize(value: str) -> list[str]:
-    return [token for token in normalize_name(value).split() if token and token not in TOKEN_STOPWORDS]
+    return [
+        token for token in normalize_name(value).split() if token and token not in TOKEN_STOPWORDS
+    ]
 
 
 def _contains_blocked_fragment(value: str, blocked_fragments: set[str]) -> bool:
@@ -223,7 +233,9 @@ def _best_usda_candidate(term: str, foods: Iterable[dict[str, Any]]) -> dict[str
 
 
 def prune_usda_seed_rows(session: Session, *, allowed_terms: Iterable[str]) -> int:
-    allowed_normalized_names = {normalize_name(term) for term in allowed_terms if normalize_name(term)}
+    allowed_normalized_names = {
+        normalize_name(term) for term in allowed_terms if normalize_name(term)
+    }
     archived_count = 0
     rows = session.query(BaseIngredient).filter(
         BaseIngredient.source_name == USDA_SOURCE_NAME,
@@ -234,7 +246,15 @@ def prune_usda_seed_rows(session: Session, *, allowed_terms: Iterable[str]) -> i
         if row.normalized_name in allowed_normalized_names:
             continue
         counts = ingredient_counts(session, row.id)
-        if any(counts[key] > 0 for key in ("variation_count", "preference_count", "recipe_usage_count", "grocery_usage_count")):
+        if any(
+            counts[key] > 0
+            for key in (
+                "variation_count",
+                "preference_count",
+                "recipe_usage_count",
+                "grocery_usage_count",
+            )
+        ):
             continue
         row.active = False
         row.archived_at = row.archived_at or utcnow()
@@ -251,7 +271,9 @@ def seed_terms_from_file(path: Path) -> list[str]:
     ]
 
 
-def _fetch_json(url: str, *, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _fetch_json(
+    url: str, *, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None
+) -> dict[str, Any]:
     request_headers = {"User-Agent": "SimmerSmith/1.0"} | (headers or {})
     body = None
     if payload is not None:
@@ -328,7 +350,7 @@ def ingest_usda_terms(
                 data = _fetch_json(url, payload=payload)
             except (HTTPError, URLError) as exc:
                 skipped_terms += 1
-                print(f"[ingredient-seed] skipped USDA term '{term}' page {page_number}: {exc}")
+                logger.warning("skipped USDA term '%s' page %s: %s", term, page_number, exc)
                 break
             foods = data.get("foods") or []
             if not foods:
@@ -337,7 +359,9 @@ def ingest_usda_terms(
         best_food = _best_usda_candidate(term, matching_foods)
         if best_food is None:
             continue
-        category = str(best_food.get("foodCategory") or best_food.get("foodCategoryDescription") or "").strip()
+        category = str(
+            best_food.get("foodCategory") or best_food.get("foodCategoryDescription") or ""
+        ).strip()
         ensure_base_ingredient(
             session,
             name=_title_case_name(term),
@@ -390,11 +414,13 @@ def ingest_open_food_facts_terms(
             data = _fetch_json(f"{OPEN_FOOD_FACTS_API_BASE}?{query}")
         except (HTTPError, URLError) as exc:
             skipped_terms += 1
-            print(f"[ingredient-seed] skipped Open Food Facts term '{term}': {exc}")
+            logger.warning("skipped Open Food Facts term '%s': %s", term, exc)
             continue
         products = data.get("products") or []
         for product in products:
-            product_name = str(product.get("product_name") or product.get("generic_name") or "").strip()
+            product_name = str(
+                product.get("product_name") or product.get("generic_name") or ""
+            ).strip()
             if not product_name:
                 continue
             brand = str(product.get("brands") or "").split(",")[0].strip()
@@ -403,7 +429,10 @@ def ingest_open_food_facts_terms(
                 session,
                 name=_title_case_name(base_name),
                 normalized_name=normalize_name(base_name),
-                category=str(product.get("categories_tags", [""])[0]).replace("en:", "").replace("-", " ").title()
+                category=str(product.get("categories_tags", [""])[0])
+                .replace("en:", "")
+                .replace("-", " ")
+                .title()
                 if product.get("categories_tags")
                 else "",
                 default_unit="g",
