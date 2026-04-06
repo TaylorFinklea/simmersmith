@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -8,6 +9,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,7 +34,9 @@ async def mcp_session(settings: Settings):
 
     timeout = httpx.Timeout(settings.ai_timeout_seconds)
     async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
-        async with streamable_http_client(settings.ai_mcp_base_url.strip(), http_client=http_client) as (
+        async with streamable_http_client(
+            settings.ai_mcp_base_url.strip(), http_client=http_client
+        ) as (
             read_stream,
             write_stream,
             _,
@@ -53,7 +58,9 @@ async def probe_codex_mcp(settings: Settings) -> tuple[bool, str]:
     timeout = httpx.Timeout(min(settings.ai_timeout_seconds, 5))
     try:
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
-            async with streamable_http_client(settings.ai_mcp_base_url.strip(), http_client=http_client) as (
+            async with streamable_http_client(
+                settings.ai_mcp_base_url.strip(), http_client=http_client
+            ) as (
                 read_stream,
                 write_stream,
                 _,
@@ -62,6 +69,9 @@ async def probe_codex_mcp(settings: Settings) -> tuple[bool, str]:
                     await session.initialize()
                     tools = await session.list_tools()
     except Exception:
+        logger.warning(
+            "probe_codex_mcp: failed to reach MCP server at %s", settings.ai_mcp_base_url
+        )
         return False, "unreachable"
 
     available_names = {tool.name for tool in tools.tools}
@@ -84,7 +94,11 @@ async def run_codex_mcp(
         raise RuntimeError("Assistant prompt is empty.")
 
     async with mcp_session(settings) as session:
-        tool_name = settings.ai_mcp_reply_tool_name.strip() if thread_id else settings.ai_mcp_tool_name.strip()
+        tool_name = (
+            settings.ai_mcp_reply_tool_name.strip()
+            if thread_id
+            else settings.ai_mcp_tool_name.strip()
+        )
         arguments: dict[str, object] = {"prompt": prompt}
         if thread_id:
             arguments["threadId"] = thread_id
@@ -94,7 +108,9 @@ async def run_codex_mcp(
             raise RuntimeError("MCP tool returned an error result.")
 
         structured = result.structuredContent if isinstance(result.structuredContent, dict) else {}
-        resolved_thread_id = structured.get("threadId") if isinstance(structured.get("threadId"), str) else thread_id
+        resolved_thread_id = (
+            structured.get("threadId") if isinstance(structured.get("threadId"), str) else thread_id
+        )
         text = structured.get("content") if isinstance(structured.get("content"), str) else ""
         if not text:
             text_parts: list[str] = []

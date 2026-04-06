@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import AssistantMessage, AssistantThread, Recipe, utcnow
 from app.schemas import RecipePayload
+
+logger = logging.getLogger(__name__)
 
 
 def list_threads(session: Session) -> list[AssistantThread]:
@@ -84,9 +87,13 @@ def update_assistant_message(
 def refresh_thread_metadata(thread: AssistantThread) -> None:
     latest_message = thread.messages[-1] if thread.messages else None
     if not thread.title.strip():
-        first_user_message = next((message for message in thread.messages if message.role == "user"), None)
+        first_user_message = next(
+            (message for message in thread.messages if message.role == "user"), None
+        )
         if first_user_message is not None:
-            thread.title = summarize_text(first_user_message.content_markdown, 60) or "New Assistant Chat"
+            thread.title = (
+                summarize_text(first_user_message.content_markdown, 60) or "New Assistant Chat"
+            )
         else:
             thread.title = "New Assistant Chat"
 
@@ -96,8 +103,14 @@ def refresh_thread_metadata(thread: AssistantThread) -> None:
         preview_source = latest_message.content_markdown
         if not preview_source and latest_message.recipe_draft_json:
             try:
-                preview_source = RecipePayload.model_validate_json(latest_message.recipe_draft_json).name
+                preview_source = RecipePayload.model_validate_json(
+                    latest_message.recipe_draft_json
+                ).name
             except Exception:
+                logger.warning(
+                    "refresh_thread_metadata: failed to parse recipe draft JSON for thread %s",
+                    thread.id,
+                )
                 preview_source = "Recipe draft"
         thread.preview = summarize_text(preview_source, 120)
     thread.updated_at = utcnow()
