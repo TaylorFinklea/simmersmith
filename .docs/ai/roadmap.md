@@ -66,7 +66,7 @@ Ship it.
 - [x] Replace `print()` calls with `logging` in library code — `app/services/ingredient_ingest.py:331,393`
 - [x] Extract magic numbers to named constants — `app/services/ingredient_catalog.py:522` (MAX_LINKED_ITEMS=20), `app/services/assistant_threads.py:89,102` (title/preview char limits)
 - [x] Add `# type: ignore` justification comment — `app/config.py:38`
-- [ ] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
+- [x] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
 - [ ] Add return type hints to ingredient route handlers — `app/api/ingredients.py` (10 functions)
 - [ ] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
 
