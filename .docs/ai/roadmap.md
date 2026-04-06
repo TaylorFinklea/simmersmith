@@ -60,7 +60,7 @@ Ship it.
 
 ### Haiku (mechanical, no judgment)
 - [x] Remove web frontend files and all references — `frontend/`, `vite.config.ts`, SPA fallback in `app/main.py`
-- [~] Update Docker config after web removal — `Dockerfile`, `docker-compose.yml`
+- [x] Update Docker config after web removal — `Dockerfile`, `docker-compose.yml`
 - [ ] Add `.gitignore` entries for Supabase local dev files
 - [ ] Fix 4 bare `except Exception:` blocks — add structured logging instead of silently swallowing — `app/db.py:34,56`, `app/services/assistant_threads.py:100`, `app/services/mcp_client.py:64`
 - [ ] Replace `print()` calls with `logging` in library code — `app/services/ingredient_ingest.py:331,393`
