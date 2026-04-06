@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")
     frontend_dist_dir: Path = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[misc] -- Pydantic computed_field + property combo confuses type checker
     @property
     def database_url(self) -> str:
         return f"sqlite:///{self.db_path}"
