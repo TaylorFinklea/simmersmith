@@ -767,3 +767,250 @@ func decoderHandlesAssistantThreadPayload() throws {
     #expect(thread.messages.count == 1)
     #expect(thread.messages.first?.recipeDraft?.name == "Whole Wheat Waffles")
 }
+
+@Test
+func encoderProducesSnakeCaseKeysForRecipeDraft() throws {
+    let recipe = RecipeDraft(
+        name: "Test Recipe",
+        mealType: "dinner",
+        cuisine: "Italian",
+        servings: 4,
+        tags: ["quick", "easy"],
+        favorite: true,
+        source: "manual",
+        sourceLabel: "",
+        sourceUrl: "",
+        notes: "Test notes",
+        memories: "",
+        ingredients: [],
+        steps: []
+    )
+
+    let data = try SimmerSmithJSONCoding.makeEncoder().encode(recipe)
+    let string = String(data: data, encoding: .utf8)!
+
+    #expect(string.contains("\"name\":\"Test Recipe\""))
+    #expect(string.contains("\"meal_type\":\"dinner\""))
+    #expect(string.contains("\"cuisine\":\"Italian\""))
+    #expect(string.contains("\"favorite\":true"))
+    #expect(string.contains("\"source\":\"manual\""))
+    #expect(string.contains("\"notes\":\"Test notes\""))
+    #expect(string.contains("\"memories\":\"\""))
+}
+
+@Test
+func encoderIncludesEmptyIngredientsAndStepsInRecipeDraft() throws {
+    let recipe = RecipeDraft(
+        name: "Empty Recipe",
+        mealType: "",
+        cuisine: "",
+        servings: nil,
+        tags: [],
+        favorite: false,
+        source: "ai",
+        sourceLabel: "test",
+        sourceUrl: "https://example.com",
+        notes: "",
+        memories: "",
+        ingredients: [],
+        steps: []
+    )
+
+    let data = try SimmerSmithJSONCoding.makeEncoder().encode(recipe)
+    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+    #expect(json?["name"] as? String == "Empty Recipe")
+    #expect(json?["ingredients"] != nil)
+    #expect(json?["steps"] != nil)
+}
+
+@Test
+func encoderEncodesDateAsFractionalISO8601() throws {
+    let date = Date(timeIntervalSince1970: 1744051200)
+
+    let recipe = RecipeDraft(
+        name: "Date Test",
+        mealType: "",
+        cuisine: "",
+        servings: nil,
+        tags: [],
+        favorite: false,
+        source: "",
+        sourceLabel: "",
+        sourceUrl: "",
+        notes: "",
+        memories: "",
+        lastUsed: date,
+        ingredients: [],
+        steps: []
+    )
+
+    let data = try SimmerSmithJSONCoding.makeEncoder().encode(recipe)
+    let string = String(data: data, encoding: .utf8)!
+
+    #expect(string.contains("1970-01-01") == false)
+    #expect(string.contains("T") == true)
+}
+
+@Test
+func encoderProducesSnakeCaseKeysForWeekCreateRequest() throws {
+    let calendar = Calendar(identifier: .iso8601)
+    var components = DateComponents()
+    components.year = 2026
+    components.month = 4
+    components.day = 6
+    let date = calendar.date(from: components)!
+
+    let body = WeekCreateRequest(weekStart: date, notes: "Test week")
+
+    let data = try SimmerSmithJSONCoding.makeEncoder().encode(body)
+    let string = String(data: data, encoding: .utf8)!
+
+    #expect(string.contains("\"week_start\":"))
+    #expect(string.contains("\"notes\":\"Test week\""))
+}
+
+@Test
+func roundTripRecipeDraftPreservesData() throws {
+    let original = RecipeDraft(
+        name: "Round Trip",
+        mealType: "lunch",
+        cuisine: "Mexican",
+        servings: 6,
+        tags: ["spicy", "vegetarian"],
+        favorite: true,
+        source: "url",
+        sourceLabel: "Example",
+        sourceUrl: "https://example.com/recipe",
+        notes: "Great for meal prep",
+        memories: "Make extra for freezing",
+        ingredients: [
+            RecipeIngredient(
+                ingredientName: "Black Beans",
+                normalizedName: "black beans",
+                baseIngredientId: "bean-1",
+                baseIngredientName: nil,
+                ingredientVariationId: nil,
+                ingredientVariationName: nil,
+                resolutionStatus: "resolved",
+                quantity: 2,
+                unit: "cup",
+                prep: "drained",
+                category: "Legumes",
+                notes: ""
+            )
+        ],
+        steps: [
+            RecipeStep(
+                stepId: nil,
+                sortOrder: 1,
+                instruction: "Heat the beans.",
+                substeps: []
+            )
+        ]
+    )
+
+    let encoder = SimmerSmithJSONCoding.makeEncoder()
+    let decoder = SimmerSmithJSONCoding.makeDecoder()
+
+    let data = try encoder.encode(original)
+    let decoded = try decoder.decode(RecipeDraft.self, from: data)
+
+    #expect(decoded.name == "Round Trip")
+    #expect(decoded.mealType == "lunch")
+    #expect(decoded.cuisine == "Mexican")
+    #expect(decoded.servings == 6)
+    #expect(decoded.tags == ["spicy", "vegetarian"])
+    #expect(decoded.favorite == true)
+    #expect(decoded.source == "url")
+    #expect(decoded.sourceLabel == "Example")
+    #expect(decoded.sourceUrl == "https://example.com/recipe")
+    #expect(decoded.notes == "Great for meal prep")
+    #expect(decoded.memories == "Make extra for freezing")
+    #expect(decoded.ingredients.count == 1)
+    #expect(decoded.ingredients.first?.ingredientName == "Black Beans")
+    #expect(decoded.ingredients.first?.quantity == 2)
+    #expect(decoded.ingredients.first?.unit == "cup")
+    #expect(decoded.steps.count == 1)
+    #expect(decoded.steps.first?.instruction == "Heat the beans.")
+}
+
+@Test
+func roundTripStaplePreservesData() throws {
+    let original = Staple(stapleName: "Olive Oil", normalizedName: "olive oil", notes: "Extra virgin", isActive: true)
+
+    let encoder = SimmerSmithJSONCoding.makeEncoder()
+    let decoder = SimmerSmithJSONCoding.makeDecoder()
+
+    let data = try encoder.encode(original)
+    let decoded = try decoder.decode(Staple.self, from: data)
+
+    #expect(decoded.stapleName == "Olive Oil")
+    #expect(decoded.normalizedName == "olive oil")
+    #expect(decoded.notes == "Extra virgin")
+    #expect(decoded.isActive == true)
+    #expect(decoded.id == "olive oil")
+}
+
+@Test
+func roundTripManagedListItemPreservesData() throws {
+    let encoder = SimmerSmithJSONCoding.makeEncoder()
+    let decoder = SimmerSmithJSONCoding.makeDecoder()
+
+    let originalJSON = """
+    {
+        "item_id": "cuisine-1",
+        "kind": "cuisine",
+        "name": "Italian",
+        "normalized_name": "italian",
+        "updated_at": "2026-03-23T19:30:00Z"
+    }
+    """.data(using: .utf8)!
+
+    let item = try decoder.decode(ManagedListItem.self, from: originalJSON)
+    #expect(item.itemId == "cuisine-1")
+    #expect(item.kind == "cuisine")
+    #expect(item.name == "Italian")
+
+    let reEncoded = try encoder.encode(item)
+    let reDecoded = try decoder.decode(ManagedListItem.self, from: reEncoded)
+
+    #expect(reDecoded.itemId == "cuisine-1")
+    #expect(reDecoded.kind == "cuisine")
+    #expect(reDecoded.name == "Italian")
+    #expect(reDecoded.normalizedName == "italian")
+}
+
+@Test
+func encoderHandlesRecipeIngredientWithAllFields() throws {
+    let ingredient = RecipeIngredient(
+        ingredientName: "Chicken Thighs",
+        normalizedName: "chicken thighs",
+        baseIngredientId: "chicken-1",
+        baseIngredientName: "Chicken",
+        ingredientVariationId: "var-1",
+        ingredientVariationName: "Bone-in",
+        resolutionStatus: "locked",
+        quantity: 1.5,
+        unit: "lb",
+        prep: "trimmed",
+        category: "Protein",
+        notes: "Buy free-range if available"
+    )
+
+    let data = try SimmerSmithJSONCoding.makeEncoder().encode(ingredient)
+    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+    #expect(json?["ingredient_name"] as? String == "Chicken Thighs")
+    #expect(json?["normalized_name"] as? String == "chicken thighs")
+    #expect(json?["base_ingredient_id"] as? String == "chicken-1")
+    #expect(json?["base_ingredient_name"] as? String == "Chicken")
+    #expect(json?["ingredient_variation_id"] as? String == "var-1")
+    #expect(json?["ingredient_variation_name"] as? String == "Bone-in")
+    #expect(json?["resolution_status"] as? String == "locked")
+    #expect(json?["quantity"] as? Double == 1.5)
+    #expect(json?["unit"] as? String == "lb")
+    #expect(json?["prep"] as? String == "trimmed")
+    #expect(json?["category"] as? String == "Protein")
+    #expect(json?["notes"] as? String == "Buy free-range if available")
+}
