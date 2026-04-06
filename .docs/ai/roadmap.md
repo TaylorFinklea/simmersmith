@@ -71,7 +71,7 @@ Ship it.
 - [x] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
 
 ### Sonnet (some architectural judgment)
-- [~] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
+- [x] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
 - [ ] Add UI automation smoke tests for core iOS flows — `SimmerSmith/`
 - [ ] Split `app/services/ingredient_catalog.py` (1,495 lines) — extract search, product-rewrite, and variation modules
 - [ ] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
