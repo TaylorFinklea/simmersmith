@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -36,6 +37,8 @@ from app.services.presenters import (
 )
 from app.services.recipes import get_recipe
 from app.schemas import RecipePayload
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
@@ -180,6 +183,7 @@ async def respond_route(
             yield encode_sse("assistant.completed", message_payload)
         except Exception as exc:
             detail = str(exc) or "Assistant response failed."
+            logger.exception("Assistant turn failed for thread %s", thread_id)
             with session_scope() as stream_session:
                 live_thread = get_thread(stream_session, thread_id)
                 live_message = stream_session.get(AssistantMessage, assistant_message.id)
@@ -188,7 +192,7 @@ async def respond_route(
                         live_thread,
                         live_message,
                         status="failed",
-                        content_markdown=f"Assistant request failed: {detail}",
+                        content_markdown="Assistant request failed. Please try again.",
                         error=detail,
                     )
                 stream_session.add(
@@ -210,7 +214,10 @@ async def respond_route(
                         error=detail,
                     )
                 )
-            yield encode_sse("assistant.error", {"message_id": assistant_message.id, "detail": detail})
+            yield encode_sse(
+                "assistant.error",
+                {"message_id": assistant_message.id, "detail": "Assistant request failed. Please try again."},
+            )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

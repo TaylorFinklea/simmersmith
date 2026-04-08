@@ -53,14 +53,22 @@ def test_profile_keeps_provider_specific_ai_keys_server_side(client) -> None:
     assert payload["secret_flags"]["ai_openai_api_key_present"] is True
     assert payload["secret_flags"]["ai_anthropic_api_key_present"] is True
 
-    health_response = client.get("/api/health")
+    health_response = client.get("/api/ai/health")
     assert health_response.status_code == 200
     health_payload = health_response.json()
     assert health_payload["ai_capabilities"]["default_target"]["provider_name"] == "anthropic"
 
 
-def test_health_route_reports_ai_capabilities(client) -> None:
+def test_health_route_reports_status(client) -> None:
     response = client.get("/api/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["ai_capabilities"] is None  # public health endpoint does not leak AI config
+
+
+def test_ai_health_route_reports_capabilities(client) -> None:
+    response = client.get("/api/ai/health")
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"

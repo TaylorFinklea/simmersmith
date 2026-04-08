@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StaplePayload(BaseModel):
@@ -368,6 +368,29 @@ class RecipeOut(RecipePayload):
 
 class RecipeImportRequest(BaseModel):
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_safe(cls, v: str) -> str:
+        """Block non-HTTP schemes and private/internal IP ranges to prevent SSRF."""
+        import ipaddress
+        from urllib.parse import urlparse
+
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Only http and https URLs are allowed, got {parsed.scheme!r}")
+        hostname = parsed.hostname or ""
+        if not hostname:
+            raise ValueError("URL must include a hostname")
+        try:
+            addr = ipaddress.ip_address(hostname)
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                raise ValueError("URLs pointing to private or internal addresses are not allowed")
+        except ValueError as exc:
+            if "not allowed" in str(exc):
+                raise
+            # hostname is not an IP literal — allow DNS names through
+        return v
 
 
 class RecipeTextImportRequest(BaseModel):

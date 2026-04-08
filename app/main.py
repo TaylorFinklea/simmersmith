@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -17,9 +18,10 @@ from app.auth import require_api_token
 from app.config import get_settings
 from app.db import session_scope
 from app.schemas import HealthResponse
-from app.services.ai import ai_capabilities_payload, profile_settings_map
 from app.services.bootstrap import run_migrations, seed_defaults
 
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -29,6 +31,11 @@ async def lifespan(_: FastAPI):
     run_migrations()
     with session_scope() as session:
         seed_defaults(session)
+    if not settings.api_token.strip():
+        logger.warning(
+            "SIMMERSMITH_API_TOKEN is not set — API is open without authentication. "
+            "Set the env var before exposing this server to a network."
+        )
     yield
 
 
@@ -47,8 +54,4 @@ app.include_router(weeks_router, dependencies=protected_dependencies)
 
 @app.get("/api/health", response_model=HealthResponse)
 async def healthcheck() -> HealthResponse:
-    with session_scope() as session:
-        return HealthResponse(
-            status="ok",
-            ai_capabilities=await ai_capabilities_payload(settings, profile_settings_map(session)),
-        )
+    return HealthResponse(status="ok")

@@ -6,12 +6,22 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_session
-from app.schemas import AIProviderModelsOut
-from app.services.ai import profile_settings_map
+from app.schemas import AIProviderModelsOut, HealthResponse
+from app.services.ai import ai_capabilities_payload, profile_settings_map
 from app.services.provider_models import list_provider_models
 
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@router.get("/health", response_model=HealthResponse)
+async def ai_health_detail(session: Session = Depends(get_session)) -> HealthResponse:
+    """Authenticated health endpoint with full AI capability details."""
+    settings = get_settings()
+    return HealthResponse(
+        status="ok",
+        ai_capabilities=await ai_capabilities_payload(settings, profile_settings_map(session)),
+    )
 
 
 @router.get("/providers/{provider_name}/models", response_model=AIProviderModelsOut)
