@@ -74,7 +74,7 @@ Ship it.
 - [x] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
 - [x] Add UI automation smoke tests for core iOS flows — `SimmerSmith/`
 - [x] Split `app/services/ingredient_catalog.py` (1,495 lines) — extract search, product-rewrite, and variation modules
-- [~] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
+- [x] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
 - [ ] Split `app/mcp_server.py` (835 lines) — extract per-domain route modules (recipes, ingredients, weeks, etc.)
 - [ ] Split `app/models.py` (723 lines) — extract domain-specific model files (recipe, ingredient, week, ai)
 - [ ] Split `app/schemas.py` (711 lines) — extract domain-specific schema files to match models split
