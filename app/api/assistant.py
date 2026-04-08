@@ -26,7 +26,6 @@ from app.services.assistant_threads import (
     create_thread,
     get_thread,
     list_threads,
-    refresh_thread_metadata,
     update_assistant_message,
 )
 from app.services.presenters import (

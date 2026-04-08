@@ -322,7 +322,6 @@ def calculate_recipe_nutrition(
         total_calories += calories
         matched += 1
 
-    total_ingredients = len([ingredient for ingredient in ingredients if str(ingredient.get("ingredient_name") or "").strip()])
     unmatched_count = len(unmatched_names)
     if matched == 0:
         coverage_status = "unavailable"
