@@ -120,22 +120,35 @@ def staple_names(session: Session) -> set[str]:
 
 
 def build_grocery_rows_for_week(session: Session, week: Week) -> list[dict[str, Any]]:
-    recipes = {recipe.id: recipe for recipe in session.scalars(select(Recipe)).all()}
-    ingredients_by_recipe: dict[str, list[RecipeIngredient]] = defaultdict(list)
-    for ingredient in session.scalars(select(RecipeIngredient)).all():
-        ingredients_by_recipe[ingredient.recipe_id].append(ingredient)
-    inline_ingredients_by_meal: dict[str, list[WeekMealIngredient]] = defaultdict(list)
-    for ingredient in session.scalars(select(WeekMealIngredient)).all():
-        inline_ingredients_by_meal[ingredient.week_meal_id].append(ingredient)
-
-    staples = staple_names(session)
-    aggregations: dict[tuple[str, str, str], dict[str, Any]] = {}
-
     meals = list(
         session.scalars(
             select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order)
         ).all()
     )
+    meal_ids = [m.id for m in meals]
+    recipe_ids = [m.recipe_id for m in meals if m.recipe_id]
+
+    recipes = {
+        recipe.id: recipe
+        for recipe in session.scalars(select(Recipe).where(Recipe.id.in_(recipe_ids))).all()
+    } if recipe_ids else {}
+
+    ingredients_by_recipe: dict[str, list[RecipeIngredient]] = defaultdict(list)
+    if recipe_ids:
+        for ingredient in session.scalars(
+            select(RecipeIngredient).where(RecipeIngredient.recipe_id.in_(recipe_ids))
+        ).all():
+            ingredients_by_recipe[ingredient.recipe_id].append(ingredient)
+
+    inline_ingredients_by_meal: dict[str, list[WeekMealIngredient]] = defaultdict(list)
+    if meal_ids:
+        for ingredient in session.scalars(
+            select(WeekMealIngredient).where(WeekMealIngredient.week_meal_id.in_(meal_ids))
+        ).all():
+            inline_ingredients_by_meal[ingredient.week_meal_id].append(ingredient)
+
+    staples = staple_names(session)
+    aggregations: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     for meal in meals:
         recipe = recipes.get(meal.recipe_id or "")
