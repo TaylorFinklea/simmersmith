@@ -159,7 +159,7 @@ def build_grocery_rows_for_week(session: Session, week: Week) -> list[dict[str, 
 
             unit = normalize_unit(ingredient.unit)
             quantity = ingredient.quantity * factor if ingredient.quantity is not None else None
-            quantity_text = "" if quantity is not None else ""
+            quantity_text = "" if quantity is not None else str(getattr(ingredient, "quantity_text", "") or "")
             locked_variation_id = (
                 ingredient.ingredient_variation_id
                 if getattr(ingredient, "resolution_status", "") == "locked"

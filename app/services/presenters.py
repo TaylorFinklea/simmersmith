@@ -264,7 +264,7 @@ def pricing_payload(week: Week | None) -> dict[str, object] | None:
 
 def assistant_message_payload(message: AssistantMessage) -> dict[str, Any]:
     recipe_draft = None
-    if message.recipe_draft_json.strip():
+    if (message.recipe_draft_json or "").strip():
         recipe_draft = RecipePayload.model_validate_json(message.recipe_draft_json).model_dump(mode="json")
     return {
         "message_id": message.id,

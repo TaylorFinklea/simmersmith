@@ -33,11 +33,13 @@ class Settings(BaseSettings):
     ai_timeout_seconds: int = 120
     data_dir: Path = Path("/Users/tfinklea/codex/meals/data")
     db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")
-    frontend_dist_dir: Path = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+    database_url_override: str = ""
 
     @computed_field  # type: ignore[misc] -- Pydantic computed_field + property combo confuses type checker
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
         return f"sqlite:///{self.db_path}"
 
 
