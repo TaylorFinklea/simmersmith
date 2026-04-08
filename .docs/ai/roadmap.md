@@ -23,7 +23,7 @@ Get the codebase onto solid ground. Full code audit first — Codex-generated co
 - [x] Fix assistant error leakage — generic message to client, full detail logged server-side
 - [x] Fix auth health endpoint — public `/api/health` returns status only, AI config moved to authenticated `/api/ai/health`
 - [x] Startup warning when `SIMMERSMITH_API_TOKEN` is empty
-- [ ] Fix recipe ID slug collision — replace `slugify(name)` with UUID generation in `drafts.py:upsert_recipe`
+- [x] Fix recipe ID slug collision — replaced `slugify(name)` with UUID generation in `drafts.py:upsert_recipe`
 - [ ] Fix grocery full-table scans — filter RecipeIngredient/WeekMealIngredient queries by week's meals, not global
 - [ ] Supabase Auth integration — JWT validation in FastAPI, iOS auth flow
 - [ ] TestFlight pipeline — unblock upload (ASC API key or repair credentials)

@@ -8,26 +8,27 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-06
+**Date**: 2026-04-07
 
-- Split `app/services/ingredient_catalog.py` into an `ingredient_catalog/` package with extracted `search.py`, `product_rewrite.py`, and `variation.py` modules while keeping the existing import surface at `app.services.ingredient_catalog`
-- Split `app/services/recipe_import.py` into a `recipe_import/` package with extracted `parser.py` and `ingredient_normalizer.py` modules while keeping the existing import surface at `app.services.recipe_import`
-- Kept recipe import backward compatibility for tests and callers by re-exporting `urllib_request` from the package entrypoint
-- Marked both Sonnet backlog items complete in `.docs/ai/roadmap.md`
+- Completed backend code quality audit (services + API routes) — found 30 issues
+- Fixed 4 critical bugs: Postgres connect_args, database_url override, grocery quantity_text, presenter None crash
+- Fixed 3 security issues: SSRF on recipe import, assistant error leakage, health endpoint AI config exposure
+- Added startup warning when API token is empty
+- Fixed recipe ID slug collision (slugify → UUID)
+- Resolved all 7 pre-existing ruff failures — repo-wide lint is now green
+- Split mcp_server.py (862 lines) into app/mcp/ package (7 modules)
+- Recipe import split completed by another agent in parallel
 
 ## Build Status
 
-- Backend: `.venv/bin/pytest -v` — 57 tests passing
-- Backend slice: `.venv/bin/pytest -v tests/test_ingredient_ingest.py tests/test_grocery.py tests/test_api.py` — 48 tests passing
-- Lint (changed slice): `.venv/bin/ruff check app/services/ingredient_catalog app/api/ingredients.py app/services/ingredient_ingest.py app/services/drafts.py app/services/grocery.py tests/test_ingredient_ingest.py tests/test_grocery.py tests/test_api.py` — passing
-- Lint (recipe import slice): `.venv/bin/ruff check app/services/recipe_import app/api/recipes.py tests/test_recipe_import.py tests/test_api.py` — passing
-- Backend slice: `.venv/bin/pytest -v tests/test_recipe_import.py tests/test_api.py` — 46 tests passing
-- Repo-wide lint: `.venv/bin/ruff check .` — still failing on pre-existing unrelated issues in `app/api/assistant.py`, `app/mcp_server.py`, `app/services/nutrition.py`, and `scripts/rewrite_product_like_catalog.py`
+- Backend: `.venv/bin/ruff check .` — all checks passed
+- Backend: `.venv/bin/pytest -q` — 58 tests passing
+- iOS: not re-verified this session (no iOS changes)
 - Docker: `docker compose config -q` — passing
 
 ## Blockers
 
-- Repo-wide lint is not green because of pre-existing unrelated issues in assistant, MCP server, nutrition, and the product-like rewrite script
-- TestFlight upload blocked on local App Store Connect credentials
-- Product-like catalog rewrite script exists but not yet reviewed/applied against live DB
+- Grocery full-table scans still load ALL recipes/ingredients globally (needs scoped queries before multi-user)
+- TestFlight upload still blocked on ASC credentials
 - Supabase project not yet created
+- Zero multi-user isolation across every service and route (deepest M0 blocker)
