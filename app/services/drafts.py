@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -13,6 +12,7 @@ from app.models import (
     RecipeIngredient,
     RecipeStep,
     Week,
+    new_id,
     WeekChangeBatch,
     WeekMeal,
     WeekMealIngredient,
@@ -34,10 +34,6 @@ from app.services.recipes import (
 )
 from app.services.weeks import finalize_week, invalidate_week, mark_week_ready_for_ai, slot_sort
 
-
-def slugify(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return normalized or "recipe"
 
 
 def upsert_profile_settings(session: Session, updates: dict[str, str]) -> None:
@@ -206,10 +202,10 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
 
 
 def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
-    recipe_id = payload.recipe_id or slugify(payload.name)
-    recipe = session.get(Recipe, recipe_id)
+    recipe_id = payload.recipe_id
+    recipe = session.get(Recipe, recipe_id) if recipe_id else None
     if recipe is None:
-        recipe = Recipe(id=recipe_id, name=payload.name)
+        recipe = Recipe(id=recipe_id or new_id(), name=payload.name)
         session.add(recipe)
 
     base_recipe = None
