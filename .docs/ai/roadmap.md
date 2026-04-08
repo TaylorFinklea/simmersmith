@@ -19,12 +19,12 @@ Get the codebase onto solid ground. Full code audit first — Codex-generated co
 - [ ] Database abstraction — validate SQLAlchemy on both SQLite and Postgres, dialect-aware migrations
 - [ ] Supabase project setup — Postgres instance, auth configuration
 - [ ] Multi-user data isolation — add `user_id` to ALL tables (audit found zero user scoping across every service and route), auth middleware in FastAPI
-- [ ] Fix SSRF on recipe import — add URL validation to block private/internal IP ranges on `/api/recipes/import-from-url`
-- [ ] Fix assistant error leakage — stop streaming raw exception details to clients in SSE
+- [x] Fix SSRF on recipe import — URL validation blocks private/internal IPs and non-HTTP schemes
+- [x] Fix assistant error leakage — generic message to client, full detail logged server-side
+- [x] Fix auth health endpoint — public `/api/health` returns status only, AI config moved to authenticated `/api/ai/health`
+- [x] Startup warning when `SIMMERSMITH_API_TOKEN` is empty
 - [ ] Fix recipe ID slug collision — replace `slugify(name)` with UUID generation in `drafts.py:upsert_recipe`
 - [ ] Fix grocery full-table scans — filter RecipeIngredient/WeekMealIngredient queries by week's meals, not global
-- [ ] Fix auth health endpoint — strip AI config details from unauthenticated `/api/health`
-- [ ] Startup warning when `SIMMERSMITH_API_TOKEN` is empty (open API)
 - [ ] Supabase Auth integration — JWT validation in FastAPI, iOS auth flow
 - [ ] TestFlight pipeline — unblock upload (ASC API key or repair credentials)
 
