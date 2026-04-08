@@ -1,12 +1,29 @@
 from __future__ import annotations
 
+from datetime import date
+
+from sqlalchemy import select
+
 from app.db import session_scope
-from app.models import BaseIngredient, IngredientVariation
+from app.models import (
+    BaseIngredient,
+    GroceryItem,
+    IngredientPreference,
+    IngredientVariation,
+    Recipe,
+    RecipeIngredient,
+    Week,
+    WeekMeal,
+    WeekMealIngredient,
+)
 from app.services.ingredient_catalog import (
+    apply_product_like_base_rewrites,
     create_or_update_variation,
     ensure_base_ingredient,
     is_product_like_base_ingredient,
     normalize_product_like_base_ingredients,
+    plan_product_like_base_rewrites,
+    upsert_ingredient_preference,
 )
 from app.services.ingredient_ingest import ingest_usda_terms, prune_usda_seed_rows
 
@@ -130,3 +147,124 @@ def test_is_product_like_base_ingredient_flags_packaging_suffixes() -> None:
         loaded = session.get(BaseIngredient, mustard.id)
         assert loaded is not None
         assert is_product_like_base_ingredient(loaded) is True
+
+
+def test_product_like_rewrite_creates_suggested_variation_and_repoints_usage() -> None:
+    with session_scope() as session:
+        generic = ensure_base_ingredient(
+            session,
+            name="Yellow mustard",
+            normalized_name="yellow mustard",
+            category="Condiments",
+            source_name="USDA FoodData Central",
+            source_record_id="326698",
+        )
+        source = ensure_base_ingredient(
+            session,
+            name="Classic Yellow Mustard",
+            normalized_name="classic yellow mustard",
+            category="Condiments",
+            source_name="Open Food Facts",
+            source_record_id="0123456789",
+        )
+        upsert_ingredient_preference(session, base_ingredient_id=source.id, choice_mode="preferred")
+
+        recipe = Recipe(id="mustard-recipe", name="Mustard Sauce")
+        session.add(recipe)
+        session.add(
+            RecipeIngredient(
+                id="mustard-recipe-ingredient-1",
+                recipe_id=recipe.id,
+                ingredient_name="Classic Yellow Mustard",
+                normalized_name="classic yellow mustard",
+                quantity=1,
+                unit="jar",
+                category="Condiments",
+                base_ingredient_id=source.id,
+                resolution_status="resolved",
+            )
+        )
+
+        week = Week(
+            week_start=date(2026, 4, 6),
+            week_end=date(2026, 4, 12),
+            notes="rewrite",
+        )
+        session.add(week)
+        session.flush()
+        meal = WeekMeal(
+            week_id=week.id,
+            day_name="Monday",
+            meal_date=date(2026, 4, 6),
+            slot="dinner",
+            recipe_name="Mustard Sauce",
+        )
+        session.add(meal)
+        session.flush()
+        session.add(
+            WeekMealIngredient(
+                id=f"{meal.id}-ingredient-1",
+                week_meal_id=meal.id,
+                ingredient_name="Classic Yellow Mustard",
+                normalized_name="classic yellow mustard",
+                quantity=1,
+                unit="jar",
+                category="Condiments",
+                base_ingredient_id=source.id,
+                resolution_status="resolved",
+            )
+        )
+        grocery = GroceryItem(
+            week_id=week.id,
+            ingredient_name="Classic Yellow Mustard",
+            normalized_name="classic yellow mustard",
+            total_quantity=1,
+            unit="jar",
+            category="Condiments",
+            source_meals="Monday dinner",
+            base_ingredient_id=source.id,
+            resolution_status="resolved",
+        )
+        session.add(grocery)
+        session.commit()
+
+        plans = plan_product_like_base_rewrites(session)
+        result = apply_product_like_base_rewrites(session, plans=plans)
+        session.commit()
+
+        assert result.merged_count == 1
+        assert result.variation_created_count == 1
+        rewritten_source = session.get(BaseIngredient, source.id)
+        rewritten_generic = session.get(BaseIngredient, generic.id)
+        assert rewritten_source is not None and rewritten_source.merged_into_id == generic.id
+        assert rewritten_generic is not None and rewritten_generic.archived_at is None
+        variation = session.scalar(
+            session.query(IngredientVariation).filter(IngredientVariation.base_ingredient_id == generic.id).statement
+        )
+        assert variation is not None
+        assert variation.normalized_name == "classic yellow mustard"
+
+        recipe_ingredient = session.get(RecipeIngredient, "mustard-recipe-ingredient-1")
+        assert recipe_ingredient is not None
+        assert recipe_ingredient.base_ingredient_id == generic.id
+        assert recipe_ingredient.ingredient_variation_id == variation.id
+        assert recipe_ingredient.resolution_status == "suggested"
+
+        inline_ingredient = session.get(WeekMealIngredient, f"{meal.id}-ingredient-1")
+        assert inline_ingredient is not None
+        assert inline_ingredient.base_ingredient_id == generic.id
+        assert inline_ingredient.ingredient_variation_id == variation.id
+        assert inline_ingredient.resolution_status == "suggested"
+
+        rewritten_grocery = session.get(GroceryItem, grocery.id)
+        assert rewritten_grocery is not None
+        assert rewritten_grocery.base_ingredient_id == generic.id
+        assert rewritten_grocery.ingredient_variation_id == variation.id
+        assert rewritten_grocery.resolution_status == "suggested"
+
+        preference = session.scalar(select(IngredientPreference).where(IngredientPreference.base_ingredient_id == generic.id))
+        assert preference is not None
+        assert preference.preferred_variation_id == variation.id
+
+        rerun = apply_product_like_base_rewrites(session)
+        assert rerun.merged_count == 0

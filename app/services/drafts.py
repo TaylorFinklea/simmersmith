@@ -111,8 +111,12 @@ def resolution_status_override(ingredient: object) -> str | None:
 
 
 def ingredient_payloads(payload: RecipePayload, session: Session | None = None) -> list[dict[str, object]]:
-    normalized_ingredients = [
-        {
+    normalized_ingredients = []
+    for ingredient in payload.ingredients:
+        if not ingredient.ingredient_name.strip():
+            continue
+        resolution_status = resolution_status_override(ingredient)
+        normalized_ingredient = {
             "ingredient_id": ingredient.ingredient_id,
             "ingredient_name": ingredient.ingredient_name,
             "normalized_name": ingredient.normalized_name or normalize_name(ingredient.ingredient_name),
@@ -120,16 +124,19 @@ def ingredient_payloads(payload: RecipePayload, session: Session | None = None) 
             "base_ingredient_name": ingredient.base_ingredient_name,
             "ingredient_variation_id": ingredient.ingredient_variation_id,
             "ingredient_variation_name": ingredient.ingredient_variation_name,
-            "resolution_status": resolution_status_override(ingredient),
             "quantity": ingredient.quantity,
             "unit": ingredient.unit,
             "prep": ingredient.prep,
             "category": ingredient.category,
             "notes": ingredient.notes,
         }
-        for ingredient in payload.ingredients
-        if ingredient.ingredient_name.strip()
-    ]
+        if resolution_status is not None:
+            normalized_ingredient["resolution_status"] = resolution_status
+        elif session is None:
+            normalized_ingredient["resolution_status"] = "unresolved"
+        else:
+            normalized_ingredient["resolution_status"] = None
+        normalized_ingredients.append(normalized_ingredient)
     if session is not None:
         for ingredient in normalized_ingredients:
             unit = str(ingredient["unit"]).strip()
