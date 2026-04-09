@@ -33,36 +33,11 @@ struct IngredientsView: View {
                 }
             }
 
-            Section {
-                if isLoading {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Loading ingredient catalog…")
-                            .foregroundStyle(.secondary)
-                    }
-                } else if ingredients.isEmpty {
-                    ContentUnavailableView(
-                        "No Ingredients",
-                        systemImage: "shippingbox",
-                        description: Text(emptyStateMessage)
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    ForEach(ingredients) { ingredient in
-                        NavigationLink {
-                            IngredientDetailView(baseIngredientID: ingredient.baseIngredientId)
-                        } label: {
-                            IngredientCatalogRow(ingredient: ingredient)
-                        }
-                    }
-                }
-            } header: {
-                Text("Ingredients")
-            } footer: {
-                if !ingredients.isEmpty {
-                    Text("\(ingredients.count) ingredient\(ingredients.count == 1 ? "" : "s") loaded")
-                }
-            }
+            IngredientCatalogList(
+                isLoading: isLoading,
+                ingredients: ingredients,
+                emptyStateMessage: emptyStateMessage
+            )
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Ingredients")
@@ -122,52 +97,6 @@ struct IngredientsView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
-    }
-}
-
-private struct IngredientCatalogRow: View {
-    let ingredient: BaseIngredient
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                Text(ingredient.name)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                if ingredient.provisional {
-                    IngredientBadge(title: "Review", tint: .orange)
-                } else if ingredient.productLike {
-                    IngredientBadge(title: "Product-like", tint: .blue)
-                } else if !ingredient.active {
-                    IngredientBadge(title: "Archived", tint: .secondary)
-                }
-            }
-
-            HStack(spacing: 8) {
-                if !ingredient.category.isEmpty {
-                    Text(ingredient.category)
-                }
-                if !ingredient.defaultUnit.isEmpty {
-                    Text("Unit \(ingredient.defaultUnit)")
-                }
-                if ingredient.preferenceCount > 0 {
-                    Text("Prefs \(ingredient.preferenceCount)")
-                }
-                if ingredient.variationCount > 0 {
-                    Text("Products \(ingredient.variationCount)")
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
-            if let sourceText = ingredientCatalogSourceText(ingredient), !sourceText.isEmpty {
-                Text(sourceText)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 
@@ -366,61 +295,21 @@ struct IngredientDetailView: View {
 
     @ViewBuilder
     private func productsSection(_ detail: BaseIngredientDetail) -> some View {
-        Section("Products") {
-            if detail.variations.isEmpty {
-                Text("No product variations yet.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(detail.variations) { variation in
-                    productRow(detail.ingredient, variation: variation)
-                }
-            }
-
-            Button {
+        IngredientVariationManagementSection(
+            variations: detail.variations,
+            onCreateVariation: {
                 variationEditorContext = IngredientVariationEditorContext(
                     baseIngredient: detail.ingredient,
                     variation: nil
                 )
-            } label: {
-                Label("Add Product Variation", systemImage: "plus.circle")
-            }
-        }
-    }
-
-    private func productRow(_ ingredient: BaseIngredient, variation: IngredientVariation) -> some View {
-        Button {
-            variationEditorContext = IngredientVariationEditorContext(
-                baseIngredient: ingredient,
-                variation: variation
-            )
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(variation.brand.isEmpty ? variation.name : "\(variation.brand) • \(variation.name)")
-                    .foregroundStyle(.primary)
-                HStack(spacing: 8) {
-                    if let amount = variation.packageSizeAmount, !variation.packageSizeUnit.isEmpty {
-                        Text("\(amount.formatted(.number.precision(.fractionLength(0...2)))) \(variation.packageSizeUnit)")
-                    }
-                    if let count = variation.countPerPackage {
-                        Text("\(count.formatted(.number.precision(.fractionLength(0...2)))) per pack")
-                    }
-                    if !variation.upc.isEmpty {
-                        Text("UPC \(variation.upc)")
-                    }
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("Edit") {
+            },
+            onEditVariation: { variation in
                 variationEditorContext = IngredientVariationEditorContext(
-                    baseIngredient: ingredient,
+                    baseIngredient: detail.ingredient,
                     variation: variation
                 )
-            }
-            Button("Archive", role: .destructive) {
+            },
+            onArchiveVariation: { variation in
                 Task {
                     do {
                         _ = try await appState.archiveIngredientVariation(
@@ -432,7 +321,7 @@ struct IngredientDetailView: View {
                     }
                 }
             }
-        }
+        )
     }
 
     private func usageSection(_ detail: BaseIngredientDetail) -> some View {
@@ -494,20 +383,6 @@ struct IngredientDetailView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
-    }
-}
-
-private struct IngredientBadge: View {
-    let title: String
-    let tint: Color
-
-    var body: some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(tint.opacity(0.15), in: Capsule())
-            .foregroundStyle(tint)
     }
 }
 
@@ -825,139 +700,7 @@ struct IngredientVariationEditorSheet: View {
     }
 }
 
-struct BaseIngredientMergeSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-
-    let baseIngredientID: String
-    let onMerged: () -> Void
-
-    @State private var searchText = ""
-    @State private var candidates: [BaseIngredient] = []
-    @State private var selectedTargetID: String?
-    @State private var isLoading = false
-    @State private var isMerging = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        NavigationStack {
-            List {
-                searchSection
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                mergeTargetsSection
-            }
-            .navigationTitle("Merge Ingredient")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isMerging ? "Merging…" : "Merge") {
-                        Task { await merge() }
-                    }
-                    .disabled(isMerging || selectedTargetID == nil)
-                }
-            }
-            .task {
-                if candidates.isEmpty {
-                    await loadCandidates()
-                }
-            }
-        }
-    }
-
-    private var filteredCandidates: [BaseIngredient] {
-        candidates.filter { $0.baseIngredientId != baseIngredientID }
-    }
-
-    private var searchSection: some View {
-        Section {
-            TextField("Search merge target", text: $searchText)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .onSubmit {
-                    Task { await loadCandidates() }
-                }
-
-            Button {
-                Task { await loadCandidates() }
-            } label: {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    Text("Search Catalog")
-                }
-            }
-        }
-    }
-
-    private var mergeTargetsSection: some View {
-        Section("Merge Into") {
-            ForEach(filteredCandidates) { ingredient in
-                mergeCandidateRow(ingredient)
-            }
-        }
-    }
-
-    private func mergeCandidateRow(_ ingredient: BaseIngredient) -> some View {
-        Button {
-            selectedTargetID = ingredient.baseIngredientId
-        } label: {
-            HStack {
-                IngredientCatalogRow(ingredient: ingredient)
-                Spacer()
-                if selectedTargetID == ingredient.baseIngredientId {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func loadCandidates() async {
-        do {
-            isLoading = true
-            errorMessage = nil
-            candidates = try await appState.searchBaseIngredients(
-                query: searchText,
-                limit: 100,
-                includeArchived: false,
-                includeProductLike: true
-            )
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
-
-    private func merge() async {
-        guard let selectedTargetID else { return }
-        do {
-            isMerging = true
-            errorMessage = nil
-            _ = try await appState.mergeBaseIngredient(sourceID: baseIngredientID, targetID: selectedTargetID)
-            onMerged()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isMerging = false
-    }
-}
-
-private func ingredientCatalogSourceText(_ ingredient: BaseIngredient) -> String? {
+func ingredientCatalogSourceText(_ ingredient: BaseIngredient) -> String? {
     let sourceName = ingredient.sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
     let sourceRecordID = ingredient.sourceRecordId.trimmingCharacters(in: .whitespacesAndNewlines)
     if sourceName.isEmpty {

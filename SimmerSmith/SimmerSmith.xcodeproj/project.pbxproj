@@ -12,8 +12,10 @@
 		0FF942A918598DDFAE82210E /* RecipeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */; };
 		1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */; };
 		277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA42101A03628D82ADE249C /* SimmerSmithKit */; };
+		27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */; };
 		27EBF0EFE7D5CD79CA9B557D /* SimmerSmithTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */; };
 		2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */; };
+		3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */; };
 		364F923A2908430AB4FB39D5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF982BE7185D4506E4BAC7C6 /* RootView.swift */; };
 		3B27C1AB3BF4F270416007B8 /* SimmerSmithUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */; };
 		40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */; };
@@ -22,6 +24,7 @@
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
 		6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */; };
+		6DB2E8D0092EBB3D823FE5CE /* IngredientCatalogList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */; };
 		7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */; };
 		7B103ED88BA0EDC2355992EF /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B617C15FBB7189BE5086D0 /* ActivityView.swift */; };
 		7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */; };
@@ -68,8 +71,11 @@
 		62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorView.swift; sourceTree = "<group>"; };
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
+		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseIngredientMergeSheet.swift; sourceTree = "<group>"; };
 		8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithTests.swift; sourceTree = "<group>"; };
+		9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientCatalogList.swift; sourceTree = "<group>"; };
 		9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithUITests.swift; sourceTree = "<group>"; };
 		A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithApp.swift; sourceTree = "<group>"; };
 		A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSupport.swift; sourceTree = "<group>"; };
@@ -137,7 +143,10 @@
 		3A248CC4192B34E04AB0DA95 /* Ingredients */ = {
 			isa = PBXGroup;
 			children = (
+				8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */,
+				9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */,
 				49A10F1ED3FB047CF6466481 /* IngredientsView.swift */,
+				751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */,
 			);
 			path = Ingredients;
 			sourceTree = "<group>";
@@ -410,10 +419,13 @@
 				7B103ED88BA0EDC2355992EF /* ActivityView.swift in Sources */,
 				C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */,
 				923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */,
+				27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */,
 				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */,
 				7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */,
 				B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */,
+				6DB2E8D0092EBB3D823FE5CE /* IngredientCatalogList.swift in Sources */,
+				3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */,
 				BAE7EEBED1663B060E79F9AF /* IngredientsView.swift in Sources */,
 				5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */,
 				2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */,
