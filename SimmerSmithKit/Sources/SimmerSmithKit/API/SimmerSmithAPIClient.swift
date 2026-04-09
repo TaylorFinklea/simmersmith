@@ -623,11 +623,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         }
 
         return AsyncThrowingStream { continuation in
-            Task {
+            // Capture the reader task so we can cancel it when the stream
+            // consumer terminates early (e.g. the user navigates away from
+            // the thread view mid-stream). Without this, the inner SSE
+            // connection stays open writing deltas into a deallocated
+            // thread context.
+            let task = Task {
                 do {
                     var currentEvent = ""
                     var dataLines: [String] = []
                     for try await line in bytes.lines {
+                        try Task.checkCancellation()
                         if line.isEmpty {
                             if !currentEvent.isEmpty {
                                 let payload = Data(dataLines.joined(separator: "\n").utf8)
@@ -648,9 +654,14 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                         continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
                     }
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
