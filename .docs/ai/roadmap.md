@@ -78,11 +78,13 @@ Ship it.
 - [x] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
 - [x] Add return type hints to ingredient route handlers — `app/api/ingredients.py` (10 functions)
 - [x] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
-- [ ] Rename misleading `staple_count` variable in `app/services/bootstrap.py:71` — it's an ORM object, not a count
-- [ ] Fix `app/services/exports.py:73` — `updated_at` returns `completed_at` instead of real `updated_at`
-- [ ] Fix `app/services/drafts.py:249-250` — `upsert_recipe` unconditionally unarchives recipes (should preserve user intent)
-- [ ] Add route-level `limit` bounds with `Field(ge=1, le=...)` — `app/api/recipes.py:323`, `app/api/ingredients.py:115`
-- [ ] Validate `DraftFromAIRequest.model` against an allowlist — `app/schemas.py`
+- [x] Rename misleading `staple_count` variable in `app/services/bootstrap.py:71` — renamed to `existing_staple`
+- [x] Fix `app/services/drafts.py:249-250` — `upsert_recipe` now only resets archive state for new recipes
+- [x] Add route-level `limit` bounds via `fastapi.Query(ge=1, le=...)` — `app/api/recipes.py:323`, `app/api/ingredients.py:115`
+- [x] Constrain `DraftFromAIRequest.model` field — max_length + safe character pattern (it's an audit label, not a provider ID)
+
+<!-- Dropped: "Fix exports.py:73 updated_at" — false positive; ExportRun has no updated_at column, so completed_at or created_at is the correct fallback -->
+
 
 ### Sonnet (some architectural judgment)
 - [x] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
