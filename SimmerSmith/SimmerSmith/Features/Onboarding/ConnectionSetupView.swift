@@ -31,6 +31,17 @@ struct ConnectionSetupView: View {
                 SecureField("Bearer token", text: $appState.authTokenDraft)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+
+                if isPlainHTTPURL(appState.serverURLDraft) {
+                    Label {
+                        Text("Using http:// sends your bearer token in plaintext. Anyone on the same network can read it. Prefer https:// whenever possible.")
+                            .font(.footnote)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    .accessibilityLabel("Warning: bearer token will be sent in plaintext")
+                }
             }
 
             Section {
@@ -53,5 +64,14 @@ struct ConnectionSetupView: View {
             }
         }
         .navigationTitle("Connect")
+    }
+
+    private func isPlainHTTPURL(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.hasPrefix("https://") { return false }
+        // Treat explicit http:// AND bare hostnames as plaintext, since
+        // ConnectionSettingsStore.normalizeServerURL will default them to http.
+        return trimmed.hasPrefix("http://") || !trimmed.contains("://")
     }
 }
