@@ -29,7 +29,11 @@ class MealDraftPayload(BaseModel):
 
 class DraftFromAIRequest(BaseModel):
     prompt: str
-    model: str = "skill-chat"
+    # `model` is a label stored in AIRun.model and used as an actor_label for
+    # change batches. It is not forwarded to external APIs. Constrain length
+    # and character set to prevent audit-log abuse without restricting
+    # legitimate agent identifiers (e.g. "claude-sonnet-4.6", "gpt-5.4", "codex").
+    model: str = Field(default="skill-chat", max_length=100, pattern=r"^[a-zA-Z0-9._\-/:]+$")
     profile_updates: dict[str, str] = Field(default_factory=dict)
     recipes: list[RecipePayload] = Field(default_factory=list)
     meal_plan: list[MealDraftPayload] = Field(default_factory=list)

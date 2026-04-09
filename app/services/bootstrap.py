@@ -68,8 +68,8 @@ def seed_defaults(session: Session) -> None:
             continue
         session.add(ProfileSetting(key=key, value=value, updated_at=utcnow()))
 
-    staple_count = session.scalar(select(Staple).limit(1))
-    if staple_count is None:
+    existing_staple = session.scalar(select(Staple).limit(1))
+    if existing_staple is None:
         for staple in DEFAULT_STAPLES:
             session.add(Staple(**staple))
 

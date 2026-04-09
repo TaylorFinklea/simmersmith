@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -318,7 +318,7 @@ def estimate_recipe_nutrition_route(
 @router.get("/nutrition/search", response_model=list[NutritionItemOut])
 def nutrition_search_route(
     q: str = "",
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=50),
     session: Session = Depends(get_session),
 ) -> list[dict[str, object]]:
     return [nutrition_item_payload(item) for item in search_nutrition_items(session, q, limit=limit)]

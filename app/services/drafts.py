@@ -204,6 +204,7 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
 def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
     recipe_id = payload.recipe_id
     recipe = session.get(Recipe, recipe_id) if recipe_id else None
+    is_new_recipe = recipe is None
     if recipe is None:
         recipe = Recipe(id=recipe_id or new_id(), name=payload.name)
         session.add(recipe)
@@ -242,8 +243,12 @@ def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
     recipe.tags = serialize_tag_list(tags)
     recipe.instructions_summary = instructions_summary
     recipe.favorite = payload.favorite
-    recipe.archived = False
-    recipe.archived_at = None
+    if is_new_recipe:
+        # Only initialize archive state for new recipes. Existing recipes
+        # preserve their archived state; the explicit /restore endpoint is
+        # the legitimate way to unarchive a previously archived recipe.
+        recipe.archived = False
+        recipe.archived_at = None
     recipe.source = payload.source
     recipe.source_label = payload.source_label
     recipe.source_url = payload.source_url

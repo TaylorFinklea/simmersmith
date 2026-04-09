@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -112,7 +112,7 @@ def _preference_payload(item) -> dict[str, object]:
 @router.get("", response_model=list[BaseIngredientOut])
 def list_ingredients_route(
     q: str = "",
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=200),
     include_archived: bool = False,
     provisional_only: bool = False,
     with_preferences: bool = False,
