@@ -49,6 +49,11 @@ final class AppState {
     private let cacheStore: SimmerSmithCacheStore
     private let apiClient: SimmerSmithAPIClient
 
+    // Tracks the refresh task started by clearLocalCache() so that a
+    // follow-up resetConnection() can cancel it before it races with the
+    // cleared connection state.
+    private var postClearRefreshTask: Task<Void, Never>?
+
     var serverURLDraft: String
     var authTokenDraft: String
     var aiProviderModeDraft: String = "auto"
@@ -775,7 +780,11 @@ final class AppState {
         if let streamFailure {
             let refreshedCount = refreshedThread?.messages.count ?? 0
             if refreshedCount > initialMessageCount {
-                assistantErrorByThreadID[threadID] = nil
+                // The server committed a response but the stream was cut short
+                // (network drop, timeout, decode mismatch). Surface a soft
+                // warning so the user knows the visible response may be
+                // truncated or out of date — they should refresh or retry.
+                assistantErrorByThreadID[threadID] = "Response may be incomplete. Pull to refresh."
                 return
             }
             throw streamFailure
@@ -892,6 +901,11 @@ final class AppState {
     }
 
     func clearLocalCache() {
+        // Cancel any in-flight refresh started by a previous clearLocalCache
+        // call so we do not race a fresh sync against the reset we are about
+        // to perform.
+        postClearRefreshTask?.cancel()
+        postClearRefreshTask = nil
         try? cacheStore.clearAll()
         profile = nil
         currentWeek = nil
@@ -916,13 +930,17 @@ final class AppState {
         aiModelErrorByProvider = [:]
         if hasSavedConnection {
             syncPhase = .loading
-            Task {
-                await refreshAll()
+            postClearRefreshTask = Task { [weak self] in
+                await self?.refreshAll()
             }
         }
     }
 
     func resetConnection() {
+        // Cancel any in-flight refresh so it does not try to use the
+        // connection we are about to clear.
+        postClearRefreshTask?.cancel()
+        postClearRefreshTask = nil
         settingsStore.clear()
         serverURLDraft = ""
         authTokenDraft = ""
