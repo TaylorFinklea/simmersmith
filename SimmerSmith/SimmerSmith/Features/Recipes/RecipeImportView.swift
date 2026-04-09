@@ -519,7 +519,11 @@ private enum RecipeTextReviewHeuristics {
 }
 
 private enum RecipeTextClassification {
-    private static let leadingQuantityExpression = try! NSRegularExpression(
+    // Use `try?` so that any future edit that breaks the pattern degrades to
+    // "no leading quantity detected" instead of crashing on first use. The
+    // pattern is a static literal so it will not fail today, but the crash
+    // would only surface at runtime, which is worse than a heuristic miss.
+    private static let leadingQuantityExpression: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^(?:\d+\s+\d+/\d+|\d+-\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\b"#,
         options: []
     )
@@ -579,8 +583,9 @@ private enum RecipeTextClassification {
     }
 
     private static func hasLeadingQuantity(_ line: String) -> Bool {
+        guard let expression = leadingQuantityExpression else { return false }
         let range = NSRange(location: 0, length: line.utf16.count)
-        return leadingQuantityExpression.firstMatch(in: line, options: [], range: range) != nil
+        return expression.firstMatch(in: line, options: [], range: range) != nil
     }
 
     private static func cleanedLine(_ line: String) -> String {

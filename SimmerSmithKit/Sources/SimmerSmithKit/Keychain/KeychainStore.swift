@@ -46,6 +46,11 @@ public final class KeychainStore: @unchecked Sendable {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
+            // Explicitly require an unlocked device to access auth tokens, and
+            // pin the item to this device only so it is never synced through
+            // iCloud Keychain. This prevents the token from traveling to other
+            // devices signed into the same Apple ID.
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
     }
 }

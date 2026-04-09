@@ -11,20 +11,25 @@ func normalizeServerURLAddsSchemeAndTrimsTrailingSlash() {
 }
 
 @Test
-func connectionSettingsStoreLoadsTokenFromFallbackDefaults() {
+func connectionSettingsStoreScrubsLegacyPlaintextTokenFromDefaults() {
+    // Older app versions wrote the auth token to UserDefaults as a fallback.
+    // That fallback was a security hole (plaintext in backups, readable by
+    // crash reports). The current store must not read it and must actively
+    // remove it from disk when instantiated.
     let suiteName = "SimmerSmithKitTests-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     defaults.set("http://127.0.0.1:8080", forKey: ConnectionSettingsStore.Keys.serverURL)
-    defaults.set("fallback-token", forKey: ConnectionSettingsStore.Keys.authTokenFallback)
+    defaults.set("legacy-plaintext-token", forKey: ConnectionSettingsStore.Keys.legacyAuthTokenFallback)
 
     let keychain = KeychainStore(service: "SimmerSmithKitTests-\(UUID().uuidString)")
     let store = ConnectionSettingsStore(defaults: defaults, keychain: keychain)
     let connection = store.load()
 
     #expect(connection.serverURLString == "http://127.0.0.1:8080")
-    #expect(connection.authToken == "fallback-token")
+    #expect(connection.authToken == "")  // legacy token must not surface
+    #expect(defaults.string(forKey: ConnectionSettingsStore.Keys.legacyAuthTokenFallback) == nil)  // scrubbed
 }
 
 @Test

@@ -16,7 +16,9 @@ public final class ConnectionSettingsStore: @unchecked Sendable {
     public enum Keys {
         public static let serverURL = "simmersmith.serverURL"
         public static let authToken = "simmersmith.authToken"
-        public static let authTokenFallback = "simmersmith.authTokenFallback"
+        // Legacy UserDefaults key — no longer written, only cleaned up on save/clear
+        // to scrub any plaintext tokens left behind by older app versions.
+        public static let legacyAuthTokenFallback = "simmersmith.authTokenFallback"
     }
 
     private let defaults: UserDefaults
@@ -25,32 +27,31 @@ public final class ConnectionSettingsStore: @unchecked Sendable {
     public init(defaults: UserDefaults = .standard, keychain: KeychainStore = .shared) {
         self.defaults = defaults
         self.keychain = keychain
+        // Scrub any legacy plaintext token left behind by older app versions.
+        self.defaults.removeObject(forKey: Keys.legacyAuthTokenFallback)
     }
 
     public func load() -> ServerConnection {
         ServerConnection(
             serverURLString: defaults.string(forKey: Keys.serverURL) ?? "",
-            authToken: keychain.string(forKey: Keys.authToken)
-                ?? defaults.string(forKey: Keys.authTokenFallback)
-                ?? ""
+            authToken: keychain.string(forKey: Keys.authToken) ?? ""
         )
     }
 
     public func save(serverURLString: String, authToken: String) {
         let normalizedURL = Self.normalizeServerURL(serverURLString)
         defaults.set(normalizedURL, forKey: Keys.serverURL)
+        defaults.removeObject(forKey: Keys.legacyAuthTokenFallback)
         if authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            defaults.removeObject(forKey: Keys.authTokenFallback)
             keychain.delete(Keys.authToken)
         } else {
-            defaults.set(authToken, forKey: Keys.authTokenFallback)
             keychain.set(authToken, forKey: Keys.authToken)
         }
     }
 
     public func clear() {
         defaults.removeObject(forKey: Keys.serverURL)
-        defaults.removeObject(forKey: Keys.authTokenFallback)
+        defaults.removeObject(forKey: Keys.legacyAuthTokenFallback)
         keychain.delete(Keys.authToken)
     }
 
