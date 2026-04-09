@@ -21,9 +21,9 @@ Get the codebase onto solid ground. Full code audit first — Codex-generated co
 - [x] Fix `try!` regex crash risk — `SimmerSmith/Features/Recipes/RecipeImportView.swift:522`
 - [x] Add accessibility labels to icon-only toolbar buttons (App Store review blocker) — Week, Grocery, Assistant views
 - [ ] Add HTTP warning in ConnectionSetupView — token leaks over plaintext when user enters `http://` URL (`SimmerSmithKit/Configuration/ConnectionSettingsStore.swift:60`)
-- [ ] Track and cancel `Task` in `clearLocalCache()` — race with concurrent `resetConnection()` (`SimmerSmith/App/AppState.swift:917`)
-- [ ] Propagate task cancellation in `streamAssistantResponse` — use `withTaskCancellationHandler` so inner SSE stream stops when caller cancels (`SimmerSmithKit/API/SimmerSmithAPIClient.swift:625`)
-- [ ] Preserve stream error in `assistantErrorByThreadID` even when partial response arrived — user needs to know response was truncated (`SimmerSmith/App/AppState.swift:766`)
+- [x] Track and cancel `postClearRefreshTask` in `clearLocalCache()` and `resetConnection()` — eliminates race with concurrent connection reset
+- [x] Propagate task cancellation in `streamAssistantResponse` via `continuation.onTermination` — SSE reader now stops when consumer cancels
+- [x] Preserve stream error in `assistantErrorByThreadID` — soft warning "Response may be incomplete. Pull to refresh." when partial response arrived
 - [ ] Database abstraction — validate SQLAlchemy on both SQLite and Postgres, dialect-aware migrations
 - [ ] Supabase project setup — Postgres instance, auth configuration
 - [ ] Multi-user data isolation — add `user_id` to ALL tables (audit found zero user scoping across every service and route), auth middleware in FastAPI
@@ -102,7 +102,7 @@ Ship it.
 - [x] Split `app/mcp_server.py` (835 lines) — extracted into `app/mcp/` package with 7 modules
 - [x] Split `app/models.py` (723 lines) — extracted into `app/models/` package with 7 domain modules
 - [x] Split `app/schemas.py` (734 lines) — extracted into `app/schemas/` package with 8 domain modules
-- [~] Decompose `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift` (1,479 lines) — extract IngredientResolutionSheet, StepsEditor, NutritionEditor sub-views
+- [x] Decompose `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift` (1,479 lines) — extract IngredientResolutionSheet, StepsEditor, NutritionEditor sub-views
 - [ ] Decompose `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift` (975 lines) — extract CatalogList, VariationManagement, MergeSheet sub-views
 - [ ] Decompose `SimmerSmith/SimmerSmith/App/AppState.swift` (1,119 lines) — split into domain-specific state modules (Recipes, Weeks, Assistant, AI)
 
