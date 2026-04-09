@@ -20,7 +20,7 @@ Get the codebase onto solid ground. Full code audit first — Codex-generated co
 - [x] Fix critical iOS security — add `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` to Keychain base query
 - [x] Fix `try!` regex crash risk — `SimmerSmith/Features/Recipes/RecipeImportView.swift:522`
 - [x] Add accessibility labels to icon-only toolbar buttons (App Store review blocker) — Week, Grocery, Assistant views
-- [ ] Add HTTP warning in ConnectionSetupView — token leaks over plaintext when user enters `http://` URL (`SimmerSmithKit/Configuration/ConnectionSettingsStore.swift:60`)
+- [x] Add HTTP warning in ConnectionSetupView — orange warning label when URL is http:// or bare hostname (visible plaintext token risk)
 - [x] Track and cancel `postClearRefreshTask` in `clearLocalCache()` and `resetConnection()` — eliminates race with concurrent connection reset
 - [x] Propagate task cancellation in `streamAssistantResponse` via `continuation.onTermination` — SSE reader now stops when consumer cancels
 - [x] Preserve stream error in `assistantErrorByThreadID` — soft warning "Response may be incomplete. Pull to refresh." when partial response arrived
