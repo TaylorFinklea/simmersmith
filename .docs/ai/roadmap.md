@@ -15,7 +15,15 @@ Get the codebase onto solid ground. Full code audit first — Codex-generated co
 - [x] Fix critical bugs — Postgres connect_args, database_url override, grocery quantity_text, presenter None crash
 - [x] Fix ruff failures — unused imports, unused variable, import order
 - [x] Kill web frontend — remove `frontend/`, Vite config, SPA routing, simplify Dockerfile
-- [ ] Code quality audit — iOS views and SimmerSmithKit (still pending)
+- [x] Code quality audit — iOS views and SimmerSmithKit (9 findings, 2 critical + 6 high + 1 medium)
+- [x] Fix critical iOS security — remove UserDefaults plaintext token fallback + scrub legacy key
+- [x] Fix critical iOS security — add `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` to Keychain base query
+- [x] Fix `try!` regex crash risk — `SimmerSmith/Features/Recipes/RecipeImportView.swift:522`
+- [x] Add accessibility labels to icon-only toolbar buttons (App Store review blocker) — Week, Grocery, Assistant views
+- [ ] Add HTTP warning in ConnectionSetupView — token leaks over plaintext when user enters `http://` URL (`SimmerSmithKit/Configuration/ConnectionSettingsStore.swift:60`)
+- [ ] Track and cancel `Task` in `clearLocalCache()` — race with concurrent `resetConnection()` (`SimmerSmith/App/AppState.swift:917`)
+- [ ] Propagate task cancellation in `streamAssistantResponse` — use `withTaskCancellationHandler` so inner SSE stream stops when caller cancels (`SimmerSmithKit/API/SimmerSmithAPIClient.swift:625`)
+- [ ] Preserve stream error in `assistantErrorByThreadID` even when partial response arrived — user needs to know response was truncated (`SimmerSmith/App/AppState.swift:766`)
 - [ ] Database abstraction — validate SQLAlchemy on both SQLite and Postgres, dialect-aware migrations
 - [ ] Supabase project setup — Postgres instance, auth configuration
 - [ ] Multi-user data isolation — add `user_id` to ALL tables (audit found zero user scoping across every service and route), auth middleware in FastAPI
