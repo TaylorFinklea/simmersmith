@@ -17,8 +17,6 @@
 
 ## Deferred
 
-- [ ] Decompose `IngredientsView.swift` (975 lines) — Sonnet backlog
-- [ ] Decompose `AppState.swift` (1,119 lines) — Sonnet backlog (now has postClearRefreshTask etc., good time to split)
 - [ ] Guided onboarding AI preference interview — M1
 - [ ] AI-driven week planning wizard — M1
 - [ ] Grocery pricing hybrid model — M2
