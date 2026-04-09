@@ -104,7 +104,7 @@ Ship it.
 - [x] Split `app/schemas.py` (734 lines) — extracted into `app/schemas/` package with 8 domain modules
 - [x] Decompose `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift` (1,479 lines) — extract IngredientResolutionSheet, StepsEditor, NutritionEditor sub-views
 - [x] Decompose `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift` (975 lines) — extract CatalogList, VariationManagement, MergeSheet sub-views
-- [~] Decompose `SimmerSmith/SimmerSmith/App/AppState.swift` (1,119 lines) — split into domain-specific state modules (Recipes, Weeks, Assistant, AI)
+- [x] Decompose `SimmerSmith/SimmerSmith/App/AppState.swift` (1,119 lines) — split into domain-specific state modules (Recipes, Weeks, Assistant, AI)
 
 ### Opus (design skill, cross-cutting — owned by tier3_owner)
 - [ ] Design the AI preference interview conversation flow
