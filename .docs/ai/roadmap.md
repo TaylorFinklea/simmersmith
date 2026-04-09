@@ -90,7 +90,7 @@ Ship it.
 - [x] Split `app/services/ingredient_catalog.py` (1,495 lines) — extract search, product-rewrite, and variation modules
 - [x] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
 - [x] Split `app/mcp_server.py` (835 lines) — extracted into `app/mcp/` package with 7 modules
-- [~] Split `app/models.py` (723 lines) — extract domain-specific model files (recipe, ingredient, week, ai)
+- [x] Split `app/models.py` (723 lines) — extracted into `app/models/` package with 7 domain modules
 - [ ] Split `app/schemas.py` (711 lines) — extract domain-specific schema files to match models split
 - [ ] Decompose `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift` (1,479 lines) — extract IngredientResolutionSheet, StepsEditor, NutritionEditor sub-views
 - [ ] Decompose `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift` (975 lines) — extract CatalogList, VariationManagement, MergeSheet sub-views
