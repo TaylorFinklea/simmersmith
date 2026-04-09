@@ -83,6 +83,7 @@ struct AssistantView: View {
                     } label: {
                         Image(systemName: "square.and.pencil")
                     }
+                    .accessibilityLabel("New chat thread")
                     .disabled(!appState.assistantExecutionAvailable)
                 }
             }

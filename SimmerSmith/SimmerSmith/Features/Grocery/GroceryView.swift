@@ -23,6 +23,11 @@ struct GroceryView: View {
                                             .foregroundStyle(appState.isGroceryChecked(item.groceryItemId) ? .green : .secondary)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel(
+                                        appState.isGroceryChecked(item.groceryItemId)
+                                            ? "\(item.ingredientName), checked. Tap to uncheck."
+                                            : "\(item.ingredientName), unchecked. Tap to check off."
+                                    )
 
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(item.ingredientName)
@@ -76,6 +81,7 @@ struct GroceryView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
+                .accessibilityLabel("Refresh grocery list")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -83,6 +89,11 @@ struct GroceryView: View {
                 } label: {
                     Image(systemName: groceryReviewCount == 0 ? "list.bullet.clipboard" : "exclamationmark.circle")
                 }
+                .accessibilityLabel(
+                    groceryReviewCount == 0
+                        ? "Ingredient review queue"
+                        : "Ingredient review queue, \(groceryReviewCount) items need review"
+                )
             }
         }
         .sheet(item: $selectedItem) { item in

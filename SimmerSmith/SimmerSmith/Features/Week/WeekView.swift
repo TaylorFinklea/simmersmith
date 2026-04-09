@@ -97,12 +97,14 @@ struct WeekView: View {
                     } label: {
                         Image(systemName: "clock.arrow.circlepath")
                     }
+                    .accessibilityLabel("View week activity")
 
                     Button {
                         Task { await appState.refreshWeek() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
+                    .accessibilityLabel("Refresh week")
                 }
             }
         }
