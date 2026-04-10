@@ -4,19 +4,16 @@
 
 ## Immediate
 
-- [ ] Fix Alembic revision `20260323_0007_recipe_taxonomy_and_scaling.py` so it runs on Postgres as well as SQLite. The current seed SQL uses `INSERT OR IGNORE` and `randomblob(...)`, which fails on Postgres during local startup.
-- [ ] Re-run the local Postgres smoke test from a clean database: `docker compose up -d postgres`, start `uvicorn` with `SIMMERSMITH_DATABASE_URL=postgresql://...`, verify all 14 migrations apply, and confirm `GET /api/health` returns `{"status":"ok"}`.
-- [ ] Only after the local Postgres smoke test passes, proceed with Fly.io app creation, Neon provisioning, Fly secrets, and `fly deploy`.
-- [ ] Design multi-user data isolation strategy — this is the biggest M0 blocker. Options: (a) add `user_id` FK to every table and filter at service layer, (b) use Postgres row-level security (RLS) on Supabase, (c) hybrid. Read `.docs/ai/decisions.md` for prior direction.
-- [ ] Set up Supabase project — Postgres instance, enable auth. Pull connection string into a local `.env.local` (don't commit).
-- [ ] Smoke-test SQLAlchemy on Postgres — run `SIMMERSMITH_DATABASE_URL_OVERRIDE=postgresql://...` against an empty Supabase DB, verify migrations run, catalog seed works.
+- [ ] Deploy to Fly.io — `fly apps create`, provision Neon Postgres (or Fly Postgres), set secrets (`DATABASE_URL`, `JWT_SECRET`, `API_TOKEN`), `fly deploy`, verify health endpoint
+- [ ] Service-layer user_id scoping — replace `get_settings().local_user_id` shims with proper `user_id` from `get_current_user` caller. Every query on user-owned tables needs `WHERE user_id = :uid`. This is the biggest remaining infrastructure task.
+- [ ] Cross-user isolation tests — adversarial tests proving user A can't see user B's data
 
 ## Soon
 
-- [ ] Apply `user_id` schema changes (Alembic migration + model updates + every service query site).
-- [ ] Supabase Auth — JWT validation middleware in FastAPI, replace bearer-token dependency for cloud mode.
-- [ ] iOS: Sign in with Apple flow wired to Supabase Auth.
-- [ ] Unblock TestFlight upload — repair ASC credentials or switch to ASC API key flow.
+- [ ] iOS: Wire Sign in with Apple to `POST /api/auth/apple`, store session JWT in Keychain
+- [ ] iOS: Wire Sign in with Google to `POST /api/auth/google`
+- [ ] MCP per-user token system — mint per-user MCP bearer tokens
+- [ ] Unblock TestFlight upload — ASC credentials or API key flow
 
 ## Deferred
 

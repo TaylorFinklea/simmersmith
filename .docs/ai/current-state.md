@@ -10,47 +10,41 @@
 
 **Date**: 2026-04-10
 
-Attempted the Fly.io + Neon deployment workflow, starting with the required local Postgres smoke test. The repo already had the Fly config and `psycopg2-binary` dependency in place, so no deployment code changes were needed.
+Stack pivot + Postgres deployment blocker fixed. The app now runs on Postgres.
 
-**What was done this session:**
-- Started a fresh local Postgres container with `docker compose up -d postgres`.
-- Verified Postgres accepted connections on `localhost:5432`.
-- Booted the API against local Postgres with `SIMMERSMITH_DATABASE_URL=postgresql://simmersmith:simmersmith@localhost:5432/simmersmith`.
-- Confirmed the startup path reaches Alembic and begins applying migrations.
-- Isolated the failure to Alembic revision `20260323_0007_recipe_taxonomy_and_scaling.py`, which uses SQLite-only SQL:
-  - `INSERT OR IGNORE`
-  - `lower(hex(randomblob(16)))`
-- Confirmed the migration fails on Postgres before schema creation completes, leaving the database empty (`psql \dt` returned no relations).
-- Stopped local Docker services with `docker compose down`.
-
-**Deployment status:**
-- Blocked locally before any Fly app creation, Fly secret changes, or Neon provisioning/usage.
-- No remote infrastructure was modified this session.
+**What was done:**
+- Reverted the earlier multi-user isolation Phase 0-2 work (Supabase Auth, dual-database, two-tier catalog) — replaced with a simpler stack
+- Pivoted to Fly.io + Postgres + Apple/Google Sign-In (`pyjwt[crypto]` + PyJWKClient)
+- Added `users` table, `app/auth.py` rewrite (Apple/Google JWKS verification + session JWT + legacy bearer), auth routes (`POST /api/auth/apple`, `/api/auth/google`, `GET /api/auth/me`)
+- Added `user_id` to 8 user-owned root tables (weeks, recipes, assistant_threads, ai_runs, profile_settings, staples, preference_signals, ingredient_preferences)
+- Catalog tables (base_ingredients, etc.) left untouched — shared reference data
+- Service-layer shims added to all write paths (`user_id=get_settings().local_user_id`)
+- Added `fly.toml`, updated `Dockerfile` (removed sqlite3), updated `docker-compose.yml` (Postgres service)
+- Added `psycopg2-binary` dependency
+- Fixed migration 0007 (`INSERT OR IGNORE` + `randomblob` → portable SQL)
+- Fixed migration 0014 (dialect detection: ALTER TABLE on Postgres, manual recreation on SQLite)
+- **Postgres smoke test passed**: all 14 migrations + seed + health endpoint verified on local Postgres 16
 
 ## Build Status
 
-- Backend: last known earlier on 2026-04-09 — `.venv/bin/ruff check .` passed
-- Backend: last known earlier on 2026-04-09 — `.venv/bin/pytest -q` passed (58 tests)
-- Backend Postgres smoke test on 2026-04-10 — **FAILED** during Alembic upgrade at revision `20260323_0007_recipe_taxonomy_and_scaling.py`
-- iOS: `xcodebuild ... build` — **BUILD SUCCEEDED**
-- SimmerSmithKit: `swift test` — 26 tests passing
-- Docker: local Postgres container verified to start; compose stack shut down after investigation
+- Backend linter: `.venv/bin/ruff check .` — **passed**
+- Backend tests (SQLite): `.venv/bin/pytest -q` — **58/58 passed**
+- Postgres smoke test: all migrations + seed + API endpoints — **passed**
+- iOS: `xcodebuild ... build` — **BUILD SUCCEEDED** (last verified 2026-04-09)
+- SimmerSmithKit: `swift test` — 26 tests passing (last verified 2026-04-09)
 
 ## Blockers
 
-- **Multi-user isolation is the biggest remaining M0 blocker**. Every service function and route query is unscoped. Adding `user_id` to all tables will require a migration + touching every query site.
-- **Postgres deployment is currently blocked by Alembic revision `20260323_0007_recipe_taxonomy_and_scaling.py`.** The migration uses SQLite-specific SQL (`INSERT OR IGNORE`, `randomblob`) and rolls back on Postgres before any tables are created.
-- Supabase project not yet created (external config step).
-- TestFlight upload blocked on ASC credentials.
-- Database abstraction not yet validated on real Postgres: the first local Postgres smoke test exposed the migration incompatibility above.
+- **Fly.io deployment not yet done** — local Postgres smoke test passes, ready for `fly apps create` + Neon provisioning + `fly deploy`
+- **Apple/Google Sign-In not yet tested with real identity tokens** — endpoints are built but need real iOS integration
+- **Service-layer scoping not yet done** — all queries are still unscoped (return all rows). user_id columns exist but WHERE clauses not added yet. This is the next big task.
+- TestFlight upload blocked on ASC credentials
 
-## M0 Progress
+## Recent Commits
 
-18 of 22 M0 items complete. Remaining:
-- [ ] Database abstraction — validate SQLAlchemy on Postgres, dialect-aware migrations
-- [ ] Supabase project setup — Postgres instance, auth configuration
-- [ ] Multi-user data isolation — `user_id` on all tables + auth middleware
-- [ ] Supabase Auth integration — JWT validation in FastAPI, iOS auth flow
-- [ ] TestFlight pipeline — unblock upload
-
-The remaining work is all **big-ticket infrastructure** that M0 was designed to set up. Audit, bug fixes, security hardening, and the shared refactor backlog are complete, but deployment cannot proceed until the Postgres-incompatible migration is fixed.
+```
+63560ec fix: make migrations compatible with Postgres
+dddbe46 deps: add psycopg2-binary for Postgres driver
+ed5b61a docs: add Fly.io deployment config and document stack pivot
+b98caa2 feat: pivot to Fly.io + Postgres + Apple/Google Auth
+```
