@@ -85,17 +85,22 @@ def insert_item(connection, kind: str, name: str) -> None:
     normalized_name = normalize_name(cleaned)
     if not normalized_name:
         return
+    from uuid import uuid4
+    item_id = str(uuid4())
     connection.execute(
         sa.text(
             """
-            INSERT OR IGNORE INTO managed_list_items (
+            INSERT INTO managed_list_items (
                 id, kind, name, normalized_name, created_at, updated_at
-            ) VALUES (
-                lower(hex(randomblob(16))), :kind, :name, :normalized_name, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            SELECT :id, :kind, :name, :normalized_name, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            WHERE NOT EXISTS (
+                SELECT 1 FROM managed_list_items
+                WHERE kind = :kind AND normalized_name = :normalized_name
             )
             """
         ),
-        {"kind": kind, "name": cleaned, "normalized_name": normalized_name},
+        {"id": item_id, "kind": kind, "name": cleaned, "normalized_name": normalized_name},
     )
 
 
