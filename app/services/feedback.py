@@ -6,6 +6,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import FeedbackEntry, PreferenceSignal, Week, utcnow
 from app.schemas import FeedbackEntryPayload
 from app.services.grocery import normalize_name
@@ -97,6 +98,7 @@ def _upsert_feedback_signal(
 
     if feedback_signal is None:
         feedback_signal = PreferenceSignal(
+            user_id=get_settings().local_user_id,
             signal_type=signal_type,
             name=name,
             normalized_name=normalized_name,

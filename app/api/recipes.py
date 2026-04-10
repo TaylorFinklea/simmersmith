@@ -198,6 +198,7 @@ def recipe_suggestion_draft_route(
         model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-suggestion-v1"
     session.add(
         AIRun(
+            user_id=get_settings().local_user_id,
             week_id=None,
             run_type="recipe_suggestion",
             model=model_name,
@@ -243,6 +244,7 @@ def recipe_companion_drafts_route(
         model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-companion-v1"
     session.add(
         AIRun(
+            user_id=get_settings().local_user_id,
             week_id=None,
             run_type="recipe_companion",
             model=model_name,
@@ -279,6 +281,7 @@ def recipe_variation_draft_route(
         model_name = execution_target.provider_name or execution_target.mcp_server_name or "heuristic-variation-v1"
     session.add(
         AIRun(
+            user_id=get_settings().local_user_id,
             week_id=None,
             run_type="recipe_variation",
             model=model_name,

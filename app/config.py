@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
-from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,7 +16,24 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
     base_url: str = "http://localhost:8080"
+    database_url: str = "postgresql://simmersmith:simmersmith@localhost:5432/simmersmith"
+
+    # Auth — session JWT
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expiry_days: int = 30
+
+    # Auth — Apple Sign In (iOS sends identity token, we verify)
+    apple_bundle_id: str = ""
+
+    # Auth — Google Sign In (iOS sends identity token, we verify)
+    google_client_id: str = ""
+
+    # Legacy bearer token — maps to a dev/local user for MCP and self-hosted
     api_token: str = ""
+    local_user_id: str = "00000000-0000-0000-0000-000000000001"
+
+    # AI provider configuration
     ai_mcp_enabled: bool = True
     ai_mcp_server_name: str = "codex"
     ai_mcp_base_url: str = ""
@@ -31,21 +46,8 @@ class Settings(BaseSettings):
     ai_anthropic_model: str = "claude-3-5-sonnet-latest"
     usda_api_key: str = ""
     ai_timeout_seconds: int = 120
-    data_dir: Path = Path("/Users/tfinklea/codex/meals/data")
-    db_path: Path = Path("/Users/tfinklea/codex/meals/data/meals.db")
-    database_url_override: str = ""
-
-    @computed_field  # type: ignore[misc] -- Pydantic computed_field + property combo confuses type checker
-    @property
-    def database_url(self) -> str:
-        if self.database_url_override:
-            return self.database_url_override
-        return f"sqlite:///{self.db_path}"
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    settings = Settings()
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    return settings
+    return Settings()

@@ -18,6 +18,7 @@ class Recipe(Base):
     __tablename__ = "recipes"
 
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     recipe_template_id: Mapped[str | None] = mapped_column(
         ForeignKey("recipe_templates.id", ondelete="SET NULL"),
         nullable=True,

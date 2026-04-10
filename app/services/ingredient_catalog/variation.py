@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import (
     BaseIngredient,
     GroceryItem,
@@ -228,6 +229,7 @@ def upsert_ingredient_preference(
     )
     if preference is None:
         preference = IngredientPreference(
+            user_id=get_settings().local_user_id,
             base_ingredient_id=base_ingredient_id,
             preferred_variation_id=preferred_variation_id,
             preferred_brand=str(preferred_brand or "").strip(),

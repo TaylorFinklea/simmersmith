@@ -18,6 +18,7 @@ from app.models import (
     WeekMealIngredient,
     utcnow,
 )
+from app.config import get_settings
 from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
 from app.services.change_history import ai_baseline_changes, build_change_event, record_change_batch
 from app.services.grocery import normalize_name, regenerate_grocery_for_week
@@ -37,10 +38,11 @@ from app.services.weeks import finalize_week, invalidate_week, mark_week_ready_f
 
 
 def upsert_profile_settings(session: Session, updates: dict[str, str]) -> None:
+    uid = get_settings().local_user_id
     for key, value in updates.items():
-        setting = session.get(ProfileSetting, key)
+        setting = session.get(ProfileSetting, (uid, key))
         if setting is None:
-            setting = ProfileSetting(key=key, value=value, updated_at=utcnow())
+            setting = ProfileSetting(user_id=uid, key=key, value=value, updated_at=utcnow())
             session.add(setting)
         else:
             setting.value = value
@@ -206,7 +208,7 @@ def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
     recipe = session.get(Recipe, recipe_id) if recipe_id else None
     is_new_recipe = recipe is None
     if recipe is None:
-        recipe = Recipe(id=recipe_id or new_id(), name=payload.name)
+        recipe = Recipe(id=recipe_id or new_id(), name=payload.name, user_id=get_settings().local_user_id)
         session.add(recipe)
 
     base_recipe = None
@@ -382,6 +384,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     week.updated_at = utcnow()
 
     ai_run = AIRun(
+        user_id=get_settings().local_user_id,
         week_id=week.id,
         run_type="draft",
         model=payload.model,

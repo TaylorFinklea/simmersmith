@@ -66,12 +66,12 @@ def seed_defaults(session: Session) -> None:
     for key, value in DEFAULT_PROFILE_SETTINGS.items():
         if key in existing_keys:
             continue
-        session.add(ProfileSetting(key=key, value=value, updated_at=utcnow()))
+        session.add(ProfileSetting(user_id=get_settings().local_user_id, key=key, value=value, updated_at=utcnow()))
 
     existing_staple = session.scalar(select(Staple).limit(1))
     if existing_staple is None:
         for staple in DEFAULT_STAPLES:
-            session.add(Staple(**staple))
+            session.add(Staple(user_id=get_settings().local_user_id, **staple))
 
     ensure_default_templates(session)
     ensure_nutrition_defaults(session)

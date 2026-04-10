@@ -19,14 +19,11 @@ class Base(DeclarativeBase):
 @lru_cache(maxsize=1)
 def get_engine():
     settings = get_settings()
-    engine_kwargs: dict[str, object] = {}
+    kwargs: dict[str, object] = {}
+    # SQLite needs this for tests; production uses Postgres.
     if settings.database_url.startswith("sqlite"):
-        engine_kwargs["connect_args"] = {"check_same_thread": False}
-    return create_engine(
-        settings.database_url,
-        future=True,
-        **engine_kwargs,
-    )
+        kwargs["connect_args"] = {"check_same_thread": False}
+    return create_engine(settings.database_url, future=True, **kwargs)
 
 
 @lru_cache(maxsize=1)

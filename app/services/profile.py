@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import Staple
 from app.schemas import StaplePayload
 from app.services.drafts import upsert_profile_settings
@@ -30,6 +31,7 @@ def update_profile(
         seen.add(normalized)
         session.add(
             Staple(
+                user_id=get_settings().local_user_id,
                 staple_name=item.staple_name.strip(),
                 normalized_name=normalized,
                 notes=item.notes,

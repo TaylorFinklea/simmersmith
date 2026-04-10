@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI
 
 from app.api.ai import router as ai_router
 from app.api.assistant import router as assistant_router
+from app.api.auth import router as auth_router
 from app.api.exports import router as exports_router
 from app.api.ingredients import preferences_router as ingredient_preferences_router
 from app.api.ingredients import router as ingredients_router
@@ -14,7 +15,7 @@ from app.api.preferences import router as preferences_router
 from app.api.profile import router as profile_router
 from app.api.recipes import router as recipes_router
 from app.api.weeks import router as weeks_router
-from app.auth import require_api_token
+from app.auth import get_current_user
 from app.config import get_settings
 from app.db import session_scope
 from app.schemas import HealthResponse
@@ -31,16 +32,17 @@ async def lifespan(_: FastAPI):
     run_migrations()
     with session_scope() as session:
         seed_defaults(session)
-    if not settings.api_token.strip():
+    if not settings.jwt_secret and not settings.api_token.strip():
         logger.warning(
-            "SIMMERSMITH_API_TOKEN is not set — API is open without authentication. "
-            "Set the env var before exposing this server to a network."
+            "No authentication configured — API is open. Set SIMMERSMITH_JWT_SECRET "
+            "(production) or SIMMERSMITH_API_TOKEN (dev) before exposing to a network."
         )
     yield
 
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
-protected_dependencies = [Depends(require_api_token)]
+app.include_router(auth_router)  # Public — handles its own auth
+protected_dependencies = [Depends(get_current_user)]
 app.include_router(ai_router, dependencies=protected_dependencies)
 app.include_router(assistant_router, dependencies=protected_dependencies)
 app.include_router(preferences_router, dependencies=protected_dependencies)

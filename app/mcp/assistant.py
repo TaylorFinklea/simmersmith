@@ -163,6 +163,7 @@ def assistant_respond(
         )
         session.add(
             AIRun(
+                user_id=_settings().local_user_id,
                 week_id=None,
                 run_type="assistant_turn",
                 model=result.target.model,

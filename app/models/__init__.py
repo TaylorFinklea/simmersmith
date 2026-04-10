@@ -11,6 +11,7 @@ from app.models.catalog import (
 )
 from app.models.profile import PreferenceSignal, ProfileSetting, Staple
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
+from app.models.user import User
 from app.models.week import (
     ExportItem,
     ExportRun,
@@ -48,6 +49,7 @@ __all__ = [
     "RecipeTemplate",
     "RetailerPrice",
     "Staple",
+    "User",
     "Week",
     "WeekChangeBatch",
     "WeekChangeEvent",

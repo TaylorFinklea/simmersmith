@@ -6,6 +6,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.models import AssistantMessage, AssistantThread, Recipe, utcnow
 from app.schemas import RecipePayload
 
@@ -32,7 +33,7 @@ def get_thread(session: Session, thread_id: str) -> AssistantThread | None:
 
 
 def create_thread(session: Session, title: str = "") -> AssistantThread:
-    thread = AssistantThread(title=title.strip())
+    thread = AssistantThread(user_id=get_settings().local_user_id, title=title.strip())
     session.add(thread)
     session.flush()
     return thread

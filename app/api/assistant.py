@@ -151,6 +151,7 @@ async def respond_route(
                 )
                 stream_session.add(
                     AIRun(
+                        user_id=get_settings().local_user_id,
                         week_id=None,
                         run_type="assistant_turn",
                         model=result.target.model,
@@ -197,6 +198,7 @@ async def respond_route(
                     )
                 stream_session.add(
                     AIRun(
+                        user_id=get_settings().local_user_id,
                         week_id=None,
                         run_type="assistant_turn",
                         model="assistant-error",

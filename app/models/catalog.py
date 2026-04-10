@@ -163,9 +163,12 @@ class IngredientVariation(Base):
 
 class IngredientPreference(Base):
     __tablename__ = "ingredient_preferences"
-    __table_args__ = (UniqueConstraint("base_ingredient_id", name="uq_ingredient_preference_base"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "base_ingredient_id", name="uq_ingredient_preferences_user_base"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     base_ingredient_id: Mapped[str] = mapped_column(
         ForeignKey("base_ingredients.id", ondelete="CASCADE"),
         nullable=False,

@@ -18,6 +18,7 @@ class AIRun(Base):
     __tablename__ = "ai_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     week_id: Mapped[str | None] = mapped_column(ForeignKey("weeks.id", ondelete="CASCADE"), nullable=True)
     run_type: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     model: Mapped[str] = mapped_column(String(120), default="skill-chat", nullable=False)
@@ -36,6 +37,7 @@ class AssistantThread(Base):
     __tablename__ = "assistant_threads"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     preview: Mapped[str] = mapped_column(Text, default="", nullable=False)
     provider_thread_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)

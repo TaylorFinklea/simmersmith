@@ -4,6 +4,7 @@ from datetime import date
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db import session_scope
 from app.models import (
     BaseIngredient,
@@ -169,7 +170,7 @@ def test_product_like_rewrite_creates_suggested_variation_and_repoints_usage() -
         )
         upsert_ingredient_preference(session, base_ingredient_id=source.id, choice_mode="preferred")
 
-        recipe = Recipe(id="mustard-recipe", name="Mustard Sauce")
+        recipe = Recipe(id="mustard-recipe", name="Mustard Sauce", user_id=get_settings().local_user_id)
         session.add(recipe)
         session.add(
             RecipeIngredient(
@@ -186,6 +187,7 @@ def test_product_like_rewrite_creates_suggested_variation_and_repoints_usage() -
         )
 
         week = Week(
+            user_id=get_settings().local_user_id,
             week_start=date(2026, 4, 6),
             week_end=date(2026, 4, 12),
             notes="rewrite",

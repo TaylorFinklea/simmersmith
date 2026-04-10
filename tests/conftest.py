@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="simmersmith-tests-"))
-os.environ["SIMMERSMITH_DATA_DIR"] = str(TEST_DATA_DIR)
-os.environ["SIMMERSMITH_DB_PATH"] = str(TEST_DATA_DIR / "meals.db")
+TEST_DB_PATH = TEST_DATA_DIR / "meals.db"
+os.environ["SIMMERSMITH_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 os.environ["SIMMERSMITH_STORAGE_SECRET"] = "test-secret"
 
 if str(ROOT) not in sys.path:
@@ -30,7 +30,7 @@ from app.services.bootstrap import run_migrations, seed_defaults
 def reset_database() -> None:
     get_settings.cache_clear()
     reset_db_state()
-    db_path = Path(os.environ["SIMMERSMITH_DB_PATH"])
+    db_path = TEST_DB_PATH
     if db_path.exists():
         db_path.unlink()
     run_migrations()

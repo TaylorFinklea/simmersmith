@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.models import ExportRun, GroceryItem, PricingRun, RetailerPrice, Week, WeekChangeBatch, WeekMeal, utcnow
 
 SLOT_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
@@ -85,6 +86,7 @@ def create_or_get_week(session: Session, week_start: date, notes: str = "") -> W
         return existing
 
     week = Week(
+        user_id=get_settings().local_user_id,
         week_start=week_start,
         week_end=week_start + timedelta(days=6),
         status="staging",

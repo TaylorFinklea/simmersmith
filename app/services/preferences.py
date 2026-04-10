@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import PreferenceSignal, ProfileSetting, utcnow
 from app.schemas import MealScoreRequest, PreferenceSignalPayload
 from app.services.grocery import normalize_name
@@ -51,7 +52,7 @@ def upsert_preference_signals(session: Session, signals: list[PreferenceSignalPa
                 )
             )
         if signal is None:
-            signal = PreferenceSignal(signal_type=signal_type, normalized_name=normalized_name, name=payload.name.strip())
+            signal = PreferenceSignal(user_id=get_settings().local_user_id, signal_type=signal_type, normalized_name=normalized_name, name=payload.name.strip())
             session.add(signal)
 
         signal.signal_type = signal_type
