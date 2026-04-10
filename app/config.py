@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,7 +17,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
     base_url: str = "http://localhost:8080"
-    database_url: str = "postgresql://simmersmith:simmersmith@localhost:5432/simmersmith"
+    # Reads SIMMERSMITH_DATABASE_URL first; falls back to DATABASE_URL (Fly.io convention).
+    # Fly/Heroku use "postgres://" but SQLAlchemy requires "postgresql://".
+    database_url: str = os.environ.get(
+        "DATABASE_URL", "postgresql://simmersmith:simmersmith@localhost:5432/simmersmith"
+    ).replace("postgres://", "postgresql://", 1)
 
     # Auth — session JWT
     jwt_secret: str = ""
