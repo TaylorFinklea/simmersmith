@@ -22,19 +22,19 @@ See `.docs/ai/handoff-template.md` for the session-end format.
 
 ## Project Overview
 
-SimmerSmith is an AI-first meal planning app targeting the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. iOS is the primary client, FastAPI + Supabase is the canonical backend, and self-hosting is a first-class option.
+SimmerSmith is an AI-first meal planning app targeting the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. iOS is the primary client, FastAPI is the canonical backend, deployed on Fly.io with Postgres.
 
 ## Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.12+ / FastAPI / SQLAlchemy 2.0 |
-| Database | Postgres (Supabase cloud) or SQLite (self-hosted) |
+| Database | Postgres (Neon free tier or Fly Postgres) |
 | Migrations | Alembic (auto-run on startup) |
 | iOS app | Swift 6.2 / SwiftUI / iOS 26+ / macOS 15+ |
 | iOS package | SimmerSmithKit (SPM) |
-| Container | Docker Compose (Python 3.12-slim) |
-| Auth | Supabase Auth (cloud) or bearer token (self-hosted) |
+| Hosting | Fly.io (Docker, shared-cpu-1x) |
+| Auth | Apple Sign-In + Google Sign-In (OIDC) / legacy bearer for dev |
 | AI | OpenAI / Anthropic / MCP (Codex server) — provider auto-detected |
 
 ## Build & Dev Commands
@@ -79,8 +79,9 @@ app/
   db.py                # SQLAlchemy engine + session factory
   models.py            # ORM models (Profiles, Recipes, Weeks, Meals, Ingredients, etc.)
   schemas.py           # Pydantic request/response models
-  auth.py              # Bearer token validation
+  auth.py              # Apple/Google auth + session JWT + legacy bearer
   api/                 # Route handlers
+    auth.py            # Token exchange endpoints (Apple/Google)
     profile.py         # Profile settings & staples
     recipes.py         # Recipe CRUD & URL import
     weeks.py           # Week management, meals, approvals
@@ -103,8 +104,8 @@ tests/
 ## Architecture Patterns
 
 - **AI-first**: AI is the primary interaction model. iOS is the primary client. FastAPI is canonical.
-- **Dual database**: Postgres (Supabase cloud) for production, SQLite for self-hosted. SQLAlchemy abstracts the dialect.
-- **Dual auth**: Supabase Auth (JWT) for cloud, bearer token for self-hosted. Middleware handles both.
+- **Postgres-only**: Neon free tier or Fly Postgres for production. SQLite used only in the test suite.
+- **Auth**: Apple/Google Sign-In (OIDC identity tokens verified server-side via JWKS). Server issues session JWTs. Legacy bearer token kept for dev/MCP.
 - **AI provider routing**: Auto-detects MCP (Codex server) → falls back to direct OpenAI/Anthropic APIs. Configurable timeout (default 120s).
 - **Export boundary**: App queues export runs; host-side CLI reads queue and writes to macOS Reminders via Playwright/AppleScript.
 - **Ingredient catalog**: 42KB+ in-memory cache with USDA FDC ingestion pipeline.
@@ -113,15 +114,17 @@ tests/
 ## Environment Variables
 
 ```
-SIMMERSMITH_API_TOKEN=<bearer-token-or-empty>
-SIMMERSMITH_DB_PATH=/path/to/meals.db
-SIMMERSMITH_DATA_DIR=/path/to/data
+SIMMERSMITH_DATABASE_URL=postgresql://simmersmith:simmersmith@localhost:5432/simmersmith
+SIMMERSMITH_JWT_SECRET=<random-256-bit-key>
+SIMMERSMITH_APPLE_BUNDLE_ID=<ios-bundle-id>
+SIMMERSMITH_GOOGLE_CLIENT_ID=<google-oauth-client-id>
+SIMMERSMITH_API_TOKEN=<legacy-bearer-or-empty>
 SIMMERSMITH_AI_MCP_ENABLED=true
 SIMMERSMITH_AI_OPENAI_API_KEY=<optional>
 SIMMERSMITH_AI_ANTHROPIC_API_KEY=<optional>
 ```
 
-Default DB location: `/Users/tfinklea/codex/meals/data/meals.db` (bind-mounted in Docker).
+Production secrets are set via `fly secrets set`. Local dev uses `.env` or docker-compose defaults.
 
 ## Repository Guidance
 

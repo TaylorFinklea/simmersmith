@@ -1,15 +1,32 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: simmersmith
+      POSTGRES_PASSWORD: simmersmith
+      POSTGRES_DB: simmersmith
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   simmersmith:
     build:
       context: .
     ports:
       - "8080:8080"
+    depends_on:
+      - postgres
     environment:
-      SIMMERSMITH_HOST: ${SIMMERSMITH_HOST:-0.0.0.0}
-      SIMMERSMITH_PORT: ${SIMMERSMITH_PORT:-8080}
-      SIMMERSMITH_DATA_DIR: ${SIMMERSMITH_DATA_DIR:-/app/data}
-      SIMMERSMITH_DB_PATH: ${SIMMERSMITH_DB_PATH:-/app/data/meals.db}
+      SIMMERSMITH_DATABASE_URL: postgresql://simmersmith:simmersmith@postgres:5432/simmersmith
+      SIMMERSMITH_HOST: "0.0.0.0"
+      SIMMERSMITH_PORT: "8080"
       SIMMERSMITH_BASE_URL: ${SIMMERSMITH_BASE_URL:-http://localhost:8080}
+      SIMMERSMITH_JWT_SECRET: ${SIMMERSMITH_JWT_SECRET:-dev-secret-change-me}
+      SIMMERSMITH_APPLE_BUNDLE_ID: ${SIMMERSMITH_APPLE_BUNDLE_ID:-}
+      SIMMERSMITH_GOOGLE_CLIENT_ID: ${SIMMERSMITH_GOOGLE_CLIENT_ID:-}
+      SIMMERSMITH_API_TOKEN: ${SIMMERSMITH_API_TOKEN:-}
       SIMMERSMITH_USDA_API_KEY: ${SIMMERSMITH_USDA_API_KEY:-}
-    volumes:
-      - /Users/tfinklea/codex/meals/data:/app/data
+
+volumes:
+  pgdata:

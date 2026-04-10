@@ -298,6 +298,17 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 
 **Decision**: Supabase Auth for the cloud product. Self-hosted mode retains the bearer token option. The FastAPI middleware must handle both auth modes based on configuration.
 
+## 2026-04-10 - Stack pivot: Fly.io + Postgres + Apple/Google Auth
+
+**Context**: The dual-database (SQLite + Postgres), Supabase Auth, and two-tier catalog model was overengineered. The actual deployment target is a single Fly.io instance with Postgres. Simplifying the stack gets to App Store faster.
+
+**Decision**: 
+- **Hosting**: Fly.io with Neon Postgres (free tier) or Fly Postgres.
+- **Auth**: Apple Sign-In + Google Sign-In via pyjwt[crypto] + PyJWKClient JWKS verification. Server issues its own session JWTs. Legacy bearer token kept for dev/MCP.
+- **Database**: Postgres-only. SQLite kept only for test suite.
+- **Catalog**: Shared reference data with no user_id. Only user-owned tables (weeks, recipes, assistant_threads, ai_runs, profile_settings, staples, preference_signals, ingredient_preferences) get user_id.
+- **Supersedes**: "Dual database support" (2026-04-05), "Supabase Auth replaces bearer token" (2026-04-05), and the Phase 0 multi-user isolation design doc.
+
 ## 2026-04-05 - AI handoff docs migrated from docs/ai/ to .docs/ai/
 
 **Context**: Global Claude Code convention uses `.docs/ai/` (dot-prefixed). This project used `docs/ai/` (old convention).
