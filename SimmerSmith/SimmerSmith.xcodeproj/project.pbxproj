@@ -40,6 +40,7 @@
 		B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F2A8FAD850D02995516AE /* GroceryView.swift */; };
 		BAE7EEBED1663B060E79F9AF /* IngredientsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A10F1ED3FB047CF6466481 /* IngredientsView.swift */; };
 		C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ED1C25DB773F9DBF319A2F /* AppState.swift */; };
+		D6D665599BB2121248AC3271 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF738967CD3644971E26635 /* SignInView.swift */; };
 		E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */; };
 		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
@@ -72,12 +73,14 @@
 		41C73D583ED87BFE61E47C9D /* WeekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekView.swift; sourceTree = "<group>"; };
 		42FB8215B29EE1469EE3AA1E /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		49A10F1ED3FB047CF6466481 /* IngredientsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsView.swift; sourceTree = "<group>"; };
+		577414F6ADB8299D9172472F /* SimmerSmith.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimmerSmith.entitlements; sourceTree = "<group>"; };
 		5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipesView.swift; sourceTree = "<group>"; };
 		5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Ingredients.swift"; sourceTree = "<group>"; };
 		614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Recipes.swift"; sourceTree = "<group>"; };
 		61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorNutritionEditor.swift; sourceTree = "<group>"; };
 		62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorView.swift; sourceTree = "<group>"; };
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		6DF738967CD3644971E26635 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
 		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -246,6 +249,7 @@
 			isa = PBXGroup;
 			children = (
 				DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */,
+				6DF738967CD3644971E26635 /* SignInView.swift */,
 			);
 			path = Onboarding;
 			sourceTree = "<group>";
@@ -280,6 +284,7 @@
 			children = (
 				7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */,
 				E8ED641FC0046AD669A36898 /* Info.plist */,
+				577414F6ADB8299D9172472F /* SimmerSmith.entitlements */,
 				4B4A178409352DE229F50741 /* App */,
 				1E42F42156053EDC2BBB13EB /* Features */,
 			);
@@ -460,6 +465,7 @@
 				53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */,
 				364F923A2908430AB4FB39D5 /* RootView.swift in Sources */,
 				6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */,
+				D6D665599BB2121248AC3271 /* SignInView.swift in Sources */,
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
 				0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */,
 			);
@@ -503,6 +509,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
@@ -618,6 +625,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;

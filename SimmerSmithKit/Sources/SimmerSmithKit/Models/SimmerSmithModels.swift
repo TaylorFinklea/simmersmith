@@ -1,5 +1,13 @@
 import Foundation
 
+public struct AuthTokenResponse: Codable, Sendable {
+    public let token: String
+    public let userId: String
+    public let email: String
+    public let displayName: String
+    public let isNewUser: Bool
+}
+
 public struct HealthResponse: Codable, Sendable {
     public let status: String
     public let aiCapabilities: AICapabilities?

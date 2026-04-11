@@ -9,7 +9,7 @@ struct RootView: View {
                 MainTabView()
             } else {
                 NavigationStack {
-                    ConnectionSetupView()
+                    SignInView()
                 }
             }
         }

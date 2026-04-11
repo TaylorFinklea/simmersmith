@@ -4,138 +4,95 @@
 
 ## Vision
 
-SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. iOS is the primary client, FastAPI + Supabase is the canonical backend, and self-hosting is a first-class option.
+SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. iOS is the primary client, FastAPI on Fly.io with Postgres is the backend.
 
-## Milestones
+**Design direction**: opinionated editorial (Paprika/Mela aesthetic) with AI as a central, prominent feature. Week, Recipes, and Assistant are the three core surfaces.
 
-### M0: Foundation & Audit (2-3 weeks)
-Get the codebase onto solid ground. Full code audit first — Codex-generated code is untrusted.
+## Infrastructure (complete)
 
-- [x] Code quality audit — backend services and API routes reviewed (2026-04-07)
-- [x] Fix critical bugs — Postgres connect_args, database_url override, grocery quantity_text, presenter None crash
-- [x] Fix ruff failures — unused imports, unused variable, import order
-- [x] Kill web frontend — remove `frontend/`, Vite config, SPA routing, simplify Dockerfile
-- [x] Code quality audit — iOS views and SimmerSmithKit (9 findings, 2 critical + 6 high + 1 medium)
-- [x] Fix critical iOS security — remove UserDefaults plaintext token fallback + scrub legacy key
-- [x] Fix critical iOS security — add `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` to Keychain base query
-- [x] Fix `try!` regex crash risk — `SimmerSmith/Features/Recipes/RecipeImportView.swift:522`
-- [x] Add accessibility labels to icon-only toolbar buttons (App Store review blocker) — Week, Grocery, Assistant views
-- [x] Add HTTP warning in ConnectionSetupView — orange warning label when URL is http:// or bare hostname (visible plaintext token risk)
-- [x] Track and cancel `postClearRefreshTask` in `clearLocalCache()` and `resetConnection()` — eliminates race with concurrent connection reset
-- [x] Propagate task cancellation in `streamAssistantResponse` via `continuation.onTermination` — SSE reader now stops when consumer cancels
-- [x] Preserve stream error in `assistantErrorByThreadID` — soft warning "Response may be incomplete. Pull to refresh." when partial response arrived
-- [ ] Database abstraction — validate SQLAlchemy on both SQLite and Postgres, dialect-aware migrations
-- [ ] Supabase project setup — Postgres instance, auth configuration
-- [ ] Multi-user data isolation — add `user_id` to ALL tables (audit found zero user scoping across every service and route), auth middleware in FastAPI
-- [x] Fix SSRF on recipe import — URL validation blocks private/internal IPs and non-HTTP schemes
-- [x] Fix assistant error leakage — generic message to client, full detail logged server-side
-- [x] Fix auth health endpoint — public `/api/health` returns status only, AI config moved to authenticated `/api/ai/health`
-- [x] Startup warning when `SIMMERSMITH_API_TOKEN` is empty
-- [x] Fix recipe ID slug collision — replaced `slugify(name)` with UUID generation in `drafts.py:upsert_recipe`
-- [x] Fix grocery full-table scans — scoped queries to week's meal IDs and recipe IDs
-- [ ] Supabase Auth integration — JWT validation in FastAPI, iOS auth flow
-- [ ] TestFlight pipeline — unblock upload (ASC API key or repair credentials)
+- [x] Backend deployed on Fly.io + Fly Postgres
+- [x] Apple/Google auth endpoints (POST /api/auth/apple, /api/auth/google)
+- [x] Multi-user data isolation (user_id on all user-owned tables, scoped queries, 7 isolation tests)
+- [x] Session JWT issuance + legacy bearer fallback
+- [x] Code quality audit + security hardening
+- [x] Backend module decomposition (models, schemas, MCP, services all split)
+- [x] iOS view decomposition (RecipeEditor, IngredientsView, AppState all split)
 
-### M1: AI-Driven Core Experience (3-4 weeks)
-Build the product that makes AI the star.
+## R1: Core Flows (make it actually work end-to-end)
 
-- [ ] Guided onboarding — full AI preference interview (household size, dietary restrictions, allergies, cuisine prefs, budget, cooking skill, time, equipment, store preferences)
-- [ ] AI-driven week planning wizard — "tell it what you want, it builds a full week"
-- [ ] Recipe import quality hardening (partially done — critical for launch)
-- [ ] Recipe editor polish — PDF export, live step/substep reorder, template customization
-- [ ] Product-like catalog rewrite — review and apply to live DB
+### R1.1 — Sign in with Apple (iOS)
+- [ ] Wire ASAuthorizationAppleIDProvider → POST /api/auth/apple → store session JWT in Keychain
+- [ ] New SignInView replacing ConnectionSetupView as primary onboarding
+- [ ] Keep developer mode toggle in Settings for self-hosted/bearer connections
 
-### M2: Grocery & Pricing (2-3 weeks)
-Complete the meal-to-purchase pipeline.
+### R1.2 — AI week planning (end-to-end)
+- [ ] Set AI provider key on Fly (OpenAI or Anthropic)
+- [ ] Verify draft-from-ai flow works with real provider
+- [ ] Make "plan my week" discoverable and polished in iOS
+- [ ] Review/approve/swap flow works
 
-- [ ] Grocery list generation from canonical ingredients (partially exists)
-- [ ] Store-specific pricing — hybrid model (API/scraping + user-reported corrections)
-- [ ] AI-optimized grocery suggestions (substitutions, deals, cheapest store)
-- [ ] Retailer matching via canonical ingredient identity (currently raw strings)
+### R1.3 — Grocery generation
+- [ ] Verify regenerate_grocery_for_week works end-to-end
+- [ ] iOS grocery view shows clean grouped checklist
 
-### M3: Polish & Launch (2-3 weeks)
-Ship it.
+### R1.4 — Recipe UX polish
+- [ ] Import from URL works reliably against real recipe sites
+- [ ] Recipe detail shows editorial presentation (not just a form)
+- [ ] Recipe editor functional for manual entry and AI-generated recipes
 
-- [ ] iOS App Store quality polish — error states, loading states, empty states, accessibility
-- [ ] Push notifications — meal reminders, grocery day, plan ready
-- [ ] Basic analytics — usage tracking, feature adoption, meal planning patterns
-- [ ] MCP surface with user-scoped access (currently single-user)
-- [ ] Self-hosted Docker documentation and setup
-- [ ] App Store submission (metadata, screenshots, review prep)
-- [ ] Performance and edge case hardening
+## R2: Visual Redesign (editorial + AI-forward)
 
-### M4: Post-Launch
-- [ ] Household sharing (designed for at launch, shipped after)
-- [ ] Freemium boundaries (once usage data exists)
-- [ ] Advanced analytics — nutrition trends, budget tracking, cooking patterns over time
-- [ ] macOS operator client
-- [ ] Advanced AI features (meal prep optimization, nutrition tracking, dietary goal progress)
+### R2.1 — Design system foundation
+- [ ] Color tokens, typography scale, spacing constants
+- [ ] Shared components: RecipeCard, MealSlot, GroceryRow, AIPromptBar
 
-## Backlog (parallel, tiered by model capability)
+### R2.2 — Tab restructure
+- [ ] 3 core tabs: Week, Recipes, Assistant
+- [ ] Grocery as sub-view of Week (sheet or section)
+- [ ] Settings behind gear icon (not a tab)
+
+### R2.3 — Screen-by-screen redesign
+- [ ] Week view (home screen)
+- [ ] Recipe detail + editor
+- [ ] Assistant chat
+- [ ] Sign-in / onboarding
+- [ ] Grocery view
+- [ ] Settings
+
+## R3: TestFlight Prep
+
+- [ ] Fix ASC credentials or use API key auth
+- [ ] App icons, launch screen
+- [ ] Privacy policy URL
+- [ ] App Store metadata
+- [ ] Build + archive + upload
+- [ ] Internal TestFlight testing
+
+## Execution Order
+
+R1.1 → R1.2 → R1.3 → R1.4 → R2.1 (parallel from R1.2) → R2.2 → R2.3 → R3
+
+## Backlog (parallel, tiered)
 
 <!-- tier3_owner: claude -->
 
-### Haiku (mechanical, no judgment)
-- [x] Remove web frontend files and all references — `frontend/`, `vite.config.ts`, SPA fallback in `app/main.py`
-- [x] Update Docker config after web removal — `Dockerfile`, `docker-compose.yml`
-- [x] Add `.gitignore` entries for Supabase local dev files
-- [x] Fix 4 bare `except Exception:` blocks — add structured logging instead of silently swallowing — `app/db.py:34,56`, `app/services/assistant_threads.py:100`, `app/services/mcp_client.py:64`
-- [x] Replace `print()` calls with `logging` in library code — `app/services/ingredient_ingest.py:331,393`
-- [x] Extract magic numbers to named constants — `app/services/ingredient_catalog.py:522` (MAX_LINKED_ITEMS=20), `app/services/assistant_threads.py:89,102` (title/preview char limits)
-- [x] Add `# type: ignore` justification comment — `app/config.py:38`
-- [x] Add return type hints to recipe route handlers — `app/api/recipes.py:49,96,117,138,156,177,192,206,219,235`
-- [x] Add return type hints to ingredient route handlers — `app/api/ingredients.py` (10 functions)
-- [x] Add return type hints to AI draft service functions — `app/services/recipe_ai.py:606,647,747,777,839`, `app/services/drafts.py:87`, `app/mcp_server.py:128`
-- [x] Rename misleading `staple_count` variable in `app/services/bootstrap.py:71` — renamed to `existing_staple`
-- [x] Fix `app/services/drafts.py:249-250` — `upsert_recipe` now only resets archive state for new recipes
-- [x] Add route-level `limit` bounds via `fastapi.Query(ge=1, le=...)` — `app/api/recipes.py:323`, `app/api/ingredients.py:115`
-- [x] Constrain `DraftFromAIRequest.model` field — max_length + safe character pattern (it's an audit label, not a provider ID)
-
-<!-- Dropped: "Fix exports.py:73 updated_at" — false positive; ExportRun has no updated_at column, so completed_at or created_at is the correct fallback -->
-
-
-### Sonnet (some architectural judgment)
-- [x] Expand Swift Testing coverage across all feature areas — `SimmerSmithKit/`
-- [x] Add UI automation smoke tests for core iOS flows — `SimmerSmith/`
-- [x] Split `app/services/ingredient_catalog.py` (1,495 lines) — extract search, product-rewrite, and variation modules
-- [x] Split `app/services/recipe_import.py` (1,040 lines) — extract parser and ingredient normalizer
-- [x] Split `app/mcp_server.py` (835 lines) — extracted into `app/mcp/` package with 7 modules
-- [x] Split `app/models.py` (723 lines) — extracted into `app/models/` package with 7 domain modules
-- [x] Split `app/schemas.py` (734 lines) — extracted into `app/schemas/` package with 8 domain modules
-- [x] Decompose `SimmerSmith/SimmerSmith/Features/Recipes/RecipeEditorView.swift` (1,479 lines) — extract IngredientResolutionSheet, StepsEditor, NutritionEditor sub-views
-- [x] Decompose `SimmerSmith/SimmerSmith/Features/Ingredients/IngredientsView.swift` (975 lines) — extract CatalogList, VariationManagement, MergeSheet sub-views
-- [x] Decompose `SimmerSmith/SimmerSmith/App/AppState.swift` (1,119 lines) — split into domain-specific state modules (Recipes, Weeks, Assistant, AI)
-
-### Opus (design skill, cross-cutting — owned by tier3_owner)
+### Opus (design + cross-cutting)
 - [ ] Design the AI preference interview conversation flow
 - [ ] Design the week planning wizard UX and AI integration
-- [ ] Design multi-user data isolation strategy (user_id on tables, row-level security)
-- [ ] Design the freemium gate architecture (for later activation)
-
-## Priority Order
-
-M0 → M1 → M2 → M3 → M4. Backlog runs alongside any milestone.
+- [ ] Design the freemium gate architecture
 
 ## Constraints
 
-- AI is the primary interaction model, not a side feature.
-- Do not silently persist AI-generated recipes or week changes.
-- Support both SQLite (self-hosted) and Postgres (Supabase cloud).
-- Single-user accounts at launch; design for household sharing post-launch.
-- Self-hosting is a first-class option, not an afterthought.
-- MCP/agent access is a launch differentiator.
-- Freemium AI boundaries TBD — build the product first, add gates later.
-- Do not spend new effort on the web frontend — it is being removed.
-- Keep shared docs updated at session end.
+- AI is the primary interaction model, not a side feature
+- Do not silently persist AI-generated recipes or week changes
+- Postgres-only (Fly.io). SQLite only in test suite
+- Single-user accounts at launch; design for household sharing post-launch
+- MCP/agent access is a launch differentiator
+- Freemium AI boundaries TBD — build the product first, add gates later
 
 ## Open Decisions
 
-Record in `.docs/ai/decisions.md` as resolved:
-
-1. Supabase Auth — which social providers at launch? (Apple + email? Google?)
-2. AI provider for freemium tier — which model for free users vs. paid?
-3. Pricing data source — which grocery APIs? (Instacart, store-specific, etc.)
-4. MCP auth for multi-user — how does MCP access work with Supabase Auth tokens?
-5. Self-hosted auth — Supabase Auth or local bearer tokens?
-6. Push notification service — APNs direct, or through a service?
-7. Analytics provider — Supabase analytics, PostHog, Mixpanel, or custom?
+1. AI provider for launch — OpenAI or Anthropic? Both wired.
+2. Tab count — 3 (Week/Recipes/Assistant) or 4 (+ Grocery)?
+3. Recipe imagery — AI-generated, stock, or text-only?
+4. Sign in with Google — include at launch or Apple-only?

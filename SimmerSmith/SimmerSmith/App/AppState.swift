@@ -207,6 +207,25 @@ final class AppState {
         }
     }
 
+    static let productionServerURL = "https://simmersmith.fly.dev"
+
+    func signInWithApple(identityToken: String) async {
+        lastErrorMessage = nil
+        // Point at production server for the auth call
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        serverURLDraft = Self.productionServerURL
+
+        do {
+            let response = try await apiClient.signInWithApple(identityToken: identityToken)
+            // Store the session JWT as the auth token
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
+            authTokenDraft = response.token
+            await refreshAll()
+        } catch {
+            lastErrorMessage = "Sign in failed: \(error.localizedDescription)"
+        }
+    }
+
     func saveConnectionDetails() async {
         let normalizedURL = ConnectionSettingsStore.normalizeServerURL(serverURLDraft)
         settingsStore.save(serverURLString: normalizedURL, authToken: authTokenDraft)

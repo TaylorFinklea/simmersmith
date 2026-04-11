@@ -48,6 +48,10 @@ private struct RecipeCompanionDraftBody: Encodable {
     let focus: String
 }
 
+private struct TokenExchangeBody: Encodable {
+    let identityToken: String
+}
+
 private struct AssistantThreadCreateBody: Encodable {
     let title: String
 }
@@ -149,6 +153,15 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func fetchHealth() async throws -> HealthResponse {
         try await request(path: "/api/health", requiresAuth: false)
+    }
+
+    public func signInWithApple(identityToken: String) async throws -> AuthTokenResponse {
+        try await request(
+            path: "/api/auth/apple",
+            method: "POST",
+            requiresAuth: false,
+            body: TokenExchangeBody(identityToken: identityToken)
+        )
     }
 
     public func fetchProviderModels(providerID: String) async throws -> AIProviderModels {

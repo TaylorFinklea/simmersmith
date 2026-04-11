@@ -22,6 +22,7 @@ targets:
         DEVELOPMENT_TEAM: K7CBQW6MPG
         PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios
         PRODUCT_NAME: SimmerSmith
+        CODE_SIGN_ENTITLEMENTS: SimmerSmith/SimmerSmith.entitlements
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: SimmerSmith/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
