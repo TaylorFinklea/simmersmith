@@ -65,6 +65,9 @@ struct RecipeEditorView: View {
     @State private var pendingUnitIngredientID: String?
     @State private var isCreatingManagedValue = false
     @State private var ingredientResolutionContext: IngredientResolutionSheetContext?
+    @State private var ingredientSuggestions: [BaseIngredient] = []
+    @State private var focusedIngredientID: String?
+    @State private var ingredientSearchTask: Task<Void, Never>?
 
     init(
         title: String,
@@ -209,6 +212,33 @@ struct RecipeEditorView: View {
                             LabeledContent("Ingredient") {
                                 TextField("Ingredient", text: $ingredient.ingredientName)
                                     .multilineTextAlignment(.trailing)
+                                    .onChange(of: ingredient.ingredientName) { _, newValue in
+                                        focusedIngredientID = ingredient.id
+                                        searchIngredients(query: newValue)
+                                    }
+                            }
+
+                            if focusedIngredientID == ingredient.id && !ingredientSuggestions.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(ingredientSuggestions) { suggestion in
+                                            Button {
+                                                ingredient.ingredientName = suggestion.name
+                                                ingredient.baseIngredientId = suggestion.baseIngredientId
+                                                ingredientSuggestions = []
+                                                focusedIngredientID = nil
+                                            } label: {
+                                                Text(suggestion.name)
+                                                    .font(.footnote)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 6)
+                                                    .background(.fill.tertiary)
+                                                    .clipShape(Capsule())
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
                             }
 
                             LabeledContent("Quantity") {
@@ -527,6 +557,29 @@ struct RecipeEditorView: View {
             var updated = substep
             updated.sortOrder = index + 1
             return updated
+        }
+    }
+
+    private func searchIngredients(query: String) {
+        ingredientSearchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            ingredientSuggestions = []
+            return
+        }
+        ingredientSearchTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            do {
+                let results = try await appState.apiClient.fetchBaseIngredients(query: trimmed, limit: 6)
+                if !Task.isCancelled {
+                    ingredientSuggestions = results
+                }
+            } catch {
+                if !Task.isCancelled {
+                    ingredientSuggestions = []
+                }
+            }
         }
     }
 

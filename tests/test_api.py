@@ -588,22 +588,20 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
 ) -> None:
     html = load_fixture_text("recipe_import/url_lemon_pasta.html")
 
-    class FakeResponse:
+    import httpx
+
+    class FakeHTTPXResponse:
         def __init__(self, body: str) -> None:
-            self._body = body.encode("utf-8")
-            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+            self.text = body
+            self.status_code = 200
+            self.headers = {"content-type": "text/html; charset=utf-8"}
 
-        def read(self) -> bytes:
-            return self._body
+        def raise_for_status(self) -> None:
+            pass
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
+    original_get = httpx.Client.get
     monkeypatch.setattr(
-        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+        httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )
 
     import_response = client.post(
@@ -648,22 +646,20 @@ def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_ar
 ) -> None:
     html = load_fixture_text("recipe_import/url_fallback_stir_fry.html")
 
-    class FakeResponse:
+    import httpx
+
+    class FakeHTTPXResponse:
         def __init__(self, body: str) -> None:
-            self._body = body.encode("utf-8")
-            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+            self.text = body
+            self.status_code = 200
+            self.headers = {"content-type": "text/html; charset=utf-8"}
 
-        def read(self) -> bytes:
-            return self._body
+        def raise_for_status(self) -> None:
+            pass
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
+    original_get = httpx.Client.get
     monkeypatch.setattr(
-        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+        httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )
 
     import_response = client.post(
@@ -816,22 +812,20 @@ def test_recipe_import_from_text_infers_scan_sections_without_headings(client) -
 def test_recipe_import_from_url_fixture_preserves_burnt_ends_structure(client, monkeypatch) -> None:
     html = load_fixture_text("recipe_import/url_poor_mans_burnt_ends.html")
 
-    class FakeResponse:
+    import httpx
+
+    class FakeHTTPXResponse:
         def __init__(self, body: str) -> None:
-            self._body = body.encode("utf-8")
-            self.headers = {"Content-Type": "text/html; charset=utf-8"}
+            self.text = body
+            self.status_code = 200
+            self.headers = {"content-type": "text/html; charset=utf-8"}
 
-        def read(self) -> bytes:
-            return self._body
+        def raise_for_status(self) -> None:
+            pass
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
+    original_get = httpx.Client.get
     monkeypatch.setattr(
-        recipe_import.urllib_request, "urlopen", lambda request, timeout=20.0: FakeResponse(html)
+        httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )
 
     import_response = client.post(

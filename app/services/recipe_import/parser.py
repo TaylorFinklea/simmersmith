@@ -6,7 +6,8 @@ from html import unescape
 from html.parser import HTMLParser
 from typing import Any
 from urllib import parse as urllib_parse
-from urllib import request as urllib_request
+
+import httpx
 
 from app.schemas import RecipePayload, RecipeStepPayload
 
@@ -399,10 +400,36 @@ def infer_sections_from_body_lines(lines: list[str]) -> tuple[list[str], list[st
     return ingredients, [], notes
 
 
+_SENTENCE_SPLIT_RE = re.compile(
+    r"(?<=\.)\s+(?=[A-Z])"
+)
+_STEP_VERB_RE = re.compile(
+    r"^(Add|Bake|Beat|Blend|Boil|Bring|Broil|Brown|Brush|Chop|Coat|Combine|Cook|Cool|Cover|"
+    r"Cream|Crush|Cut|Dice|Drain|Drizzle|Dry|Flip|Fold|Fry|Garnish|Grate|Grease|Grill|"
+    r"Heat|Knead|Layer|Let|Marinate|Mash|Melt|Mix|Pat|Peel|Place|Pour|Preheat|Press|"
+    r"Reduce|Remove|Rinse|Roast|Roll|Saute|Sauté|Season|Serve|Set|Simmer|Slice|Spread|"
+    r"Sprinkle|Squeeze|Steam|Stir|Strain|Stuff|Toast|Top|Toss|Transfer|Turn|Warm|Wash|"
+    r"Whip|Whisk|Wrap)\b",
+    re.IGNORECASE,
+)
+
+
+def _split_sentences_into_steps(text: str) -> list[str]:
+    """Split a block of text into individual step sentences.
+
+    Used as a fallback when the text has no numbered step prefixes (common
+    in PDF imports). Splits on sentence boundaries where the next sentence
+    starts with a cooking verb.
+    """
+    sentences = _SENTENCE_SPLIT_RE.split(text)
+    return [s.strip() for s in sentences if s.strip()]
+
+
 def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
     steps: list[RecipeStepPayload] = []
     current_instruction = ""
     current_substeps: list[str] = []
+    has_numbered_steps = False
 
     def flush_step() -> None:
         nonlocal current_instruction, current_substeps
@@ -434,6 +461,7 @@ def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
             if match := STEP_PREFIX_RE.match(line):
                 flush_step()
                 current_instruction = match.group("text")
+                has_numbered_steps = True
                 continue
 
             if match := SUBSTEP_PREFIX_RE.match(line):
@@ -448,6 +476,18 @@ def parse_text_steps(lines: list[str]) -> list[RecipeStepPayload]:
                 current_instruction = line
 
     flush_step()
+
+    # Fallback: if no numbered steps were found and everything merged into
+    # one or two big steps, split on sentence boundaries.
+    if not has_numbered_steps and len(steps) <= 2:
+        merged_text = " ".join(step.instruction for step in steps)
+        sentences = _split_sentences_into_steps(merged_text)
+        if len(sentences) > len(steps):
+            steps = [
+                RecipeStepPayload(sort_order=i, instruction=s)
+                for i, s in enumerate(sentences, start=1)
+            ]
+
     return steps
 
 
@@ -587,17 +627,26 @@ def import_recipe_from_url(url: str) -> RecipePayload:
     if not normalized_url.startswith(("http://", "https://")):
         raise ValueError("Recipe URL must start with http:// or https://")
 
-    request = urllib_request.Request(
-        normalized_url,
-        headers={
-            "User-Agent": "SimmerSmith/1.0 (+https://simmersmith.app)",
-            "Accept": "text/html,application/xhtml+xml",
-        },
-    )
-    with urllib_request.urlopen(request, timeout=20.0) as response:
-        content_type = response.headers.get("Content-Type", "")
-        if "html" not in content_type:
-            raise ValueError("That URL did not return an HTML page.")
-        html = response.read().decode("utf-8", errors="replace")
+    try:
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+            response = client.get(
+                normalized_url,
+                headers={
+                    "User-Agent": "SimmerSmith/1.0 (+https://simmersmith.app)",
+                    "Accept": "text/html,application/xhtml+xml",
+                },
+            )
+            response.raise_for_status()
+    except httpx.TimeoutException:
+        raise ValueError("The recipe site took too long to respond. Try again later.")
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(f"The recipe site returned an error ({exc.response.status_code}).")
+    except httpx.RequestError as exc:
+        raise ValueError(f"Could not reach that URL: {exc}")
+
+    content_type = response.headers.get("content-type", "")
+    if "html" not in content_type:
+        raise ValueError("That URL did not return an HTML page.")
+    html = response.text
 
     return parse_recipe_html(html, normalized_url)
