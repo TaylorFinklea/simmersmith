@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+
 from app.auth import CurrentUser, get_current_user
+from app.config import get_settings
 from app.db import get_session
 from app.schemas import (
     DraftFromAIRequest,
@@ -19,6 +22,7 @@ from app.schemas import (
     WeekOut,
     WeekSummaryOut,
 )
+from app.services.ai import profile_settings_map
 from app.services.drafts import apply_ai_draft, set_week_approved, set_week_ready_for_ai, update_week_meals
 from app.services.exports import create_export_run, export_runs_payload
 from app.services.feedback import feedback_response_payload, upsert_feedback_entries
@@ -100,6 +104,41 @@ def apply_draft(
 ) -> dict[str, object]:
     week = load_week_or_404(session, current_user.id, week_id)
     apply_ai_draft(session, week, payload)
+    session.commit()
+    session.expire_all()
+    return week_payload(get_week(session, current_user.id, week_id)) or {}
+
+
+class GenerateWeekRequest(BaseModel):
+    prompt: str = ""
+
+
+@router.post("/{week_id}/generate", response_model=WeekOut)
+def generate_week_plan(
+    week_id: str,
+    payload: GenerateWeekRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Generate a full week of meals using AI."""
+    from app.services.week_planner import generate_week_plan as run_planner
+
+    week = load_week_or_404(session, current_user.id, week_id)
+    settings = get_settings()
+    user_settings = profile_settings_map(session, current_user.id)
+
+    try:
+        draft_data = run_planner(
+            settings=settings,
+            user_settings=user_settings,
+            user_prompt=payload.prompt,
+            week_start=week.week_start,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    draft = DraftFromAIRequest.model_validate(draft_data)
+    apply_ai_draft(session, week, draft)
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.id, week_id)) or {}

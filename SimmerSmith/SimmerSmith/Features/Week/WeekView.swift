@@ -6,15 +6,43 @@ struct WeekView: View {
 
     @State private var selectedMeal: WeekMeal?
     @State private var showingActivity = false
+    @State private var showingAIPlanner = false
+    @State private var aiPrompt = ""
+    @State private var isGenerating = false
+    @State private var generationError: String?
 
     var body: some View {
         Group {
             if let week = appState.currentWeek {
                 List {
+                    // AI Planner prompt bar
+                    Section {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(.purple)
+                                Text("Plan with AI")
+                                    .font(.headline)
+                                Spacer()
+                            }
+                            Button {
+                                showingAIPlanner = true
+                            } label: {
+                                Label(
+                                    week.meals.isEmpty ? "Generate meals for this week" : "Regenerate with AI",
+                                    systemImage: "wand.and.stars"
+                                )
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.purple)
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    // Week summary
                     Section {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Current Week")
-                                .font(.headline)
                             Text(week.weekStart.formatted(date: .abbreviated, time: .omitted))
                                 .font(.title3.weight(.semibold))
                             Text(statusSummary(for: week))
@@ -22,19 +50,15 @@ struct WeekView: View {
                             HStack {
                                 Label("\(week.meals.count) meals", systemImage: "fork.knife")
                                 Spacer()
-                                Label("\(week.feedbackCount) feedback", systemImage: "bubble.left")
-                                Spacer()
-                                Label("\(week.exportCount) exports", systemImage: "square.and.arrow.up")
+                                Label("\(week.groceryItems.count) groceries", systemImage: "cart")
                             }
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 10)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                        .listRowBackground(Color.clear)
+                        .padding(.vertical, 6)
                     }
 
+                    // Meals by day
                     ForEach(groupedMeals(for: week), id: \.dayName) { day in
                         Section(day.dayName) {
                             ForEach(day.meals) { meal in
@@ -78,11 +102,20 @@ struct WeekView: View {
                     await appState.refreshWeek()
                 }
             } else {
-                ContentUnavailableView(
-                    "No Current Week",
-                    systemImage: "calendar.badge.exclamationmark",
-                    description: Text("Create or sync a week from the server to see meals here.")
-                )
+                // Empty state — prompt to create a week and plan with AI
+                ContentUnavailableView {
+                    Label("No Current Week", systemImage: "calendar.badge.plus")
+                } description: {
+                    Text("Create a week and let AI plan your meals.")
+                } actions: {
+                    Button {
+                        Task { await createWeekAndShowPlanner() }
+                    } label: {
+                        Label("Start This Week", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                }
             }
         }
         .navigationTitle("Week")
@@ -127,7 +160,110 @@ struct WeekView: View {
                 ActivityView()
             }
         }
+        .sheet(isPresented: $showingAIPlanner) {
+            aiPlannerSheet
+        }
     }
+
+    // MARK: - AI Planner Sheet
+
+    private var aiPlannerSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("AI Meal Planner", systemImage: "sparkles")
+                            .font(.headline)
+                            .foregroundStyle(.purple)
+                        Text("Describe what you'd like to eat this week. The AI will generate a full meal plan with recipes.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section("What sounds good?") {
+                    TextField(
+                        "e.g., healthy meals for two, quick dinners, lots of veggies...",
+                        text: $aiPrompt,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
+                }
+
+                if let error = generationError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await generatePlan() }
+                    } label: {
+                        if isGenerating {
+                            HStack {
+                                ProgressView()
+                                Text("Generating meals...")
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Label("Generate Week", systemImage: "wand.and.stars")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .disabled(isGenerating)
+                }
+            }
+            .navigationTitle("Plan My Week")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingAIPlanner = false }
+                }
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func createWeekAndShowPlanner() async {
+        // Find the Monday of this week
+        let calendar = Calendar.current
+        let today = Date()
+        let weekday = calendar.component(.weekday, from: today)
+        let daysFromMonday = (weekday + 5) % 7
+        let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: today)!
+
+        do {
+            _ = try await appState.createWeek(weekStart: monday)
+            await appState.refreshWeek()
+            showingAIPlanner = true
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func generatePlan() async {
+        guard let weekID = appState.currentWeek?.weekId else { return }
+        isGenerating = true
+        generationError = nil
+
+        do {
+            _ = try await appState.generateWeekFromAI(weekID: weekID, prompt: aiPrompt)
+            showingAIPlanner = false
+        } catch {
+            generationError = error.localizedDescription
+        }
+
+        isGenerating = false
+    }
+
+    // MARK: - Helpers
 
     private func statusSummary(for week: WeekSnapshot) -> String {
         var parts = [week.status.replacingOccurrences(of: "_", with: " ").capitalized]

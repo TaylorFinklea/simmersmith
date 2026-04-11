@@ -36,6 +36,10 @@ private struct RecipeTextImportBody: Encodable {
     let sourceUrl: String
 }
 
+private struct GenerateWeekBody: Encodable {
+    let prompt: String
+}
+
 private struct RecipeVariationDraftBody: Encodable {
     let goal: String
 }
@@ -205,6 +209,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func updateWeekMeals(weekID: String, meals: [MealUpdateRequest]) async throws -> WeekSnapshot {
         try await request(path: "/api/weeks/\(weekID)/meals", method: "PUT", body: meals)
+    }
+
+    public func generateWeekPlan(weekID: String, prompt: String) async throws -> WeekSnapshot {
+        try await request(path: "/api/weeks/\(weekID)/generate", method: "POST", body: GenerateWeekBody(prompt: prompt))
     }
 
     public func fetchRecipes(includeArchived: Bool = false) async throws -> [RecipeSummary] {
