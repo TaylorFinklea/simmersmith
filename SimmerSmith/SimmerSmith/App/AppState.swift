@@ -96,7 +96,7 @@ final class AppState {
     }
 
     var hasSavedConnection: Bool {
-        !ConnectionSettingsStore.normalizeServerURL(settingsStore.load().serverURLString).isEmpty
+        !ConnectionSettingsStore.normalizeServerURL(serverURLDraft).isEmpty
     }
 
     var syncStatusText: String {
