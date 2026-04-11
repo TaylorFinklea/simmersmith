@@ -18,7 +18,6 @@ from app.models import (
     WeekMealIngredient,
     utcnow,
 )
-from app.config import get_settings
 from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
 from app.services.change_history import ai_baseline_changes, build_change_event, record_change_batch
 from app.services.grocery import normalize_name, regenerate_grocery_for_week
@@ -37,12 +36,11 @@ from app.services.weeks import finalize_week, invalidate_week, mark_week_ready_f
 
 
 
-def upsert_profile_settings(session: Session, updates: dict[str, str]) -> None:
-    uid = get_settings().local_user_id
+def upsert_profile_settings(session: Session, user_id: str, updates: dict[str, str]) -> None:
     for key, value in updates.items():
-        setting = session.get(ProfileSetting, (uid, key))
+        setting = session.get(ProfileSetting, (user_id, key))
         if setting is None:
-            setting = ProfileSetting(user_id=uid, key=key, value=value, updated_at=utcnow())
+            setting = ProfileSetting(user_id=user_id, key=key, value=value, updated_at=utcnow())
             session.add(setting)
         else:
             setting.value = value
@@ -203,12 +201,12 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
     return overrides
 
 
-def upsert_recipe(session: Session, payload: RecipePayload) -> Recipe:
+def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str) -> Recipe:
     recipe_id = payload.recipe_id
     recipe = session.get(Recipe, recipe_id) if recipe_id else None
     is_new_recipe = recipe is None
     if recipe is None:
-        recipe = Recipe(id=recipe_id or new_id(), name=payload.name, user_id=get_settings().local_user_id)
+        recipe = Recipe(id=recipe_id or new_id(), name=payload.name, user_id=user_id)
         session.add(recipe)
 
     base_recipe = None
@@ -308,11 +306,11 @@ def default_approved_for_slot(slot: str, requested: bool) -> bool:
 
 def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) -> Week:
     if payload.profile_updates:
-        upsert_profile_settings(session, payload.profile_updates)
+        upsert_profile_settings(session, week.user_id, payload.profile_updates)
 
     known_recipes: dict[str, Recipe] = {}
     for recipe_payload in payload.recipes:
-        recipe = upsert_recipe(session, recipe_payload)
+        recipe = upsert_recipe(session, recipe_payload, user_id=week.user_id)
         known_recipes[recipe.id] = recipe
 
     session.execute(delete(WeekMeal).where(WeekMeal.week_id == week.id))
@@ -384,7 +382,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     week.updated_at = utcnow()
 
     ai_run = AIRun(
-        user_id=get_settings().local_user_id,
+        user_id=week.user_id,
         week_id=week.id,
         run_type="draft",
         model=payload.model,
@@ -402,7 +400,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     session.add(ai_run)
     session.flush()
 
-    regenerate_grocery_for_week(session, week)
+    regenerate_grocery_for_week(session, week.user_id, week)
     session.flush()
     baseline_meals = list(
         session.scalars(select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order))
@@ -565,7 +563,7 @@ def update_week_meals(session: Session, week: Week, updates: list[MealUpdatePayl
             ),
             changes=changes,
         )
-        regenerate_grocery_for_week(session, week)
+        regenerate_grocery_for_week(session, week.user_id, week)
     else:
         week.updated_at = utcnow()
     session.flush()

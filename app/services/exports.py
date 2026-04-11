@@ -163,7 +163,7 @@ def build_shopping_split_export_items(week: Week) -> tuple[list[dict[str, object
 
 
 def create_export_run(session: Session, week: Week, payload: ExportCreateRequest) -> dict[str, object]:
-    refreshed_week = get_week(session, week.id)
+    refreshed_week = get_week(session, week.user_id, week.id)
     if refreshed_week is None:
         raise ValueError(f"Week {week.id} not found.")
 

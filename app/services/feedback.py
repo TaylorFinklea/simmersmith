@@ -6,7 +6,6 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import FeedbackEntry, PreferenceSignal, Week, utcnow
 from app.schemas import FeedbackEntryPayload
 from app.services.grocery import normalize_name
@@ -67,6 +66,7 @@ def feedback_entry_payload(entry: FeedbackEntry) -> dict[str, object]:
 
 def _upsert_feedback_signal(
     session: Session,
+    user_id: str,
     *,
     signal_type: str,
     name: str,
@@ -77,6 +77,7 @@ def _upsert_feedback_signal(
 ) -> None:
     manual_signal = session.scalar(
         select(PreferenceSignal).where(
+            PreferenceSignal.user_id == user_id,
             PreferenceSignal.signal_type == signal_type,
             PreferenceSignal.normalized_name == normalized_name,
             PreferenceSignal.source != "feedback",
@@ -84,6 +85,7 @@ def _upsert_feedback_signal(
     )
     feedback_signal = session.scalar(
         select(PreferenceSignal).where(
+            PreferenceSignal.user_id == user_id,
             PreferenceSignal.signal_type == signal_type,
             PreferenceSignal.normalized_name == normalized_name,
             PreferenceSignal.source == "feedback",
@@ -98,7 +100,7 @@ def _upsert_feedback_signal(
 
     if feedback_signal is None:
         feedback_signal = PreferenceSignal(
-            user_id=get_settings().local_user_id,
+            user_id=user_id,
             signal_type=signal_type,
             name=name,
             normalized_name=normalized_name,
@@ -114,7 +116,7 @@ def _upsert_feedback_signal(
     feedback_signal.updated_at = utcnow()
 
 
-def rebuild_feedback_preference_signals(session: Session) -> None:
+def rebuild_feedback_preference_signals(session: Session, user_id: str) -> None:
     entries = list(
         session.scalars(
             select(FeedbackEntry).where(
@@ -149,6 +151,7 @@ def rebuild_feedback_preference_signals(session: Session) -> None:
         rationale = f"Derived from {aggregate['count']} feedback entr{'y' if aggregate['count'] == 1 else 'ies'}."
         _upsert_feedback_signal(
             session,
+            user_id,
             signal_type=signal_type,
             name=str(aggregate["name"]),
             normalized_name=normalized_name,
@@ -158,7 +161,10 @@ def rebuild_feedback_preference_signals(session: Session) -> None:
         )
 
     existing_feedback_signals = session.scalars(
-        select(PreferenceSignal).where(PreferenceSignal.source == "feedback")
+        select(PreferenceSignal).where(
+            PreferenceSignal.user_id == user_id,
+            PreferenceSignal.source == "feedback",
+        )
     ).all()
     for signal in existing_feedback_signals:
         if (signal.signal_type, signal.normalized_name) not in active_feedback_keys:
@@ -168,7 +174,7 @@ def rebuild_feedback_preference_signals(session: Session) -> None:
     session.flush()
 
 
-def upsert_feedback_entries(session: Session, week: Week, entries: list[FeedbackEntryPayload]) -> list[FeedbackEntry]:
+def upsert_feedback_entries(session: Session, user_id: str, week: Week, entries: list[FeedbackEntryPayload]) -> list[FeedbackEntry]:
     stored: list[FeedbackEntry] = []
     for payload in entries:
         normalized_name = normalize_name(payload.normalized_name or payload.target_name)
@@ -196,7 +202,7 @@ def upsert_feedback_entries(session: Session, week: Week, entries: list[Feedback
         stored.append(entry)
 
     session.flush()
-    rebuild_feedback_preference_signals(session)
+    rebuild_feedback_preference_signals(session, user_id)
     return stored
 
 

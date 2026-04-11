@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     BaseIngredient,
     GroceryItem,
+    IngredientPreference,
     IngredientVariation,
     RecipeIngredient,
     WeekMealIngredient,
@@ -30,7 +31,6 @@ from .shared import (
 from .variation import (
     create_or_update_variation,
     ensure_base_ingredient,
-    ingredient_preference_for_base,
     merge_base_ingredients,
 )
 
@@ -151,8 +151,14 @@ def _repoint_base_usage_to_variation(
             if row.resolution_status != "locked":
                 row.resolution_status = "suggested"
 
-    preference = ingredient_preference_for_base(session, source_base_id)
-    if preference is not None and preference.preferred_variation_id is None:
+    # Update all user preferences for this base ingredient (catalog-level rewrite).
+    preferences = session.scalars(
+        select(IngredientPreference).where(
+            IngredientPreference.base_ingredient_id == source_base_id,
+            IngredientPreference.preferred_variation_id.is_(None),
+        )
+    ).all()
+    for preference in preferences:
         preference.preferred_variation_id = target_variation.id
 
 

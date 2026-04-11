@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import PreferenceSignal, ProfileSetting, utcnow
 from app.schemas import MealScoreRequest, PreferenceSignalPayload
 from app.services.grocery import normalize_name
@@ -27,13 +26,15 @@ def normalize_signal_type(value: str) -> str:
     return signal_type
 
 
-def list_preference_signals(session: Session) -> list[PreferenceSignal]:
+def list_preference_signals(session: Session, user_id: str) -> list[PreferenceSignal]:
     return session.scalars(
-        select(PreferenceSignal).order_by(PreferenceSignal.signal_type, PreferenceSignal.name)
+        select(PreferenceSignal)
+        .where(PreferenceSignal.user_id == user_id)
+        .order_by(PreferenceSignal.signal_type, PreferenceSignal.name)
     ).all()
 
 
-def upsert_preference_signals(session: Session, signals: list[PreferenceSignalPayload]) -> list[PreferenceSignal]:
+def upsert_preference_signals(session: Session, user_id: str, signals: list[PreferenceSignalPayload]) -> list[PreferenceSignal]:
     stored: list[PreferenceSignal] = []
     for payload in signals:
         signal_type = normalize_signal_type(payload.signal_type)
@@ -47,12 +48,13 @@ def upsert_preference_signals(session: Session, signals: list[PreferenceSignalPa
         if signal is None:
             signal = session.scalar(
                 select(PreferenceSignal).where(
+                    PreferenceSignal.user_id == user_id,
                     PreferenceSignal.signal_type == signal_type,
                     PreferenceSignal.normalized_name == normalized_name,
                 )
             )
         if signal is None:
-            signal = PreferenceSignal(user_id=get_settings().local_user_id, signal_type=signal_type, normalized_name=normalized_name, name=payload.name.strip())
+            signal = PreferenceSignal(user_id=user_id, signal_type=signal_type, normalized_name=normalized_name, name=payload.name.strip())
             session.add(signal)
 
         signal.signal_type = signal_type
@@ -84,16 +86,20 @@ def preference_signal_payload(signal: PreferenceSignal) -> dict[str, object]:
     }
 
 
-def load_profile_settings(session: Session) -> dict[str, str]:
+def load_profile_settings(session: Session, user_id: str) -> dict[str, str]:
     return {
         setting.key: setting.value
-        for setting in session.scalars(select(ProfileSetting).order_by(ProfileSetting.key)).all()
+        for setting in session.scalars(
+            select(ProfileSetting)
+            .where(ProfileSetting.user_id == user_id)
+            .order_by(ProfileSetting.key)
+        ).all()
     }
 
 
-def preference_summary_payload(session: Session, signals: list[PreferenceSignal] | None = None) -> dict[str, list[str]]:
-    settings = load_profile_settings(session)
-    signals = signals or list_preference_signals(session)
+def preference_summary_payload(session: Session, user_id: str, signals: list[PreferenceSignal] | None = None) -> dict[str, list[str]]:
+    settings = load_profile_settings(session, user_id)
+    signals = signals or list_preference_signals(session, user_id)
     active_signals = [signal for signal in signals if signal.active]
 
     hard_avoids = sorted(
@@ -145,8 +151,8 @@ def contains_phrase(value: str, phrase: str) -> bool:
     return bool(value and phrase and phrase in value)
 
 
-def score_meal_candidate(session: Session, payload: MealScoreRequest) -> dict[str, object]:
-    signals = [signal for signal in list_preference_signals(session) if signal.active]
+def score_meal_candidate(session: Session, user_id: str, payload: MealScoreRequest) -> dict[str, object]:
+    signals = [signal for signal in list_preference_signals(session, user_id) if signal.active]
     normalized_name = normalize_name(payload.recipe_name)
     normalized_cuisine = normalize_name(payload.cuisine)
     ingredient_names = {normalize_name(item) for item in payload.ingredient_names if item}
@@ -204,9 +210,9 @@ def score_meal_candidate(session: Session, payload: MealScoreRequest) -> dict[st
     }
 
 
-def preference_context_payload(session: Session) -> dict[str, object]:
-    signals = list_preference_signals(session)
+def preference_context_payload(session: Session, user_id: str) -> dict[str, object]:
+    signals = list_preference_signals(session, user_id)
     return {
         "signals": [preference_signal_payload(signal) for signal in signals],
-        "summary": preference_summary_payload(session, signals),
+        "summary": preference_summary_payload(session, user_id, signals),
     }

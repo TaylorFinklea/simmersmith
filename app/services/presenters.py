@@ -13,9 +13,13 @@ from app.services.nutrition import calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
 
 
-def profile_payload(session: Session) -> dict[str, object]:
-    settings_records = session.scalars(select(ProfileSetting).order_by(ProfileSetting.key)).all()
-    staple_records = session.scalars(select(Staple).order_by(Staple.staple_name)).all()
+def profile_payload(session: Session, user_id: str) -> dict[str, object]:
+    settings_records = session.scalars(
+        select(ProfileSetting).where(ProfileSetting.user_id == user_id).order_by(ProfileSetting.key)
+    ).all()
+    staple_records = session.scalars(
+        select(Staple).where(Staple.user_id == user_id).order_by(Staple.staple_name)
+    ).all()
     raw_settings = {setting.key: setting.value for setting in settings_records}
     settings = visible_profile_settings(raw_settings)
     staples = [
@@ -84,12 +88,14 @@ def recipe_payload(
 
 def recipes_payload(
     session: Session,
+    user_id: str,
     include_archived: bool = False,
     cuisine: str = "",
     tags: list[str] | None = None,
 ) -> list[dict[str, object]]:
-    recipes = session.scalars(
+    statement = (
         select(Recipe)
+        .where(Recipe.user_id == user_id)
         .options(
             selectinload(Recipe.ingredients),
             selectinload(Recipe.steps),
@@ -98,9 +104,11 @@ def recipes_payload(
             selectinload(Recipe.variants).selectinload(Recipe.ingredients),
             selectinload(Recipe.variants).selectinload(Recipe.steps),
         )
-        .where(True if include_archived else Recipe.archived.is_(False))
         .order_by(Recipe.name)
-    ).all()
+    )
+    if not include_archived:
+        statement = statement.where(Recipe.archived.is_(False))
+    recipes = session.scalars(statement).all()
     normalized_cuisine = cuisine.strip().lower()
     normalized_tags = {tag.strip().lower() for tag in (tags or []) if tag.strip()}
     if normalized_cuisine or normalized_tags:

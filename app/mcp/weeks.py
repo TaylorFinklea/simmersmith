@@ -5,7 +5,6 @@ from typing import Any
 from . import mcp
 from ._helpers import _call_route
 
-from app.api.exports import complete_export, export_apple_reminders_payload, export_detail
 from app.api.weeks import (
     apply_draft,
     approve_week,
@@ -25,6 +24,9 @@ from app.api.weeks import (
     week_feedback,
     week_list,
 )
+from app.api.exports import complete_export, export_apple_reminders_payload, export_detail
+from app.auth import CurrentUser
+from app.config import get_settings
 from app.db import session_scope
 from app.schemas import (
     DraftFromAIRequest,
@@ -37,35 +39,39 @@ from app.schemas import (
 )
 
 
+def _mcp_user() -> CurrentUser:
+    return CurrentUser(id=get_settings().local_user_id)
+
+
 @mcp.tool(description="List recent weeks.")
 def weeks_list(limit: int = 6) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: week_list(limit=limit, session=session))
+        return _call_route(lambda: week_list(limit=limit, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get the current week.")
 def weeks_get_current() -> dict[str, Any] | None:
     with session_scope() as session:
-        return _call_route(lambda: current_week(session=session))
+        return _call_route(lambda: current_week(session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get a week by week start date (YYYY-MM-DD).")
 def weeks_get_by_start(week_start: str) -> dict[str, Any] | None:
     with session_scope() as session:
-        return _call_route(lambda: week_by_start(week_start=week_start, session=session))
+        return _call_route(lambda: week_by_start(week_start=week_start, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get a week by ID.")
 def weeks_get(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: week_detail(week_id, session=session))
+        return _call_route(lambda: week_detail(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Create a week if it does not exist for the given start date.")
 def weeks_create(week_start: str, notes: str = "") -> dict[str, Any]:
     with session_scope() as session:
         payload = WeekCreateRequest(week_start=week_start, notes=notes)
-        return _call_route(lambda: create_week(payload, session=session))
+        return _call_route(lambda: create_week(payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Apply an AI draft payload to a week.")
@@ -87,57 +93,57 @@ def weeks_apply_ai_draft(
             meal_plan=meal_plan or [],
             week_notes=week_notes,
         )
-        return _call_route(lambda: apply_draft(week_id, payload, session=session))
+        return _call_route(lambda: apply_draft(week_id, payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Replace the meals for a week.")
 def weeks_update_meals(week_id: str, meals: list[dict[str, Any]]) -> dict[str, Any]:
     with session_scope() as session:
         payload = [MealUpdatePayload.model_validate(item) for item in meals]
-        return _call_route(lambda: update_meals(week_id, payload, session=session))
+        return _call_route(lambda: update_meals(week_id, payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get change history for a week.")
 def weeks_get_changes(week_id: str) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: week_changes(week_id, session=session))
+        return _call_route(lambda: week_changes(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Mark a week ready for AI review.")
 def weeks_mark_ready_for_ai(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: ready_for_ai(week_id, session=session))
+        return _call_route(lambda: ready_for_ai(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Approve a week.")
 def weeks_approve(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: approve_week(week_id, session=session))
+        return _call_route(lambda: approve_week(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Regenerate the grocery list for a week.")
 def weeks_regenerate_grocery(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: regenerate_grocery(week_id, session=session))
+        return _call_route(lambda: regenerate_grocery(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get saved feedback for a week.")
 def weeks_get_feedback(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: week_feedback(week_id, session=session))
+        return _call_route(lambda: week_feedback(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Save feedback entries for a week.")
 def weeks_save_feedback(week_id: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
     with session_scope() as session:
         payload = [FeedbackEntryPayload.model_validate(item) for item in entries]
-        return _call_route(lambda: save_week_feedback(week_id, payload, session=session))
+        return _call_route(lambda: save_week_feedback(week_id, payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get pricing results for a week.")
 def weeks_get_pricing(week_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: pricing_detail(week_id, session=session))
+        return _call_route(lambda: pricing_detail(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Import pricing candidates for a week.")
@@ -146,20 +152,20 @@ def weeks_import_pricing(
 ) -> dict[str, Any]:
     with session_scope() as session:
         payload = PricingImportRequest(retailers=retailers, items=items)
-        return _call_route(lambda: import_week_pricing(week_id, payload, session=session))
+        return _call_route(lambda: import_week_pricing(week_id, payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="List export runs for a week.")
 def weeks_list_exports(week_id: str) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: week_exports(week_id, session=session))
+        return _call_route(lambda: week_exports(week_id, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Create an export run for a week.")
 def weeks_create_export(week_id: str, destination: str, export_type: str) -> dict[str, Any]:
     with session_scope() as session:
         payload = ExportCreateRequest(destination=destination, export_type=export_type)
-        return _call_route(lambda: create_week_export(week_id, payload, session=session))
+        return _call_route(lambda: create_week_export(week_id, payload, session=session, current_user=_mcp_user()))
 
 
 @mcp.tool(description="Get a single export run by ID.")

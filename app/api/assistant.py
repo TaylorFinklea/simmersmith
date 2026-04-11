@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentUser, get_current_user
 from app.config import Settings, get_settings
 from app.db import get_session, session_scope
 from app.models import AIRun, AssistantMessage
@@ -45,32 +46,44 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
 
 @router.get("/threads", response_model=list[AssistantThreadSummaryOut])
-def list_threads_route(session: Session = Depends(get_session)) -> list[dict[str, object]]:
-    return [assistant_thread_summary_payload(thread) for thread in list_threads(session)]
+def list_threads_route(
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, object]]:
+    return [assistant_thread_summary_payload(thread) for thread in list_threads(session, current_user.id)]
 
 
 @router.post("/threads", response_model=AssistantThreadSummaryOut)
 def create_thread_route(
     payload: AssistantThreadCreateRequest,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    thread = create_thread(session, title=payload.title)
+    thread = create_thread(session, current_user.id, title=payload.title)
     session.commit()
     session.refresh(thread)
     return assistant_thread_summary_payload(thread)
 
 
 @router.get("/threads/{thread_id}", response_model=AssistantThreadOut)
-def thread_detail_route(thread_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
-    thread = get_thread(session, thread_id)
+def thread_detail_route(
+    thread_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    thread = get_thread(session, current_user.id, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Assistant thread not found")
     return assistant_thread_payload(thread)
 
 
 @router.delete("/threads/{thread_id}", status_code=204)
-def delete_thread_route(thread_id: str, session: Session = Depends(get_session)) -> Response:
-    thread = get_thread(session, thread_id)
+def delete_thread_route(
+    thread_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Response:
+    thread = get_thread(session, current_user.id, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Assistant thread not found")
     archive_thread(session, thread)
@@ -84,14 +97,15 @@ async def respond_route(
     payload: AssistantRespondRequest,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    thread = get_thread(session, thread_id)
+    thread = get_thread(session, current_user.id, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Assistant thread not found")
 
     attached_recipe_payload = payload.attached_recipe_draft
     if attached_recipe_payload is None and payload.attached_recipe_id:
-        attached_recipe = get_recipe(session, payload.attached_recipe_id)
+        attached_recipe = get_recipe(session, current_user.id, payload.attached_recipe_id)
         if attached_recipe is not None:
             attached_recipe_payload = RecipePayload.model_validate(recipe_payload(session, attached_recipe))
 
@@ -119,7 +133,7 @@ async def respond_route(
         for message in thread.messages
         if message.id != assistant_message.id
     ]
-    user_settings = profile_settings_map(session)
+    user_settings = profile_settings_map(session, current_user.id)
 
     async def event_stream() -> AsyncIterator[str]:
         yield encode_sse("thread.updated", initial_thread_payload)
@@ -136,7 +150,7 @@ async def respond_route(
                 existing_provider_thread_id=thread.provider_thread_id or None,
             )
             with session_scope() as stream_session:
-                live_thread = get_thread(stream_session, thread_id)
+                live_thread = get_thread(stream_session, current_user.id, thread_id)
                 live_message = stream_session.get(AssistantMessage, assistant_message.id)
                 if live_thread is None or live_message is None:
                     raise RuntimeError("Assistant thread state disappeared during response.")
@@ -151,7 +165,7 @@ async def respond_route(
                 )
                 stream_session.add(
                     AIRun(
-                        user_id=get_settings().local_user_id,
+                        user_id=current_user.id,
                         week_id=None,
                         run_type="assistant_turn",
                         model=result.target.model,
@@ -186,7 +200,7 @@ async def respond_route(
             detail = str(exc) or "Assistant response failed."
             logger.exception("Assistant turn failed for thread %s", thread_id)
             with session_scope() as stream_session:
-                live_thread = get_thread(stream_session, thread_id)
+                live_thread = get_thread(stream_session, current_user.id, thread_id)
                 live_message = stream_session.get(AssistantMessage, assistant_message.id)
                 if live_thread is not None and live_message is not None:
                     update_assistant_message(
@@ -198,7 +212,7 @@ async def respond_route(
                     )
                 stream_session.add(
                     AIRun(
-                        user_id=get_settings().local_user_id,
+                        user_id=current_user.id,
                         week_id=None,
                         run_type="assistant_turn",
                         model="assistant-error",

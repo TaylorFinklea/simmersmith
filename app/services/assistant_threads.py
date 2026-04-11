@@ -6,7 +6,6 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.config import get_settings
 from app.models import AssistantMessage, AssistantThread, Recipe, utcnow
 from app.schemas import RecipePayload
 
@@ -16,24 +15,24 @@ THREAD_TITLE_MAX_LEN = 60
 THREAD_PREVIEW_MAX_LEN = 120
 
 
-def list_threads(session: Session) -> list[AssistantThread]:
+def list_threads(session: Session, user_id: str) -> list[AssistantThread]:
     return session.scalars(
         select(AssistantThread)
-        .where(AssistantThread.archived_at.is_(None))
+        .where(AssistantThread.user_id == user_id, AssistantThread.archived_at.is_(None))
         .order_by(AssistantThread.updated_at.desc(), AssistantThread.created_at.desc())
     ).all()
 
 
-def get_thread(session: Session, thread_id: str) -> AssistantThread | None:
+def get_thread(session: Session, user_id: str, thread_id: str) -> AssistantThread | None:
     return session.scalar(
         select(AssistantThread)
         .options(selectinload(AssistantThread.messages))
-        .where(AssistantThread.id == thread_id, AssistantThread.archived_at.is_(None))
+        .where(AssistantThread.user_id == user_id, AssistantThread.id == thread_id, AssistantThread.archived_at.is_(None))
     )
 
 
-def create_thread(session: Session, title: str = "") -> AssistantThread:
-    thread = AssistantThread(user_id=get_settings().local_user_id, title=title.strip())
+def create_thread(session: Session, user_id: str, title: str = "") -> AssistantThread:
+    thread = AssistantThread(user_id=user_id, title=title.strip())
     session.add(thread)
     session.flush()
     return thread

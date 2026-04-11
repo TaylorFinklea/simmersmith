@@ -63,8 +63,12 @@ class AIExecutionTarget:
         }
 
 
-def profile_settings_map(session: Session) -> dict[str, str]:
-    records = session.scalars(select(ProfileSetting).order_by(ProfileSetting.key)).all()
+def profile_settings_map(session: Session, user_id: str) -> dict[str, str]:
+    records = session.scalars(
+        select(ProfileSetting)
+        .where(ProfileSetting.user_id == user_id)
+        .order_by(ProfileSetting.key)
+    ).all()
     return {record.key: record.value for record in records}
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import Staple
 from app.schemas import StaplePayload
 from app.services.drafts import upsert_profile_settings
@@ -12,17 +11,18 @@ from app.services.grocery import normalize_name
 
 def update_profile(
     session: Session,
+    user_id: str,
     settings: dict[str, str],
     staples: list[StaplePayload] | None,
 ) -> None:
     if settings:
-        upsert_profile_settings(session, {key: str(value) for key, value in settings.items()})
+        upsert_profile_settings(session, user_id, {key: str(value) for key, value in settings.items()})
 
     if staples is None:
         session.flush()
         return
 
-    session.execute(delete(Staple))
+    session.execute(delete(Staple).where(Staple.user_id == user_id))
     seen: set[str] = set()
     for item in staples:
         normalized = normalize_name(item.normalized_name or item.staple_name)
@@ -31,7 +31,7 @@ def update_profile(
         seen.add(normalized)
         session.add(
             Staple(
-                user_id=get_settings().local_user_id,
+                user_id=user_id,
                 staple_name=item.staple_name.strip(),
                 normalized_name=normalized,
                 notes=item.notes,

@@ -34,24 +34,27 @@ from app.services.recipes import get_recipe
 
 @mcp.tool(description="List assistant threads.")
 def assistant_list_threads() -> list[dict[str, Any]]:
+    user_id = _settings().local_user_id
     with session_scope() as session:
         return _json_ready(
-            [assistant_thread_summary_payload(thread) for thread in list_threads(session)]
+            [assistant_thread_summary_payload(thread) for thread in list_threads(session, user_id)]
         )
 
 
 @mcp.tool(description="Create a new assistant thread.")
 def assistant_create_thread(title: str = "") -> dict[str, Any]:
+    user_id = _settings().local_user_id
     with session_scope() as session:
         payload = AssistantThreadCreateRequest(title=title)
-        thread = create_thread(session, title=payload.title)
+        thread = create_thread(session, user_id, title=payload.title)
         return _json_ready(assistant_thread_summary_payload(thread))
 
 
 @mcp.tool(description="Get a single assistant thread with all messages.")
 def assistant_get_thread(thread_id: str) -> dict[str, Any]:
+    user_id = _settings().local_user_id
     with session_scope() as session:
-        thread = get_thread(session, thread_id)
+        thread = get_thread(session, user_id, thread_id)
         if thread is None:
             raise ValueError("Assistant thread not found")
         return _json_ready(assistant_thread_payload(thread))
@@ -59,8 +62,9 @@ def assistant_get_thread(thread_id: str) -> dict[str, Any]:
 
 @mcp.tool(description="Archive an assistant thread.")
 def assistant_archive_thread(thread_id: str) -> dict[str, Any]:
+    user_id = _settings().local_user_id
     with session_scope() as session:
-        thread = get_thread(session, thread_id)
+        thread = get_thread(session, user_id, thread_id)
         if thread is None:
             raise ValueError("Assistant thread not found")
         archive_thread(session, thread)
@@ -76,6 +80,7 @@ def assistant_respond(
     attached_recipe_draft: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     settings = _settings()
+    user_id = settings.local_user_id
     request = AssistantRespondRequest(
         text=text,
         attached_recipe_id=attached_recipe_id,
@@ -84,13 +89,13 @@ def assistant_respond(
     )
 
     with session_scope() as session:
-        thread = get_thread(session, thread_id)
+        thread = get_thread(session, user_id, thread_id)
         if thread is None:
             raise ValueError("Assistant thread not found")
 
         attached_recipe_payload = request.attached_recipe_draft
         if attached_recipe_payload is None and request.attached_recipe_id:
-            attached_recipe = get_recipe(session, request.attached_recipe_id)
+            attached_recipe = get_recipe(session, user_id, request.attached_recipe_id)
             if attached_recipe is not None:
                 attached_recipe_payload = RecipePayload.model_validate(
                     recipe_payload(session, attached_recipe)
@@ -116,7 +121,7 @@ def assistant_respond(
             for message in thread.messages
             if message.id != assistant_message.id
         ]
-        user_settings = profile_settings_map(session)
+        user_settings = profile_settings_map(session, user_id)
         thread_title = thread.title
         existing_provider_thread_id = thread.provider_thread_id or None
         user_message_payload_value = assistant_message_payload(user_message)
@@ -135,7 +140,7 @@ def assistant_respond(
     except Exception as exc:
         detail = str(exc) or "Assistant response failed."
         with session_scope() as session:
-            thread = get_thread(session, thread_id)
+            thread = get_thread(session, user_id, thread_id)
             live_message = session.get(AssistantMessage, assistant_message_id)
             if thread is not None and live_message is not None:
                 update_assistant_message(
@@ -148,7 +153,7 @@ def assistant_respond(
         raise ValueError(detail) from exc
 
     with session_scope() as session:
-        thread = get_thread(session, thread_id)
+        thread = get_thread(session, user_id, thread_id)
         live_message = session.get(AssistantMessage, assistant_message_id)
         if thread is None or live_message is None:
             raise ValueError("Assistant thread state disappeared during response.")
@@ -163,7 +168,7 @@ def assistant_respond(
         )
         session.add(
             AIRun(
-                user_id=_settings().local_user_id,
+                user_id=user_id,
                 week_id=None,
                 run_type="assistant_turn",
                 model=result.target.model,

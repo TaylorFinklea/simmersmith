@@ -2,16 +2,19 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.config import get_settings
 from app.db import session_scope
 from app.schemas import DraftFromAIRequest, MealDraftPayload, RecipeIngredientPayload, RecipePayload
 from app.services.drafts import apply_ai_draft
 from app.services.ingredient_catalog import create_or_update_variation, ensure_base_ingredient, upsert_ingredient_preference
 from app.services.weeks import create_or_get_week, get_week
 
+_uid = get_settings().local_user_id
+
 
 def test_grocery_aggregation_excludes_default_staples() -> None:
     with session_scope() as session:
-        week = create_or_get_week(session, date(2026, 3, 16), "test week")
+        week = create_or_get_week(session, _uid, date(2026, 3, 16), "test week")
         payload = DraftFromAIRequest(
             prompt="Build a simple protein-focused week.",
             recipes=[
@@ -56,7 +59,7 @@ def test_grocery_aggregation_excludes_default_staples() -> None:
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert len(refreshed.grocery_items) == 1
@@ -68,7 +71,7 @@ def test_grocery_aggregation_excludes_default_staples() -> None:
 
 def test_inline_meal_ingredients_flow_into_grocery_rows() -> None:
     with session_scope() as session:
-        week = create_or_get_week(session, date(2026, 3, 23), "inline ingredients")
+        week = create_or_get_week(session, _uid, date(2026, 3, 23), "inline ingredients")
         payload = DraftFromAIRequest(
             prompt="Ad hoc lunches only.",
             meal_plan=[
@@ -86,7 +89,7 @@ def test_inline_meal_ingredients_flow_into_grocery_rows() -> None:
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert {item.ingredient_name for item in refreshed.grocery_items} == {"Apples", "Cheddar"}
@@ -113,12 +116,13 @@ def test_grocery_resolution_prefers_structured_variation_for_base_ingredient() -
         )
         upsert_ingredient_preference(
             session,
+            _uid,
             base_ingredient_id=biscuits.id,
             preferred_variation_id=pillsbury.id,
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, date(2026, 3, 30), "biscuits preference")
+        week = create_or_get_week(session, _uid, date(2026, 3, 30), "biscuits preference")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -149,7 +153,7 @@ def test_grocery_resolution_prefers_structured_variation_for_base_ingredient() -
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert len(refreshed.grocery_items) == 1
@@ -180,7 +184,7 @@ def test_grocery_resolution_keeps_inferred_exact_variation_match_as_suggested() 
             nutrition_reference_unit="ea",
         )
 
-        week = create_or_get_week(session, date(2026, 4, 6), "inferred variation suggestion")
+        week = create_or_get_week(session, _uid, date(2026, 4, 6), "inferred variation suggestion")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -211,7 +215,7 @@ def test_grocery_resolution_keeps_inferred_exact_variation_match_as_suggested() 
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert len(refreshed.grocery_items) == 1
@@ -247,12 +251,13 @@ def test_grocery_resolution_prefers_household_brand_match_when_recipe_stays_gene
         )
         upsert_ingredient_preference(
             session,
+            _uid,
             base_ingredient_id=biscuits.id,
             preferred_brand="Pillsbury",
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, date(2026, 4, 13), "brand preference fallback")
+        week = create_or_get_week(session, _uid, date(2026, 4, 13), "brand preference fallback")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -283,7 +288,7 @@ def test_grocery_resolution_prefers_household_brand_match_when_recipe_stays_gene
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert len(refreshed.grocery_items) == 1
@@ -319,12 +324,13 @@ def test_grocery_locked_recipe_variation_beats_household_preference() -> None:
         )
         upsert_ingredient_preference(
             session,
+            _uid,
             base_ingredient_id=biscuits.id,
             preferred_variation_id=pillsbury.id,
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, date(2026, 4, 20), "locked variation precedence")
+        week = create_or_get_week(session, _uid, date(2026, 4, 20), "locked variation precedence")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -358,7 +364,7 @@ def test_grocery_locked_recipe_variation_beats_household_preference() -> None:
             ],
         )
         apply_ai_draft(session, week, payload)
-        refreshed = get_week(session, week.id)
+        refreshed = get_week(session, _uid, week.id)
 
     assert refreshed is not None
     assert len(refreshed.grocery_items) == 1

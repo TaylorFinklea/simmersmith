@@ -168,7 +168,7 @@ def test_product_like_rewrite_creates_suggested_variation_and_repoints_usage() -
             source_name="Open Food Facts",
             source_record_id="0123456789",
         )
-        upsert_ingredient_preference(session, base_ingredient_id=source.id, choice_mode="preferred")
+        upsert_ingredient_preference(session, get_settings().local_user_id, base_ingredient_id=source.id, choice_mode="preferred")
 
         recipe = Recipe(id="mustard-recipe", name="Mustard Sauce", user_id=get_settings().local_user_id)
         session.add(recipe)

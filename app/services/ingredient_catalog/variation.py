@@ -6,7 +6,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import (
     BaseIngredient,
     GroceryItem,
@@ -205,6 +204,7 @@ def create_or_update_variation(
 
 def upsert_ingredient_preference(
     session: Session,
+    user_id: str,
     *,
     base_ingredient_id: str,
     preferred_variation_id: str | None = None,
@@ -224,12 +224,13 @@ def upsert_ingredient_preference(
             raise ValueError("Preferred variation not found for base ingredient")
     preference = session.scalar(
         select(IngredientPreference).where(
-            IngredientPreference.base_ingredient_id == base_ingredient_id
+            IngredientPreference.user_id == user_id,
+            IngredientPreference.base_ingredient_id == base_ingredient_id,
         )
     )
     if preference is None:
         preference = IngredientPreference(
-            user_id=get_settings().local_user_id,
+            user_id=user_id,
             base_ingredient_id=base_ingredient_id,
             preferred_variation_id=preferred_variation_id,
             preferred_brand=str(preferred_brand or "").strip(),
@@ -249,17 +250,22 @@ def upsert_ingredient_preference(
     return preference
 
 
-def list_ingredient_preferences(session: Session) -> list[IngredientPreference]:
-    statement = select(IngredientPreference).order_by(IngredientPreference.created_at)
+def list_ingredient_preferences(session: Session, user_id: str) -> list[IngredientPreference]:
+    statement = (
+        select(IngredientPreference)
+        .where(IngredientPreference.user_id == user_id)
+        .order_by(IngredientPreference.created_at)
+    )
     return list(session.scalars(statement).all())
 
 
 def ingredient_preference_for_base(
-    session: Session, base_ingredient_id: str
+    session: Session, user_id: str, base_ingredient_id: str
 ) -> IngredientPreference | None:
     return session.scalar(
         select(IngredientPreference).where(
-            IngredientPreference.base_ingredient_id == base_ingredient_id
+            IngredientPreference.user_id == user_id,
+            IngredientPreference.base_ingredient_id == base_ingredient_id,
         )
     )
 
@@ -351,9 +357,18 @@ def merge_base_ingredients(session: Session, *, source_id: str, target_id: str) 
             merge_variations(session, source_id=row.id, target_id=duplicate.id)
             continue
         row.base_ingredient_id = target.id
-    preference = ingredient_preference_for_base(session, source.id)
+    # Merge user preferences — all preferences for the source base ingredient
+    # are reassigned to the target regardless of user, so query without user_id.
+    preference = session.scalar(
+        select(IngredientPreference).where(IngredientPreference.base_ingredient_id == source.id)
+    )
     if preference is not None:
-        existing = ingredient_preference_for_base(session, target.id)
+        existing = session.scalar(
+            select(IngredientPreference).where(
+                IngredientPreference.base_ingredient_id == target.id,
+                IngredientPreference.user_id == preference.user_id,
+            )
+        )
         if existing is None:
             preference.base_ingredient_id = target.id
         else:
@@ -470,6 +485,7 @@ def merge_variations(session: Session, *, source_id: str, target_id: str) -> Ing
 def choice_for_base_ingredient(
     session: Session,
     *,
+    user_id: str = "",
     base_ingredient_id: str | None,
     recipe_variation_id: str | None,
     recipe_resolution_status: str,
@@ -491,12 +507,13 @@ def choice_for_base_ingredient(
     if base is None:
         return None, None, "unresolved"
 
-    preference = session.scalar(
-        select(IngredientPreference).where(
-            IngredientPreference.base_ingredient_id == base.id,
-            IngredientPreference.active.is_(True),
-        )
+    pref_query = select(IngredientPreference).where(
+        IngredientPreference.base_ingredient_id == base.id,
+        IngredientPreference.active.is_(True),
     )
+    if user_id:
+        pref_query = pref_query.where(IngredientPreference.user_id == user_id)
+    preference = session.scalar(pref_query)
     if preference is not None:
         chosen_variation = None
         if preference.preferred_variation_id:

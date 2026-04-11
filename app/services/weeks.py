@@ -5,15 +5,15 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.config import get_settings
 from app.models import ExportRun, GroceryItem, PricingRun, RetailerPrice, Week, WeekChangeBatch, WeekMeal, utcnow
 
 SLOT_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
 
 
-def get_current_week(session: Session) -> Week | None:
+def get_current_week(session: Session, user_id: str) -> Week | None:
     statement = (
         select(Week)
+        .where(Week.user_id == user_id)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -28,10 +28,10 @@ def get_current_week(session: Session) -> Week | None:
     return session.scalar(statement)
 
 
-def get_week_by_start(session: Session, week_start: date) -> Week | None:
+def get_week_by_start(session: Session, user_id: str, week_start: date) -> Week | None:
     statement = (
         select(Week)
-        .where(Week.week_start == week_start)
+        .where(Week.user_id == user_id, Week.week_start == week_start)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -44,10 +44,10 @@ def get_week_by_start(session: Session, week_start: date) -> Week | None:
     return session.scalar(statement)
 
 
-def get_week(session: Session, week_id: str) -> Week | None:
+def get_week(session: Session, user_id: str, week_id: str) -> Week | None:
     statement = (
         select(Week)
-        .where(Week.id == week_id)
+        .where(Week.user_id == user_id, Week.id == week_id)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -62,9 +62,10 @@ def get_week(session: Session, week_id: str) -> Week | None:
     return session.scalar(statement)
 
 
-def list_weeks(session: Session, limit: int = 12) -> list[Week]:
+def list_weeks(session: Session, user_id: str, limit: int = 12) -> list[Week]:
     statement = (
         select(Week)
+        .where(Week.user_id == user_id)
         .options(
             selectinload(Week.meals),
             selectinload(Week.grocery_items).selectinload(GroceryItem.retailer_prices),
@@ -78,15 +79,15 @@ def list_weeks(session: Session, limit: int = 12) -> list[Week]:
     return list(session.scalars(statement).all())
 
 
-def create_or_get_week(session: Session, week_start: date, notes: str = "") -> Week:
-    existing = session.scalar(select(Week).where(Week.week_start == week_start))
+def create_or_get_week(session: Session, user_id: str, week_start: date, notes: str = "") -> Week:
+    existing = session.scalar(select(Week).where(Week.week_start == week_start, Week.user_id == user_id))
     if existing is not None:
         if notes:
             existing.notes = notes
         return existing
 
     week = Week(
-        user_id=get_settings().local_user_id,
+        user_id=user_id,
         week_start=week_start,
         week_end=week_start + timedelta(days=6),
         status="staging",

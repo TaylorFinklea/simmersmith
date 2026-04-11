@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentUser, get_current_user
 from app.db import get_session
 from app.schemas import (
     BaseIngredientDetailOut,
@@ -139,11 +140,12 @@ def list_ingredients_route(
 def ingredient_detail_route(
     base_ingredient_id: str,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     item = get_base_ingredient(session, base_ingredient_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Base ingredient not found")
-    preference = ingredient_preference_for_base(session, item.id)
+    preference = ingredient_preference_for_base(session, current_user.id, item.id)
     return {
         "ingredient": _base_payload(session, item),
         "variations": [_variation_payload(variation) for variation in list_variations(session, item.id)],
@@ -340,18 +342,20 @@ def resolve_ingredient_route(
 
 
 @preferences_router.get("", response_model=list[IngredientPreferenceOut])
-def list_ingredient_preferences_route(session: Session = Depends(get_session)) -> list[dict[str, object]]:
-    return [_preference_payload(item) for item in list_ingredient_preferences(session)]
+def list_ingredient_preferences_route(session: Session = Depends(get_session), current_user: CurrentUser = Depends(get_current_user)) -> list[dict[str, object]]:
+    return [_preference_payload(item) for item in list_ingredient_preferences(session, current_user.id)]
 
 
 @preferences_router.post("", response_model=IngredientPreferenceOut)
 def upsert_ingredient_preference_route(
     payload: IngredientPreferencePayload,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     try:
         item = upsert_ingredient_preference(
             session,
+            current_user.id,
             base_ingredient_id=payload.base_ingredient_id,
             preferred_variation_id=payload.preferred_variation_id,
             preferred_brand=payload.preferred_brand,
