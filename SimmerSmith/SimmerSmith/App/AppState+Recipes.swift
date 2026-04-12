@@ -56,6 +56,10 @@ extension AppState {
         try await apiClient.importRecipe(fromURL: url)
     }
 
+    func importRecipeDraft(fromHTML html: String, sourceURL: String, sourceLabel: String = "") async throws -> RecipeDraft {
+        try await apiClient.importRecipe(fromHTML: html, sourceURL: sourceURL, sourceLabel: sourceLabel)
+    }
+
     func importRecipeDraft(
         fromText text: String,
         title: String = "",

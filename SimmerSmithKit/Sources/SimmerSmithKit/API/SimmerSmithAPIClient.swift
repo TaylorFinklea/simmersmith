@@ -558,6 +558,24 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func importRecipe(
+        fromHTML html: String,
+        sourceURL: String,
+        sourceLabel: String = ""
+    ) async throws -> RecipeDraft {
+        try await request(
+            path: "/api/recipes/import-from-html",
+            method: "POST",
+            body: RecipeTextImportBody(
+                text: html,
+                title: "",
+                source: "web_import",
+                sourceLabel: sourceLabel,
+                sourceUrl: sourceURL
+            )
+        )
+    }
+
     public func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
         try await request(
             path: "/api/recipes/\(recipeID)/ai/variation-draft",

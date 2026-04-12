@@ -45,6 +45,7 @@ struct RecipeImportView: View {
     @State private var isDocumentScannerPresented = false
     @State private var pendingTextReview: PendingTextImportReview?
     @State private var didTriggerPreferredAction = false
+    @State private var showingWebImport = false
 
     init(
         preferredLaunchMode: RecipeImportLaunchMode = .url,
@@ -64,13 +65,13 @@ struct RecipeImportView: View {
                         .autocorrectionDisabled()
 
                     Button {
-                        Task { await runURLImport() }
+                        showingWebImport = true
                     } label: {
-                        Text(isImporting && importStatusMessage == "Importing from URL…" ? "Importing…" : "Import Recipe")
+                        Label("Open & Import", systemImage: "globe")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isImporting)
+                    .disabled(normalizedImportURL == nil || isImporting)
                 }
 
                 Section("Scan Import") {
@@ -144,6 +145,14 @@ struct RecipeImportView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingWebImport) {
+            if let importURL = normalizedImportURL {
+                RecipeWebImportView(url: importURL) { draft in
+                    onImported(draft)
+                    dismiss()
+                }
+            }
+        }
         .sheet(isPresented: $isDocumentScannerPresented) {
             RecipeDocumentScanner(
                 onScan: { images in
@@ -181,6 +190,14 @@ struct RecipeImportView: View {
             await importFromPhotoPickerItem(selectedPhotoItem)
             self.selectedPhotoItem = nil
         }
+    }
+
+    private var normalizedImportURL: String? {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard URL(string: withScheme) != nil else { return nil }
+        return withScheme
     }
 
     private var launchModeHelpText: String {

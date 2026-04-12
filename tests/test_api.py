@@ -11,7 +11,6 @@ from app.services.assistant_ai import (
     AssistantTurnResult,
 )
 from app.services.assistant_ai import parse_provider_envelope, strict_json_schema
-from app.services import recipe_import
 from tests.fixture_loader import load_fixture_text
 
 
@@ -599,7 +598,6 @@ def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_
         def raise_for_status(self) -> None:
             pass
 
-    original_get = httpx.Client.get
     monkeypatch.setattr(
         httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )
@@ -657,7 +655,6 @@ def test_recipe_import_falls_back_to_html_instruction_lists_when_jsonld_steps_ar
         def raise_for_status(self) -> None:
             pass
 
-    original_get = httpx.Client.get
     monkeypatch.setattr(
         httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )
@@ -823,7 +820,6 @@ def test_recipe_import_from_url_fixture_preserves_burnt_ends_structure(client, m
         def raise_for_status(self) -> None:
             pass
 
-    original_get = httpx.Client.get
     monkeypatch.setattr(
         httpx.Client, "get", lambda self, url, **kwargs: FakeHTTPXResponse(html)
     )

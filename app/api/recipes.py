@@ -175,6 +175,27 @@ def import_recipe_route(
     return _with_nutrition_summary(session, recipe)
 
 
+@router.post("/import-from-html", response_model=RecipePayload)
+def import_recipe_html_route(
+    payload: RecipeTextImportRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> RecipePayload:
+    """Import a recipe from raw HTML (extracted by an in-app browser)."""
+    from app.services.recipe_import import parse_recipe_html
+    try:
+        recipe = parse_recipe_html(payload.text, payload.source_url or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.source:
+        recipe.source = payload.source
+    if payload.source_label:
+        recipe.source_label = payload.source_label
+    if payload.source_url:
+        recipe.source_url = payload.source_url
+    return _with_nutrition_summary(session, recipe)
+
+
 @router.post("/import-from-text", response_model=RecipePayload)
 def import_recipe_text_route(
     payload: RecipeTextImportRequest,
