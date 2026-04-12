@@ -55,6 +55,7 @@ def auth_apple(
         user = User(apple_sub=apple_sub, email=email, created_at=utcnow())
         session.add(user)
         session.flush()
+    session.commit()
 
     token = issue_session_jwt(user.id, settings)
     return TokenExchangeResponse(
@@ -83,6 +84,7 @@ def auth_google(
         user = User(google_sub=google_sub, email=email, display_name=name, created_at=utcnow())
         session.add(user)
         session.flush()
+    session.commit()
 
     token = issue_session_jwt(user.id, settings)
     return TokenExchangeResponse(
