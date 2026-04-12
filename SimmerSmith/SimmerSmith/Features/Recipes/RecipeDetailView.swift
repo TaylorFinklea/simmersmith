@@ -21,247 +21,122 @@ struct RecipeDetailView: View {
     var body: some View {
         Group {
             if let recipe {
-                List {
-                    summarySection(recipe)
-
-                    if isGeneratingVariation {
-                        Section {
-                            HStack(spacing: 12) {
-                                ProgressView()
-                                Text("Generating AI variation draft…")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    if isGeneratingCompanions {
-                        Section {
-                            HStack(spacing: 12) {
-                                ProgressView()
-                                Text("Generating companion suggestions…")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    Section("Scale") {
-                        Picker("Scale", selection: $selectedScale) {
-                            ForEach(RecipeScaleOption.allCases) { option in
-                                Text(option.title).tag(option)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
-                    if let nutritionSummary = recipe.nutritionSummary {
-                        Section("Calories") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                if let caloriesPerServing = nutritionSummary.caloriesPerServing {
-                                    Text("\(Int(caloriesPerServing.rounded())) calories per serving")
-                                        .font(.headline)
-                                } else if let totalCalories = nutritionSummary.totalCalories {
-                                    Text("\(Int(totalCalories.rounded())) calories total")
-                                        .font(.headline)
-                                } else {
-                                    Text("No calorie estimate yet")
-                                        .font(.headline)
-                                }
-                                Text(nutritionSummary.statusLabel)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                Text("\(nutritionSummary.matchedIngredientCount) matched • \(nutritionSummary.unmatchedIngredientCount) unmatched")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if !nutritionSummary.unmatchedIngredients.isEmpty {
-                                ForEach(nutritionSummary.unmatchedIngredients, id: \.self) { ingredient in
-                                    Button {
-                                        let normalizedName = recipe.ingredients.first {
-                                            $0.ingredientName.localizedCaseInsensitiveCompare(ingredient) == .orderedSame
-                                        }?.normalizedName
-                                        nutritionMatchContext = RecipeNutritionMatchContext(
-                                            ingredientName: ingredient,
-                                            normalizedName: normalizedName
-                                        )
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(ingredient)
-                                                    .foregroundStyle(.primary)
-                                                Text("Match nutrition to improve this estimate")
-                                                    .font(.footnote)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(.footnote)
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-
-                    if !variantRecipes(for: recipe).isEmpty {
-                        Section("Variations") {
-                            ForEach(variantRecipes(for: recipe)) { variant in
-                                NavigationLink {
-                                    RecipeDetailView(recipeID: variant.recipeId)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(variant.name)
-                                        Text(variant.usageSummary)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if !recipe.ingredients.isEmpty {
-                        Section("Ingredients") {
-                            ForEach(recipe.ingredients.map { $0.scaled(by: selectedScale.rawValue) }) { ingredient in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(ingredient.ingredientName)
-                                    Text(ingredientLine(for: ingredient))
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-
-                    if !recipe.steps.isEmpty {
-                        Section("Steps") {
-                            ForEach(recipe.steps.sorted(by: { $0.sortOrder < $1.sortOrder })) { step in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Step \(step.sortOrder)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    Text(step.instruction)
-                                    ForEach(step.substeps.sorted(by: { $0.sortOrder < $1.sortOrder })) { substep in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Text("\(substepMarker(for: substep.sortOrder)).")
-                                                .foregroundStyle(.secondary)
-                                            Text(substep.instruction)
-                                        }
-                                        .font(.footnote)
-                                        .padding(.leading, 12)
-                                    }
-                                }
-                            }
-                        }
-                    } else if !recipe.instructionsSummary.isEmpty {
-                        Section("Instructions") {
-                            Text(recipe.instructionsSummary)
-                        }
-                    }
-
-                    if !recipe.notes.isEmpty {
-                        Section("Notes") {
-                            Text(recipe.notes)
-                        }
-                    }
-
-                    if !recipe.memories.isEmpty {
-                        Section("Memories") {
-                            Text(recipe.memories)
-                        }
-                    }
-
-                    if !recipe.sourceLabel.isEmpty || !recipe.sourceUrl.isEmpty || recipe.sourceRecipeCount > 0 {
-                        Section("Source") {
-                            if !recipe.sourceLabel.isEmpty {
-                                Text(recipe.sourceLabel)
-                            }
-                            if recipe.sourceRecipeCount > 0 {
-                                Text("\(recipe.sourceRecipeCount) recipes from this source")
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let url = URL(string: recipe.sourceUrl), !recipe.sourceUrl.isEmpty {
-                                Link(destination: url) {
-                                    Label("Open original recipe", systemImage: "safari")
-                                }
-                            }
-                        }
-                    }
-
-                    if let errorMessage {
-                        Section {
-                            Text(errorMessage)
-                                .foregroundStyle(.red)
-                        }
+                ScrollView {
+                    VStack(spacing: 0) {
+                        headerSection(recipe)
+                        contentSections(recipe)
                     }
                 }
-                .listStyle(.insetGrouped)
+                .background(SMColor.surface)
+                .scrollContentBackground(.hidden)
             } else if isLoading {
-                ProgressView("Loading recipe…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ZStack {
+                    SMColor.surface.ignoresSafeArea()
+                    ProgressView("Loading recipe...")
+                        .tint(SMColor.primary)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
             } else {
-                ContentUnavailableView(
-                    "Recipe Unavailable",
-                    systemImage: "book.closed",
-                    description: Text(errorMessage ?? "The recipe could not be loaded.")
-                )
+                ZStack {
+                    SMColor.surface.ignoresSafeArea()
+                    VStack(spacing: SMSpacing.lg) {
+                        Image(systemName: "book.closed")
+                            .font(.system(size: 48))
+                            .foregroundStyle(SMColor.textTertiary)
+                        Text("Recipe Unavailable")
+                            .font(SMFont.headline)
+                            .foregroundStyle(SMColor.textPrimary)
+                        Text(errorMessage ?? "The recipe could not be loaded.")
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(SMSpacing.xl)
+                }
             }
         }
         .navigationTitle(recipe?.name ?? "Recipe")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(SMColor.surface, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if let recipe {
-                    Menu("Actions") {
-                        Button("Edit") {
-                            editorContext = RecipeEditorSheetContext(title: "Edit Recipe", draft: recipe.editingDraft())
+                    HStack(spacing: SMSpacing.lg) {
+                        Button {
+                            Task { await toggleFavorite(recipe) }
+                        } label: {
+                            Image(systemName: recipe.favorite ? "heart.fill" : "heart")
+                                .foregroundStyle(recipe.favorite ? SMColor.favoritePink : SMColor.textSecondary)
                         }
-                        Button("Create Variation") {
-                            editorContext = RecipeEditorSheetContext(title: "New Variation", draft: recipe.variationDraft())
-                        }
-                        Menu("AI Variation Draft") {
-                            ForEach(RecipeVariationGoal.allCases) { goal in
-                                Button(goal.title) {
-                                    Task { await generateVariation(recipe, goal: goal) }
-                                }
-                                .disabled(isGeneratingVariation)
+
+                        Menu {
+                            Button {
+                                editorContext = RecipeEditorSheetContext(title: "Edit Recipe", draft: recipe.editingDraft())
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
                             }
-                        }
-                        Button("AI Companion Suggestions") {
-                            Task { await generateCompanions(recipe) }
-                        }
-                        .disabled(isGeneratingCompanions)
-                        Button("Ask Assistant About This Recipe") {
-                            Task {
-                                do {
-                                    try await appState.beginAssistantLaunch(
-                                        initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
-                                        title: recipe.name,
-                                        attachedRecipeID: recipe.recipeId,
-                                        intent: "cooking_help"
-                                    )
-                                } catch {
-                                    errorMessage = error.localizedDescription
+                            Button {
+                                editorContext = RecipeEditorSheetContext(title: "New Variation", draft: recipe.variationDraft())
+                            } label: {
+                                Label("Create Variation", systemImage: "square.on.square")
+                            }
+                            Menu("AI Variation Draft") {
+                                ForEach(RecipeVariationGoal.allCases) { goal in
+                                    Button(goal.title) {
+                                        Task { await generateVariation(recipe, goal: goal) }
+                                    }
+                                    .disabled(isGeneratingVariation)
                                 }
                             }
-                        }
-                        Button("Add to Week") {
-                            assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
-                        }
-                        Divider()
-                        if recipe.archived {
-                            Button("Restore") {
-                                Task { await restore(recipe) }
+                            Button {
+                                Task { await generateCompanions(recipe) }
+                            } label: {
+                                Label("AI Companion Suggestions", systemImage: "sparkles")
                             }
-                        } else {
-                            Button("Archive") {
-                                Task { await archive(recipe) }
+                            .disabled(isGeneratingCompanions)
+                            Button {
+                                Task {
+                                    do {
+                                        try await appState.beginAssistantLaunch(
+                                            initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
+                                            title: recipe.name,
+                                            attachedRecipeID: recipe.recipeId,
+                                            intent: "cooking_help"
+                                        )
+                                    } catch {
+                                        errorMessage = error.localizedDescription
+                                    }
+                                }
+                            } label: {
+                                Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
                             }
-                        }
-                        Button("Delete", role: .destructive) {
-                            pendingDelete = true
+                            Button {
+                                assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
+                            } label: {
+                                Label("Add to Week", systemImage: "calendar.badge.plus")
+                            }
+                            Divider()
+                            if recipe.archived {
+                                Button {
+                                    Task { await restore(recipe) }
+                                } label: {
+                                    Label("Restore", systemImage: "arrow.uturn.backward")
+                                }
+                            } else {
+                                Button {
+                                    Task { await archive(recipe) }
+                                } label: {
+                                    Label("Archive", systemImage: "archivebox")
+                                }
+                            }
+                            Button(role: .destructive) {
+                                pendingDelete = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .foregroundStyle(SMColor.textSecondary)
                         }
                     }
                 }
@@ -308,79 +183,489 @@ struct RecipeDetailView: View {
         }
     }
 
-    private var recipe: RecipeSummary? {
-        appState.recipes.first { $0.recipeId == recipeID }
-    }
+    // MARK: - Header Section
 
-    private func summarySection(_ recipe: RecipeSummary) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Text(recipe.name)
-                        .font(.title3.bold())
-                    if recipe.favorite {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                    }
+    private func headerSection(_ recipe: RecipeSummary) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            // Gradient background
+            RoundedRectangle(cornerRadius: 0)
+                .fill(recipeHeaderGradient(for: recipe))
+                .frame(height: 200)
+
+            // Title and metadata overlay
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                if recipe.archived {
+                    Text("ARCHIVED")
+                        .font(SMFont.label)
+                        .foregroundStyle(SMColor.textTertiary)
+                        .padding(.horizontal, SMSpacing.sm)
+                        .padding(.vertical, SMSpacing.xs)
+                        .background(SMColor.surface.opacity(0.6))
+                        .clipShape(Capsule())
                 }
+
+                Text(recipe.name)
+                    .font(SMFont.display)
+                    .foregroundStyle(SMColor.textPrimary)
+                    .lineLimit(3)
 
                 if !recipe.subtitleFragments.isEmpty {
-                    Text(recipe.subtitleFragments.joined(separator: " • "))
-                        .foregroundStyle(.secondary)
+                    Text(recipe.subtitleFragments.joined(separator: " \u{2022} "))
+                        .font(SMFont.body)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+            }
+            .padding(SMSpacing.xl)
+        }
+    }
+
+    // MARK: - Content Sections
+
+    private func contentSections(_ recipe: RecipeSummary) -> some View {
+        VStack(spacing: SMSpacing.lg) {
+            // AI progress indicators
+            if isGeneratingVariation {
+                aiProgressCard(text: "Generating AI variation draft...")
+            }
+
+            if isGeneratingCompanions {
+                aiProgressCard(text: "Generating companion suggestions...")
+            }
+
+            // Metadata pills
+            metadataPills(recipe)
+
+            // Tags
+            if !recipe.tags.isEmpty {
+                tagSection(recipe)
+            }
+
+            // Scale picker
+            scaleSection
+
+            // Calories
+            if let nutritionSummary = recipe.nutritionSummary {
+                nutritionSection(recipe, nutritionSummary: nutritionSummary)
+            }
+
+            // Variations
+            if !variantRecipes(for: recipe).isEmpty {
+                variationsSection(recipe)
+            }
+
+            // Ingredients
+            if !recipe.ingredients.isEmpty {
+                ingredientsSection(recipe)
+            }
+
+            // Steps
+            if !recipe.steps.isEmpty {
+                stepsSection(recipe)
+            } else if !recipe.instructionsSummary.isEmpty {
+                instructionsSummarySection(recipe)
+            }
+
+            // Notes
+            if !recipe.notes.isEmpty {
+                notesSection(title: "Notes", text: recipe.notes, icon: "note.text")
+            }
+
+            // Memories
+            if !recipe.memories.isEmpty {
+                notesSection(title: "Memories", text: recipe.memories, icon: "brain")
+            }
+
+            // Source
+            if !recipe.sourceLabel.isEmpty || !recipe.sourceUrl.isEmpty || recipe.sourceRecipeCount > 0 {
+                sourceSection(recipe)
+            }
+
+            // Error
+            if let errorMessage {
+                SMCard {
+                    Text(errorMessage)
+                        .font(SMFont.body)
+                        .foregroundStyle(SMColor.destructive)
+                }
+            }
+        }
+        .padding(.horizontal, SMSpacing.lg)
+        .padding(.top, SMSpacing.lg)
+        .padding(.bottom, SMSpacing.xxl)
+    }
+
+    // MARK: - Metadata Pills
+
+    private func metadataPills(_ recipe: RecipeSummary) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                if let servings = recipe.servings {
+                    metadataPill(icon: "person.2", text: "\(servings.formatted()) servings")
+                }
+                if let prepMinutes = recipe.prepMinutes {
+                    metadataPill(icon: "timer", text: "\(prepMinutes)m prep")
+                }
+                if let cookMinutes = recipe.cookMinutes {
+                    metadataPill(icon: "flame", text: "\(cookMinutes)m cook")
+                }
+                if let calorieLine = recipe.calorieSummaryLine {
+                    metadataPill(icon: "flame.circle", text: calorieLine)
                 }
 
-                if let calorieSummaryLine = recipe.calorieSummaryLine {
-                    Label(calorieSummaryLine, systemImage: "flame.circle")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Label(recipe.usageSummary, systemImage: "clock.arrow.circlepath")
-                    Spacer()
-                    if recipe.archived {
-                        Label("Archived", systemImage: "archivebox")
-                    }
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                metadataPill(icon: "clock.arrow.circlepath", text: recipe.usageSummary)
 
                 if !recipe.overrideFields.isEmpty {
-                    Text("Overrides: \(recipe.overrideFields.joined(separator: ", "))")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    metadataPill(icon: "slider.horizontal.3", text: recipe.overrideFields.joined(separator: ", "))
+                }
+            }
+        }
+    }
+
+    private func metadataPill(icon: String, text: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(SMFont.caption)
+            .foregroundStyle(SMColor.textSecondary)
+            .padding(.horizontal, SMSpacing.md)
+            .padding(.vertical, SMSpacing.sm)
+            .background(SMColor.surfaceCard)
+            .clipShape(Capsule())
+    }
+
+    // MARK: - Tags
+
+    private func tagSection(_ recipe: RecipeSummary) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                ForEach(recipe.tags, id: \.self) { tag in
+                    Text(tag)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.primary)
+                        .padding(.horizontal, SMSpacing.md)
+                        .padding(.vertical, SMSpacing.xs)
+                        .background(SMColor.primary.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
+    // MARK: - Scale
+
+    private var scaleSection: some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Text("Scale")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                HStack(spacing: SMSpacing.sm) {
+                    ForEach(RecipeScaleOption.allCases) { option in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedScale = option
+                            }
+                        } label: {
+                            Text(option.title)
+                                .font(SMFont.label)
+                                .foregroundStyle(selectedScale == option ? .white : SMColor.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, SMSpacing.sm)
+                                .background(selectedScale == option ? SMColor.primary : SMColor.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Nutrition
+
+    private func nutritionSection(_ recipe: RecipeSummary, nutritionSummary: NutritionSummary) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.md) {
+                Text("Calories")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                if let caloriesPerServing = nutritionSummary.caloriesPerServing {
+                    Text("\(Int(caloriesPerServing.rounded())) calories per serving")
+                        .font(SMFont.headline)
+                        .foregroundStyle(SMColor.textPrimary)
+                } else if let totalCalories = nutritionSummary.totalCalories {
+                    Text("\(Int(totalCalories.rounded())) calories total")
+                        .font(SMFont.headline)
+                        .foregroundStyle(SMColor.textPrimary)
+                } else {
+                    Text("No calorie estimate yet")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
                 }
 
-                if !recipe.tags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(recipe.tags, id: \.self) { tag in
-                                Text(tag)
-                                    .font(.caption.weight(.medium))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(.thinMaterial, in: Capsule())
+                HStack(spacing: SMSpacing.md) {
+                    Text(nutritionSummary.statusLabel)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
+                    Text("\(nutritionSummary.matchedIngredientCount) matched")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.success)
+                    if nutritionSummary.unmatchedIngredientCount > 0 {
+                        Text("\(nutritionSummary.unmatchedIngredientCount) unmatched")
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.accent)
+                    }
+                }
+
+                if !nutritionSummary.unmatchedIngredients.isEmpty {
+                    Divider()
+                        .background(SMColor.divider)
+
+                    ForEach(nutritionSummary.unmatchedIngredients, id: \.self) { ingredient in
+                        Button {
+                            let normalizedName = recipe.ingredients.first {
+                                $0.ingredientName.localizedCaseInsensitiveCompare(ingredient) == .orderedSame
+                            }?.normalizedName
+                            nutritionMatchContext = RecipeNutritionMatchContext(
+                                ingredientName: ingredient,
+                                normalizedName: normalizedName
+                            )
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(ingredient)
+                                        .font(SMFont.body)
+                                        .foregroundStyle(SMColor.textPrimary)
+                                    Text("Match nutrition to improve this estimate")
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textTertiary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(SMColor.textTertiary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Variations
+
+    private func variationsSection(_ recipe: RecipeSummary) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.md) {
+                Text("Variations")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                ForEach(variantRecipes(for: recipe)) { variant in
+                    NavigationLink {
+                        RecipeDetailView(recipeID: variant.recipeId)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                                Text(variant.name)
+                                    .font(SMFont.subheadline)
+                                    .foregroundStyle(SMColor.textPrimary)
+                                Text(variant.usageSummary)
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12))
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - Ingredients
+
+    private func ingredientsSection(_ recipe: RecipeSummary) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.md) {
+                Text("Ingredients")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                ForEach(recipe.ingredients.map { $0.scaled(by: selectedScale.rawValue) }) { ingredient in
+                    HStack(alignment: .top) {
+                        // Quantity + unit left-aligned
+                        HStack(spacing: SMSpacing.xs) {
+                            if let quantity = ingredient.quantity {
+                                Text(quantity.formatted())
+                                    .font(SMFont.body)
+                                    .foregroundStyle(SMColor.primary)
+                            }
+                            if !ingredient.unit.isEmpty {
+                                Text(ingredient.unit)
+                                    .font(SMFont.body)
+                                    .foregroundStyle(SMColor.primary)
+                            }
+                        }
+                        .frame(minWidth: 60, alignment: .leading)
+
+                        // Name + prep right
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(ingredient.ingredientName)
+                                .font(SMFont.body)
+                                .foregroundStyle(SMColor.textPrimary)
+
+                            if !ingredient.prep.isEmpty {
+                                Text(ingredient.prep)
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textTertiary)
+                            }
+                        }
+
+                        Spacer()
+                    }
+
+                    if ingredient.id != recipe.ingredients.last?.id {
+                        Divider()
+                            .background(SMColor.divider)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Steps
+
+    private func stepsSection(_ recipe: RecipeSummary) -> some View {
+        VStack(alignment: .leading, spacing: SMSpacing.md) {
+            Text("Steps")
+                .font(SMFont.label)
+                .foregroundStyle(SMColor.textTertiary)
+                .padding(.leading, SMSpacing.xs)
+
+            ForEach(recipe.steps.sorted(by: { $0.sortOrder < $1.sortOrder })) { step in
+                SMCard {
+                    VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                        Text("\(step.sortOrder)")
+                            .font(SMFont.headline)
+                            .foregroundStyle(SMColor.primary)
+
+                        Text(step.instruction)
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.textPrimary)
+
+                        if !step.substeps.isEmpty {
+                            ForEach(step.substeps.sorted(by: { $0.sortOrder < $1.sortOrder })) { substep in
+                                HStack(alignment: .top, spacing: SMSpacing.sm) {
+                                    Text("\(substepMarker(for: substep.sortOrder)).")
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textTertiary)
+                                    Text(substep.instruction)
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textSecondary)
+                                }
+                                .padding(.leading, SMSpacing.md)
                             }
                         }
                     }
                 }
+            }
+        }
+    }
 
-                HStack {
-                    if let servings = recipe.servings {
-                        Label("\(servings.formatted()) servings", systemImage: "person.2")
-                    }
-                    if let prepMinutes = recipe.prepMinutes {
-                        Label("\(prepMinutes)m prep", systemImage: "timer")
-                    }
-                    if let cookMinutes = recipe.cookMinutes {
-                        Label("\(cookMinutes)m cook", systemImage: "flame")
+    // MARK: - Instructions Summary
+
+    private func instructionsSummarySection(_ recipe: RecipeSummary) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Text("Instructions")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                Text(recipe.instructionsSummary)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textPrimary)
+            }
+        }
+    }
+
+    // MARK: - Notes / Memories
+
+    private func notesSection(title: String, text: String, icon: String) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Label(title, systemImage: icon)
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                Text(text)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textSecondary)
+            }
+        }
+    }
+
+    // MARK: - Source
+
+    private func sourceSection(_ recipe: RecipeSummary) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Text("Source")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                if !recipe.sourceLabel.isEmpty {
+                    Text(recipe.sourceLabel)
+                        .font(SMFont.body)
+                        .foregroundStyle(SMColor.textPrimary)
+                }
+
+                if recipe.sourceRecipeCount > 0 {
+                    Text("\(recipe.sourceRecipeCount) recipes from this source")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+                if let url = URL(string: recipe.sourceUrl), !recipe.sourceUrl.isEmpty {
+                    Link(destination: url) {
+                        Label("Open original recipe", systemImage: "safari")
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.primary)
                     }
                 }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 8)
         }
+    }
+
+    // MARK: - AI Progress Card
+
+    private func aiProgressCard(text: String) -> some View {
+        HStack(spacing: SMSpacing.md) {
+            ProgressView()
+                .tint(SMColor.aiPurple)
+            Text(text)
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(SMSpacing.lg)
+        .background(SMColor.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+    }
+
+    // MARK: - Helpers
+
+    private func recipeHeaderGradient(for recipe: RecipeSummary) -> LinearGradient {
+        let hash = abs(recipe.recipeId.hashValue)
+        return SMColor.recipeGradients[hash % SMColor.recipeGradients.count]
+    }
+
+    private var recipe: RecipeSummary? {
+        appState.recipes.first { $0.recipeId == recipeID }
     }
 
     private func ingredientLine(for ingredient: RecipeIngredient) -> String {
@@ -391,7 +676,7 @@ struct RecipeDetailView: View {
             ingredient.category.isEmpty ? nil : ingredient.category,
         ]
         .compactMap { $0 }
-        .joined(separator: " • ")
+        .joined(separator: " \u{2022} ")
     }
 
     private func variantRecipes(for recipe: RecipeSummary) -> [RecipeSummary] {
@@ -425,6 +710,16 @@ struct RecipeDetailView: View {
     private func archive(_ recipe: RecipeSummary) async {
         do {
             try await appState.archiveRecipe(recipe)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func toggleFavorite(_ recipe: RecipeSummary) async {
+        var draft = recipe.editingDraft()
+        draft.favorite = !recipe.favorite
+        do {
+            _ = try await appState.saveRecipe(draft)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -480,6 +775,8 @@ struct RecipeDetailView: View {
     }
 }
 
+// MARK: - Companion Options (dark theme)
+
 private struct RecipeCompanionOptionsView: View {
     let context: RecipeCompanionSheetContext
     let onSelect: (RecipeAIDraftOption) -> Void
@@ -488,43 +785,52 @@ private struct RecipeCompanionOptionsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Text(context.options.rationale)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Text(context.options.goal)
-                }
+            ScrollView {
+                VStack(spacing: SMSpacing.lg) {
+                    // Rationale card
+                    SMCard {
+                        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                            Text(context.options.goal)
+                                .font(SMFont.label)
+                                .foregroundStyle(SMColor.textTertiary)
+                            Text(context.options.rationale)
+                                .font(SMFont.body)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    }
 
-                Section("Choose a draft") {
+                    // Options
                     ForEach(context.options.options) { option in
                         Button {
                             onSelect(option)
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(option.label)
-                                        .font(.subheadline.weight(.semibold))
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.footnote)
-                                        .foregroundStyle(.tertiary)
+                            SMCard {
+                                VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                                    HStack {
+                                        Text(option.label)
+                                            .font(SMFont.subheadline)
+                                            .foregroundStyle(SMColor.textPrimary)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(SMColor.textTertiary)
+                                    }
+                                    Text(option.draft.name)
+                                        .font(SMFont.headline)
+                                        .foregroundStyle(SMColor.primary)
+                                    Text(option.rationale)
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textSecondary)
                                 }
-                                Text(option.draft.name)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text(option.rationale)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                .padding(SMSpacing.lg)
             }
+            .background(SMColor.surface)
+            .scrollContentBackground(.hidden)
             .navigationTitle(context.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -532,6 +838,7 @@ private struct RecipeCompanionOptionsView: View {
                     Button("Close") {
                         dismiss()
                     }
+                    .foregroundStyle(SMColor.textSecondary)
                 }
             }
         }

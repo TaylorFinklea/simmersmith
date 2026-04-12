@@ -19,116 +19,126 @@ struct RecipesView: View {
     @State private var suggestionErrorMessage: String?
     @State private var showingReviewQueue = false
     @State private var showingIngredientManager = false
+    @State private var showingAISuggestionSheet = false
+
+    private let gridColumns = [
+        GridItem(.flexible(), spacing: SMSpacing.md),
+        GridItem(.flexible(), spacing: SMSpacing.md),
+    ]
 
     var body: some View {
-        List {
-            filterSection
+        ZStack(alignment: .bottomTrailing) {
+            SMColor.surface
+                .ignoresSafeArea()
 
-            if isGeneratingSuggestion {
-                Section {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Generating AI suggestion draft…")
-                            .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: SMSpacing.lg) {
+                    searchBar
+                    mealFilterChips
+                    sortAndFilterControls
+
+                    if isGeneratingSuggestion {
+                        aiGeneratingBanner
+                    }
+
+                    if visibleRecipes.isEmpty {
+                        emptyState
+                    } else {
+                        recipeGrid
                     }
                 }
+                .padding(.horizontal, SMSpacing.lg)
+                .padding(.bottom, 80)
             }
 
-            if visibleRecipes.isEmpty {
-                ContentUnavailableView(
-                    "No Recipes",
-                    systemImage: "book.closed",
-                    description: Text(emptyStateMessage)
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(visibleRecipes) { recipe in
-                    if isSelectionMode {
-                        Button {
-                            toggleSelection(for: recipe)
-                        } label: {
-                            RecipeRow(recipe: recipe, isSelected: selectedRecipeIDs.contains(recipe.recipeId))
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        NavigationLink {
-                            RecipeDetailView(recipeID: recipe.recipeId)
-                        } label: {
-                            RecipeRow(recipe: recipe, isSelected: false)
-                        }
-                    }
+            if !isSelectionMode {
+                AIFloatingButton {
+                    showingAISuggestionSheet = true
                 }
+                .padding(SMSpacing.xl)
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle("Recipes")
-        .searchable(text: $searchText, prompt: "Search recipes, tags, memories")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 BrandToolbarBadge()
             }
             ToolbarItem(placement: .topBarLeading) {
-                Menu("Organize") {
-                    Button("Refresh") {
+                Menu {
+                    Button {
                         Task { await appState.refreshRecipes() }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    Button(reviewQueueButtonTitle) {
+                    Button {
                         showingReviewQueue = true
+                    } label: {
+                        Label(reviewQueueButtonTitle, systemImage: "checklist")
                     }
-                    Button("Manage ingredients") {
+                    Button {
                         showingIngredientManager = true
+                    } label: {
+                        Label("Manage ingredients", systemImage: "list.bullet")
                     }
-                    Button(showArchived ? "Hide archived" : "Show archived") {
+                    Button {
                         showArchived.toggle()
+                    } label: {
+                        Label(showArchived ? "Hide archived" : "Show archived", systemImage: "archivebox")
                     }
-                    Button(isSelectionMode ? "Done selecting" : "Select recipes") {
+                    Button {
                         isSelectionMode.toggle()
                         if !isSelectionMode {
                             selectedRecipeIDs.removeAll()
                         }
+                    } label: {
+                        Label(isSelectionMode ? "Done selecting" : "Select recipes", systemImage: "checkmark.circle")
                     }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .foregroundStyle(SMColor.textSecondary)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("Create") {
-                    Button("New recipe") {
+                Menu {
+                    Button {
                         editorContext = RecipeEditorSheetContext(
                             title: "New Recipe",
                             draft: RecipeDraft(name: "", mealType: mealFilter == .all ? "dinner" : mealFilter.rawValue)
                         )
+                    } label: {
+                        Label("New recipe", systemImage: "square.and.pencil")
                     }
                     Divider()
-                    Button("Import from URL") { importLaunchMode = .url }
-                    Button("Scan from Camera") { importLaunchMode = .camera }
-                    Button("Import from Photo") { importLaunchMode = .photo }
-                    Button("Import from PDF") { importLaunchMode = .pdf }
-                    Divider()
-                    Menu("AI Suggestion Draft") {
-                        ForEach(RecipeSuggestionGoal.allCases) { goal in
-                            Button(goal.title) {
-                                Task { await generateSuggestion(goal) }
-                            }
-                            .disabled(isGeneratingSuggestion || appState.recipes.isEmpty)
-                        }
+                    Button {
+                        importLaunchMode = .url
+                    } label: {
+                        Label("Import from URL", systemImage: "link")
                     }
+                    Button {
+                        importLaunchMode = .camera
+                    } label: {
+                        Label("Scan from Camera", systemImage: "camera")
+                    }
+                    Button {
+                        importLaunchMode = .photo
+                    } label: {
+                        Label("Import from Photo", systemImage: "photo")
+                    }
+                    Button {
+                        importLaunchMode = .pdf
+                    } label: {
+                        Label("Import from PDF", systemImage: "doc.richtext")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(SMColor.primary)
                 }
             }
         }
         .safeAreaInset(edge: .bottom) {
             if isSelectionMode {
-                HStack {
-                    Text("\(selectedRecipeIDs.count) selected")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Add to Week") {
-                        assignmentContext = RecipeAssignmentSheetContext(recipes: selectedRecipes)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedRecipeIDs.isEmpty)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 10)
-                .background(.thinMaterial)
+                selectionBar
             }
         }
         .sheet(item: $importLaunchMode) { mode in
@@ -148,6 +158,9 @@ struct RecipesView: View {
         }
         .sheet(isPresented: $showingReviewQueue) {
             IngredientReviewQueueView()
+        }
+        .sheet(isPresented: $showingAISuggestionSheet) {
+            aiSuggestionSheet
         }
         .navigationDestination(isPresented: $showingIngredientManager) {
             IngredientsView()
@@ -174,6 +187,316 @@ struct RecipesView: View {
             }
         }
     }
+
+    // MARK: - Search Bar
+
+    private var searchBar: some View {
+        HStack(spacing: SMSpacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(SMColor.textTertiary)
+                .font(.system(size: 16))
+
+            TextField("Search recipes, tags, memories", text: $searchText)
+                .font(SMFont.body)
+                .foregroundStyle(SMColor.textPrimary)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+            }
+        }
+        .padding(.horizontal, SMSpacing.md)
+        .padding(.vertical, SMSpacing.md)
+        .background(SMColor.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .padding(.top, SMSpacing.sm)
+    }
+
+    // MARK: - Meal Filter Chips
+
+    private var mealFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                ForEach(RecipeMealFilter.allCases) { filter in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            mealFilter = filter
+                        }
+                    } label: {
+                        Text(filter.title)
+                            .font(SMFont.label)
+                            .foregroundStyle(mealFilter == filter ? SMColor.primary : SMColor.textSecondary)
+                            .padding(.horizontal, SMSpacing.md)
+                            .padding(.vertical, SMSpacing.sm)
+                            .background(SMColor.surfaceCard)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(mealFilter == filter ? SMColor.primary : Color.clear, lineWidth: 1.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - Sort & Filter Controls
+
+    private var sortAndFilterControls: some View {
+        VStack(spacing: SMSpacing.sm) {
+            HStack(spacing: SMSpacing.sm) {
+                // Sort picker
+                Menu {
+                    ForEach(RecipeSortOption.allCases) { option in
+                        Button {
+                            sortOption = option
+                        } label: {
+                            HStack {
+                                Text(option.title)
+                                if sortOption == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: SMSpacing.xs) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 12))
+                        Text(sortOption.title)
+                            .font(SMFont.caption)
+                    }
+                    .foregroundStyle(SMColor.textSecondary)
+                    .padding(.horizontal, SMSpacing.md)
+                    .padding(.vertical, SMSpacing.sm)
+                    .background(SMColor.surfaceCard)
+                    .clipShape(Capsule())
+                }
+
+                // Cuisine picker
+                Menu {
+                    Button {
+                        selectedCuisine = ""
+                    } label: {
+                        HStack {
+                            Text("All cuisines")
+                            if selectedCuisine.isEmpty {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    ForEach(appState.recipeMetadata?.cuisines ?? []) { cuisine in
+                        Button {
+                            selectedCuisine = cuisine.name
+                        } label: {
+                            HStack {
+                                Text(cuisine.name)
+                                if selectedCuisine == cuisine.name {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: SMSpacing.xs) {
+                        Image(systemName: "fork.knife")
+                            .font(.system(size: 12))
+                        Text(selectedCuisine.isEmpty ? "Cuisine" : selectedCuisine)
+                            .font(SMFont.caption)
+                    }
+                    .foregroundStyle(selectedCuisine.isEmpty ? SMColor.textSecondary : SMColor.primary)
+                    .padding(.horizontal, SMSpacing.md)
+                    .padding(.vertical, SMSpacing.sm)
+                    .background(SMColor.surfaceCard)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(selectedCuisine.isEmpty ? Color.clear : SMColor.primary, lineWidth: 1)
+                    )
+                }
+
+                Spacer()
+            }
+
+            // Tag chips
+            if let metadata = appState.recipeMetadata, !metadata.tags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: SMSpacing.sm) {
+                        ForEach(metadata.tags) { tag in
+                            Button {
+                                toggleTag(tag.name)
+                            } label: {
+                                Text(tag.name)
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(selectedTags.contains(tag.name) ? SMColor.primary : SMColor.textSecondary)
+                                    .padding(.horizontal, SMSpacing.md)
+                                    .padding(.vertical, SMSpacing.xs)
+                                    .background(SMColor.surfaceCard)
+                                    .clipShape(Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(selectedTags.contains(tag.name) ? SMColor.primary : Color.clear, lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - AI Generating Banner
+
+    private var aiGeneratingBanner: some View {
+        HStack(spacing: SMSpacing.md) {
+            ProgressView()
+                .tint(SMColor.aiPurple)
+            Text("Generating AI suggestion draft...")
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(SMSpacing.lg)
+        .background(SMColor.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: SMSpacing.lg) {
+            Image(systemName: "book.closed")
+                .font(.system(size: 48))
+                .foregroundStyle(SMColor.textTertiary)
+            Text("No Recipes")
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
+            Text(emptyStateMessage)
+                .font(SMFont.body)
+                .foregroundStyle(SMColor.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, SMSpacing.xxl * 2)
+    }
+
+    // MARK: - Recipe Grid
+
+    private var recipeGrid: some View {
+        LazyVGrid(columns: gridColumns, spacing: SMSpacing.md) {
+            ForEach(Array(visibleRecipes.enumerated()), id: \.element.id) { index, recipe in
+                if isSelectionMode {
+                    Button {
+                        toggleSelection(for: recipe)
+                    } label: {
+                        RecipeGridCell(
+                            recipe: recipe,
+                            gradientIndex: index,
+                            isSelected: selectedRecipeIDs.contains(recipe.recipeId)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink {
+                        RecipeDetailView(recipeID: recipe.recipeId)
+                    } label: {
+                        RecipeGridCell(
+                            recipe: recipe,
+                            gradientIndex: index,
+                            isSelected: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - Selection Bar
+
+    private var selectionBar: some View {
+        HStack {
+            Text("\(selectedRecipeIDs.count) selected")
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textSecondary)
+            Spacer()
+            Button {
+                assignmentContext = RecipeAssignmentSheetContext(recipes: selectedRecipes)
+            } label: {
+                Text("Add to Week")
+                    .font(SMFont.label)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, SMSpacing.lg)
+                    .padding(.vertical, SMSpacing.sm)
+                    .background(selectedRecipeIDs.isEmpty ? SMColor.textTertiary : SMColor.primary)
+                    .clipShape(Capsule())
+            }
+            .disabled(selectedRecipeIDs.isEmpty)
+        }
+        .padding(.horizontal, SMSpacing.lg)
+        .padding(.vertical, SMSpacing.md)
+        .background(SMColor.surfaceElevated)
+    }
+
+    // MARK: - AI Suggestion Sheet
+
+    private var aiSuggestionSheet: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                List {
+                    Section {
+                        Text("Let AI suggest a new recipe based on your taste preferences and recent meals.")
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .listRowBackground(SMColor.surfaceCard)
+                    }
+
+                    Section("Choose a goal") {
+                        ForEach(RecipeSuggestionGoal.allCases) { goal in
+                            Button {
+                                showingAISuggestionSheet = false
+                                Task { await generateSuggestion(goal) }
+                            } label: {
+                                HStack {
+                                    Text(goal.title)
+                                        .font(SMFont.body)
+                                        .foregroundStyle(SMColor.textPrimary)
+                                    Spacer()
+                                    Image(systemName: "sparkles")
+                                        .foregroundStyle(SMColor.aiPurple)
+                                }
+                            }
+                            .disabled(isGeneratingSuggestion || appState.recipes.isEmpty)
+                            .listRowBackground(SMColor.surfaceCard)
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .background(SMColor.surface)
+            }
+            .navigationTitle("AI Suggestion")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingAISuggestionSheet = false
+                    }
+                    .foregroundStyle(SMColor.textSecondary)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - Data & Logic
 
     private var selectedRecipes: [RecipeSummary] {
         visibleRecipes.filter { selectedRecipeIDs.contains($0.recipeId) }
@@ -257,6 +580,14 @@ struct RecipesView: View {
         }
     }
 
+    private func toggleTag(_ tag: String) {
+        if selectedTags.contains(tag) {
+            selectedTags.remove(tag)
+        } else {
+            selectedTags.insert(tag)
+        }
+    }
+
     private func generateSuggestion(_ goal: RecipeSuggestionGoal) async {
         suggestionErrorMessage = nil
         isGeneratingSuggestion = true
@@ -267,54 +598,6 @@ struct RecipesView: View {
             editorContext = RecipeEditorSheetContext(title: "\(goal.title) Suggestion", draft: aiDraft.draft)
         } catch {
             suggestionErrorMessage = error.localizedDescription
-        }
-    }
-
-    private var filterSection: some View {
-        Section {
-            Picker("Meal type", selection: $mealFilter) {
-                ForEach(RecipeMealFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Picker("Sort", selection: $sortOption) {
-                ForEach(RecipeSortOption.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-
-            Picker("Cuisine", selection: $selectedCuisine) {
-                Text("All cuisines").tag("")
-                ForEach(appState.recipeMetadata?.cuisines ?? []) { cuisine in
-                    Text(cuisine.name).tag(cuisine.name)
-                }
-            }
-
-            if let metadata = appState.recipeMetadata, !metadata.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(metadata.tags) { tag in
-                            Button(tag.name) {
-                                toggleTag(tag.name)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(selectedTags.contains(tag.name) ? .green : .secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-        .listRowBackground(Color.clear)
-    }
-
-    private func toggleTag(_ tag: String) {
-        if selectedTags.contains(tag) {
-            selectedTags.remove(tag)
-        } else {
-            selectedTags.insert(tag)
         }
     }
 
@@ -329,62 +612,24 @@ struct RecipesView: View {
     }
 }
 
-private struct RecipeRow: View {
+// MARK: - Recipe Grid Cell
+
+private struct RecipeGridCell: View {
     let recipe: RecipeSummary
+    let gradientIndex: Int
     let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack(alignment: .topTrailing) {
+            RecipeCard(recipe: recipe, gradientIndex: gradientIndex)
+
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(recipe.name)
-                        .font(.body.weight(.medium))
-                    if recipe.favorite {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                    }
-                    if recipe.isVariant {
-                        Label("Variant", systemImage: "square.on.square")
-                            .font(.caption)
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if !recipe.subtitleFragments.isEmpty {
-                    Text(recipe.subtitleFragments.joined(separator: " • "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(recipe.usageSummary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if !recipe.tags.isEmpty {
-                    Text(recipe.tagSummary)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            if recipe.variantCount > 0 {
-                Text("\(recipe.variantCount)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.thinMaterial, in: Capsule())
+                    .font(.system(size: 22))
+                    .foregroundStyle(SMColor.success)
+                    .background(Circle().fill(SMColor.surface).padding(2))
+                    .padding(SMSpacing.sm)
             }
         }
-        .contentShape(Rectangle())
     }
 }
