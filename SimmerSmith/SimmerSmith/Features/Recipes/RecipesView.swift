@@ -11,6 +11,7 @@ struct RecipesView: View {
     @State private var isGeneratingSuggestion = false
     @State private var suggestionErrorMessage: String?
     @State private var showingAISuggestionSheet = false
+    @State private var showGalleryView = false
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -44,6 +45,16 @@ struct RecipesView: View {
         .navigationTitle("Recipes")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showGalleryView.toggle()
+                    }
+                } label: {
+                    Image(systemName: showGalleryView ? "square.grid.2x2.fill" : "list.bullet")
+                        .foregroundStyle(SMColor.primary)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -201,23 +212,10 @@ struct RecipesView: View {
         return Group {
             if results.isEmpty {
                 emptySearchState
+            } else if showGalleryView {
+                recipeGalleryGrid(recipes: results)
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(results.enumerated()), id: \.element.id) { index, recipe in
-                        NavigationLink {
-                            RecipeDetailView(recipeID: recipe.recipeId)
-                        } label: {
-                            RecipeListRow(recipe: recipe, gradientIndex: index)
-                        }
-                        .buttonStyle(.plain)
-
-                        if index < results.count - 1 {
-                            Divider()
-                                .foregroundStyle(SMColor.divider)
-                        }
-                    }
-                }
-                .padding(.horizontal, SMSpacing.lg)
+                recipeListStack(recipes: results)
             }
         }
     }
@@ -307,27 +305,16 @@ struct RecipesView: View {
                 }
             }
 
-            // 5. All Recipes vertical list
+            // 5. All Recipes — list or gallery depending on toggle
             if !allRecipes.isEmpty {
                 VStack(spacing: SMSpacing.sm) {
                     sectionHeader("All Recipes")
 
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(allRecipes.enumerated()), id: \.element.id) { index, recipe in
-                            NavigationLink {
-                                RecipeDetailView(recipeID: recipe.recipeId)
-                            } label: {
-                                RecipeListRow(recipe: recipe, gradientIndex: index)
-                            }
-                            .buttonStyle(.plain)
-
-                            if index < allRecipes.count - 1 {
-                                Divider()
-                                    .foregroundStyle(SMColor.divider)
-                            }
-                        }
+                    if showGalleryView {
+                        recipeGalleryGrid(recipes: allRecipes)
+                    } else {
+                        recipeListStack(recipes: allRecipes)
                     }
-                    .padding(.horizontal, SMSpacing.lg)
                 }
             }
 
@@ -336,6 +323,46 @@ struct RecipesView: View {
                 emptyState
             }
         }
+    }
+
+    // MARK: - List / Gallery Helpers
+
+    private static let galleryColumns = [
+        GridItem(.flexible(), spacing: SMSpacing.md),
+        GridItem(.flexible(), spacing: SMSpacing.md),
+    ]
+
+    private func recipeListStack(recipes: [RecipeSummary]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
+                NavigationLink {
+                    RecipeDetailView(recipeID: recipe.recipeId)
+                } label: {
+                    RecipeListRow(recipe: recipe, gradientIndex: index)
+                }
+                .buttonStyle(.plain)
+
+                if index < recipes.count - 1 {
+                    Divider()
+                        .foregroundStyle(SMColor.divider)
+                }
+            }
+        }
+        .padding(.horizontal, SMSpacing.lg)
+    }
+
+    private func recipeGalleryGrid(recipes: [RecipeSummary]) -> some View {
+        LazyVGrid(columns: Self.galleryColumns, spacing: SMSpacing.md) {
+            ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
+                NavigationLink {
+                    RecipeDetailView(recipeID: recipe.recipeId)
+                } label: {
+                    RecipeCard(recipe: recipe, gradientIndex: index)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, SMSpacing.lg)
     }
 
     // MARK: - Section Header

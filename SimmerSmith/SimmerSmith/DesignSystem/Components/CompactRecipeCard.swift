@@ -7,6 +7,13 @@ struct CompactRecipeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SMSpacing.xs) {
+            // TODO: When RecipeSummary gains an imageURL field, replace this gradient
+            // placeholder with AsyncImage:
+            //   if let imageURL = recipe.imageURL, let url = URL(string: imageURL) {
+            //       AsyncImage(url: url) { image in
+            //           image.resizable().aspectRatio(contentMode: .fill)
+            //       } placeholder: { gradient }
+            //   }
             RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous)
                 .fill(SMColor.recipeGradients[gradientIndex % SMColor.recipeGradients.count])
                 .frame(height: 56)

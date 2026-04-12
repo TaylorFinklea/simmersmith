@@ -188,7 +188,14 @@ struct RecipeDetailView: View {
 
     private func headerSection(_ recipe: RecipeSummary) -> some View {
         ZStack(alignment: .bottomLeading) {
-            // Gradient background
+            // TODO: When RecipeSummary gains an imageURL field, replace this gradient
+            // placeholder with AsyncImage:
+            //   if let imageURL = recipe.imageURL, let url = URL(string: imageURL) {
+            //       AsyncImage(url: url) { image in
+            //           image.resizable().aspectRatio(contentMode: .fill)
+            //       } placeholder: { gradient }
+            //       .frame(height: 200).clipped()
+            //   }
             RoundedRectangle(cornerRadius: 0)
                 .fill(recipeHeaderGradient(for: recipe))
                 .frame(height: 200)
