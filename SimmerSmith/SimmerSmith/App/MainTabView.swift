@@ -16,14 +16,6 @@ struct MainTabView: View {
             }
 
             NavigationStack {
-                GroceryView()
-            }
-            .tag(AppState.MainTab.grocery)
-            .tabItem {
-                Label("Grocery", systemImage: "cart")
-            }
-
-            NavigationStack {
                 RecipesView()
             }
             .tag(AppState.MainTab.recipes)
@@ -33,17 +25,10 @@ struct MainTabView: View {
 
             AssistantView()
                 .tag(AppState.MainTab.assistant)
-            .tabItem {
-                Label("Assistant", systemImage: "sparkles")
-            }
-
-            NavigationStack {
-                SettingsView()
-            }
-            .tag(AppState.MainTab.settings)
-            .tabItem {
-                Label("Settings", systemImage: "gearshape")
-            }
+                .tabItem {
+                    Label("Assistant", systemImage: "sparkles")
+                }
         }
+        .tint(SMColor.primary)
     }
 }

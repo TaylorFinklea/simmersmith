@@ -28,6 +28,7 @@ struct SimmerSmithApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .preferredColorScheme(.dark)
                 .task {
                     appState.loadCachedData()
                     if appState.hasSavedConnection {

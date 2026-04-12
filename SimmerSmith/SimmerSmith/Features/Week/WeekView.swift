@@ -7,148 +7,65 @@ struct WeekView: View {
     @State private var selectedMeal: WeekMeal?
     @State private var showingActivity = false
     @State private var showingAIPlanner = false
+    @State private var showingGrocery = false
+    @State private var showingSettings = false
     @State private var aiPrompt = ""
     @State private var isGenerating = false
     @State private var generationError: String?
 
     var body: some View {
-        Group {
-            if let week = appState.currentWeek {
-                List {
-                    // AI Planner prompt bar
-                    Section {
-                        VStack(spacing: 12) {
-                            HStack {
-                                Image(systemName: "sparkles")
-                                    .foregroundStyle(.purple)
-                                Text("Plan with AI")
-                                    .font(.headline)
-                                Spacer()
-                            }
-                            Button {
-                                showingAIPlanner = true
-                            } label: {
-                                Label(
-                                    week.meals.isEmpty ? "Generate meals for this week" : "Regenerate with AI",
-                                    systemImage: "wand.and.stars"
-                                )
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.purple)
-                        }
-                        .padding(.vertical, 8)
-                    }
-
-                    // Week summary
-                    Section {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(week.weekStart.formatted(date: .abbreviated, time: .omitted))
-                                .font(.title3.weight(.semibold))
-                            Text(statusSummary(for: week))
-                                .foregroundStyle(.secondary)
-                            HStack {
-                                Label("\(week.meals.count) meals", systemImage: "fork.knife")
-                                Spacer()
-                                Label("\(week.groceryItems.count) groceries", systemImage: "cart")
-                            }
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 6)
-                    }
-
-                    // Meals by day
-                    ForEach(groupedMeals(for: week), id: \.dayName) { day in
-                        Section(day.dayName) {
-                            ForEach(day.meals) { meal in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(meal.slot.capitalized)
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        if meal.approved {
-                                            Label("Approved", systemImage: "checkmark.seal.fill")
-                                                .font(.caption)
-                                                .foregroundStyle(.green)
-                                        }
-                                    }
-                                    Text(meal.recipeName)
-                                        .font(.body.weight(.medium))
-                                    if meal.scaleMultiplier != 1 {
-                                        Text("Scaled \(meal.scaleMultiplier.formatted())x")
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if !meal.notes.isEmpty {
-                                        Text(meal.notes)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .swipeActions {
-                                    Button("Feedback", systemImage: "bubble.left") {
-                                        selectedMeal = meal
-                                    }
-                                    .tint(.blue)
-                                }
-                            }
-                        }
+        ZStack(alignment: .bottomTrailing) {
+            ScrollView {
+                VStack(spacing: SMSpacing.lg) {
+                    if let week = appState.currentWeek {
+                        weekHeader(week)
+                        dayCards(week)
+                        groceryBar(week)
+                    } else {
+                        emptyState
                     }
                 }
-                .listStyle(.insetGrouped)
-                .refreshable {
-                    await appState.refreshWeek()
-                }
-            } else {
-                // Empty state — prompt to create a week and plan with AI
-                ContentUnavailableView {
-                    Label("No Current Week", systemImage: "calendar.badge.plus")
-                } description: {
-                    Text("Create a week and let AI plan your meals.")
-                } actions: {
-                    Button {
-                        Task { await createWeekAndShowPlanner() }
-                    } label: {
-                        Label("Start This Week", systemImage: "wand.and.stars")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
+                .padding(.horizontal, SMSpacing.lg)
+                .padding(.bottom, 80)
+            }
+            .background(SMColor.surface)
+            .refreshable {
+                await appState.refreshWeek()
+            }
+
+            // AI Floating Action Button
+            AIFloatingButton {
+                if appState.currentWeek == nil {
+                    Task { await createWeekAndShowPlanner() }
+                } else {
+                    showingAIPlanner = true
                 }
             }
+            .padding(.trailing, SMSpacing.xl)
+            .padding(.bottom, SMSpacing.xl)
         }
-        .navigationTitle("Week")
+        .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                BrandToolbarBadge()
+                Text("SimmerSmith")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.primary)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 16) {
-                    Button {
-                        showingActivity = true
-                    } label: {
+                HStack(spacing: SMSpacing.lg) {
+                    Button { showingActivity = true } label: {
                         Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                     .accessibilityLabel("View week activity")
 
-                    Button {
-                        Task { await appState.refreshWeek() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(SMColor.textSecondary)
                     }
-                    .accessibilityLabel("Refresh week")
+                    .accessibilityLabel("Settings")
                 }
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            Text(appState.syncStatusText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.thinMaterial)
         }
         .sheet(item: $selectedMeal) { meal in
             FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
@@ -156,74 +73,184 @@ struct WeekView: View {
             }
         }
         .sheet(isPresented: $showingActivity) {
-            NavigationStack {
-                ActivityView()
-            }
+            NavigationStack { ActivityView() }
+        }
+        .sheet(isPresented: $showingGrocery) {
+            NavigationStack { GroceryView() }
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack { SettingsView() }
         }
         .sheet(isPresented: $showingAIPlanner) {
             aiPlannerSheet
         }
     }
 
+    // MARK: - Week Header
+
+    @ViewBuilder
+    private func weekHeader(_ week: WeekSnapshot) -> some View {
+        SMCard {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Text("This Week")
+                    .font(SMFont.display)
+                    .foregroundStyle(SMColor.textPrimary)
+
+                Text(week.weekStart.formatted(date: .abbreviated, time: .omitted))
+                    .font(SMFont.subheadline)
+                    .foregroundStyle(SMColor.textSecondary)
+
+                HStack(spacing: SMSpacing.lg) {
+                    Label("\(week.meals.count) meals", systemImage: "fork.knife")
+                    Label(statusLabel(for: week), systemImage: "circle.fill")
+                        .foregroundStyle(week.status == "approved" ? SMColor.success : SMColor.textTertiary)
+                }
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textSecondary)
+            }
+        }
+        .padding(.top, SMSpacing.sm)
+    }
+
+    // MARK: - Day Cards
+
+    @ViewBuilder
+    private func dayCards(_ week: WeekSnapshot) -> some View {
+        let grouped = groupedMeals(for: week)
+        ForEach(grouped, id: \.dayName) { day in
+            DayCard(dayName: day.dayName, meals: day.meals)
+        }
+    }
+
+    // MARK: - Grocery Bar
+
+    @ViewBuilder
+    private func groceryBar(_ week: WeekSnapshot) -> some View {
+        if !week.groceryItems.isEmpty {
+            Button { showingGrocery = true } label: {
+                HStack {
+                    Image(systemName: "cart.fill")
+                        .foregroundStyle(SMColor.primary)
+                    Text("\(week.groceryItems.count) grocery items")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textPrimary)
+                    Spacer()
+                    Text("View list")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.primary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(SMColor.primary)
+                }
+                .padding(SMSpacing.lg)
+                .background(SMColor.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                        .strokeBorder(SMColor.primary.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: SMSpacing.xl) {
+            Spacer()
+                .frame(height: 80)
+
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 48))
+                .foregroundStyle(SMColor.primary.opacity(0.6))
+
+            VStack(spacing: SMSpacing.sm) {
+                Text("No Week Yet")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.textPrimary)
+                Text("Tap the sparkle button to plan your first week with AI.")
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, SMSpacing.xxl)
+    }
+
     // MARK: - AI Planner Sheet
 
     private var aiPlannerSheet: some View {
         NavigationStack {
-            Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("AI Meal Planner", systemImage: "sparkles")
-                            .font(.headline)
-                            .foregroundStyle(.purple)
-                        Text("Describe what you'd like to eat this week. The AI will generate a full meal plan with recipes.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
+            ZStack {
+                SMColor.surface.ignoresSafeArea()
 
-                Section("What sounds good?") {
+                VStack(spacing: SMSpacing.xl) {
+                    VStack(spacing: SMSpacing.sm) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 36))
+                            .foregroundStyle(SMColor.primary)
+
+                        Text("Plan My Week")
+                            .font(SMFont.display)
+                            .foregroundStyle(SMColor.textPrimary)
+
+                        Text("Describe what you'd like to eat and AI will generate a full week of meals with recipes.")
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, SMSpacing.xl)
+
                     TextField(
                         "e.g., healthy meals for two, quick dinners, lots of veggies...",
                         text: $aiPrompt,
                         axis: .vertical
                     )
                     .lineLimit(3...6)
-                }
+                    .padding(SMSpacing.lg)
+                    .background(SMColor.surfaceCard)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    .foregroundStyle(SMColor.textPrimary)
 
-                if let error = generationError {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
-                            .font(.footnote)
+                    if let error = generationError {
+                        Text(error)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.destructive)
+                            .multilineTextAlignment(.center)
                     }
-                }
 
-                Section {
-                    Button {
-                        Task { await generatePlan() }
-                    } label: {
+                    Button { Task { await generatePlan() } } label: {
                         if isGenerating {
-                            HStack {
+                            HStack(spacing: SMSpacing.sm) {
                                 ProgressView()
+                                    .tint(SMColor.surface)
                                 Text("Generating meals...")
+                                    .font(SMFont.subheadline)
                             }
                             .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.lg)
                         } else {
                             Label("Generate Week", systemImage: "wand.and.stars")
+                                .font(SMFont.subheadline)
                                 .frame(maxWidth: .infinity)
+                                .padding(.vertical, SMSpacing.lg)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
+                    .foregroundStyle(isGenerating ? SMColor.textSecondary : .white)
+                    .background(isGenerating ? SMColor.surfaceElevated : SMColor.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
                     .disabled(isGenerating)
+
+                    Spacer()
                 }
+                .padding(.horizontal, SMSpacing.xl)
             }
-            .navigationTitle("Plan My Week")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showingAIPlanner = false }
+                        .foregroundStyle(SMColor.textSecondary)
                 }
             }
         }
@@ -232,7 +259,6 @@ struct WeekView: View {
     // MARK: - Actions
 
     private func createWeekAndShowPlanner() async {
-        // Find the Monday of this week
         let calendar = Calendar.current
         let today = Date()
         let weekday = calendar.component(.weekday, from: today)
@@ -252,27 +278,19 @@ struct WeekView: View {
         guard let weekID = appState.currentWeek?.weekId else { return }
         isGenerating = true
         generationError = nil
-
         do {
             _ = try await appState.generateWeekFromAI(weekID: weekID, prompt: aiPrompt)
             showingAIPlanner = false
         } catch {
             generationError = error.localizedDescription
         }
-
         isGenerating = false
     }
 
     // MARK: - Helpers
 
-    private func statusSummary(for week: WeekSnapshot) -> String {
-        var parts = [week.status.replacingOccurrences(of: "_", with: " ").capitalized]
-        if let approvedAt = week.approvedAt {
-            parts.append("Approved \(approvedAt.formatted(date: .abbreviated, time: .shortened))")
-        } else if let readyForAiAt = week.readyForAiAt {
-            parts.append("Ready for AI \(readyForAiAt.formatted(date: .abbreviated, time: .shortened))")
-        }
-        return parts.joined(separator: " • ")
+    private func statusLabel(for week: WeekSnapshot) -> String {
+        week.status.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     private func groupedMeals(for week: WeekSnapshot) -> [(dayName: String, meals: [WeekMeal])] {
