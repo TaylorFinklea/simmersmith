@@ -17,6 +17,7 @@ struct RecipeDetailView: View {
     @State private var selectedScale: RecipeScaleOption = .single
     @State private var isGeneratingVariation = false
     @State private var isGeneratingCompanions = false
+    @State private var showingSteps: Bool = false
 
     var body: some View {
         Group {
@@ -232,7 +233,7 @@ struct RecipeDetailView: View {
                 aiProgressCard(text: "Generating companion suggestions...")
             }
 
-            // Metadata pills
+            // Metadata pills (wrapping)
             metadataPills(recipe)
 
             // Tags
@@ -243,7 +244,7 @@ struct RecipeDetailView: View {
             // Scale picker
             scaleSection
 
-            // Calories
+            // Calories (full nutrition section)
             if let nutritionSummary = recipe.nutritionSummary {
                 nutritionSection(recipe, nutritionSummary: nutritionSummary)
             }
@@ -253,16 +254,33 @@ struct RecipeDetailView: View {
                 variationsSection(recipe)
             }
 
-            // Ingredients
-            if !recipe.ingredients.isEmpty {
-                ingredientsSection(recipe)
-            }
+            // Ingredients / Steps toggle
+            if !recipe.ingredients.isEmpty || !recipe.steps.isEmpty || !recipe.instructionsSummary.isEmpty {
+                ingredientsStepsPicker
 
-            // Steps
-            if !recipe.steps.isEmpty {
-                stepsSection(recipe)
-            } else if !recipe.instructionsSummary.isEmpty {
-                instructionsSummarySection(recipe)
+                if showingSteps {
+                    if !recipe.steps.isEmpty {
+                        stepsSection(recipe)
+                    } else if !recipe.instructionsSummary.isEmpty {
+                        instructionsSummarySection(recipe)
+                    } else {
+                        SMCard {
+                            Text("No steps have been added yet.")
+                                .font(SMFont.body)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    }
+                } else {
+                    if !recipe.ingredients.isEmpty {
+                        ingredientsSection(recipe)
+                    } else {
+                        SMCard {
+                            Text("No ingredients have been added yet.")
+                                .font(SMFont.body)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    }
+                }
             }
 
             // Notes
@@ -297,28 +315,40 @@ struct RecipeDetailView: View {
     // MARK: - Metadata Pills
 
     private func metadataPills(_ recipe: RecipeSummary) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: SMSpacing.sm) {
-                if let servings = recipe.servings {
-                    metadataPill(icon: "person.2", text: "\(servings.formatted()) servings")
-                }
-                if let prepMinutes = recipe.prepMinutes {
-                    metadataPill(icon: "timer", text: "\(prepMinutes)m prep")
-                }
-                if let cookMinutes = recipe.cookMinutes {
-                    metadataPill(icon: "flame", text: "\(cookMinutes)m cook")
-                }
-                if let calorieLine = recipe.calorieSummaryLine {
-                    metadataPill(icon: "flame.circle", text: calorieLine)
-                }
+        WrappingHStack(spacing: SMSpacing.sm) {
+            if let servings = recipe.servings {
+                metadataPill(icon: "person.2", text: "\(servings.formatted()) servings")
+            }
+            if let prepMinutes = recipe.prepMinutes {
+                metadataPill(icon: "timer", text: "\(prepMinutes)m prep")
+            }
+            if let cookMinutes = recipe.cookMinutes {
+                metadataPill(icon: "flame", text: "\(cookMinutes)m cook")
+            }
+            if let calorieChipText = calorieChipText(for: recipe) {
+                metadataPill(icon: "flame.circle", text: calorieChipText)
+            }
 
-                metadataPill(icon: "clock.arrow.circlepath", text: recipe.usageSummary)
+            metadataPill(icon: "clock.arrow.circlepath", text: recipe.usageSummary)
 
-                if !recipe.overrideFields.isEmpty {
-                    metadataPill(icon: "slider.horizontal.3", text: recipe.overrideFields.joined(separator: ", "))
-                }
+            if !recipe.overrideFields.isEmpty {
+                metadataPill(icon: "slider.horizontal.3", text: recipe.overrideFields.joined(separator: ", "))
             }
         }
+    }
+
+    private func calorieChipText(for recipe: RecipeSummary) -> String? {
+        guard let nutrition = recipe.nutritionSummary else { return nil }
+        let hasUnmatched = nutrition.unmatchedIngredientCount > 0
+        if let cps = nutrition.caloriesPerServing {
+            let value = Int(cps.rounded())
+            return hasUnmatched ? "~\(value) cal (estimate)" : "\(value) cal"
+        }
+        if let total = nutrition.totalCalories {
+            let value = Int(total.rounded())
+            return hasUnmatched ? "~\(value) cal (estimate)" : "\(value) cal"
+        }
+        return nil
     }
 
     private func metadataPill(icon: String, text: String) -> some View {
@@ -329,6 +359,42 @@ struct RecipeDetailView: View {
             .padding(.vertical, SMSpacing.sm)
             .background(SMColor.surfaceCard)
             .clipShape(Capsule())
+    }
+
+    // MARK: - Ingredients / Steps Picker
+
+    private var ingredientsStepsPicker: some View {
+        HStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showingSteps = false
+                }
+            } label: {
+                Text("Ingredients")
+                    .font(SMFont.label)
+                    .foregroundStyle(!showingSteps ? SMColor.primary : SMColor.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, SMSpacing.md)
+                    .background(!showingSteps ? SMColor.primary.opacity(0.15) : Color.clear)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showingSteps = true
+                }
+            } label: {
+                Text("Steps")
+                    .font(SMFont.label)
+                    .foregroundStyle(showingSteps ? SMColor.primary : SMColor.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, SMSpacing.md)
+                    .background(showingSteps ? SMColor.primary.opacity(0.15) : Color.clear)
+            }
+            .buttonStyle(.plain)
+        }
+        .background(SMColor.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
     }
 
     // MARK: - Tags

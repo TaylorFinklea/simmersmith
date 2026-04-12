@@ -5,11 +5,13 @@ struct RecipesView: View {
     @Environment(AppState.self) private var appState
 
     @State private var searchText = ""
+    @State private var selectedMealType: String = ""
     @State private var importLaunchMode: RecipeImportLaunchMode?
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var isGeneratingSuggestion = false
     @State private var suggestionErrorMessage: String?
     @State private var showingAISuggestionSheet = false
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -19,6 +21,7 @@ struct RecipesView: View {
             ScrollView {
                 VStack(spacing: SMSpacing.xl) {
                     searchBar
+                    mealTypeFilterPills
 
                     if isGeneratingSuggestion {
                         aiGeneratingBanner
@@ -116,31 +119,79 @@ struct RecipesView: View {
 
     private var searchBar: some View {
         HStack(spacing: SMSpacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(SMColor.textTertiary)
-                .font(.system(size: 16))
+            HStack(spacing: SMSpacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(SMColor.textTertiary)
+                    .font(.system(size: 16))
 
-            TextField("Search recipes, tags, memories", text: $searchText)
-                .font(SMFont.body)
-                .foregroundStyle(SMColor.textPrimary)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+                TextField("Search recipes, tags, memories", text: $searchText)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textPrimary)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .focused($isSearchFocused)
 
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(SMColor.textTertiary)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(SMColor.textTertiary)
+                    }
                 }
             }
+            .padding(.horizontal, SMSpacing.md)
+            .padding(.vertical, SMSpacing.md)
+            .background(SMColor.surfaceCard)
+            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+
+            if isSearchFocused {
+                Button("Cancel") {
+                    searchText = ""
+                    isSearchFocused = false
+                }
+                .font(SMFont.body)
+                .foregroundStyle(SMColor.primary)
+            }
         }
-        .padding(.horizontal, SMSpacing.md)
-        .padding(.vertical, SMSpacing.md)
-        .background(SMColor.surfaceCard)
-        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
         .padding(.horizontal, SMSpacing.lg)
         .padding(.top, SMSpacing.sm)
+    }
+
+    // MARK: - Meal Type Filter Pills
+
+    private static let mealTypeFilters: [(label: String, value: String)] = [
+        ("All", ""),
+        ("Breakfast", "breakfast"),
+        ("Lunch", "lunch"),
+        ("Dinner", "dinner"),
+        ("Snack", "snack"),
+    ]
+
+    private var mealTypeFilterPills: some View {
+        HStack(spacing: SMSpacing.sm) {
+            ForEach(Self.mealTypeFilters, id: \.value) { filter in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selectedMealType = filter.value
+                    }
+                } label: {
+                    Text(filter.label)
+                        .font(SMFont.caption)
+                        .foregroundStyle(selectedMealType == filter.value ? SMColor.primary : SMColor.textSecondary)
+                        .padding(.horizontal, SMSpacing.md)
+                        .padding(.vertical, SMSpacing.sm)
+                        .background(SMColor.surfaceCard)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(selectedMealType == filter.value ? SMColor.primary : Color.clear, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, SMSpacing.lg)
     }
 
     // MARK: - Search Results
@@ -441,6 +492,7 @@ struct RecipesView: View {
     private var allRecipes: [RecipeSummary] {
         appState.recipes
             .filter { !$0.archived }
+            .filter { matchesMealType($0) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -450,6 +502,7 @@ struct RecipesView: View {
 
         return appState.recipes
             .filter { !$0.archived }
+            .filter { matchesMealType($0) }
             .filter { recipe in
                 [
                     recipe.name,
@@ -464,6 +517,12 @@ struct RecipesView: View {
                 .localizedCaseInsensitiveContains(normalizedSearch)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func matchesMealType(_ recipe: RecipeSummary) -> Bool {
+        guard !selectedMealType.isEmpty else { return true }
+        return recipe.mealType.trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare(selectedMealType) == .orderedSame
     }
 
     // MARK: - Actions
