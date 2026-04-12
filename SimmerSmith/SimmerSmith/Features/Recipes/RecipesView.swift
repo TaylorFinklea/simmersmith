@@ -5,26 +5,11 @@ struct RecipesView: View {
     @Environment(AppState.self) private var appState
 
     @State private var searchText = ""
-    @State private var mealFilter: RecipeMealFilter = .dinner
-    @State private var sortOption: RecipeSortOption = .lastUsed
-    @State private var selectedCuisine = ""
-    @State private var selectedTags: Set<String> = []
-    @State private var showArchived = false
     @State private var importLaunchMode: RecipeImportLaunchMode?
-    @State private var isSelectionMode = false
-    @State private var selectedRecipeIDs: Set<String> = []
     @State private var editorContext: RecipeEditorSheetContext?
-    @State private var assignmentContext: RecipeAssignmentSheetContext?
     @State private var isGeneratingSuggestion = false
     @State private var suggestionErrorMessage: String?
-    @State private var showingReviewQueue = false
-    @State private var showingIngredientManager = false
     @State private var showingAISuggestionSheet = false
-
-    private let gridColumns = [
-        GridItem(.flexible(), spacing: SMSpacing.md),
-        GridItem(.flexible(), spacing: SMSpacing.md),
-    ]
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -32,79 +17,36 @@ struct RecipesView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: SMSpacing.lg) {
+                VStack(spacing: SMSpacing.xl) {
                     searchBar
-                    mealFilterChips
-                    sortAndFilterControls
 
                     if isGeneratingSuggestion {
                         aiGeneratingBanner
                     }
 
-                    if visibleRecipes.isEmpty {
-                        emptyState
+                    if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        searchResults
                     } else {
-                        recipeGrid
+                        editorialSections
                     }
                 }
-                .padding(.horizontal, SMSpacing.lg)
                 .padding(.bottom, 80)
             }
 
-            if !isSelectionMode {
-                AIFloatingButton {
-                    showingAISuggestionSheet = true
-                }
-                .padding(SMSpacing.xl)
+            AIFloatingButton {
+                showingAISuggestionSheet = true
             }
+            .padding(SMSpacing.xl)
         }
         .navigationTitle("Recipes")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                BrandToolbarBadge()
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                Menu {
-                    Button {
-                        Task { await appState.refreshRecipes() }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    Button {
-                        showingReviewQueue = true
-                    } label: {
-                        Label(reviewQueueButtonTitle, systemImage: "checklist")
-                    }
-                    Button {
-                        showingIngredientManager = true
-                    } label: {
-                        Label("Manage ingredients", systemImage: "list.bullet")
-                    }
-                    Button {
-                        showArchived.toggle()
-                    } label: {
-                        Label(showArchived ? "Hide archived" : "Show archived", systemImage: "archivebox")
-                    }
-                    Button {
-                        isSelectionMode.toggle()
-                        if !isSelectionMode {
-                            selectedRecipeIDs.removeAll()
-                        }
-                    } label: {
-                        Label(isSelectionMode ? "Done selecting" : "Select recipes", systemImage: "checkmark.circle")
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
                         editorContext = RecipeEditorSheetContext(
                             title: "New Recipe",
-                            draft: RecipeDraft(name: "", mealType: mealFilter == .all ? "dinner" : mealFilter.rawValue)
+                            draft: RecipeDraft(name: "", mealType: "dinner")
                         )
                     } label: {
                         Label("New recipe", systemImage: "square.and.pencil")
@@ -118,7 +60,7 @@ struct RecipesView: View {
                     Button {
                         importLaunchMode = .camera
                     } label: {
-                        Label("Scan from Camera", systemImage: "camera")
+                        Label("Import from Camera", systemImage: "camera")
                     }
                     Button {
                         importLaunchMode = .photo
@@ -136,34 +78,16 @@ struct RecipesView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if isSelectionMode {
-                selectionBar
-            }
-        }
         .sheet(item: $importLaunchMode) { mode in
             RecipeImportView(preferredLaunchMode: mode) { draft in
                 editorContext = RecipeEditorSheetContext(title: "Imported Recipe", draft: draft)
             }
         }
         .sheet(item: $editorContext) { context in
-            RecipeEditorView(title: context.title, initialDraft: context.draft) { savedRecipe in
-                if isSelectionMode {
-                    selectedRecipeIDs.insert(savedRecipe.recipeId)
-                }
-            }
-        }
-        .sheet(item: $assignmentContext) { context in
-            RecipeWeekAssignmentView(recipes: context.recipes)
-        }
-        .sheet(isPresented: $showingReviewQueue) {
-            IngredientReviewQueueView()
+            RecipeEditorView(title: context.title, initialDraft: context.draft) { _ in }
         }
         .sheet(isPresented: $showingAISuggestionSheet) {
             aiSuggestionSheet
-        }
-        .navigationDestination(isPresented: $showingIngredientManager) {
-            IngredientsView()
         }
         .alert("AI Suggestion Failed", isPresented: Binding(
             get: { suggestionErrorMessage != nil },
@@ -215,142 +139,164 @@ struct RecipesView: View {
         .padding(.vertical, SMSpacing.md)
         .background(SMColor.surfaceCard)
         .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .padding(.horizontal, SMSpacing.lg)
         .padding(.top, SMSpacing.sm)
     }
 
-    // MARK: - Meal Filter Chips
+    // MARK: - Search Results
 
-    private var mealFilterChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: SMSpacing.sm) {
-                ForEach(RecipeMealFilter.allCases) { filter in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            mealFilter = filter
+    private var searchResults: some View {
+        let results = filteredSearchResults
+        return Group {
+            if results.isEmpty {
+                emptySearchState
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, recipe in
+                        NavigationLink {
+                            RecipeDetailView(recipeID: recipe.recipeId)
+                        } label: {
+                            RecipeListRow(recipe: recipe, gradientIndex: index)
                         }
-                    } label: {
-                        Text(filter.title)
-                            .font(SMFont.label)
-                            .foregroundStyle(mealFilter == filter ? SMColor.primary : SMColor.textSecondary)
-                            .padding(.horizontal, SMSpacing.md)
-                            .padding(.vertical, SMSpacing.sm)
-                            .background(SMColor.surfaceCard)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(mealFilter == filter ? SMColor.primary : Color.clear, lineWidth: 1.5)
-                            )
+                        .buttonStyle(.plain)
+
+                        if index < results.count - 1 {
+                            Divider()
+                                .foregroundStyle(SMColor.divider)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, SMSpacing.lg)
             }
         }
     }
 
-    // MARK: - Sort & Filter Controls
+    // MARK: - Editorial Sections
 
-    private var sortAndFilterControls: some View {
-        VStack(spacing: SMSpacing.sm) {
-            HStack(spacing: SMSpacing.sm) {
-                // Sort picker
-                Menu {
-                    ForEach(RecipeSortOption.allCases) { option in
-                        Button {
-                            sortOption = option
-                        } label: {
-                            HStack {
-                                Text(option.title)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: SMSpacing.xs) {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 12))
-                        Text(sortOption.title)
-                            .font(SMFont.caption)
-                    }
-                    .foregroundStyle(SMColor.textSecondary)
-                    .padding(.horizontal, SMSpacing.md)
-                    .padding(.vertical, SMSpacing.sm)
-                    .background(SMColor.surfaceCard)
-                    .clipShape(Capsule())
-                }
+    private var editorialSections: some View {
+        VStack(spacing: SMSpacing.xl) {
+            // 1. Tonight's Dinner hero
+            if let hero = tonightsDinner {
+                VStack(spacing: SMSpacing.sm) {
+                    sectionHeader("Tonight's Dinner")
 
-                // Cuisine picker
-                Menu {
-                    Button {
-                        selectedCuisine = ""
+                    NavigationLink {
+                        RecipeDetailView(recipeID: hero.recipeId)
                     } label: {
-                        HStack {
-                            Text("All cuisines")
-                            if selectedCuisine.isEmpty {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                        HeroRecipeCard(recipe: hero)
                     }
-                    ForEach(appState.recipeMetadata?.cuisines ?? []) { cuisine in
-                        Button {
-                            selectedCuisine = cuisine.name
-                        } label: {
-                            HStack {
-                                Text(cuisine.name)
-                                if selectedCuisine == cuisine.name {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: SMSpacing.xs) {
-                        Image(systemName: "fork.knife")
-                            .font(.system(size: 12))
-                        Text(selectedCuisine.isEmpty ? "Cuisine" : selectedCuisine)
-                            .font(SMFont.caption)
-                    }
-                    .foregroundStyle(selectedCuisine.isEmpty ? SMColor.textSecondary : SMColor.primary)
-                    .padding(.horizontal, SMSpacing.md)
-                    .padding(.vertical, SMSpacing.sm)
-                    .background(SMColor.surfaceCard)
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .strokeBorder(selectedCuisine.isEmpty ? Color.clear : SMColor.primary, lineWidth: 1)
-                    )
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, SMSpacing.lg)
                 }
-
-                Spacer()
             }
 
-            // Tag chips
-            if let metadata = appState.recipeMetadata, !metadata.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: SMSpacing.sm) {
-                        ForEach(metadata.tags) { tag in
-                            Button {
-                                toggleTag(tag.name)
+            // 2. This Week horizontal scroll
+            if !thisWeekRecipes.isEmpty {
+                VStack(spacing: SMSpacing.sm) {
+                    sectionHeader("This Week")
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: SMSpacing.md) {
+                            ForEach(Array(thisWeekRecipes.enumerated()), id: \.element.id) { index, recipe in
+                                NavigationLink {
+                                    RecipeDetailView(recipeID: recipe.recipeId)
+                                } label: {
+                                    CompactRecipeCard(recipe: recipe, gradientIndex: index)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, SMSpacing.lg)
+                    }
+                }
+            }
+
+            // 3. Favorites horizontal scroll
+            if !favoriteRecipes.isEmpty {
+                VStack(spacing: SMSpacing.sm) {
+                    sectionHeader("Favorites")
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: SMSpacing.md) {
+                            ForEach(Array(favoriteRecipes.enumerated()), id: \.element.id) { index, recipe in
+                                NavigationLink {
+                                    RecipeDetailView(recipeID: recipe.recipeId)
+                                } label: {
+                                    CompactRecipeCard(recipe: recipe, gradientIndex: index + 2)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, SMSpacing.lg)
+                    }
+                }
+            }
+
+            // 4. Recently Added vertical list
+            if !recentlyAddedRecipes.isEmpty {
+                VStack(spacing: SMSpacing.sm) {
+                    sectionHeader("Recently Added")
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(recentlyAddedRecipes.enumerated()), id: \.element.id) { index, recipe in
+                            NavigationLink {
+                                RecipeDetailView(recipeID: recipe.recipeId)
                             } label: {
-                                Text(tag.name)
-                                    .font(SMFont.caption)
-                                    .foregroundStyle(selectedTags.contains(tag.name) ? SMColor.primary : SMColor.textSecondary)
-                                    .padding(.horizontal, SMSpacing.md)
-                                    .padding(.vertical, SMSpacing.xs)
-                                    .background(SMColor.surfaceCard)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(selectedTags.contains(tag.name) ? SMColor.primary : Color.clear, lineWidth: 1)
-                                    )
+                                RecipeListRow(recipe: recipe, gradientIndex: index)
                             }
                             .buttonStyle(.plain)
+
+                            if index < recentlyAddedRecipes.count - 1 {
+                                Divider()
+                                    .foregroundStyle(SMColor.divider)
+                            }
                         }
                     }
+                    .padding(.horizontal, SMSpacing.lg)
                 }
             }
+
+            // 5. All Recipes vertical list
+            if !allRecipes.isEmpty {
+                VStack(spacing: SMSpacing.sm) {
+                    sectionHeader("All Recipes")
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(allRecipes.enumerated()), id: \.element.id) { index, recipe in
+                            NavigationLink {
+                                RecipeDetailView(recipeID: recipe.recipeId)
+                            } label: {
+                                RecipeListRow(recipe: recipe, gradientIndex: index)
+                            }
+                            .buttonStyle(.plain)
+
+                            if index < allRecipes.count - 1 {
+                                Divider()
+                                    .foregroundStyle(SMColor.divider)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, SMSpacing.lg)
+                }
+            }
+
+            // Empty state when there are no recipes at all
+            if allRecipes.isEmpty {
+                emptyState
+            }
         }
+    }
+
+    // MARK: - Section Header
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
+            Spacer()
+        }
+        .padding(.horizontal, SMSpacing.lg)
     }
 
     // MARK: - AI Generating Banner
@@ -367,9 +313,10 @@ struct RecipesView: View {
         .padding(SMSpacing.lg)
         .background(SMColor.surfaceCard)
         .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .padding(.horizontal, SMSpacing.lg)
     }
 
-    // MARK: - Empty State
+    // MARK: - Empty States
 
     private var emptyState: some View {
         VStack(spacing: SMSpacing.lg) {
@@ -379,7 +326,7 @@ struct RecipesView: View {
             Text("No Recipes")
                 .font(SMFont.headline)
                 .foregroundStyle(SMColor.textPrimary)
-            Text(emptyStateMessage)
+            Text("Create a recipe or import one from a URL to start planning.")
                 .font(SMFont.body)
                 .foregroundStyle(SMColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -388,62 +335,21 @@ struct RecipesView: View {
         .padding(.vertical, SMSpacing.xxl * 2)
     }
 
-    // MARK: - Recipe Grid
-
-    private var recipeGrid: some View {
-        LazyVGrid(columns: gridColumns, spacing: SMSpacing.md) {
-            ForEach(Array(visibleRecipes.enumerated()), id: \.element.id) { index, recipe in
-                if isSelectionMode {
-                    Button {
-                        toggleSelection(for: recipe)
-                    } label: {
-                        RecipeGridCell(
-                            recipe: recipe,
-                            gradientIndex: index,
-                            isSelected: selectedRecipeIDs.contains(recipe.recipeId)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    NavigationLink {
-                        RecipeDetailView(recipeID: recipe.recipeId)
-                    } label: {
-                        RecipeGridCell(
-                            recipe: recipe,
-                            gradientIndex: index,
-                            isSelected: false
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    // MARK: - Selection Bar
-
-    private var selectionBar: some View {
-        HStack {
-            Text("\(selectedRecipeIDs.count) selected")
-                .font(SMFont.caption)
+    private var emptySearchState: some View {
+        VStack(spacing: SMSpacing.lg) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 48))
+                .foregroundStyle(SMColor.textTertiary)
+            Text("No Results")
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
+            Text("Try a different search term.")
+                .font(SMFont.body)
                 .foregroundStyle(SMColor.textSecondary)
-            Spacer()
-            Button {
-                assignmentContext = RecipeAssignmentSheetContext(recipes: selectedRecipes)
-            } label: {
-                Text("Add to Week")
-                    .font(SMFont.label)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, SMSpacing.lg)
-                    .padding(.vertical, SMSpacing.sm)
-                    .background(selectedRecipeIDs.isEmpty ? SMColor.textTertiary : SMColor.primary)
-                    .clipShape(Capsule())
-            }
-            .disabled(selectedRecipeIDs.isEmpty)
+                .multilineTextAlignment(.center)
         }
-        .padding(.horizontal, SMSpacing.lg)
-        .padding(.vertical, SMSpacing.md)
-        .background(SMColor.surfaceElevated)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, SMSpacing.xxl * 2)
     }
 
     // MARK: - AI Suggestion Sheet
@@ -496,32 +402,56 @@ struct RecipesView: View {
         .presentationDetents([.medium])
     }
 
-    // MARK: - Data & Logic
+    // MARK: - Data
 
-    private var selectedRecipes: [RecipeSummary] {
-        visibleRecipes.filter { selectedRecipeIDs.contains($0.recipeId) }
+    private var tonightsDinner: RecipeSummary? {
+        // Try to find tonight's dinner from the current week
+        if let week = appState.currentWeek {
+            let todayDinner = week.meals.first {
+                Calendar.current.isDateInToday($0.mealDate) && $0.slot.lowercased() == "dinner"
+            }
+            if let recipeId = todayDinner?.recipeId,
+               let recipe = appState.recipes.first(where: { $0.recipeId == recipeId }) {
+                return recipe
+            }
+        }
+        // Fall back to the most recent favorite
+        let favs = appState.recipes.filter { $0.favorite && !$0.archived }
+        return favs.first
     }
 
-    private var emptyStateMessage: String {
-        if !searchText.isEmpty {
-            return "Try a different search term or meal filter."
-        }
-        if showArchived {
-            return "Add a recipe or restore one from the library."
-        }
-        return "Create a recipe or import one from a URL to start planning."
+    private var thisWeekRecipes: [RecipeSummary] {
+        guard let week = appState.currentWeek else { return [] }
+        let ids = Set(week.meals.compactMap(\.recipeId))
+        return appState.recipes.filter { ids.contains($0.recipeId) }
     }
 
-    private var visibleRecipes: [RecipeSummary] {
+    private var favoriteRecipes: [RecipeSummary] {
+        appState.recipes.filter { $0.favorite && !$0.archived }
+    }
+
+    private var recentlyAddedRecipes: [RecipeSummary] {
+        appState.recipes
+            .filter { !$0.archived }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private var allRecipes: [RecipeSummary] {
+        appState.recipes
+            .filter { !$0.archived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var filteredSearchResults: [RecipeSummary] {
         let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = appState.recipes.filter { recipe in
-            let matchesArchive = showArchived || !recipe.archived
-            let matchesMealType = mealFilter.matches(recipe)
-            let matchesSearch: Bool
-            if normalizedSearch.isEmpty {
-                matchesSearch = true
-            } else {
-                matchesSearch = [
+        guard !normalizedSearch.isEmpty else { return [] }
+
+        return appState.recipes
+            .filter { !$0.archived }
+            .filter { recipe in
+                [
                     recipe.name,
                     recipe.tags.joined(separator: " "),
                     recipe.cuisine,
@@ -533,60 +463,10 @@ struct RecipesView: View {
                 .joined(separator: " ")
                 .localizedCaseInsensitiveContains(normalizedSearch)
             }
-            let matchesCuisine = selectedCuisine.isEmpty || recipe.cuisine.localizedCaseInsensitiveCompare(selectedCuisine) == .orderedSame
-            let recipeTagSet = Set(recipe.tags.map { $0.lowercased() })
-            let matchesTags = selectedTags.isEmpty || selectedTags.allSatisfy { recipeTagSet.contains($0.lowercased()) }
-            return matchesArchive && matchesMealType && matchesSearch && matchesCuisine && matchesTags
-        }
-
-        return filtered.sorted(by: recipeComparator)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func recipeComparator(lhs: RecipeSummary, rhs: RecipeSummary) -> Bool {
-        switch sortOption {
-        case .lastUsed:
-            if lhs.sortRecencyBucket != rhs.sortRecencyBucket {
-                return lhs.sortRecencyBucket < rhs.sortRecencyBucket
-            }
-            if lhs.favorite != rhs.favorite {
-                return lhs.favorite && !rhs.favorite
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        case .favorites:
-            if lhs.sortFavoriteBucket != rhs.sortFavoriteBucket {
-                return lhs.sortFavoriteBucket < rhs.sortFavoriteBucket
-            }
-            if lhs.sortRecencyBucket != rhs.sortRecencyBucket {
-                return lhs.sortRecencyBucket < rhs.sortRecencyBucket
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        case .name:
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        case .cuisine:
-            let lhsCuisine = lhs.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
-            let rhsCuisine = rhs.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if lhsCuisine != rhsCuisine {
-                return lhsCuisine.localizedCaseInsensitiveCompare(rhsCuisine) == .orderedAscending
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
-    private func toggleSelection(for recipe: RecipeSummary) {
-        if selectedRecipeIDs.contains(recipe.recipeId) {
-            selectedRecipeIDs.remove(recipe.recipeId)
-        } else {
-            selectedRecipeIDs.insert(recipe.recipeId)
-        }
-    }
-
-    private func toggleTag(_ tag: String) {
-        if selectedTags.contains(tag) {
-            selectedTags.remove(tag)
-        } else {
-            selectedTags.insert(tag)
-        }
-    }
+    // MARK: - Actions
 
     private func generateSuggestion(_ goal: RecipeSuggestionGoal) async {
         suggestionErrorMessage = nil
@@ -598,38 +478,6 @@ struct RecipesView: View {
             editorContext = RecipeEditorSheetContext(title: "\(goal.title) Suggestion", draft: aiDraft.draft)
         } catch {
             suggestionErrorMessage = error.localizedDescription
-        }
-    }
-
-    private var reviewQueueButtonTitle: String {
-        let reviewCount = appState.recipes.reduce(into: 0) { count, recipe in
-            count += recipe.ingredients.filter { $0.resolutionStatus == "unresolved" || $0.resolutionStatus == "suggested" }.count
-        }
-        if reviewCount == 0 {
-            return "Review queue"
-        }
-        return "Review queue (\(reviewCount))"
-    }
-}
-
-// MARK: - Recipe Grid Cell
-
-private struct RecipeGridCell: View {
-    let recipe: RecipeSummary
-    let gradientIndex: Int
-    let isSelected: Bool
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            RecipeCard(recipe: recipe, gradientIndex: gradientIndex)
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(SMColor.success)
-                    .background(Circle().fill(SMColor.surface).padding(2))
-                    .padding(SMSpacing.sm)
-            }
         }
     }
 }

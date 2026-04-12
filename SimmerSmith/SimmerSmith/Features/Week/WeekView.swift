@@ -4,7 +4,9 @@ import SimmerSmithKit
 struct WeekView: View {
     @Environment(AppState.self) private var appState
 
-    @State private var selectedMeal: WeekMeal?
+    @State private var selectedMealForAction: WeekMeal?
+    @State private var editingMeal: WeekMeal?
+    @State private var navigatingToRecipeID: String?
     @State private var showingActivity = false
     @State private var showingAIPlanner = false
     @State private var showingGrocery = false
@@ -18,8 +20,9 @@ struct WeekView: View {
             ScrollView {
                 VStack(spacing: SMSpacing.lg) {
                     if let week = appState.currentWeek {
-                        weekHeader(week)
-                        dayCards(week)
+                        todaySection(week)
+                        tomorrowSection(week)
+                        restOfWeekSection(week)
                         groceryBar(week)
                     } else {
                         emptyState
@@ -33,7 +36,6 @@ struct WeekView: View {
                 await appState.refreshWeek()
             }
 
-            // AI Floating Action Button
             AIFloatingButton {
                 if appState.currentWeek == nil {
                     Task { await createWeekAndShowPlanner() }
@@ -67,9 +69,38 @@ struct WeekView: View {
                 }
             }
         }
-        .sheet(item: $selectedMeal) { meal in
-            FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
-                try await appState.submitMealFeedback(for: meal, sentiment: sentiment, notes: notes)
+        .confirmationDialog(
+            selectedMealForAction?.recipeName ?? "Meal",
+            isPresented: Binding(
+                get: { selectedMealForAction != nil },
+                set: { if !$0 { selectedMealForAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let meal = selectedMealForAction {
+                if meal.recipeId != nil {
+                    Button("View Recipe") {
+                        navigatingToRecipeID = meal.recipeId
+                    }
+                }
+                Button("Edit Notes") {
+                    editingMeal = meal
+                }
+                Button("Mark as Eating Out") {
+                    markEatingOut(meal)
+                }
+                Button("Remove", role: .destructive) {
+                    removeMeal(meal)
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+        .navigationDestination(item: $navigatingToRecipeID) { recipeID in
+            RecipeDetailView(recipeID: recipeID)
+        }
+        .sheet(item: $editingMeal) { meal in
+            MealNoteEditor(meal: meal) { newNotes in
+                await updateMealNotes(meal, notes: newNotes)
             }
         }
         .sheet(isPresented: $showingActivity) {
@@ -86,39 +117,93 @@ struct WeekView: View {
         }
     }
 
-    // MARK: - Week Header
+    // MARK: - Today Section
 
     @ViewBuilder
-    private func weekHeader(_ week: WeekSnapshot) -> some View {
-        SMCard {
-            VStack(alignment: .leading, spacing: SMSpacing.sm) {
-                Text("This Week")
+    private func todaySection(_ week: WeekSnapshot) -> some View {
+        let todayMeals = week.meals.filter { Calendar.current.isDateInToday($0.mealDate) }
+
+        VStack(alignment: .leading, spacing: SMSpacing.md) {
+            VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                Text("Today")
                     .font(SMFont.display)
                     .foregroundStyle(SMColor.textPrimary)
 
-                Text(week.weekStart.formatted(date: .abbreviated, time: .omitted))
+                Text(Date().formatted(date: .abbreviated, time: .omitted))
                     .font(SMFont.subheadline)
                     .foregroundStyle(SMColor.textSecondary)
+            }
+            .padding(.top, SMSpacing.sm)
 
-                HStack(spacing: SMSpacing.lg) {
-                    Label("\(week.meals.count) meals", systemImage: "fork.knife")
-                    Label(statusLabel(for: week), systemImage: "circle.fill")
-                        .foregroundStyle(week.status == "approved" ? SMColor.success : SMColor.textTertiary)
+            if todayMeals.isEmpty {
+                VStack(spacing: SMSpacing.sm) {
+                    Text("Nothing planned")
+                        .font(SMFont.body)
+                        .foregroundStyle(SMColor.textSecondary)
+                    Text("Tap the sparkle button to plan meals with AI")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
                 }
-                .font(SMFont.caption)
-                .foregroundStyle(SMColor.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, SMSpacing.xl)
+            } else {
+                ForEach(todayMeals) { meal in
+                    TodayMealCard(
+                        meal: meal,
+                        recipe: recipeSummary(for: meal),
+                        onTap: { selectedMealForAction = meal }
+                    )
+                }
             }
         }
-        .padding(.top, SMSpacing.sm)
     }
 
-    // MARK: - Day Cards
+    // MARK: - Tomorrow Section
 
     @ViewBuilder
-    private func dayCards(_ week: WeekSnapshot) -> some View {
-        let grouped = groupedMeals(for: week)
-        ForEach(grouped, id: \.dayName) { day in
-            DayCard(dayName: day.dayName, meals: day.meals)
+    private func tomorrowSection(_ week: WeekSnapshot) -> some View {
+        let tomorrowMeals = week.meals.filter { Calendar.current.isDateInTomorrow($0.mealDate) }
+
+        if !tomorrowMeals.isEmpty {
+            VStack(alignment: .leading, spacing: SMSpacing.md) {
+                Text("Tomorrow")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.textPrimary)
+
+                ForEach(tomorrowMeals) { meal in
+                    CompactMealCard(meal: meal) {
+                        selectedMealForAction = meal
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Rest of Week
+
+    @ViewBuilder
+    private func restOfWeekSection(_ week: WeekSnapshot) -> some View {
+        let calendar = Calendar.current
+        let remainingMeals = week.meals.filter {
+            !calendar.isDateInToday($0.mealDate) && !calendar.isDateInTomorrow($0.mealDate)
+        }
+
+        if !remainingMeals.isEmpty {
+            let grouped = groupedMeals(from: remainingMeals)
+
+            ForEach(grouped, id: \.dayName) { day in
+                VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                    Text(day.dayName)
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.primary)
+
+                    ForEach(day.meals) { meal in
+                        CompactMealCard(meal: meal) {
+                            selectedMealForAction = meal
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -256,6 +341,69 @@ struct WeekView: View {
         }
     }
 
+    // MARK: - Meal Edit Actions
+
+    private func markEatingOut(_ meal: WeekMeal) {
+        guard let week = appState.currentWeek else { return }
+        Task {
+            var meals = week.meals.map { m in
+                MealUpdateRequest(
+                    mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                    slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                    servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                    notes: m.notes, approved: m.approved
+                )
+            }
+            if let idx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+                meals[idx] = MealUpdateRequest(
+                    mealId: meal.mealId, dayName: meal.dayName,
+                    mealDate: meal.mealDate, slot: meal.slot,
+                    recipeName: "Eating Out", approved: true
+                )
+            }
+            _ = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        }
+    }
+
+    private func removeMeal(_ meal: WeekMeal) {
+        guard let week = appState.currentWeek else { return }
+        Task {
+            let meals = week.meals
+                .filter { $0.mealId != meal.mealId }
+                .map { m in
+                    MealUpdateRequest(
+                        mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                        slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                        servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                        notes: m.notes, approved: m.approved
+                    )
+                }
+            _ = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        }
+    }
+
+    private func updateMealNotes(_ meal: WeekMeal, notes: String) async {
+        guard let week = appState.currentWeek else { return }
+        var meals = week.meals.map { m in
+            MealUpdateRequest(
+                mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                notes: m.notes, approved: m.approved
+            )
+        }
+        if let idx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+            meals[idx] = MealUpdateRequest(
+                mealId: meal.mealId, dayName: meal.dayName,
+                mealDate: meal.mealDate, slot: meal.slot,
+                recipeId: meal.recipeId, recipeName: meal.recipeName,
+                servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
+                notes: notes, approved: meal.approved
+            )
+        }
+        _ = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+    }
+
     // MARK: - Actions
 
     private func createWeekAndShowPlanner() async {
@@ -289,12 +437,13 @@ struct WeekView: View {
 
     // MARK: - Helpers
 
-    private func statusLabel(for week: WeekSnapshot) -> String {
-        week.status.replacingOccurrences(of: "_", with: " ").capitalized
+    private func recipeSummary(for meal: WeekMeal) -> RecipeSummary? {
+        guard let recipeId = meal.recipeId else { return nil }
+        return appState.recipes.first { $0.recipeId == recipeId }
     }
 
-    private func groupedMeals(for week: WeekSnapshot) -> [(dayName: String, meals: [WeekMeal])] {
-        let grouped = Dictionary(grouping: week.meals, by: \.dayName)
+    private func groupedMeals(from meals: [WeekMeal]) -> [(dayName: String, meals: [WeekMeal])] {
+        let grouped = Dictionary(grouping: meals, by: \.dayName)
         return grouped
             .map { key, value in
                 (key, value.sorted { ($0.mealDate, $0.slot) < ($1.mealDate, $1.slot) })
