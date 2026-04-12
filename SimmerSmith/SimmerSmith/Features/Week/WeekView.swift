@@ -27,6 +27,12 @@ struct WeekView: View {
     @State private var renamingMeal: WeekMeal?
     @State private var renameText: String = ""
 
+    // Meal move
+    @State private var movingMeal: WeekMeal?
+
+    // Link to recipe
+    @State private var linkRecipeMeal: WeekMeal?
+
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
             return browsedWeek ?? appState.currentWeek
@@ -118,6 +124,14 @@ struct WeekView: View {
                 Button("Edit Notes") {
                     editingMeal = meal
                 }
+                Button("Move to...") {
+                    movingMeal = meal
+                }
+                if meal.recipeId == nil {
+                    Button("Link to Recipe") {
+                        linkRecipeMeal = meal
+                    }
+                }
                 Button("Mark as Eating Out") {
                     markEatingOut(meal)
                 }
@@ -178,6 +192,18 @@ struct WeekView: View {
             }
             Button("Cancel", role: .cancel) {
                 renamingMeal = nil
+            }
+        }
+        .sheet(item: $movingMeal) { meal in
+            if let week = displayedWeek {
+                MealMoveSheet(meal: meal, week: week) { newDayName, newDate, newSlot in
+                    await moveMeal(meal, toDayName: newDayName, date: newDate, slot: newSlot)
+                }
+            }
+        }
+        .sheet(item: $linkRecipeMeal) { meal in
+            RecipePickerSheet(meal: meal, recipes: appState.recipes) { recipe in
+                await linkMealToRecipe(meal, recipe: recipe)
             }
         }
         .task {
@@ -679,6 +705,70 @@ struct WeekView: View {
                 mealId: meal.mealId, dayName: meal.dayName,
                 mealDate: meal.mealDate, slot: meal.slot,
                 recipeId: meal.recipeId, recipeName: trimmed,
+                servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
+                notes: meal.notes, approved: meal.approved
+            )
+        }
+        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+    }
+
+    private func moveMeal(_ meal: WeekMeal, toDayName: String, date: Date, slot: String) async {
+        guard let week = displayedWeek else { return }
+        let calendar = Calendar.current
+        let targetExisting = week.meals.first {
+            calendar.isDate($0.mealDate, inSameDayAs: date) && $0.slot == slot
+        }
+
+        var meals = week.meals.map { m in
+            MealUpdateRequest(
+                mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                notes: m.notes, approved: m.approved
+            )
+        }
+
+        // Move the source meal to the target slot
+        if let srcIdx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+            meals[srcIdx] = MealUpdateRequest(
+                mealId: meal.mealId, dayName: toDayName, mealDate: date,
+                slot: slot, recipeId: meal.recipeId, recipeName: meal.recipeName,
+                servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
+                notes: meal.notes, approved: meal.approved
+            )
+        }
+
+        // If there was a meal in the target slot, swap it to the source slot
+        if let targetMeal = targetExisting,
+           let tgtIdx = meals.firstIndex(where: { $0.mealId == targetMeal.mealId }) {
+            meals[tgtIdx] = MealUpdateRequest(
+                mealId: targetMeal.mealId, dayName: meal.dayName, mealDate: meal.mealDate,
+                slot: meal.slot, recipeId: targetMeal.recipeId, recipeName: targetMeal.recipeName,
+                servings: targetMeal.servings, scaleMultiplier: targetMeal.scaleMultiplier,
+                notes: targetMeal.notes, approved: targetMeal.approved
+            )
+        }
+
+        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+    }
+
+    private func linkMealToRecipe(_ meal: WeekMeal, recipe: RecipeSummary) async {
+        guard let week = displayedWeek else { return }
+        var meals = week.meals.map { m in
+            MealUpdateRequest(
+                mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                notes: m.notes, approved: m.approved
+            )
+        }
+        if let idx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+            meals[idx] = MealUpdateRequest(
+                mealId: meal.mealId, dayName: meal.dayName,
+                mealDate: meal.mealDate, slot: meal.slot,
+                recipeId: recipe.recipeId, recipeName: recipe.name,
                 servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
                 notes: meal.notes, approved: meal.approved
             )
