@@ -3,49 +3,52 @@ import SwiftUI
 
 struct SignInView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 32) {
-            Spacer()
+        ZStack {
+            SMColor.surface.ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                Image("BrandLockup")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 240)
+            VStack(spacing: SMSpacing.xxl) {
+                Spacer()
 
-                Text("AI-powered meal planning.\nPlan your week. Build your list.")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+                VStack(spacing: SMSpacing.lg) {
+                    Image("BrandLockup")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 240)
 
-            Spacer()
-
-            VStack(spacing: 12) {
-                SignInWithAppleButton(.signIn, onRequest: configureAppleRequest) { result in
-                    Task { await handleAppleResult(result) }
+                    Text("AI-powered meal planning.\nPlan your week. Build your list.")
+                        .font(SMFont.headline)
+                        .foregroundStyle(SMColor.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                .frame(height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                NavigationLink("Use a self-hosted server") {
-                    ConnectionSetupView()
+                Spacer()
+
+                VStack(spacing: SMSpacing.md) {
+                    SignInWithAppleButton(.signIn, onRequest: configureAppleRequest) { result in
+                        Task { await handleAppleResult(result) }
+                    }
+                    .signInWithAppleButtonStyle(.white)
+                    .frame(height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+
+                    NavigationLink("Use a self-hosted server") {
+                        ConnectionSetupView()
+                    }
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
                 }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            }
 
-            if let error = appState.lastErrorMessage {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
+                if let error = appState.lastErrorMessage {
+                    Text(error)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.destructive)
+                        .multilineTextAlignment(.center)
+                }
             }
+            .padding(SMSpacing.xxl)
         }
-        .padding(32)
         .navigationTitle("")
         .navigationBarHidden(true)
     }

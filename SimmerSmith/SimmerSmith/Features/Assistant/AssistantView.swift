@@ -9,48 +9,58 @@ struct AssistantView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                if appState.assistantThreads.isEmpty && !appState.assistantExecutionAvailable {
-                    ContentUnavailableView(
-                        "Assistant Needs Setup",
-                        systemImage: "sparkles.slash",
-                        description: Text(appState.assistantExecutionStatusText)
-                    )
-                    .listRowBackground(Color.clear)
-                } else if appState.assistantThreads.isEmpty {
-                    ContentUnavailableView(
-                        "No Assistant Chats Yet",
-                        systemImage: "sparkles.rectangle.stack",
-                        description: Text("Start a new chat to create recipes, refine drafts, or ask cooking questions.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    ForEach(appState.assistantThreads) { thread in
-                        NavigationLink(value: thread.threadId) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(thread.title)
-                                    .font(.headline)
-                                if !thread.preview.isEmpty {
-                                    Text(thread.preview)
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
+            ZStack {
+                SMColor.surface.ignoresSafeArea()
+
+                List {
+                    if appState.assistantThreads.isEmpty && !appState.assistantExecutionAvailable {
+                        ContentUnavailableView(
+                            "Assistant Needs Setup",
+                            systemImage: "sparkles.slash",
+                            description: Text(appState.assistantExecutionStatusText)
+                        )
+                        .listRowBackground(Color.clear)
+                    } else if appState.assistantThreads.isEmpty {
+                        ContentUnavailableView(
+                            "No Assistant Chats Yet",
+                            systemImage: "sparkles.rectangle.stack",
+                            description: Text("Start a new chat to create recipes, refine drafts, or ask cooking questions.")
+                        )
+                        .listRowBackground(Color.clear)
+                    } else {
+                        ForEach(appState.assistantThreads) { thread in
+                            NavigationLink(value: thread.threadId) {
+                                HStack(alignment: .top, spacing: SMSpacing.md) {
+                                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                                        Text(thread.title)
+                                            .font(SMFont.subheadline)
+                                            .foregroundStyle(SMColor.textPrimary)
+                                        if !thread.preview.isEmpty {
+                                            Text(thread.preview)
+                                                .font(SMFont.caption)
+                                                .foregroundStyle(SMColor.textTertiary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                    Spacer(minLength: SMSpacing.sm)
+                                    Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textTertiary)
                                 }
-                                Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                                .padding(.vertical, SMSpacing.sm)
                             }
-                            .padding(.vertical, 4)
-                        }
-                        .swipeActions {
-                            Button("Delete", role: .destructive) {
-                                Task {
-                                    try? await appState.deleteAssistantThread(threadID: thread.threadId)
+                            .listRowBackground(SMColor.surfaceCard)
+                            .swipeActions {
+                                Button("Delete", role: .destructive) {
+                                    Task {
+                                        try? await appState.deleteAssistantThread(threadID: thread.threadId)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
             .navigationTitle("Assistant")
             .navigationDestination(for: String.self) { threadID in
@@ -82,6 +92,7 @@ struct AssistantView: View {
                         }
                     } label: {
                         Image(systemName: "square.and.pencil")
+                            .foregroundStyle(SMColor.primary)
                     }
                     .accessibilityLabel("New chat thread")
                     .disabled(!appState.assistantExecutionAvailable)
@@ -122,47 +133,53 @@ private struct AssistantThreadView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                if let contextLabel {
-                    Text(contextLabel)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                }
+        ZStack {
+            SMColor.surface.ignoresSafeArea()
 
-                if let thread {
-                    if thread.messages.isEmpty {
-                        quickPrompts
-                    } else {
-                        ForEach(thread.messages) { message in
-                            AssistantMessageBubble(message: message) { draft in
-                                editorContext = RecipeEditorSheetContext(
-                                    title: "Recipe Draft",
-                                    draft: draft
-                                )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: SMSpacing.lg) {
+                    if let contextLabel {
+                        Text(contextLabel)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .padding(.horizontal)
+                            .padding(.top, SMSpacing.sm)
+                    }
+
+                    if let thread {
+                        if thread.messages.isEmpty {
+                            quickPrompts
+                        } else {
+                            ForEach(thread.messages) { message in
+                                AssistantMessageBubble(message: message) { draft in
+                                    editorContext = RecipeEditorSheetContext(
+                                        title: "Recipe Draft",
+                                        draft: draft
+                                    )
+                                }
                             }
                         }
+                    } else if appState.assistantSendingThreadIDs.contains(threadID) {
+                        ProgressView("Preparing assistant\u{2026}")
+                            .foregroundStyle(SMColor.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                    } else {
+                        ProgressView("Loading conversation\u{2026}")
+                            .foregroundStyle(SMColor.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
                     }
-                } else if appState.assistantSendingThreadIDs.contains(threadID) {
-                    ProgressView("Preparing assistant…")
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                } else {
-                    ProgressView("Loading conversation…")
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                }
 
-                if let error = appState.assistantErrorByThreadID[threadID], !error.isEmpty {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
+                    if let error = appState.assistantErrorByThreadID[threadID], !error.isEmpty {
+                        Text(error)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.destructive)
+                            .padding(.horizontal)
+                    }
                 }
+                .padding(.bottom, 120)
             }
-            .padding(.bottom, 120)
         }
         .navigationTitle(thread?.title ?? "Assistant")
         .navigationBarTitleDisplayMode(.inline)
@@ -181,9 +198,10 @@ private struct AssistantThreadView: View {
     }
 
     private var quickPrompts: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: SMSpacing.md) {
             Text("Try one of these")
-                .font(.headline)
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
                 .padding(.horizontal)
             ForEach(quickPromptItems, id: \.title) { prompt in
                 Button {
@@ -191,40 +209,44 @@ private struct AssistantThreadView: View {
                     intent = prompt.intent
                     Task { await sendMessage() }
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
                         Text(prompt.title)
-                            .font(.body.weight(.medium))
+                            .font(SMFont.subheadline)
+                            .foregroundStyle(SMColor.textPrimary)
                         Text(prompt.text)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textTertiary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .padding(SMSpacing.lg)
+                    .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.lg, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(!appState.assistantExecutionAvailable)
                 .padding(.horizontal)
             }
         }
-        .padding(.top, 20)
+        .padding(.top, SMSpacing.xl)
     }
 
     private var composer: some View {
-        VStack(spacing: 8) {
-            Divider()
+        VStack(spacing: 0) {
+            SMColor.divider.frame(height: 1)
             if !appState.assistantExecutionAvailable {
                 Text(appState.assistantExecutionStatusText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.horizontal, SMSpacing.lg)
+                    .padding(.top, SMSpacing.sm)
             }
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .bottom, spacing: SMSpacing.md) {
                 TextField("Ask for a recipe, substitution, or cooking help", text: $composerText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textPrimary)
                     .lineLimit(1...5)
+                    .padding(SMSpacing.md)
+                    .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
 
                 Button {
                     Task { await sendMessage() }
@@ -235,6 +257,7 @@ private struct AssistantThreadView: View {
                     } else {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 28))
+                            .foregroundStyle(SMColor.primary)
                     }
                 }
                 .disabled(
@@ -243,10 +266,10 @@ private struct AssistantThreadView: View {
                     appState.assistantSendingThreadIDs.contains(threadID)
                 )
             }
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-            .background(.thinMaterial)
+            .padding(.horizontal, SMSpacing.lg)
+            .padding(.top, SMSpacing.sm)
+            .padding(.bottom, SMSpacing.md)
+            .background(SMColor.surfaceElevated)
         }
     }
 
@@ -301,42 +324,57 @@ private struct AssistantMessageBubble: View {
     let message: AssistantMessage
     let openDraft: (RecipeDraft) -> Void
 
+    private var isUser: Bool { message.role == "user" }
+
     var body: some View {
-        VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: isUser ? .trailing : .leading, spacing: SMSpacing.sm) {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
                 Text(displayText)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let recipeDraft = message.recipeDraft {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: SMSpacing.sm) {
                         Text(recipeDraft.name)
-                            .font(.headline)
+                            .font(SMFont.subheadline)
+                            .foregroundStyle(SMColor.textPrimary)
                         if !recipeDraft.cuisine.isEmpty || !recipeDraft.mealType.isEmpty {
-                            Text([recipeDraft.mealType.capitalized, recipeDraft.cuisine].filter { !$0.isEmpty }.joined(separator: " • "))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            Text([recipeDraft.mealType.capitalized, recipeDraft.cuisine].filter { !$0.isEmpty }.joined(separator: " \u{2022} "))
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
                         }
-                        Button("Open In Editor") {
+                        let ingredientCount = recipeDraft.ingredients.count
+                        if ingredientCount > 0 {
+                            Text("\(ingredientCount) ingredient\(ingredientCount == 1 ? "" : "s")")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                        Button {
                             openDraft(recipeDraft)
+                        } label: {
+                            Text("Open In Editor")
+                                .font(SMFont.label)
+                                .foregroundStyle(SMColor.primary)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding(SMSpacing.md)
+                    .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
                 }
             }
-            .padding()
-            .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .frame(maxWidth: 520, alignment: message.role == "user" ? .trailing : .leading)
+            .padding(SMSpacing.lg)
+            .background(
+                isUser ? AnyShapeStyle(SMColor.primary.opacity(0.15)) : AnyShapeStyle(SMColor.surfaceElevated),
+                in: RoundedRectangle(cornerRadius: SMRadius.lg, style: .continuous)
+            )
+            .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
 
             Text(message.createdAt.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(SMColor.textTertiary)
         }
-        .frame(maxWidth: .infinity, alignment: message.role == "user" ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .padding(.horizontal)
-    }
-
-    private var bubbleBackground: some ShapeStyle {
-        message.role == "user" ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.thinMaterial)
     }
 
     private var displayText: String {
@@ -349,7 +387,7 @@ private struct AssistantMessageBubble: View {
             return "Assistant request failed: \(errorText)"
         }
         if message.status == "streaming" {
-            return "Thinking…"
+            return "Thinking\u{2026}"
         }
         if message.recipeDraft != nil {
             return "I put together a draft recipe for you to review below."
