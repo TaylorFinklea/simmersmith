@@ -22,3 +22,4 @@ app_data/
 *.pyc
 *.pyo
 *.pyd
+AuthKey*.p8
