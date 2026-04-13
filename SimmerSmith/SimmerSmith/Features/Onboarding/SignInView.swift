@@ -33,6 +33,25 @@ struct SignInView: View {
                     .frame(height: 50)
                     .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
 
+                    Button {
+                        // TODO: Wire Google Sign-In SDK
+                    } label: {
+                        HStack {
+                            Image(systemName: "g.circle.fill")
+                            Text("Sign in with Google")
+                                .font(.system(size: 17, weight: .medium))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(SMColor.surfaceCard)
+                        .foregroundStyle(SMColor.textPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                                .strokeBorder(SMColor.divider, lineWidth: 1)
+                        )
+                    }
+
                     NavigationLink("Use a self-hosted server") {
                         ConnectionSetupView()
                     }

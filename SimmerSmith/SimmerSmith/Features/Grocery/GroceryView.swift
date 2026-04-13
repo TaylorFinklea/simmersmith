@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct GroceryView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
 
     @State private var selectedItem: GroceryItem?
     @State private var showingReviewQueue = false
@@ -20,7 +21,7 @@ struct GroceryView: View {
                                     } label: {
                                         Image(systemName: appState.isGroceryChecked(item.groceryItemId) ? "checkmark.circle.fill" : "circle")
                                             .font(.title3)
-                                            .foregroundStyle(appState.isGroceryChecked(item.groceryItemId) ? .green : .secondary)
+                                            .foregroundStyle(appState.isGroceryChecked(item.groceryItemId) ? SMColor.success : SMColor.textTertiary)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel(
@@ -32,14 +33,15 @@ struct GroceryView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(item.ingredientName)
                                             .font(.body.weight(.medium))
+                                            .foregroundStyle(SMColor.textPrimary)
                                             .strikethrough(appState.isGroceryChecked(item.groceryItemId))
                                         Text(item.quantityText.isEmpty ? item.unit : item.quantityText)
                                             .font(.footnote)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(SMColor.textSecondary)
                                         if !item.sourceMeals.isEmpty {
                                             Text(item.sourceMeals)
                                                 .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(SMColor.textTertiary)
                                         }
                                         if !item.reviewFlag.isEmpty {
                                             Label(item.reviewFlag, systemImage: "exclamationmark.circle")
@@ -59,21 +61,38 @@ struct GroceryView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(SMColor.surface)
                 .refreshable {
                     await appState.refreshWeek()
                 }
             } else {
-                ContentUnavailableView(
-                    "No Grocery List",
-                    systemImage: "cart.badge.questionmark",
-                    description: Text("Sync a current week that includes grocery items.")
-                )
+                VStack(spacing: SMSpacing.lg) {
+                    Image(systemName: "cart.badge.questionmark")
+                        .font(.system(size: 48))
+                        .foregroundStyle(SMColor.textTertiary)
+                    Text("No Grocery List")
+                        .font(SMFont.headline)
+                        .foregroundStyle(SMColor.textPrimary)
+                    Text("Sync a current week that includes grocery items.")
+                        .font(SMFont.body)
+                        .foregroundStyle(SMColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(SMColor.surface)
             }
         }
-        .navigationTitle("Grocery")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                BrandToolbarBadge()
+            ToolbarItem(placement: .principal) {
+                Text("Grocery")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.textPrimary)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { dismiss() }
+                    .foregroundStyle(SMColor.primary)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

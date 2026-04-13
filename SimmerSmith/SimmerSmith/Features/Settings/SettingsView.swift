@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
 
     var body: some View {
@@ -26,16 +27,18 @@ struct SettingsView: View {
 
             Section("Sync") {
                 Text(appState.syncStatusText)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SMColor.textSecondary)
 
                 if let updatedAt = appState.currentWeek?.updatedAt {
                     LabeledContent("Current week") {
                         Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                 }
                 if let updatedAt = appState.profile?.updatedAt {
                     LabeledContent("Profile") {
                         Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                 }
 
@@ -49,26 +52,29 @@ struct SettingsView: View {
                     if let target = capabilities.defaultTarget {
                         LabeledContent("Default route") {
                             Text(target.providerKind == "mcp" ? (target.mcpServerName ?? "MCP") : (target.providerName ?? "Direct"))
+                                .foregroundStyle(SMColor.textSecondary)
                         }
                     } else {
                         Text(appState.assistantExecutionStatusText)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                     LabeledContent("Preferred mode") {
                         Text(capabilities.preferredMode.capitalized)
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                     LabeledContent("User override") {
                         Text(capabilities.userOverrideConfigured ? "Configured" : "Not configured")
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                     ForEach(capabilities.availableProviders) { provider in
                         LabeledContent(provider.label) {
                             Text(provider.available ? provider.source.replacingOccurrences(of: "_", with: " ").capitalized : "Unavailable")
-                                .foregroundStyle(provider.available ? .secondary : .tertiary)
+                                .foregroundStyle(provider.available ? SMColor.textSecondary : SMColor.textTertiary)
                         }
                     }
                 } else {
                     Text(appState.assistantExecutionStatusText)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SMColor.textSecondary)
                 }
 
                 Picker("Preferred mode", selection: $appState.aiProviderModeDraft) {
@@ -93,11 +99,11 @@ struct SettingsView: View {
                     } else if let modelError = appState.selectedDirectProviderModelError {
                         Text(modelError)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(SMColor.textSecondary)
                     } else {
                         Text("Discovering available models for the selected provider…")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(SMColor.textSecondary)
                     }
 
                     Button("Refresh Models") {
@@ -116,7 +122,7 @@ struct SettingsView: View {
 
                 Text(apiKeyStatusText)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SMColor.textSecondary)
 
                 Button("Save AI Settings") {
                     Task { await appState.saveAISettings() }
@@ -131,21 +137,23 @@ struct SettingsView: View {
             Section("Templates") {
                 LabeledContent("Recipe templates") {
                     Text("\(appState.recipeTemplateCount)")
+                        .foregroundStyle(SMColor.textSecondary)
                 }
                 if let defaultTemplate = appState.recipeMetadata?.templates.first(where: { $0.templateId == appState.recipeMetadata?.defaultTemplateId }) {
                     LabeledContent("Default template") {
                         Text(defaultTemplate.name)
+                            .foregroundStyle(SMColor.textSecondary)
                     }
                 } else {
                     Text("Template library syncs with recipe metadata.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SMColor.textSecondary)
                 }
             }
 
             Section("Ingredient Preferences") {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SMColor.textSecondary)
                 } else {
                     ForEach(appState.ingredientPreferences) { preference in
                         Button {
@@ -154,32 +162,32 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(preference.baseIngredientName)
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(SMColor.textPrimary)
                                     if !preference.active {
                                         Text("Inactive")
                                             .font(.caption2.weight(.semibold))
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 3)
                                             .background(.thinMaterial, in: Capsule())
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(SMColor.textSecondary)
                                     }
                                     Spacer()
                                     Text(preference.choiceMode.replacingOccurrences(of: "_", with: " ").capitalized)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(SMColor.textSecondary)
                                 }
                                 if let variationName = preference.preferredVariationName, !variationName.isEmpty {
                                     Text(variationName)
                                         .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(SMColor.textSecondary)
                                 } else if !preference.preferredBrand.isEmpty {
                                     Text(preference.preferredBrand)
                                         .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(SMColor.textSecondary)
                                 } else {
                                     Text("Generic ingredient preference")
                                         .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(SMColor.textTertiary)
                                 }
                             }
                         }
@@ -196,7 +204,7 @@ struct SettingsView: View {
 
             Section("Ingredients") {
                 Text("Manage canonical ingredients, product variations, nutrition, and household preferences from one dedicated catalog area.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SMColor.textSecondary)
 
                 NavigationLink {
                     IngredientsView()
@@ -214,8 +222,23 @@ struct SettingsView: View {
                     appState.resetConnection()
                 }
             }
+
+            Section {
+                Button(role: .destructive) {
+                    appState.resetConnection()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Sign Out")
+                            .font(SMFont.subheadline)
+                        Spacer()
+                    }
+                }
+            }
         }
-        .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .background(SMColor.surface)
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: appState.aiDirectProviderDraft) {
             await appState.refreshAIModels(for: appState.aiDirectProviderDraft)
         }
@@ -228,8 +251,14 @@ struct SettingsView: View {
             IngredientPreferenceEditorSheet(context: context)
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                BrandToolbarBadge()
+            ToolbarItem(placement: .principal) {
+                Text("Settings")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.textPrimary)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { dismiss() }
+                    .foregroundStyle(SMColor.primary)
             }
         }
     }
