@@ -53,6 +53,7 @@ final class AppState {
     // follow-up resetConnection() can cancel it before it races with the
     // cleared connection state.
     var postClearRefreshTask: Task<Void, Never>?
+    var showOnboardingInterview = false
 
     var serverURLDraft: String
     var authTokenDraft: String
@@ -221,6 +222,9 @@ final class AppState {
             settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
             authTokenDraft = response.token
             await refreshAll()
+            if response.isNewUser {
+                showOnboardingInterview = true
+            }
         } catch {
             lastErrorMessage = "Sign in failed: \(error.localizedDescription)"
         }
