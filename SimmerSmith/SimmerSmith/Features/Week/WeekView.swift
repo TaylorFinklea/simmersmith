@@ -33,6 +33,10 @@ struct WeekView: View {
     // Link to recipe
     @State private var linkRecipeMeal: WeekMeal?
 
+    // AI recipe creation
+    @State private var aiCreateMeal: WeekMeal?
+    @State private var isCreatingRecipe = false
+
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
             return browsedWeek ?? appState.currentWeek
@@ -131,6 +135,9 @@ struct WeekView: View {
                     Button("Link to Recipe") {
                         linkRecipeMeal = meal
                     }
+                    Button("Create Recipe with AI") {
+                        aiCreateMeal = meal
+                    }
                 }
                 Button("Mark as Eating Out") {
                     markEatingOut(meal)
@@ -204,6 +211,11 @@ struct WeekView: View {
         .sheet(item: $linkRecipeMeal) { meal in
             RecipePickerSheet(meal: meal, recipes: appState.recipes) { recipe in
                 await linkMealToRecipe(meal, recipe: recipe)
+            }
+        }
+        .sheet(item: $aiCreateMeal) { meal in
+            AIRecipeCreateSheet(mealName: meal.recipeName) { recipe in
+                await linkMealToSavedRecipe(meal, recipeId: recipe.recipeId, recipeName: recipe.name)
             }
         }
         .task {
@@ -769,6 +781,29 @@ struct WeekView: View {
                 mealId: meal.mealId, dayName: meal.dayName,
                 mealDate: meal.mealDate, slot: meal.slot,
                 recipeId: recipe.recipeId, recipeName: recipe.name,
+                servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
+                notes: meal.notes, approved: meal.approved
+            )
+        }
+        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+    }
+
+    private func linkMealToSavedRecipe(_ meal: WeekMeal, recipeId: String, recipeName: String) async {
+        guard let week = displayedWeek else { return }
+        var meals = week.meals.map { m in
+            MealUpdateRequest(
+                mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate,
+                slot: m.slot, recipeId: m.recipeId, recipeName: m.recipeName,
+                servings: m.servings, scaleMultiplier: m.scaleMultiplier,
+                notes: m.notes, approved: m.approved
+            )
+        }
+        if let idx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+            meals[idx] = MealUpdateRequest(
+                mealId: meal.mealId, dayName: meal.dayName,
+                mealDate: meal.mealDate, slot: meal.slot,
+                recipeId: recipeId, recipeName: recipeName,
                 servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
                 notes: meal.notes, approved: meal.approved
             )
