@@ -63,6 +63,7 @@
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
+		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -85,6 +86,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01056E5288DEF5FEC88D885F /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		01C35592BA165B9889094B32 /* AIFloatingButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIFloatingButton.swift; sourceTree = "<group>"; };
 		01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeWeekAssignmentView.swift; sourceTree = "<group>"; };
 		10345947B6DFB4A0CF0527E0 /* TimeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeBadge.swift; sourceTree = "<group>"; };
@@ -258,6 +260,14 @@
 			path = Assistant;
 			sourceTree = "<group>";
 		};
+		7587D8E0C14BF50249544874 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				01056E5288DEF5FEC88D885F /* NotificationManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
 		7EBADF07E0E6DB08A57494D0 /* Recipes */ = {
 			isa = PBXGroup;
 			children = (
@@ -366,6 +376,7 @@
 				4B4A178409352DE229F50741 /* App */,
 				85E10677AB3A0D9FDCF6A879 /* DesignSystem */,
 				1E42F42156053EDC2BBB13EB /* Features */,
+				7587D8E0C14BF50249544874 /* Services */,
 			);
 			path = SimmerSmith;
 			sourceTree = "<group>";
@@ -543,6 +554,7 @@
 				EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */,
 				FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */,
 				A50492A8C75536C4828C7951 /* MealSlotRow.swift in Sources */,
+				F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */,
 				3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */,
 				72BD0CBA5C14220174E5ECA2 /* RecipeCard.swift in Sources */,
 				2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */,

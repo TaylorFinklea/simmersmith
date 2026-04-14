@@ -21,6 +21,12 @@ extension AppState {
                 checkedGroceryItemIDs = []
             }
             syncPhase = .synced(.now)
+
+            // Schedule meal reminders for the current week
+            if let week = currentWeek, !week.meals.isEmpty {
+                NotificationManager.shared.scheduleMealReminders(for: week.meals)
+                NotificationManager.shared.scheduleGroceryReminder(itemCount: week.groceryItems.count)
+            }
         } catch {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)

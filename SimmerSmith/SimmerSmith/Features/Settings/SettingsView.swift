@@ -213,6 +213,23 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Notifications") {
+                Button("Enable Meal Reminders") {
+                    Task {
+                        let granted = await NotificationManager.shared.requestPermission()
+                        if granted, let week = appState.currentWeek {
+                            NotificationManager.shared.scheduleMealReminders(for: week.meals)
+                            NotificationManager.shared.scheduleGroceryReminder(itemCount: week.groceryItems.count)
+                        }
+                    }
+                }
+
+                Button("Turn Off Reminders") {
+                    NotificationManager.shared.cancelAllReminders()
+                }
+                .foregroundStyle(SMColor.textSecondary)
+            }
+
             Section("Data") {
                 Button("Clear Local Cache", role: .destructive) {
                     appState.clearLocalCache()

@@ -237,6 +237,9 @@ struct OnboardingInterviewView: View {
             await appState.refreshAll()
         }
 
+        // Request notification permission
+        _ = await NotificationManager.shared.requestPermission()
+
         dismiss()
     }
 }
