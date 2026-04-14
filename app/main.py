@@ -57,3 +57,39 @@ app.include_router(weeks_router, dependencies=protected_dependencies)
 @app.get("/api/health", response_model=HealthResponse)
 async def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/privacy", include_in_schema=False)
+async def privacy_policy():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SimmerSmith Privacy Policy</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;max-width:680px;margin:2rem auto;padding:0 1rem;color:#333;line-height:1.6}h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:2rem}p{margin:0.5rem 0}</style>
+</head><body>
+<h1>SimmerSmith Privacy Policy</h1>
+<p><em>Last updated: April 13, 2026</em></p>
+
+<h2>What We Collect</h2>
+<p>SimmerSmith collects the minimum data needed to provide the service:</p>
+<ul>
+<li><strong>Account info</strong>: Your Apple or Google account identifier and email (used for sign-in only).</li>
+<li><strong>Meal plans & recipes</strong>: The meals, recipes, grocery lists, and preferences you create in the app.</li>
+<li><strong>Usage data</strong>: Basic request logs for debugging (no analytics tracking).</li>
+</ul>
+
+<h2>How We Use It</h2>
+<p>Your data is used to provide the SimmerSmith service — meal planning, recipe management, and grocery lists. We send your meal preferences to AI providers (OpenAI) to generate meal plans. We do not sell or share your data with third parties for advertising.</p>
+
+<h2>AI Processing</h2>
+<p>When you use AI features (meal planning, recipe suggestions), your preferences and prompts are sent to OpenAI's API for processing. OpenAI's data handling is governed by their privacy policy. We do not send personal information beyond what's needed for meal planning.</p>
+
+<h2>Data Storage</h2>
+<p>Your data is stored on servers hosted by Fly.io (US). Data is encrypted in transit (HTTPS) and at rest.</p>
+
+<h2>Your Rights</h2>
+<p>You can delete your account and all associated data by contacting us. You can export your recipes and meal plans at any time through the app.</p>
+
+<h2>Contact</h2>
+<p>Questions? Email <a href="mailto:privacy@simmersmith.app">privacy@simmersmith.app</a>.</p>
+</body></html>""")
