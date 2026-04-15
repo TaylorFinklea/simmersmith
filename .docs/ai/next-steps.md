@@ -2,25 +2,29 @@
 
 > Short checklist of exact next actions. Updated at end of every session.
 
-## Immediate
+## Requires Your Action
 
-- [ ] Register at developer.kroger.com and get client_id/secret for live API testing
-- [ ] Set Kroger credentials: `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=... SIMMERSMITH_KROGER_CLIENT_SECRET=...`
-- [ ] Test Kroger pricing flow end-to-end with real API (store search → fetch pricing)
-- [ ] iOS: Add store selection UI (zip search → store picker → save to profile)
-- [ ] iOS: Display Kroger prices in grocery list view
+- [ ] Register at developer.kroger.com — get client_id/secret
+- [ ] `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=... SIMMERSMITH_KROGER_CLIENT_SECRET=...`
+- [ ] Configure Google Cloud Console: add iOS client ID for `app.simmersmith.ios` bundle
+- [ ] Add `GIDClientID` to Info.plist (or env-based config) with Google client ID
+- [ ] Test full flow on TestFlight build: sign in → onboarding → plan week → grocery → share recipe
+- [ ] Add internal testers to TestFlight
+
+## Immediate (code work)
+
+- [ ] Verify iOS build succeeds with GoogleSignIn SPM dependency
+- [ ] App Store metadata (description, keywords, category, screenshots)
+- [ ] Fetch pricing button in iOS grocery view (trigger backend pricing fetch)
 
 ## Soon
 
-- [ ] Verify TestFlight build 3 (sign in → onboarding → plan week → grocery → share recipe)
-- [ ] Google Sign-In SDK integration
-- [ ] App Store metadata (description, keywords, category, screenshots)
 - [ ] Instacart "shop now" button (affiliate integration)
+- [ ] Spoonacular estimated pricing fallback
+- [ ] App Store submission
 
 ## Future
 
-- [ ] Spoonacular estimated pricing fallback (when no store configured)
-- [ ] App Store submission
 - [ ] Freemium boundaries
 - [ ] Household sharing
 - [ ] Recipe images

@@ -10,26 +10,28 @@
 
 **Date**: 2026-04-15
 
-Two major features implemented: AI planning quality and Kroger grocery pricing integration.
+Massive feature sprint across backend and iOS. Completed M1 (AI Planning Excellence), built M2 backend (Kroger pricing), and started M3 (Google Sign-In + iOS store/pricing UI).
 
 **What was done:**
 
 ### M1: AI Planning Excellence (complete)
-- Added `PlanningContext` dataclass and `gather_planning_context()` to `week_planner.py`
-- Enhanced the AI system prompt with preference signals (hard avoids, strong likes, cuisine preferences), pantry staples, recent meal history, and stronger planning rules
-- Added `validate_plan_guardrails()` for deduplication and avoided-ingredient checking
-- Added `score_generated_plan()` using existing `score_meal_candidate()` for per-recipe scoring
-- Wired context gathering and scoring into the generate endpoint
+- `PlanningContext` dataclass and `gather_planning_context()` in `week_planner.py`
+- Enhanced AI prompt with preference signals, staples, recent meals, stronger rules
+- `validate_plan_guardrails()` and `score_generated_plan()`
 - 19 new tests in `tests/test_week_planner.py`
 
 ### M2: Kroger Grocery Pricing (backend complete)
-- Built `app/services/kroger.py` — Kroger API client with OAuth2, location search, product price search
-- Added `fetch_kroger_pricing()` to `app/services/pricing.py`
-- Added `GET /api/stores/search` endpoint for store location search by zip code
-- Added `POST /api/weeks/{week_id}/pricing/fetch` endpoint for live Kroger pricing
-- Relaxed retailer schema from hardcoded Literal to `str`
-- Added `kroger_client_id` and `kroger_client_secret` to config
+- `app/services/kroger.py` — Kroger API client (OAuth2, store search, product pricing)
+- `fetch_kroger_pricing()` in `app/services/pricing.py`
+- `GET /api/stores/search` and `POST /api/weeks/{id}/pricing/fetch` endpoints
+- Relaxed retailer schema from Literal to `str`
 - 12 new tests in `tests/test_kroger.py`
+
+### M3: App Store Submission (in progress)
+- **Google Sign-In**: GoogleSignIn-iOS SPM dependency, `GIDSignIn` wired in SignInView, `signInWithGoogle()` in AppState + API client
+- **Store selection UI**: New `StoreSelectionView` (zip search → store picker → save to profile), Grocery section added to SettingsView
+- **Price display**: Kroger prices shown inline on grocery items, weekly estimated total at top
+- **API client**: Added `searchStores()`, `fetchPricing()`, `getPricing()`, `StoreLocation`, `PricingResponse` models
 
 ## Production
 
@@ -39,20 +41,15 @@ Two major features implemented: AI planning quality and Kroger grocery pricing i
 
 ## Build Status
 
-- Backend: ruff ✅, pytest 96/96 ✅
-- iOS: BUILD SUCCEEDED ✅ (last checked April 14)
-- Swift tests: 26/26 ✅ (last checked April 14)
+- Backend: ruff clean, pytest 96/96 pass
+- Swift tests: 26/26 pass
+- iOS build: pending (GoogleSignIn SPM resolving)
 - TestFlight: UPLOADED (build 3, not yet tested)
-- Production: deployed and healthy ✅
-
-## Architecture
-
-- **Backend**: FastAPI + SQLAlchemy on Fly.io + Fly Postgres
-- **Auth**: Apple Sign-In (JWKS verification) → session JWT. Legacy bearer fallback.
-- **AI**: OpenAI (gpt-5.4-mini) for week planning. Planner now uses PlanningContext (preferences, staples, history, feedback signals).
-- **Grocery Pricing**: Kroger API (OAuth2, product search at specific store locations). Existing import flow preserved for aldi/walmart/sams_club.
-- **iOS**: SwiftUI, 3-tab layout (Week/Recipes/Assistant), dark theme design system
+- Production: deployed and healthy
 
 ## Blockers
 
-None. Kroger API credentials needed for live testing (register at developer.kroger.com).
+- **iOS build**: Needs verification after GoogleSignIn SPM resolution
+- **Kroger credentials**: Need to register at developer.kroger.com
+- **Google Sign-In**: Need Google Cloud Console iOS client ID configured
+- **TestFlight**: Build 3 untested on device
