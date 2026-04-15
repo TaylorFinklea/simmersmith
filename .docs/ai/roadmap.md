@@ -18,8 +18,8 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 
 ## R1: Core Flows (complete)
 
-- [x] Sign in with Apple (iOS → backend → session JWT)
-- [x] AI week planning (prompt → OpenAI → 21 meals + recipes)
+- [x] Sign in with Apple (iOS -> backend -> session JWT)
+- [x] AI week planning (prompt -> OpenAI -> 21 meals + recipes)
 - [x] Grocery generation (auto from AI draft)
 - [x] Recipe import (in-app browser + HTML extraction)
 - [x] Recipe UX (ingredient autocomplete, editorial detail view)
@@ -37,27 +37,52 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 - [x] Grocery: dark sheet with Done button
 - [x] Sign-in: Apple + Google buttons (Google placeholder)
 
-## R3: TestFlight Prep (in progress)
+## R3: TestFlight Prep (complete)
 
 - [x] ExportOptions.plist for App Store Connect upload
 - [x] Version bumped to 1.0.0 (build 3)
-- [ ] App Store Connect API key setup (user action)
-- [ ] Archive + export IPA
-- [ ] Upload to TestFlight
-- [ ] Privacy policy URL
-- [ ] App Store metadata (description, keywords, category)
-- [ ] Internal TestFlight testing
+- [x] Archive + export IPA
+- [x] Upload to TestFlight
+- [x] Privacy policy URL
 
-## Future
+## M1: AI Planning Excellence (in progress)
 
-- [ ] Recipe images (import, upload, AI-generated library)
+Make the AI the star of the app. The planner currently uses only flat profile settings; the preference/feedback/history infrastructure exists but is unused.
+
+- [ ] Preference-aware week planning (feed PreferenceSignal scores into AI prompt)
+- [ ] History-aware deduplication (pass recent 2-3 weeks of meals, avoid repeats)
+- [ ] Feedback loop (deprioritize poorly-rated meals/cuisines via signal scores)
+- [ ] Staple awareness (tell AI what's in the pantry to leverage)
+- [ ] Post-generation quality scoring (score_meal_candidate on each recipe)
+- [ ] Deduplication guardrails (max 3 reuses per recipe per week)
+
+## M2: Store-Specific Grocery Pricing
+
+Must-have for launch. Integrate third-party grocery pricing API.
+
+- [ ] Research and select grocery pricing API (Instacart/Kroger/Spoonacular)
+- [ ] Store selection + configuration in iOS
+- [ ] Price display in grocery list
+- [ ] Price optimization suggestions
+
+## M3: App Store Submission
+
+Complete remaining launch prerequisites and submit.
+
+- [ ] TestFlight validation + bug fixes
 - [ ] Google Sign-In SDK integration
-- [ ] AI recipe matching from shorthand meal notes
-- [ ] Drag-and-drop meal reorder
-- [ ] Push notifications (meal reminders, grocery day)
-- [ ] Guided AI onboarding preference interview
-- [ ] Freemium boundaries
+- [ ] App Store metadata (description, keywords, category, screenshots)
+- [ ] Submit for App Store review
+
+## M4: Post-Launch
+
+Growth features after the core loop is validated.
+
+- [ ] Freemium boundaries (AI usage limits, premium tier)
 - [ ] Household sharing
+- [ ] Recipe images (AI-generated or fetched)
+- [ ] Advanced AI features (nutrition tracking, dietary progress, smart substitutions)
+- [ ] Remote push notifications from backend (APNs integration)
 
 ## Backlog
 

@@ -1,0 +1,343 @@
+"""Tests for AI week planner context enrichment, guardrails, and scoring."""
+from __future__ import annotations
+
+from datetime import date
+
+from app.services.week_planner import (
+    PlanningContext,
+    _build_system_prompt,
+    validate_plan_guardrails,
+)
+
+TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
+
+
+# ---------------------------------------------------------------------------
+# _build_system_prompt
+# ---------------------------------------------------------------------------
+
+def test_prompt_without_context_matches_original_shape() -> None:
+    """Empty context produces the same prompt structure as before."""
+    prompt = _build_system_prompt(
+        user_settings={"household_name": "Test Family", "dietary_constraints": "none"},
+        week_start=date(2026, 4, 21),
+    )
+    assert "User profile:" in prompt
+    assert "Household Name: Test Family" in prompt
+    assert "Rules:" in prompt
+    # No preference or history sections
+    assert "Preference signals:" not in prompt
+    assert "Pantry staples" not in prompt
+    assert "Recent meals" not in prompt
+
+
+def test_prompt_with_empty_context_matches_original() -> None:
+    """Passing an empty PlanningContext should not add extra sections."""
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=PlanningContext(),
+    )
+    assert "Preference signals:" not in prompt
+    assert "Pantry staples" not in prompt
+    assert "Recent meals" not in prompt
+    # Still has the dedup rule even with empty context
+    assert "at most 3 times" in prompt
+
+
+def test_prompt_includes_hard_avoids() -> None:
+    ctx = PlanningContext(hard_avoids=["shellfish", "peanuts"])
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "MUST AVOID: shellfish, peanuts" in prompt
+    assert "NEVER include ingredients from the MUST AVOID list" in prompt
+
+
+def test_prompt_includes_strong_likes_and_cuisines() -> None:
+    ctx = PlanningContext(
+        strong_likes=["Chicken Shawarma", "Tacos"],
+        liked_cuisines=["Mexican", "Middle Eastern"],
+        disliked_cuisines=["French"],
+    )
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "Strongly likes: Chicken Shawarma, Tacos" in prompt
+    assert "Liked cuisines: Mexican, Middle Eastern" in prompt
+    assert "Disliked cuisines: French" in prompt
+    assert "Favor ingredients and cuisines" in prompt
+    assert "Avoid cuisines the household dislikes" in prompt
+
+
+def test_prompt_includes_staples() -> None:
+    ctx = PlanningContext(staples=["olive oil", "rice", "salt"])
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "Pantry staples (always available, use freely):" in prompt
+    assert "olive oil, rice, salt" in prompt
+    assert "Leverage pantry staples" in prompt
+
+
+def test_prompt_includes_recent_meals() -> None:
+    ctx = PlanningContext(recent_meals=["Spaghetti Bolognese", "Grilled Chicken"])
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "Recent meals (avoid repeating these for variety):" in prompt
+    assert "Spaghetti Bolognese, Grilled Chicken" in prompt
+    assert "Avoid repeating any meal" in prompt
+
+
+def test_prompt_includes_brands() -> None:
+    ctx = PlanningContext(brands=["Nature's Own", "Kerrygold"])
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "Preferred brands: Nature's Own, Kerrygold" in prompt
+
+
+def test_prompt_with_full_context() -> None:
+    """All sections present when context is fully populated."""
+    ctx = PlanningContext(
+        hard_avoids=["shellfish"],
+        strong_likes=["Tacos"],
+        liked_cuisines=["Mexican"],
+        disliked_cuisines=["French"],
+        brands=["Kerrygold"],
+        staples=["olive oil"],
+        recent_meals=["Pasta"],
+        rules=["Household: 2 adults."],
+    )
+    prompt = _build_system_prompt(
+        user_settings={"household_name": "Smith"},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "MUST AVOID: shellfish" in prompt
+    assert "Strongly likes: Tacos" in prompt
+    assert "Liked cuisines: Mexican" in prompt
+    assert "Disliked cuisines: French" in prompt
+    assert "Preferred brands: Kerrygold" in prompt
+    assert "Pantry staples" in prompt
+    assert "Recent meals" in prompt
+    # Core rules still present
+    assert "21 meals total" in prompt
+    assert "valid JSON" in prompt
+
+
+# ---------------------------------------------------------------------------
+# validate_plan_guardrails
+# ---------------------------------------------------------------------------
+
+def _make_plan(recipe_names: list[str], ingredients: list[list[dict]] | None = None) -> dict:
+    """Helper to build a minimal plan dict for guardrail testing."""
+    recipes = []
+    seen = set()
+    for i, name in enumerate(recipe_names):
+        if name not in seen:
+            seen.add(name)
+            ings = ingredients[i] if ingredients and i < len(ingredients) else []
+            recipes.append({"name": name, "ingredients": ings})
+
+    meal_plan = [{"recipe_name": name} for name in recipe_names]
+    return {"recipes": recipes, "meal_plan": meal_plan}
+
+
+def test_guardrails_pass_for_clean_plan() -> None:
+    plan = _make_plan(["A", "B", "C", "D", "E", "F", "G"] * 3)
+    warnings = validate_plan_guardrails(plan)
+    assert warnings == []
+
+
+def test_guardrails_catch_over_duplication() -> None:
+    plan = _make_plan(["Tacos"] * 5 + ["Pasta"] * 16)
+    warnings = validate_plan_guardrails(plan)
+    assert any("Tacos" in w and "5 times" in w for w in warnings)
+    assert any("Pasta" in w and "16 times" in w for w in warnings)
+
+
+def test_guardrails_catch_recent_meal_repeat() -> None:
+    ctx = PlanningContext(recent_meals=["Spaghetti Bolognese"])
+    plan = _make_plan(["Spaghetti Bolognese", "New Dish", "Another Dish"] * 7)
+    warnings = validate_plan_guardrails(plan, ctx)
+    assert any("recently" in w.lower() and "Spaghetti Bolognese" in w for w in warnings)
+
+
+def test_guardrails_catch_avoided_ingredient() -> None:
+    ctx = PlanningContext(hard_avoids=["peanuts"])
+    plan = _make_plan(
+        ["Pad Thai"],
+        ingredients=[[{"ingredient_name": "peanuts, crushed"}]],
+    )
+    warnings = validate_plan_guardrails(plan, ctx)
+    assert any("peanuts" in w.lower() for w in warnings)
+
+
+def test_guardrails_no_false_positive_on_clean_ingredients() -> None:
+    ctx = PlanningContext(hard_avoids=["shellfish"])
+    plan = _make_plan(
+        ["Chicken Stir Fry"],
+        ingredients=[[{"ingredient_name": "chicken breast"}, {"ingredient_name": "broccoli"}]],
+    )
+    warnings = validate_plan_guardrails(plan, ctx)
+    assert not any("avoided" in w.lower() for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# gather_planning_context (integration — uses DB)
+# ---------------------------------------------------------------------------
+
+def test_gather_planning_context_with_preferences(client) -> None:
+    """Context includes preference signals when set."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    # Set up preferences via API
+    client.post("/api/preferences", json={
+        "signals": [
+            {"signal_type": "ingredient", "name": "Eggplant", "score": -5, "weight": 5},
+            {"signal_type": "cuisine", "name": "Italian", "score": 4, "weight": 3},
+            {"signal_type": "cuisine", "name": "French", "score": -3, "weight": 2},
+            {"signal_type": "meal", "name": "Tacos", "score": 5, "weight": 4},
+            {"signal_type": "brand", "name": "Kerrygold", "score": 3, "weight": 2},
+        ]
+    })
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    assert "Eggplant" in ctx.hard_avoids
+    assert "Tacos" in ctx.strong_likes
+    assert "Italian" in ctx.liked_cuisines
+    assert "French" in ctx.disliked_cuisines
+    assert "Kerrygold" in ctx.brands
+
+
+def test_gather_planning_context_with_staples(client) -> None:
+    """Context includes active staples."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    # Default seed includes staples like olive oil, salt, pepper
+    assert len(ctx.staples) > 0
+    assert "olive oil" in ctx.staples
+
+
+def test_gather_planning_context_with_recent_meals(client) -> None:
+    """Context includes meal names from recent weeks."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    # Create a week with meals
+    week_resp = client.post("/api/weeks", json={"week_start": "2026-03-30", "notes": ""})
+    week_id = week_resp.json()["week_id"]
+    client.put(f"/api/weeks/{week_id}/meals", json=[
+        {"day_name": "Monday", "meal_date": "2026-03-30", "slot": "dinner",
+         "recipe_name": "Test Pasta", "servings": 4},
+    ])
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    assert "Test Pasta" in ctx.recent_meals
+
+
+def test_gather_planning_context_excludes_current_week(client) -> None:
+    """The week being planned should not appear in recent meals."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    # Create two weeks
+    week1 = client.post("/api/weeks", json={"week_start": "2026-03-23", "notes": ""}).json()
+    week2 = client.post("/api/weeks", json={"week_start": "2026-03-30", "notes": ""}).json()
+
+    client.put(f"/api/weeks/{week1['week_id']}/meals", json=[
+        {"day_name": "Monday", "meal_date": "2026-03-23", "slot": "dinner",
+         "recipe_name": "Old Meal", "servings": 4},
+    ])
+    client.put(f"/api/weeks/{week2['week_id']}/meals", json=[
+        {"day_name": "Monday", "meal_date": "2026-03-30", "slot": "dinner",
+         "recipe_name": "Current Meal", "servings": 4},
+    ])
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID, exclude_week_id=week2["week_id"])
+
+    assert "Old Meal" in ctx.recent_meals
+    assert "Current Meal" not in ctx.recent_meals
+
+
+def test_gather_planning_context_empty_for_new_user(client) -> None:
+    """New user with no preferences/weeks gets empty context (graceful degradation)."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    assert ctx.hard_avoids == []
+    assert ctx.strong_likes == []
+    assert ctx.liked_cuisines == []
+    assert ctx.disliked_cuisines == []
+    assert ctx.brands == []
+    assert ctx.recent_meals == []
+    # Staples may have defaults from seed, but other fields are empty
+
+
+# ---------------------------------------------------------------------------
+# score_generated_plan (integration — uses DB)
+# ---------------------------------------------------------------------------
+
+def test_score_generated_plan_returns_scores(client) -> None:
+    """Scoring a plan returns per-recipe scores and totals."""
+    from app.db import session_scope
+    from app.services.week_planner import score_generated_plan
+
+    # Set up a preference to score against
+    client.post("/api/preferences", json={
+        "signals": [
+            {"signal_type": "ingredient", "name": "Eggplant", "score": -5, "weight": 5},
+        ]
+    })
+
+    plan = {
+        "recipes": [
+            {
+                "name": "Eggplant Parmesan",
+                "cuisine": "Italian",
+                "meal_type": "dinner",
+                "ingredients": [{"ingredient_name": "eggplant"}, {"ingredient_name": "mozzarella"}],
+            },
+            {
+                "name": "Grilled Chicken",
+                "cuisine": "American",
+                "meal_type": "dinner",
+                "ingredients": [{"ingredient_name": "chicken breast"}],
+            },
+        ],
+        "meal_plan": [],
+    }
+
+    with session_scope() as session:
+        scores = score_generated_plan(session, TEST_USER_ID, plan)
+
+    assert len(scores["meal_scores"]) == 2
+    assert isinstance(scores["plan_total_score"], int)
+    # Eggplant Parmesan should be blocked due to eggplant avoidance
+    assert "Eggplant Parmesan" in scores["blocked_meals"]
+    assert "Grilled Chicken" not in scores["blocked_meals"]

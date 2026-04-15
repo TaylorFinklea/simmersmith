@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -32,6 +34,7 @@ from app.services.pricing import import_pricing
 from app.services.weeks import create_or_get_week, get_current_week, get_week, get_week_by_start, list_weeks
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/weeks", tags=["weeks"])
 
 
@@ -121,11 +124,17 @@ def generate_week_plan(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     """Generate a full week of meals using AI."""
-    from app.services.week_planner import generate_week_plan as run_planner
+    from app.services.week_planner import (
+        gather_planning_context,
+        generate_week_plan as run_planner,
+        score_generated_plan,
+    )
 
     week = load_week_or_404(session, current_user.id, week_id)
     settings = get_settings()
     user_settings = profile_settings_map(session, current_user.id)
+
+    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id)
 
     try:
         draft_data = run_planner(
@@ -133,9 +142,17 @@ def generate_week_plan(
             user_settings=user_settings,
             user_prompt=payload.prompt,
             week_start=week.week_start,
+            planning_context=context,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    scores = score_generated_plan(session, current_user.id, draft_data)
+    if scores["blocked_meals"]:
+        notes = draft_data.get("week_notes", "")
+        blocked_note = f"Blocked meals: {', '.join(scores['blocked_meals'])}"
+        draft_data["week_notes"] = f"{notes}; {blocked_note}" if notes else blocked_note
+    logger.info("Plan score: %s (blocked: %s)", scores["plan_total_score"], scores["blocked_meals"])
 
     draft = DraftFromAIRequest.model_validate(draft_data)
     apply_ai_draft(session, week, draft)
