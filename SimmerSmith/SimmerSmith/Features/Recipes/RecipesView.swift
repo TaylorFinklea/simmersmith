@@ -397,20 +397,58 @@ struct RecipesView: View {
     // MARK: - Empty States
 
     private var emptyState: some View {
-        VStack(spacing: SMSpacing.lg) {
-            Image(systemName: "book.closed")
-                .font(.system(size: 48))
-                .foregroundStyle(SMColor.textTertiary)
-            Text("No Recipes")
-                .font(SMFont.headline)
-                .foregroundStyle(SMColor.textPrimary)
-            Text("Create a recipe or import one from a URL to start planning.")
-                .font(SMFont.body)
-                .foregroundStyle(SMColor.textSecondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: SMSpacing.xl) {
+            Image(systemName: "book.pages")
+                .font(.system(size: 56))
+                .foregroundStyle(SMColor.primary.opacity(0.7))
+
+            VStack(spacing: SMSpacing.sm) {
+                Text("Your Recipe Collection")
+                    .font(SMFont.display)
+                    .foregroundStyle(SMColor.textPrimary)
+
+                Text("Import recipes from your favorite websites, or let AI create new ones.")
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: SMSpacing.md) {
+                Button {
+                    importLaunchMode = .url
+                } label: {
+                    Label("Import a Recipe", systemImage: "link")
+                        .font(SMFont.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SMSpacing.lg)
+                        .foregroundStyle(.white)
+                        .background(SMColor.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showingAISuggestionSheet = true
+                } label: {
+                    Label("Ask AI", systemImage: "sparkles")
+                        .font(SMFont.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SMSpacing.lg)
+                        .foregroundStyle(SMColor.primary)
+                        .background(SMColor.surfaceCard)
+                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                                .stroke(SMColor.primary.opacity(0.4), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, SMSpacing.lg)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, SMSpacing.xxl * 2)
+        .padding(.horizontal, SMSpacing.lg)
     }
 
     private var emptySearchState: some View {

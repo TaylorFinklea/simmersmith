@@ -60,6 +60,26 @@ extension AppState {
         return week
     }
 
+    func approveWeek(weekID: String) async throws -> WeekSnapshot {
+        let week = try await apiClient.approveWeek(weekID: weekID)
+        if currentWeek?.weekId == week.weekId {
+            currentWeek = week
+            try? cacheStore.saveCurrentWeek(week)
+        }
+        syncPhase = .synced(.now)
+        return week
+    }
+
+    func regenerateGrocery(weekID: String) async throws -> WeekSnapshot {
+        let week = try await apiClient.regenerateGrocery(weekID: weekID)
+        if currentWeek?.weekId == week.weekId {
+            currentWeek = week
+            try? cacheStore.saveCurrentWeek(week)
+        }
+        syncPhase = .synced(.now)
+        return week
+    }
+
     func generateWeekFromAI(weekID: String, prompt: String) async throws -> WeekSnapshot {
         let week = try await apiClient.generateWeekPlan(weekID: weekID, prompt: prompt)
         if currentWeek?.weekId == week.weekId {

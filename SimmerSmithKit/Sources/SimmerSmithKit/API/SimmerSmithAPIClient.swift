@@ -215,6 +215,14 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/weeks/\(weekID)/generate", method: "POST", body: GenerateWeekBody(prompt: prompt))
     }
 
+    public func approveWeek(weekID: String) async throws -> WeekSnapshot {
+        try await request(path: "/api/weeks/\(weekID)/approve", method: "POST", body: EmptyBody())
+    }
+
+    public func regenerateGrocery(weekID: String) async throws -> WeekSnapshot {
+        try await request(path: "/api/weeks/\(weekID)/grocery/regenerate", method: "POST", body: EmptyBody())
+    }
+
     public func fetchRecipes(includeArchived: Bool = false) async throws -> [RecipeSummary] {
         let suffix = includeArchived ? "?include_archived=true" : ""
         return try await request(path: "/api/recipes\(suffix)")

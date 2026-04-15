@@ -21,12 +21,63 @@ struct AssistantView: View {
                         )
                         .listRowBackground(Color.clear)
                     } else if appState.assistantThreads.isEmpty {
-                        ContentUnavailableView(
-                            "No Assistant Chats Yet",
-                            systemImage: "sparkles.rectangle.stack",
-                            description: Text("Start a new chat to create recipes, refine drafts, or ask cooking questions.")
-                        )
+                        VStack(spacing: SMSpacing.xl) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 56))
+                                .foregroundStyle(SMColor.aiPurple.opacity(0.8))
+
+                            VStack(spacing: SMSpacing.sm) {
+                                Text("AI Meal Assistant")
+                                    .font(SMFont.display)
+                                    .foregroundStyle(SMColor.textPrimary)
+
+                                Text("Ask me to plan meals, create recipes, or answer cooking questions.")
+                                    .font(SMFont.body)
+                                    .foregroundStyle(SMColor.textSecondary)
+                                    .multilineTextAlignment(.center)
+                            }
+
+                            VStack(spacing: SMSpacing.sm) {
+                                ForEach(emptyStatePrompts, id: \.self) { prompt in
+                                    Button {
+                                        Task {
+                                            do {
+                                                let thread = try await appState.createAssistantThread()
+                                                launchContexts[thread.threadId] = AppState.AssistantLaunchContext(
+                                                    threadID: thread.threadId,
+                                                    initialText: prompt,
+                                                    attachedRecipeID: nil,
+                                                    attachedRecipeDraft: nil,
+                                                    intent: "general"
+                                                )
+                                                path = [thread.threadId]
+                                            } catch {
+                                                appState.lastErrorMessage = error.localizedDescription
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: SMSpacing.md) {
+                                            Text(prompt)
+                                                .font(SMFont.body)
+                                                .foregroundStyle(SMColor.textPrimary)
+                                                .multilineTextAlignment(.leading)
+                                            Spacer()
+                                            Image(systemName: "arrow.right.circle")
+                                                .foregroundStyle(SMColor.primary)
+                                        }
+                                        .padding(SMSpacing.lg)
+                                        .background(SMColor.surfaceCard)
+                                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.lg, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!appState.assistantExecutionAvailable)
+                                }
+                            }
+                            .padding(.horizontal, SMSpacing.sm)
+                        }
+                        .padding(.vertical, SMSpacing.xxl)
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     } else {
                         ForEach(appState.assistantThreads) { thread in
                             NavigationLink(value: thread.threadId) {
@@ -106,6 +157,14 @@ struct AssistantView: View {
                 handleLaunchContextIfNeeded()
             }
         }
+    }
+
+    private var emptyStatePrompts: [String] {
+        [
+            "Plan this week's dinners",
+            "Quick healthy lunch ideas",
+            "What can I make with chicken and rice?",
+        ]
     }
 
     private func handleLaunchContextIfNeeded() {

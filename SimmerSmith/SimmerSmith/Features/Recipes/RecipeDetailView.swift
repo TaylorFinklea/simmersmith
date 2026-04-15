@@ -116,6 +116,13 @@ struct RecipeDetailView: View {
                             } label: {
                                 Label("Add to Week", systemImage: "calendar.badge.plus")
                             }
+                            ShareLink(
+                                item: formatRecipeForSharing(recipe),
+                                subject: Text(recipe.name),
+                                message: Text("Check out this recipe!")
+                            ) {
+                                Label("Share", systemImage: "square.and.arrow.up")
+                            }
                             Divider()
                             if recipe.archived {
                                 Button {
@@ -845,6 +852,72 @@ struct RecipeDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func formatRecipeForSharing(_ recipe: RecipeSummary) -> String {
+        var lines: [String] = []
+
+        lines.append(recipe.name)
+
+        // Metadata line
+        var meta: [String] = []
+        if let servings = recipe.servings {
+            meta.append("Serves \(servings.formatted())")
+        }
+        if let prep = recipe.prepMinutes, prep > 0 {
+            meta.append("Prep: \(prep)m")
+        }
+        if let cook = recipe.cookMinutes, cook > 0 {
+            meta.append("Cook: \(cook)m")
+        }
+        if !meta.isEmpty {
+            lines.append(meta.joined(separator: " | "))
+        }
+
+        // Ingredients
+        if !recipe.ingredients.isEmpty {
+            lines.append("")
+            lines.append("Ingredients:")
+            for ingredient in recipe.ingredients {
+                var parts: [String] = []
+                if let quantity = ingredient.quantity {
+                    parts.append(quantity.formatted())
+                }
+                if !ingredient.unit.isEmpty {
+                    parts.append(ingredient.unit)
+                }
+                parts.append(ingredient.ingredientName)
+                if !ingredient.prep.isEmpty {
+                    parts.append(ingredient.prep)
+                }
+                lines.append("- \(parts.joined(separator: " "))")
+            }
+        }
+
+        // Steps
+        if !recipe.steps.isEmpty {
+            lines.append("")
+            lines.append("Steps:")
+            for step in recipe.steps.sorted(by: { $0.sortOrder < $1.sortOrder }) {
+                lines.append("\(step.sortOrder). \(step.instruction)")
+                for substep in step.substeps.sorted(by: { $0.sortOrder < $1.sortOrder }) {
+                    lines.append("   \(substep.instruction)")
+                }
+            }
+        } else if !recipe.instructionsSummary.isEmpty {
+            lines.append("")
+            lines.append("Instructions:")
+            lines.append(recipe.instructionsSummary)
+        }
+
+        // Notes
+        if !recipe.notes.isEmpty {
+            lines.append("")
+            lines.append("Notes:")
+            lines.append(recipe.notes)
+        }
+
+        return lines.joined(separator: "\n")
     }
 }
 

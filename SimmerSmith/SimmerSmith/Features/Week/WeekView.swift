@@ -37,6 +37,13 @@ struct WeekView: View {
     @State private var aiCreateMeal: WeekMeal?
     @State private var isCreatingRecipe = false
 
+    // Approval
+    @State private var isApprovingAll = false
+    @State private var showApprovalConfirmation = false
+
+    // Meal feedback
+    @State private var feedbackMeal: WeekMeal?
+
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
             return browsedWeek ?? appState.currentWeek
@@ -57,6 +64,7 @@ struct WeekView: View {
                     weekPicker
 
                     if let week = displayedWeek {
+                        approveAllBar(week)
                         todaySection(week)
                         tomorrowSection(week)
                         restOfWeekSection(week)
@@ -120,6 +128,9 @@ struct WeekView: View {
                     Button("View Recipe") {
                         navigatingToRecipeID = meal.recipeId
                     }
+                    Button("Rate This Meal") {
+                        feedbackMeal = meal
+                    }
                 }
                 Button("Edit Name") {
                     renameText = meal.recipeName
@@ -137,6 +148,15 @@ struct WeekView: View {
                     }
                     Button("Create Recipe with AI") {
                         aiCreateMeal = meal
+                    }
+                }
+                if meal.approved {
+                    Button("Unapprove") {
+                        Task { await toggleMealApproval(meal, approved: false) }
+                    }
+                } else {
+                    Button("Approve") {
+                        Task { await toggleMealApproval(meal, approved: true) }
                     }
                 }
                 Button("Mark as Eating Out") {
@@ -216,6 +236,11 @@ struct WeekView: View {
         .sheet(item: $aiCreateMeal) { meal in
             AIRecipeCreateSheet(mealName: meal.recipeName) { recipe in
                 await linkMealToSavedRecipe(meal, recipeId: recipe.recipeId, recipeName: recipe.name)
+            }
+        }
+        .sheet(item: $feedbackMeal) { meal in
+            FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
+                try await appState.submitMealFeedback(for: meal, sentiment: sentiment, notes: notes)
             }
         }
         .task {
@@ -501,6 +526,59 @@ struct WeekView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Approve All Bar
+
+    @ViewBuilder
+    private func approveAllBar(_ week: WeekSnapshot) -> some View {
+        let unapprovedCount = week.meals.filter { !$0.approved }.count
+        if unapprovedCount > 0 {
+            Button {
+                Task { await approveAllMeals() }
+            } label: {
+                HStack(spacing: SMSpacing.md) {
+                    if isApprovingAll {
+                        ProgressView()
+                            .tint(SMColor.success)
+                    } else {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(SMColor.success)
+                    }
+                    Text("Approve All (\(unapprovedCount) unapproved)")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(SMColor.success)
+                }
+                .padding(SMSpacing.lg)
+                .background(SMColor.success.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                        .strokeBorder(SMColor.success.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isApprovingAll)
+        }
+
+        if showApprovalConfirmation {
+            HStack(spacing: SMSpacing.md) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.success)
+                Text("Week approved!")
+                    .font(SMFont.subheadline)
+                    .foregroundStyle(SMColor.success)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(SMSpacing.lg)
+            .background(SMColor.success.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
     // MARK: - Grocery Bar
 
     @ViewBuilder
@@ -633,6 +711,42 @@ struct WeekView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Approval Actions
+
+    private func approveAllMeals() async {
+        guard let week = displayedWeek else { return }
+        isApprovingAll = true
+        do {
+            let updated = try await appState.approveWeek(weekID: week.weekId)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+            // Regenerate grocery list after approval
+            let refreshed = try await appState.regenerateGrocery(weekID: week.weekId)
+            if !isViewingCurrentWeek { browsedWeek = refreshed }
+            withAnimation { showApprovalConfirmation = true }
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { showApprovalConfirmation = false }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
+        isApprovingAll = false
+    }
+
+    private func toggleMealApproval(_ meal: WeekMeal, approved: Bool) async {
+        guard let week = displayedWeek else { return }
+        var meals = week.meals.map { $0.asMealUpdateRequest() }
+        if let idx = meals.firstIndex(where: { $0.mealId == meal.mealId }) {
+            meals[idx] = MealUpdateRequest(
+                mealId: meal.mealId, dayName: meal.dayName,
+                mealDate: meal.mealDate, slot: meal.slot,
+                recipeId: meal.recipeId, recipeName: meal.recipeName,
+                servings: meal.servings, scaleMultiplier: meal.scaleMultiplier,
+                notes: meal.notes, approved: approved
+            )
+        }
+        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
     }
 
     // MARK: - Meal Edit Actions
