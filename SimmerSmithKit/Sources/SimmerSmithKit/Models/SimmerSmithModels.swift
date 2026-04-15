@@ -1183,3 +1183,32 @@ public struct FeedbackEntryRequest: Codable, Sendable {
         self.active = active
     }
 }
+
+// MARK: - Stores & Pricing
+
+public struct StoreLocation: Codable, Identifiable, Sendable {
+    public let locationId: String
+    public let name: String
+    public let chain: String
+    public let address: String
+    public let city: String
+    public let state: String
+    public let zipCode: String
+    public let phone: String
+
+    public var id: String { locationId }
+
+    public var displayName: String {
+        if chain.isEmpty || chain == name {
+            return "\(name) — \(city), \(state)"
+        }
+        return "\(chain) (\(name)) — \(city), \(state)"
+    }
+}
+
+public struct PricingResponse: Codable, Sendable {
+    public let weekId: String
+    public let weekStart: Date
+    public let totals: [String: Double]
+    public let items: [GroceryItem]
+}

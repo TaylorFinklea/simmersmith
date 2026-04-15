@@ -8,6 +8,9 @@ settings:
 packages:
   SimmerSmithKit:
     path: ../SimmerSmithKit
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "8.0.0"
 targets:
   SimmerSmith:
     type: application
@@ -17,6 +20,10 @@ targets:
       - path: SimmerSmith
     dependencies:
       - package: SimmerSmithKit
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: GoogleSignIn
+        product: GoogleSignInSwift
     settings:
       base:
         DEVELOPMENT_TEAM: K7CBQW6MPG

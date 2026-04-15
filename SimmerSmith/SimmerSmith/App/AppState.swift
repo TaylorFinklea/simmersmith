@@ -230,6 +230,24 @@ final class AppState {
         }
     }
 
+    func signInWithGoogle(identityToken: String) async {
+        lastErrorMessage = nil
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        serverURLDraft = Self.productionServerURL
+
+        do {
+            let response = try await apiClient.signInWithGoogle(identityToken: identityToken)
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
+            authTokenDraft = response.token
+            await refreshAll()
+            if response.isNewUser {
+                showOnboardingInterview = true
+            }
+        } catch {
+            lastErrorMessage = "Google sign in failed: \(error.localizedDescription)"
+        }
+    }
+
     func saveConnectionDetails() async {
         let normalizedURL = ConnectionSettingsStore.normalizeServerURL(serverURLDraft)
         settingsStore.save(serverURLString: normalizedURL, authToken: authTokenDraft)

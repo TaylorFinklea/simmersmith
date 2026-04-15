@@ -70,12 +70,12 @@ Must-have for launch. Kroger API selected as primary integration.
 - [ ] Instacart "shop now" integration (secondary, affiliate revenue)
 - [ ] Spoonacular estimated pricing fallback
 
-## M3: App Store Submission
+## M3: App Store Submission (in progress)
 
 Complete remaining launch prerequisites and submit.
 
 - [ ] TestFlight validation + bug fixes
-- [ ] Google Sign-In SDK integration
+- [x] Google Sign-In SDK integration (GoogleSignIn-iOS SPM, wired in SignInView + AppState)
 - [ ] App Store metadata (description, keywords, category, screenshots)
 - [ ] Submit for App Store review
 

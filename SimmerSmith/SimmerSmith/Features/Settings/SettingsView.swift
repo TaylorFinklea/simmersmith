@@ -150,6 +150,27 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Grocery") {
+                NavigationLink {
+                    StoreSelectionView()
+                } label: {
+                    HStack {
+                        Label("Preferred Store", systemImage: "cart")
+                        Spacer()
+                        if let storeName = appState.profile?.settings["kroger_store_name"], !storeName.isEmpty {
+                            Text(storeName)
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
+                                .lineLimit(1)
+                        } else {
+                            Text("Not set")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                    }
+                }
+            }
+
             Section("Ingredient Preferences") {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")

@@ -12,6 +12,20 @@ struct GroceryView: View {
         Group {
             if let week = appState.currentWeek, !week.groceryItems.isEmpty {
                 List {
+                    if weekTotal > 0 {
+                        Section {
+                            HStack {
+                                Label("Estimated Total", systemImage: "dollarsign.circle")
+                                    .font(SMFont.subheadline)
+                                    .foregroundStyle(SMColor.textPrimary)
+                                Spacer()
+                                Text(String(format: "$%.2f", weekTotal))
+                                    .font(SMFont.headline)
+                                    .foregroundStyle(SMColor.primary)
+                            }
+                        }
+                    }
+
                     ForEach(groupedItems(for: week), id: \.category) { section in
                         Section(section.category) {
                             ForEach(section.items) { item in
@@ -47,6 +61,22 @@ struct GroceryView: View {
                                             Label(item.reviewFlag, systemImage: "exclamationmark.circle")
                                                 .font(.caption)
                                                 .foregroundStyle(.orange)
+                                        }
+                                        if let price = bestPrice(for: item) {
+                                            HStack(spacing: 4) {
+                                                Text(price.productName.isEmpty ? price.retailer.capitalized : price.productName)
+                                                    .lineLimit(1)
+                                                if let linePrice = price.linePrice {
+                                                    Text(String(format: "$%.2f", linePrice))
+                                                        .foregroundStyle(SMColor.primary)
+                                                }
+                                                if !price.packageSize.isEmpty {
+                                                    Text("(\(price.packageSize))")
+                                                        .foregroundStyle(SMColor.textTertiary)
+                                                }
+                                            }
+                                            .font(.caption)
+                                            .foregroundStyle(SMColor.textSecondary)
                                         }
                                     }
                                 }
@@ -138,5 +168,15 @@ struct GroceryView: View {
         (appState.currentWeek?.groceryItems ?? []).filter { item in
             !item.reviewFlag.isEmpty || item.resolutionStatus == "unresolved" || item.resolutionStatus == "suggested"
         }.count
+    }
+
+    private func bestPrice(for item: GroceryItem) -> RetailerPrice? {
+        item.retailerPrices.first(where: { $0.status == "matched" && $0.linePrice != nil })
+    }
+
+    private var weekTotal: Double {
+        (appState.currentWeek?.groceryItems ?? []).compactMap { item in
+            bestPrice(for: item)?.linePrice
+        }.reduce(0, +)
     }
 }

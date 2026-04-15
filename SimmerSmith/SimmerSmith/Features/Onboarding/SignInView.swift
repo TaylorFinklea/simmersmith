@@ -1,4 +1,5 @@
 import AuthenticationServices
+import GoogleSignIn
 import SwiftUI
 
 struct SignInView: View {
@@ -34,7 +35,7 @@ struct SignInView: View {
                     .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
 
                     Button {
-                        // TODO: Wire Google Sign-In SDK
+                        Task { await handleGoogleSignIn() }
                     } label: {
                         HStack {
                             Image(systemName: "g.circle.fill")
@@ -74,6 +75,28 @@ struct SignInView: View {
 
     private func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
         request.requestedScopes = [.fullName, .email]
+    }
+
+    private func handleGoogleSignIn() async {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+              let rootVC = windowScene.windows.first?.rootViewController else {
+            appState.lastErrorMessage = "Cannot find root view controller for Google Sign-In."
+            return
+        }
+
+        do {
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
+            guard let idToken = result.user.idToken?.tokenString else {
+                appState.lastErrorMessage = "Could not read Google identity token."
+                return
+            }
+            await appState.signInWithGoogle(identityToken: idToken)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == "com.google.GIDSignIn" && nsError.code == -5 { return } // user cancelled
+            appState.lastErrorMessage = "Google sign in failed: \(error.localizedDescription)"
+        }
     }
 
     private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {

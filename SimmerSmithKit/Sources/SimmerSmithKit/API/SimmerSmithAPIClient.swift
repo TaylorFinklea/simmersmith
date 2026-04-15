@@ -56,6 +56,10 @@ private struct TokenExchangeBody: Encodable {
     let identityToken: String
 }
 
+private struct FetchPricingBody: Encodable {
+    let locationId: String
+}
+
 private struct AssistantThreadCreateBody: Encodable {
     let title: String
 }
@@ -162,6 +166,15 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
     public func signInWithApple(identityToken: String) async throws -> AuthTokenResponse {
         try await request(
             path: "/api/auth/apple",
+            method: "POST",
+            requiresAuth: false,
+            body: TokenExchangeBody(identityToken: identityToken)
+        )
+    }
+
+    public func signInWithGoogle(identityToken: String) async throws -> AuthTokenResponse {
+        try await request(
+            path: "/api/auth/google",
             method: "POST",
             requiresAuth: false,
             body: TokenExchangeBody(identityToken: identityToken)
@@ -735,6 +748,24 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func submitFeedback(weekID: String, entries: [FeedbackEntryRequest]) async throws -> WeekFeedbackResponse {
         try await request(path: "/api/weeks/\(weekID)/feedback", method: "POST", body: entries)
+    }
+
+    // MARK: - Stores & Pricing
+
+    public func searchStores(zipCode: String, radius: Int = 10) async throws -> [StoreLocation] {
+        try await request(path: "/api/stores/search?zip_code=\(zipCode)&radius=\(radius)")
+    }
+
+    public func fetchPricing(weekID: String, locationID: String? = nil) async throws -> PricingResponse {
+        try await request(
+            path: "/api/weeks/\(weekID)/pricing/fetch",
+            method: "POST",
+            body: FetchPricingBody(locationId: locationID ?? "")
+        )
+    }
+
+    public func getPricing(weekID: String) async throws -> PricingResponse {
+        try await request(path: "/api/weeks/\(weekID)/pricing")
     }
 
     private func request<T: Decodable>(

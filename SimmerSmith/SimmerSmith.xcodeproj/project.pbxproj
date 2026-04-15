@@ -25,6 +25,7 @@
 		3B27C1AB3BF4F270416007B8 /* SimmerSmithUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */; };
 		40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */; };
 		43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */; };
+		43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */; };
 		446A8B1231ACE6510EE1259D /* RecipeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */; };
 		44A436E4F3FBF7F5C991C4BA /* AppState+AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16263AD59B5D2F17D3561E4A /* AppState+AI.swift */; };
 		44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */; };
@@ -50,6 +51,7 @@
 		9FEF5423BB6FCDEEAA8574C2 /* RecipeImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */; };
 		A4CE9152718188482D546934 /* RecipeWebImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80EE82F42F6428AF84B3E94 /* RecipeWebImportView.swift */; };
 		A50492A8C75536C4828C7951 /* MealSlotRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3679DF56BB2C65A8DA4541BD /* MealSlotRow.swift */; };
+		B3A1BE0F8986881FCB386F8F /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */; };
 		B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */; };
 		B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F2A8FAD850D02995516AE /* GroceryView.swift */; };
 		B8EB31CE2056E70EA6A9EAF3 /* CompactRecipeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7332396128AF5CD988A1821 /* CompactRecipeCard.swift */; };
@@ -58,6 +60,7 @@
 		C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ED1C25DB773F9DBF319A2F /* AppState.swift */; };
 		C7B1ED4CA5FD1D8EE5EC238F /* WrappingHStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */; };
 		D6D665599BB2121248AC3271 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF738967CD3644971E26635 /* SignInView.swift */; };
+		E0378532886B9D2564206062 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 41A88D3F5C64A7005794412A /* GoogleSignInSwift */; };
 		E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */; };
 		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
@@ -115,6 +118,7 @@
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6DF738967CD3644971E26635 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
+		726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSelectionView.swift; sourceTree = "<group>"; };
 		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
 		75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealQuickAddSheet.swift; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -157,6 +161,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */,
+				B3A1BE0F8986881FCB386F8F /* GoogleSignIn in Frameworks */,
+				E0378532886B9D2564206062 /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -307,6 +313,7 @@
 			isa = PBXGroup;
 			children = (
 				6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */,
+				726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -448,6 +455,8 @@
 			name = SimmerSmith;
 			packageProductDependencies = (
 				5EA42101A03628D82ADE249C /* SimmerSmithKit */,
+				28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */,
+				41A88D3F5C64A7005794412A /* GoogleSignInSwift */,
 			);
 			productName = SimmerSmith;
 			productReference = 1972D947D654B2B38603C14E /* SimmerSmith.app */;
@@ -480,6 +489,7 @@
 			mainGroup = FFB064ECC23DC1A68E312C08;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				BB013A61145DAB13DA0EB7FB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				AB12ABCE4B5D0BA22F683814 /* XCLocalSwiftPackageReference "../SimmerSmithKit" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -575,6 +585,7 @@
 				6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */,
 				D6D665599BB2121248AC3271 /* SignInView.swift in Sources */,
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
+				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
 				F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */,
 				BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */,
 				0D17009AD5B6DBF392246D57 /* TodayMealCard.swift in Sources */,
@@ -886,7 +897,28 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		BB013A61145DAB13DA0EB7FB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB013A61145DAB13DA0EB7FB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		41A88D3F5C64A7005794412A /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB013A61145DAB13DA0EB7FB /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
 		5EA42101A03628D82ADE249C /* SimmerSmithKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SimmerSmithKit;
