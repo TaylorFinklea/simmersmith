@@ -309,6 +309,18 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - **Catalog**: Shared reference data with no user_id. Only user-owned tables (weeks, recipes, assistant_threads, ai_runs, profile_settings, staples, preference_signals, ingredient_preferences) get user_id.
 - **Supersedes**: "Dual database support" (2026-04-05), "Supabase Auth replaces bearer token" (2026-04-05), and the Phase 0 multi-user isolation design doc.
 
+## 2026-04-15 - AI week planner uses PlanningContext for preference-aware generation
+
+**Context**: The AI planner had rich preference/feedback/history data available (PreferenceSignal scores, staples, meal history) but only used flat profile settings in the prompt.
+
+**Decision**: Added `PlanningContext` dataclass that bundles all enrichment data. `gather_planning_context()` fetches from DB using existing service functions. The prompt builder adds structured sections (avoids, likes, cuisines, staples, recent meals) only when data exists. Post-generation guardrails and scoring validate the output. New users get the same prompt as before (graceful degradation).
+
+## 2026-04-15 - Kroger API is the primary grocery pricing integration
+
+**Context**: Evaluated Kroger API, Instacart, Spoonacular, Walmart, and Edamam for store-specific pricing. Walmart has no public API. Instacart doesn't return raw prices (redirect only). Spoonacular only has estimates.
+
+**Decision**: Kroger API selected as primary integration — free, self-service, real store-specific prices at ~2,750 locations. Existing batch import flow preserved for other retailers. Instacart planned as secondary "shop now" action. Spoonacular as estimated-cost fallback.
+
 ## 2026-04-05 - AI handoff docs migrated from docs/ai/ to .docs/ai/
 
 **Context**: Global Claude Code convention uses `.docs/ai/` (dot-prefixed). This project used `docs/ai/` (old convention).

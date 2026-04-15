@@ -4,22 +4,24 @@
 
 ## Immediate
 
-- [ ] Verify TestFlight build processes successfully on App Store Connect
-- [ ] Add internal testers to TestFlight
-- [ ] Test full flow on TestFlight build: sign in → onboarding → plan week → grocery → share recipe
-- [ ] Enable Push Notifications capability on App ID at developer.apple.com (needed for production APNs)
+- [ ] Register at developer.kroger.com and get client_id/secret for live API testing
+- [ ] Set Kroger credentials: `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=... SIMMERSMITH_KROGER_CLIENT_SECRET=...`
+- [ ] Test Kroger pricing flow end-to-end with real API (store search → fetch pricing)
+- [ ] iOS: Add store selection UI (zip search → store picker → save to profile)
+- [ ] iOS: Display Kroger prices in grocery list view
 
 ## Soon
 
-- [ ] Recipe images (user will provide AI-generated library; add image_url to RecipeSummary model + AsyncImage in cards)
-- [ ] Google Sign-In SDK integration (placeholder button exists in SignInView)
+- [ ] Verify TestFlight build 3 (sign in → onboarding → plan week → grocery → share recipe)
+- [ ] Google Sign-In SDK integration
 - [ ] App Store metadata (description, keywords, category, screenshots)
-- [ ] App Store submission
+- [ ] Instacart "shop now" button (affiliate integration)
 
 ## Future
 
-- [ ] Drag-and-drop meal reorder in week view
-- [ ] Remote push notifications from backend (APNs integration)
+- [ ] Spoonacular estimated pricing fallback (when no store configured)
+- [ ] App Store submission
 - [ ] Freemium boundaries
 - [ ] Household sharing
-- [ ] Advanced AI features (nutrition tracking, dietary progress)
+- [ ] Recipe images
+- [ ] Remote push notifications from backend
