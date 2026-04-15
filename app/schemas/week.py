@@ -243,7 +243,7 @@ class PricingResponse(BaseModel):
 
 class PricingImportItem(BaseModel):
     grocery_item_id: str
-    retailer: Literal["aldi", "walmart", "sams_club"]
+    retailer: str
     status: Literal["matched", "review", "unavailable"] = "matched"
     store_name: str = ""
     product_name: str = ""

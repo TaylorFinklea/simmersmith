@@ -45,25 +45,30 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star â
 - [x] Upload to TestFlight
 - [x] Privacy policy URL
 
-## M1: AI Planning Excellence (in progress)
+## M1: AI Planning Excellence (complete)
 
-Make the AI the star of the app. The planner currently uses only flat profile settings; the preference/feedback/history infrastructure exists but is unused.
+Make the AI the star of the app. The planner now uses preference signals, meal history, staples, and feedback to generate personalized plans.
 
-- [ ] Preference-aware week planning (feed PreferenceSignal scores into AI prompt)
-- [ ] History-aware deduplication (pass recent 2-3 weeks of meals, avoid repeats)
-- [ ] Feedback loop (deprioritize poorly-rated meals/cuisines via signal scores)
-- [ ] Staple awareness (tell AI what's in the pantry to leverage)
-- [ ] Post-generation quality scoring (score_meal_candidate on each recipe)
-- [ ] Deduplication guardrails (max 3 reuses per recipe per week)
+- [x] Preference-aware week planning (feed PreferenceSignal scores into AI prompt)
+- [x] History-aware deduplication (pass recent 2-3 weeks of meals, avoid repeats)
+- [x] Feedback loop (deprioritize poorly-rated meals/cuisines via signal scores)
+- [x] Staple awareness (tell AI what's in the pantry to leverage)
+- [x] Post-generation quality scoring (score_meal_candidate on each recipe)
+- [x] Deduplication guardrails (max 3 reuses per recipe per week)
 
-## M2: Store-Specific Grocery Pricing
+## M2: Store-Specific Grocery Pricing (in progress)
 
-Must-have for launch. Integrate third-party grocery pricing API.
+Must-have for launch. Kroger API selected as primary integration.
 
-- [ ] Research and select grocery pricing API (Instacart/Kroger/Spoonacular)
+- [x] Research and select grocery pricing API â€” Kroger API (free, real store prices, 2,750+ stores)
+- [x] Kroger API client (OAuth2, product search, location search)
+- [x] Live pricing fetch endpoint (POST /api/weeks/{id}/pricing/fetch)
+- [x] Store search endpoint (GET /api/stores/search?zip=...)
+- [x] Relaxed retailer schema (supports kroger + existing retailers)
 - [ ] Store selection + configuration in iOS
-- [ ] Price display in grocery list
-- [ ] Price optimization suggestions
+- [ ] Price display in grocery list (iOS)
+- [ ] Instacart "shop now" integration (secondary, affiliate revenue)
+- [ ] Spoonacular estimated pricing fallback
 
 ## M3: App Store Submission
 

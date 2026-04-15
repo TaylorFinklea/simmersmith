@@ -235,6 +235,45 @@ def pricing_detail(week_id: str, session: Session = Depends(get_session), curren
     return payload or {"week_id": week.id, "week_start": week.week_start, "totals": {}, "items": []}
 
 
+class FetchPricingRequest(BaseModel):
+    location_id: str = ""
+
+
+@router.post("/{week_id}/pricing/fetch", response_model=PricingResponse)
+def fetch_week_pricing(
+    week_id: str,
+    payload: FetchPricingRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Fetch live grocery prices from Kroger API for a week's grocery list."""
+    from app.services.pricing import fetch_kroger_pricing
+
+    week = load_week_or_404(session, current_user.id, week_id)
+    settings = get_settings()
+
+    # Resolve store: explicit request > profile setting > error
+    location_id = payload.location_id
+    if not location_id:
+        user_settings = profile_settings_map(session, current_user.id)
+        location_id = user_settings.get("kroger_location_id", "")
+    if not location_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No store selected. Pass location_id or set kroger_location_id in profile settings.",
+        )
+
+    try:
+        result = fetch_kroger_pricing(session, week, settings, location_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    session.commit()
+    session.expire_all()
+    return result
+
+
 @router.post("/{week_id}/pricing/import", response_model=PricingResponse)
 def import_week_pricing(
     week_id: str,

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     usda_api_key: str = ""
     ai_timeout_seconds: int = 120
 
+    # Kroger API (grocery pricing)
+    kroger_client_id: str = ""
+    kroger_client_secret: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

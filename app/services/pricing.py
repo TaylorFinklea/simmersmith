@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Iterable
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.models import GroceryItem, PricingRun, RetailerPrice, Week, utcnow
 from app.schemas import PricingImportItem, PricingImportRequest
 from app.services.presenters import pricing_payload
 from app.services.weeks import get_week
+
+logger = logging.getLogger(__name__)
 
 
 def pricing_items_for_week(session: Session, week_id: str) -> list[GroceryItem]:
@@ -111,6 +115,124 @@ def import_pricing(session: Session, week: Week, payload: PricingImportRequest) 
         pricing_run.totals_json = json.dumps(response_payload["totals"] if response_payload else {})
         session.flush()
         return response_payload or {"week_id": refreshed_week.id, "week_start": refreshed_week.week_start, "totals": {}, "items": []}
+    except Exception as exc:
+        pricing_run.status = "failed"
+        pricing_run.error = str(exc)
+        pricing_run.completed_at = utcnow()
+        session.flush()
+        raise
+
+
+def fetch_kroger_pricing(
+    session: Session, week: Week, settings: Settings, location_id: str,
+) -> dict[str, object]:
+    """Fetch live prices from the Kroger API for all grocery items in a week.
+
+    Queries the Kroger product search API for each grocery item, picks the
+    best match, and stores RetailerPrice rows. Returns a PricingResponse dict.
+    """
+    from app.services.kroger import pick_best_match, search_product_price
+
+    if week.status not in {"approved", "priced"}:
+        raise ValueError("Week must be approved before pricing can be fetched.")
+
+    week_items = pricing_items_for_week(session, week.id)
+    if not week_items:
+        raise ValueError("No grocery items to price for this week.")
+
+    pricing_run = PricingRun(
+        week_id=week.id, status="running", item_count=len(week_items),
+    )
+    session.add(pricing_run)
+    session.flush()
+
+    try:
+        # Clear existing kroger prices
+        item_ids = [item.id for item in week_items]
+        session.execute(
+            delete(RetailerPrice).where(
+                RetailerPrice.grocery_item_id.in_(item_ids),
+                RetailerPrice.retailer == "kroger",
+            )
+        )
+
+        matched = 0
+        unavailable = 0
+        for item in week_items:
+            query = item.ingredient_name or item.normalized_name or ""
+            if not query:
+                continue
+
+            try:
+                candidates = search_product_price(
+                    settings, term=query, location_id=location_id, limit=5,
+                )
+            except Exception:
+                logger.warning("Kroger search failed for '%s', marking unavailable", query)
+                candidates = []
+
+            best = pick_best_match(candidates, query)
+            if best:
+                effective_price = best.get("promo_price") or best.get("regular_price")
+                session.add(RetailerPrice(
+                    grocery_item_id=item.id,
+                    retailer="kroger",
+                    status="matched",
+                    store_name=location_id,
+                    product_name=best.get("description", ""),
+                    package_size=best.get("package_size", ""),
+                    unit_price=best.get("regular_price"),
+                    line_price=float(effective_price) if effective_price else None,
+                    product_url=best.get("product_url", ""),
+                    availability="in_stock" if best.get("in_stock") else "unknown",
+                    candidate_score=1.0 if best.get("in_stock") else 0.5,
+                    raw_query=query,
+                    scraped_at=utcnow(),
+                ))
+                matched += 1
+            else:
+                session.add(RetailerPrice(
+                    grocery_item_id=item.id,
+                    retailer="kroger",
+                    status="unavailable",
+                    store_name=location_id,
+                    raw_query=query,
+                    scraped_at=utcnow(),
+                ))
+                unavailable += 1
+
+        session.flush()
+        session.expire_all()
+
+        refreshed_week = get_week(session, week.user_id, week.id)
+        if refreshed_week is None:
+            raise ValueError(f"Week {week.id} not found after pricing fetch.")
+
+        for gi in refreshed_week.grocery_items:
+            gi.review_flag = review_notes_for_prices(gi.retailer_prices)
+
+        refreshed_week.status = "priced"
+        refreshed_week.priced_at = utcnow()
+        pricing_run.status = "completed"
+        pricing_run.completed_at = utcnow()
+        session.flush()
+
+        response_payload = pricing_payload(refreshed_week)
+        pricing_run.totals_json = json.dumps(
+            response_payload["totals"] if response_payload else {},
+        )
+        session.flush()
+
+        logger.info(
+            "Kroger pricing: %d matched, %d unavailable out of %d items",
+            matched, unavailable, len(week_items),
+        )
+        return response_payload or {
+            "week_id": refreshed_week.id,
+            "week_start": refreshed_week.week_start,
+            "totals": {},
+            "items": [],
+        }
     except Exception as exc:
         pricing_run.status = "failed"
         pricing_run.error = str(exc)
