@@ -4,19 +4,22 @@
 
 ## Immediate
 
-- [ ] iOS: Wire Sign in with Apple to `POST /api/auth/apple`, store session JWT in Keychain
-- [ ] iOS: Wire Sign in with Google to `POST /api/auth/google`  
-- [ ] iOS: Point API client at `https://simmersmith.fly.dev` (connection settings)
-- [ ] MCP per-user token system — mint per-user bearer tokens (currently uses shared local_user_id)
+- [ ] Verify TestFlight build processes successfully on App Store Connect
+- [ ] Add internal testers to TestFlight
+- [ ] Test full flow on TestFlight build: sign in → onboarding → plan week → grocery → share recipe
+- [ ] Enable Push Notifications capability on App ID at developer.apple.com (needed for production APNs)
 
 ## Soon
 
-- [ ] Unblock TestFlight upload — ASC credentials or API key flow
-- [ ] Guided onboarding AI preference interview — M1
-- [ ] AI-driven week planning wizard — M1
+- [ ] Recipe images (user will provide AI-generated library; add image_url to RecipeSummary model + AsyncImage in cards)
+- [ ] Google Sign-In SDK integration (placeholder button exists in SignInView)
+- [ ] App Store metadata (description, keywords, category, screenshots)
+- [ ] App Store submission
 
-## Deferred
+## Future
 
-- [ ] Grocery pricing hybrid model — M2
-- [ ] Push notifications — M3
-- [ ] App Store submission — M3
+- [ ] Drag-and-drop meal reorder in week view
+- [ ] Remote push notifications from backend (APNs integration)
+- [ ] Freemium boundaries
+- [ ] Household sharing
+- [ ] Advanced AI features (nutrition tracking, dietary progress)

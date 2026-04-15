@@ -8,41 +8,67 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-11
+**Date**: 2026-04-14
 
-Built R1.1 (Sign in with Apple), R1.2 (AI week planner), verified R1.3 (grocery generation).
+Massive feature sprint + TestFlight upload. Built 8 features, fixed the provisioning profile blocker, and uploaded build 3 to App Store Connect.
 
 **What was done:**
-- Sign in with Apple: new `SignInView`, `AuthTokenResponse` model, `signInWithApple` API + AppState methods, entitlements file, project.yml updated
-- AI week planner: new `app/services/week_planner.py` (prompt construction + AI provider call + JSON parsing), new `POST /api/weeks/{id}/generate` endpoint, iOS `generateWeekPlan` API method, `generateWeekFromAI` AppState method, WeekView rewritten with AI planner sheet + empty state
-- Set `SIMMERSMITH_APPLE_BUNDLE_ID=app.simmersmith.ios` on Fly
-- Changed default OpenAI model to `gpt-5.4-mini`
-- Fresh roadmap in `.docs/ai/roadmap.md` with R1-R3 milestone structure
-- Deployed all changes to Fly.io
+- AI onboarding preference interview (4-step: household, diet, cuisine, cooking style)
+- AI recipe creation from meal notes ("grilled chicken" → full recipe via AI)
+- Push notifications (local meal reminders + grocery day)
+- Privacy policy page at /privacy
+- Week approval flow (approve all + per-meal approve/unapprove)
+- Recipe sharing (ShareLink with formatted text)
+- Better empty states (Recipes + Assistant with actionable prompts)
+- Meal rating in week view via FeedbackComposerView
+- Fixed app icon alpha channel (App Store requires opaque PNGs)
+- Created manual App Store provisioning profile via ASC API (bypassed stale cloud signing)
+- Switched to manual signing in ExportOptions.plist
+- **Successfully uploaded v1.0.0 build 3 to TestFlight**
 
 ## Production
 
 - **URL**: https://simmersmith.fly.dev
+- **Privacy Policy**: https://simmersmith.fly.dev/privacy
 - **API Token**: `299dab5eca45445da9270e8d1f101d1b`
-- **Apple Bundle ID**: set
-- **AI Provider**: needs `SIMMERSMITH_AI_OPENAI_API_KEY` set via `fly secrets set`
+- **TestFlight**: v1.0.0 build 3 uploaded, processing on App Store Connect
 
 ## Build Status
 
 - Backend: ruff ✅, pytest 65/65 ✅
 - iOS: BUILD SUCCEEDED ✅
 - Swift tests: 26/26 ✅
+- TestFlight: **UPLOADED** (build 3)
 - Production: deployed and healthy ✅
+
+## Key Credentials (do not commit)
+
+- ASC API Key ID: `7R3R6JP368`
+- ASC Issuer ID: `fe27785a-1413-46ff-bd82-111de0da024f`
+- APNs Key ID: `46NXHV5UB8`
+- Team ID: `K7CBQW6MPG`
+- Bundle ID: `app.simmersmith.ios`
+- Manual provisioning profile: `SimmerSmith App Store` (ID: Y37ZM5DXYY)
+
+## Architecture
+
+- **Backend**: FastAPI + SQLAlchemy on Fly.io (simmersmith app) + Fly Postgres (simmersmith-db)
+- **Auth**: Apple Sign-In (JWKS verification via pyjwt) → session JWT. Legacy bearer fallback.
+- **AI**: OpenAI (gpt-5.4-mini) for week planning + recipe generation. Key set via `fly secrets`.
+- **iOS**: SwiftUI, 3-tab layout (Week/Recipes/Assistant), dark theme design system (SMColor/SMFont/SMSpacing/SMRadius)
+- **Notifications**: Local (UNUserNotificationCenter) for meal/grocery reminders. Remote push infrastructure ready (APNs key exists, entitlements set).
 
 ## Blockers
 
-- **AI provider key not yet set** — run `fly secrets set SIMMERSMITH_AI_OPENAI_API_KEY="sk-..." --app simmersmith`
-- **Recipe import returning 500** — needs investigation (likely network/fetch issue on Fly)
-- **Sign in with Apple untested on real device** — needs device build + Apple Developer config
+None critical. TestFlight is uploading.
 
-## R1 Progress
+## Recent Commits
 
-- [x] R1.1 — Sign in with Apple (built + deployed)
-- [x] R1.2 — AI week planning (built + deployed, needs API key)
-- [x] R1.3 — Grocery generation (built, auto-generates from AI draft)
-- [ ] R1.4 — Recipe UX polish (recipe import 500 needs fixing, detail view needs editorial treatment)
+```
+d45df53 build: fix TestFlight upload with opaque icons and manual signing
+d6c7241 feat: week approval, recipe sharing, empty states, meal rating
+04cefbf feat: push notification support with meal and grocery reminders
+63296ff feat: add privacy policy page for App Store submission
+7e87f5e feat: add AI recipe creation from meal notes in week view
+7c4315c feat: add AI onboarding preference interview
+```
