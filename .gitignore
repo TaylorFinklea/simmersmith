@@ -23,3 +23,5 @@ app_data/
 *.pyo
 *.pyd
 AuthKey*.p8
+client_*.apps.googleusercontent.com.plist
+GoogleService-Info.plist
