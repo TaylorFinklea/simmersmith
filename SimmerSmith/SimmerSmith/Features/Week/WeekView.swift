@@ -92,6 +92,37 @@ struct WeekView: View {
             .padding(.trailing, SMSpacing.xl)
             .padding(.bottom, SMSpacing.xl)
         }
+        .overlay(alignment: .top) {
+            if let message = appState.lastErrorMessage, !message.isEmpty {
+                HStack(alignment: .top, spacing: SMSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(SMColor.destructive)
+                    Text(message)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        appState.lastErrorMessage = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(SMColor.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss error")
+                }
+                .padding(SMSpacing.md)
+                .background(SMColor.surfaceElevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                        .strokeBorder(SMColor.destructive.opacity(0.4), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                .padding(.horizontal, SMSpacing.md)
+                .padding(.top, SMSpacing.sm)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.lastErrorMessage)
         .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -745,8 +776,12 @@ struct WeekView: View {
                 notes: meal.notes, approved: approved
             )
         }
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Meal Edit Actions
@@ -811,8 +846,12 @@ struct WeekView: View {
                 notes: notes, approved: meal.approved
             )
         }
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func renameMeal(_ meal: WeekMeal, newName: String) async {
@@ -835,8 +874,12 @@ struct WeekView: View {
                 notes: meal.notes, approved: meal.approved
             )
         }
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func moveMeal(_ meal: WeekMeal, toDayName: String, date: Date, slot: String) async {
@@ -876,8 +919,12 @@ struct WeekView: View {
             )
         }
 
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func linkMealToRecipe(_ meal: WeekMeal, recipe: RecipeSummary) async {
@@ -899,8 +946,12 @@ struct WeekView: View {
                 notes: meal.notes, approved: meal.approved
             )
         }
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func linkMealToSavedRecipe(_ meal: WeekMeal, recipeId: String, recipeName: String) async {
@@ -922,8 +973,12 @@ struct WeekView: View {
                 notes: meal.notes, approved: meal.approved
             )
         }
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func addQuickMeal(dayName: String, mealDate: Date, slot: String, recipeName: String) async {
@@ -940,8 +995,12 @@ struct WeekView: View {
             dayName: dayName, mealDate: mealDate, slot: slot,
             recipeName: recipeName
         ))
-        let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-        if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+        do {
+            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Actions

@@ -805,7 +805,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         let url = baseURL.appending(path: path)
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 20
+        request.timeoutInterval = 60
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let bodyData {
             request.httpBody = bodyData
