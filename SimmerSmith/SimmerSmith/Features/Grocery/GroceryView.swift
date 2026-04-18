@@ -7,13 +7,14 @@ struct GroceryView: View {
 
     @State private var selectedItem: GroceryItem?
     @State private var showingReviewQueue = false
+    @State private var isFetchingPrices = false
 
     var body: some View {
         Group {
             if let week = appState.currentWeek, !week.groceryItems.isEmpty {
                 List {
-                    if weekTotal > 0 {
-                        Section {
+                    Section {
+                        if weekTotal > 0 {
                             HStack {
                                 Label("Estimated Total", systemImage: "dollarsign.circle")
                                     .font(SMFont.subheadline)
@@ -24,6 +25,8 @@ struct GroceryView: View {
                                     .foregroundStyle(SMColor.primary)
                             }
                         }
+
+                        fetchPricesRow(week: week)
                     }
 
                     ForEach(groupedItems(for: week), id: \.category) { section in
@@ -178,5 +181,69 @@ struct GroceryView: View {
         (appState.currentWeek?.groceryItems ?? []).compactMap { item in
             bestPrice(for: item)?.linePrice
         }.reduce(0, +)
+    }
+
+    private var krogerLocationId: String {
+        appState.profile?.settings["kroger_location_id"] ?? ""
+    }
+
+    private var krogerStoreName: String {
+        appState.profile?.settings["kroger_store_name"] ?? ""
+    }
+
+    @ViewBuilder
+    private func fetchPricesRow(week: WeekSnapshot) -> some View {
+        if krogerLocationId.isEmpty {
+            HStack(alignment: .top, spacing: SMSpacing.sm) {
+                Image(systemName: "storefront")
+                    .foregroundStyle(SMColor.textTertiary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Select a Kroger store")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textPrimary)
+                    Text("Settings → Grocery to pick a store, then fetch prices here.")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+            }
+        } else {
+            Button {
+                Task { await fetchPrices(weekID: week.weekId) }
+            } label: {
+                HStack(spacing: SMSpacing.sm) {
+                    if isFetchingPrices {
+                        ProgressView().controlSize(.small)
+                        Text("Fetching Kroger prices…")
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(weekTotal > 0 ? "Refresh Kroger prices" : "Fetch Kroger prices")
+                                .font(SMFont.subheadline)
+                            if !krogerStoreName.isEmpty {
+                                Text(krogerStoreName)
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textTertiary)
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(SMColor.primary)
+            }
+            .disabled(isFetchingPrices)
+            .accessibilityLabel(weekTotal > 0 ? "Refresh Kroger prices" : "Fetch Kroger prices")
+        }
+    }
+
+    private func fetchPrices(weekID: String) async {
+        guard !isFetchingPrices else { return }
+        isFetchingPrices = true
+        defer { isFetchingPrices = false }
+        do {
+            _ = try await appState.apiClient.fetchPricing(weekID: weekID, locationID: krogerLocationId)
+            await appState.refreshWeek()
+        } catch {
+            appState.lastErrorMessage = "Fetch prices failed: \(error.localizedDescription)"
+        }
     }
 }

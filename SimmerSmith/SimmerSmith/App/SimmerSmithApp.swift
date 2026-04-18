@@ -1,3 +1,4 @@
+import GoogleSignIn
 import Observation
 import SwiftData
 import SwiftUI
@@ -31,6 +32,13 @@ struct SimmerSmithApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     appState.loadCachedData()
+                    // Silently restore any previous Google Sign-In session so
+                    // subsequent API calls made through GIDSignIn (profile
+                    // info, token refresh) pick up without requiring the user
+                    // to tap the button again. Our SimmerSmith session JWT is
+                    // already persisted in ConnectionSettingsStore, so this is
+                    // purely for the native Google UI state.
+                    GIDSignIn.sharedInstance.restorePreviousSignIn { _, _ in }
                     if appState.hasSavedConnection {
                         await appState.refreshAll()
                     }

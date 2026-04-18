@@ -379,72 +379,12 @@ struct WeekView: View {
         }
     }
 
-    // MARK: - Day key helpers (match server's calendar-day semantics)
-    //
-    // Server sends `meal_date` / `week_start` as "YYYY-MM-DD" strings. The iOS
-    // JSON decoder parses those as Date at UTC midnight, so interpreting them
-    // in the user's local timezone shifts the wall-clock date by several hours
-    // in either direction. To stay consistent with what the server meant, we
-    // compare calendar days as "YYYY-MM-DD" strings formatted in UTC for
-    // server-supplied dates, and in local time for "now".
-
-    private static let utcDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    private static let localDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    private static let utcWeekdayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "EEEE"
-        return f
-    }()
-
-    private static let utcShortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
-    private static var utcCalendar: Calendar = {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(secondsFromGMT: 0)!
-        return cal
-    }()
-
-    private func dayKey(_ date: Date) -> String {
-        Self.utcDayFormatter.string(from: date)
-    }
-
-    private var todayKey: String {
-        Self.localDayFormatter.string(from: Date())
-    }
-
-    private func isTodayDate(_ date: Date) -> Bool {
-        dayKey(date) == todayKey
-    }
+    // MARK: - Day helpers (see `DayKey` for the shared implementation)
 
     private func mealsForDate(_ date: Date, in week: WeekSnapshot) -> [WeekMeal] {
-        let key = dayKey(date)
+        let key = DayKey.server(date)
         return week.meals
-            .filter { dayKey($0.mealDate) == key }
+            .filter { DayKey.server($0.mealDate) == key }
             .sorted { slotOrder($0.slot) < slotOrder($1.slot) }
     }
 
@@ -452,19 +392,13 @@ struct WeekView: View {
 
     @ViewBuilder
     private func todayHero(_ week: WeekSnapshot) -> some View {
-        let today = Date()
-        let weekContainsToday = (0..<7).contains { offset in
-            guard let d = Self.utcCalendar.date(byAdding: .day, value: offset, to: week.weekStart) else { return false }
-            return isTodayDate(d)
+        let weekDates = (0..<7).compactMap {
+            DayKey.utcCalendar.date(byAdding: .day, value: $0, to: week.weekStart)
         }
 
-        if weekContainsToday {
-            let todayDate = (0..<7).compactMap {
-                Self.utcCalendar.date(byAdding: .day, value: $0, to: week.weekStart)
-            }.first(where: { isTodayDate($0) }) ?? today
-
+        if let todayDate = weekDates.first(where: { DayKey.isToday($0) }) {
             let meals = mealsForDate(todayDate, in: week)
-            let dayName = meals.first?.dayName ?? Self.utcWeekdayFormatter.string(from: todayDate)
+            let dayName = meals.first?.dayName ?? DayKey.weekdayName(todayDate)
 
             VStack(alignment: .leading, spacing: SMSpacing.md) {
                 VStack(alignment: .leading, spacing: SMSpacing.xs) {
@@ -472,7 +406,7 @@ struct WeekView: View {
                         .font(SMFont.display)
                         .foregroundStyle(SMColor.textPrimary)
 
-                    Text(Self.utcShortDateFormatter.string(from: todayDate) + " · " + dayName)
+                    Text(DayKey.shortMonthDay(todayDate) + " · " + dayName)
                         .font(SMFont.subheadline)
                         .foregroundStyle(SMColor.textSecondary)
                 }
@@ -486,11 +420,11 @@ struct WeekView: View {
     // MARK: - Days Grid (all 7 days of the week)
 
     private func weekDays(of week: WeekSnapshot) -> [(date: Date, dayName: String)] {
-        let cal = Self.utcCalendar
+        let cal = DayKey.utcCalendar
         let start = cal.startOfDay(for: week.weekStart)
         return (0..<7).map { offset in
             let date = cal.date(byAdding: .day, value: offset, to: start) ?? start
-            let name = Self.utcWeekdayFormatter.string(from: date)
+            let name = DayKey.weekdayName(date)
             return (date, name)
         }
     }
@@ -521,7 +455,7 @@ struct WeekView: View {
     @ViewBuilder
     private func daySection(week: WeekSnapshot, date: Date, dayName: String) -> some View {
         let meals = mealsForDate(date, in: week)
-        let isToday = isTodayDate(date)
+        let isToday = DayKey.isToday(date)
 
         VStack(alignment: .leading, spacing: SMSpacing.sm) {
             HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
@@ -529,7 +463,7 @@ struct WeekView: View {
                     .font(SMFont.subheadline)
                     .foregroundStyle(isToday ? SMColor.textPrimary : SMColor.primary)
 
-                Text(Self.utcShortDateFormatter.string(from: date))
+                Text(DayKey.shortMonthDay(date))
                     .font(SMFont.caption)
                     .foregroundStyle(SMColor.textTertiary)
 
@@ -859,6 +793,7 @@ struct WeekView: View {
 
     private func markEatingOut(_ meal: WeekMeal) {
         guard let week = displayedWeek else { return }
+        selectedMealForAction = nil
         Task {
             var meals = week.meals.map { m in
                 MealUpdateRequest(
@@ -875,13 +810,18 @@ struct WeekView: View {
                     recipeName: "Eating Out", approved: true
                 )
             }
-            let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+            do {
+                let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+                if !isViewingCurrentWeek { browsedWeek = updated }
+            } catch {
+                appState.lastErrorMessage = error.localizedDescription
+            }
         }
     }
 
     private func removeMeal(_ meal: WeekMeal) {
         guard let week = displayedWeek else { return }
+        selectedMealForAction = nil
         Task {
             let meals = week.meals
                 .filter { $0.mealId != meal.mealId }
@@ -893,8 +833,12 @@ struct WeekView: View {
                         notes: m.notes, approved: m.approved
                     )
                 }
-            let updated = try? await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated ?? browsedWeek }
+            do {
+                let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+                if !isViewingCurrentWeek { browsedWeek = updated }
+            } catch {
+                appState.lastErrorMessage = error.localizedDescription
+            }
         }
     }
 

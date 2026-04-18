@@ -524,7 +524,7 @@ struct RecipesView: View {
         // Try to find tonight's dinner from the current week
         if let week = appState.currentWeek {
             let todayDinner = week.meals.first {
-                Calendar.current.isDateInToday($0.mealDate) && $0.slot.lowercased() == "dinner"
+                DayKey.isToday($0.mealDate) && $0.slot.lowercased() == "dinner"
             }
             if let recipeId = todayDinner?.recipeId,
                let recipe = appState.recipes.first(where: { $0.recipeId == recipeId }) {

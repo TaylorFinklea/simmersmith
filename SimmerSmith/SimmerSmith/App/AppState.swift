@@ -1,4 +1,5 @@
 import Foundation
+import GoogleSignIn
 import Observation
 import SwiftData
 import SimmerSmithKit
@@ -356,6 +357,9 @@ final class AppState {
         settingsStore.clear()
         serverURLDraft = ""
         authTokenDraft = ""
+        // Also clear the Google Sign-In cache so the next sign-in presents
+        // the account picker instead of silently reusing the previous user.
+        GIDSignIn.sharedInstance.signOut()
         clearLocalCache()
     }
 

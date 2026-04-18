@@ -12,6 +12,7 @@
 		0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C73D583ED87BFE61E47C9D /* WeekView.swift */; };
 		0CB8866878DFDABDE9F4846F /* SMCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6AC90F65369FDFDE3B64F6 /* SMCard.swift */; };
 		0D17009AD5B6DBF392246D57 /* TodayMealCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7AB5C4A651E47C2ED148EC4 /* TodayMealCard.swift */; };
+		0DA9EFF5EBDAE3B665FB010B /* DayKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ECB22E673210C0A5DD08ADF /* DayKey.swift */; };
 		0FF942A918598DDFAE82210E /* RecipeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */; };
 		1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */; };
 		277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA42101A03628D82ADE249C /* SimmerSmithKit */; };
@@ -117,6 +118,7 @@
 		62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorView.swift; sourceTree = "<group>"; };
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6DF738967CD3644971E26635 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		6ECB22E673210C0A5DD08ADF /* DayKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayKey.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
 		726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSelectionView.swift; sourceTree = "<group>"; };
 		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
@@ -232,6 +234,14 @@
 				751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */,
 			);
 			path = Ingredients;
+			sourceTree = "<group>";
+		};
+		403FBEEB17B79565CF26E476 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				6ECB22E673210C0A5DD08ADF /* DayKey.swift */,
+			);
+			path = Utilities;
 			sourceTree = "<group>";
 		};
 		4B4A178409352DE229F50741 /* App */ = {
@@ -384,6 +394,7 @@
 				85E10677AB3A0D9FDCF6A879 /* DesignSystem */,
 				1E42F42156053EDC2BBB13EB /* Features */,
 				7587D8E0C14BF50249544874 /* Services */,
+				403FBEEB17B79565CF26E476 /* Utilities */,
 			);
 			path = SimmerSmith;
 			sourceTree = "<group>";
@@ -553,6 +564,7 @@
 				40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */,
 				43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */,
 				2CCF1384167B1CB2D5AF3A82 /* DayCard.swift in Sources */,
+				0DA9EFF5EBDAE3B665FB010B /* DayKey.swift in Sources */,
 				7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */,
 				B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */,
 				7869D10313DF18368775A1E6 /* HeroRecipeCard.swift in Sources */,
@@ -634,7 +646,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -750,7 +762,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

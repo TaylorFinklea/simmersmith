@@ -10,27 +10,25 @@ struct MealMoveSheet: View {
     @State private var isMoving = false
 
     private static let allSlots = ["breakfast", "lunch", "dinner"]
-    private static let dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     private var weekDays: [(name: String, date: Date)] {
-        let calendar = Calendar.current
+        let cal = DayKey.utcCalendar
+        let start = cal.startOfDay(for: week.weekStart)
         return (0..<7).map { offset in
-            let date = calendar.date(byAdding: .day, value: offset, to: week.weekStart)!
-            let name = Self.dayNames[offset % Self.dayNames.count]
+            let date = cal.date(byAdding: .day, value: offset, to: start)!
+            let name = DayKey.weekdayName(date)
             return (name: name, date: date)
         }
     }
 
     private func existingMeal(dayDate: Date, slot: String) -> WeekMeal? {
-        let calendar = Calendar.current
-        return week.meals.first {
-            calendar.isDate($0.mealDate, inSameDayAs: dayDate) && $0.slot == slot
+        week.meals.first {
+            DayKey.isSameServerDay($0.mealDate, dayDate) && $0.slot == slot
         }
     }
 
     private func isCurrentSlot(dayDate: Date, slot: String) -> Bool {
-        let calendar = Calendar.current
-        return calendar.isDate(meal.mealDate, inSameDayAs: dayDate) && meal.slot == slot
+        DayKey.isSameServerDay(meal.mealDate, dayDate) && meal.slot == slot
     }
 
     var body: some View {
@@ -64,7 +62,7 @@ struct MealMoveSheet: View {
 
                                     Spacer()
 
-                                    Text(day.date.formatted(date: .abbreviated, time: .omitted))
+                                    Text(DayKey.shortMonthDay(day.date))
                                         .font(SMFont.caption)
                                         .foregroundStyle(SMColor.textTertiary)
                                 }
