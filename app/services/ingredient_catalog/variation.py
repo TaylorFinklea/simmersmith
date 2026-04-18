@@ -42,6 +42,10 @@ def ensure_base_ingredient(
     nutrition_reference_amount: float | None = None,
     nutrition_reference_unit: str = "",
     calories: float | None = None,
+    protein_g: float | None = None,
+    carbs_g: float | None = None,
+    fat_g: float | None = None,
+    fiber_g: float | None = None,
 ) -> BaseIngredient:
     cleaned_name = str(name).strip()
     normalized = _normalized_or_name(cleaned_name, normalized_name)
@@ -64,6 +68,10 @@ def ensure_base_ingredient(
             nutrition_reference_amount=nutrition_reference_amount,
             nutrition_reference_unit=normalize_unit(nutrition_reference_unit),
             calories=calories,
+            protein_g=protein_g,
+            carbs_g=carbs_g,
+            fat_g=fat_g,
+            fiber_g=fiber_g,
         )
         session.add(existing)
     else:
@@ -91,6 +99,14 @@ def ensure_base_ingredient(
             existing.nutrition_reference_unit = normalize_unit(nutrition_reference_unit)
         if existing.calories is None and calories is not None:
             existing.calories = calories
+        if existing.protein_g is None and protein_g is not None:
+            existing.protein_g = protein_g
+        if existing.carbs_g is None and carbs_g is not None:
+            existing.carbs_g = carbs_g
+        if existing.fat_g is None and fat_g is not None:
+            existing.fat_g = fat_g
+        if existing.fiber_g is None and fiber_g is not None:
+            existing.fiber_g = fiber_g
         existing.updated_at = utcnow()
     session.flush()
     return existing
@@ -132,6 +148,10 @@ def create_or_update_variation(
     nutrition_reference_amount: float | None = None,
     nutrition_reference_unit: str = "",
     calories: float | None = None,
+    protein_g: float | None = None,
+    carbs_g: float | None = None,
+    fat_g: float | None = None,
+    fiber_g: float | None = None,
 ) -> IngredientVariation:
     base = get_base_ingredient(session, base_ingredient_id)
     if base is None:
@@ -171,6 +191,10 @@ def create_or_update_variation(
             nutrition_reference_amount=nutrition_reference_amount,
             nutrition_reference_unit=normalize_unit(nutrition_reference_unit),
             calories=calories,
+            protein_g=protein_g,
+            carbs_g=carbs_g,
+            fat_g=fat_g,
+            fiber_g=fiber_g,
         )
         session.add(variation)
     else:
@@ -197,6 +221,10 @@ def create_or_update_variation(
         variation.nutrition_reference_amount = nutrition_reference_amount
         variation.nutrition_reference_unit = normalize_unit(nutrition_reference_unit)
         variation.calories = calories
+        variation.protein_g = protein_g
+        variation.carbs_g = carbs_g
+        variation.fat_g = fat_g
+        variation.fiber_g = fiber_g
         variation.updated_at = utcnow()
     session.flush()
     return variation

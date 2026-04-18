@@ -169,6 +169,76 @@ def nutrition_seed_items() -> list[dict[str, object]]:
     return payload if isinstance(payload, list) else []
 
 
+@lru_cache(maxsize=1)
+def ingredient_macro_seed() -> list[dict[str, object]]:
+    """Load the curated macro seed (per-100g USDA values).
+
+    Entries with `skip: true` (e.g. the metadata header row) are dropped so
+    callers can iterate safely.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    path = repo_root / "app" / "data" / "ingredient_macros.json"
+    if not path.exists():
+        return []
+    raw = path.read_text(encoding="utf-8")
+    payload = json.loads(raw)
+    if not isinstance(payload, list):
+        return []
+    return [entry for entry in payload if isinstance(entry, dict) and not entry.get("skip")]
+
+
+def ensure_ingredient_macros_seed(session: Session) -> int:
+    """Apply the curated macro seed to the base-ingredient catalog.
+
+    - If a `BaseIngredient` with the seed's `normalized_name` already exists,
+      only fields that are currently null on the DB row are updated. Existing
+      USDA/Open Food Facts values are left alone.
+    - If the base ingredient does not exist, a new row is created with the
+      seed as its source (`source_name="SimmerSmith Macro Seed"`).
+
+    Returns the number of rows created or updated.
+    """
+    from app.services.ingredient_catalog import ensure_base_ingredient
+
+    applied = 0
+    for entry in ingredient_macro_seed():
+        name = str(entry.get("name") or "").strip()
+        normalized = str(entry.get("normalized_name") or "").strip()
+        if not name or not normalized:
+            continue
+        ensure_base_ingredient(
+            session,
+            name=name,
+            normalized_name=normalized,
+            category=str(entry.get("category") or "").strip(),
+            default_unit="g",
+            source_name="SimmerSmith Macro Seed",
+            source_record_id=normalized,
+            source_url="",
+            provisional=False,
+            active=True,
+            nutrition_reference_amount=100.0,
+            nutrition_reference_unit="g",
+            calories=_seed_float(entry.get("calories")),
+            protein_g=_seed_float(entry.get("protein_g")),
+            carbs_g=_seed_float(entry.get("carbs_g")),
+            fat_g=_seed_float(entry.get("fat_g")),
+            fiber_g=_seed_float(entry.get("fiber_g")),
+        )
+        applied += 1
+    session.flush()
+    return applied
+
+
+def _seed_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 def ensure_nutrition_defaults(session: Session) -> None:
     existing = {
         item.normalized_name: item

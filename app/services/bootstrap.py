@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.models import ProfileSetting, Staple, utcnow
 from app.services.ingredient_catalog import ensure_catalog_defaults
 from app.services.recipe_templates import ensure_default_templates
-from app.services.nutrition import ensure_nutrition_defaults
+from app.services.nutrition import ensure_ingredient_macros_seed, ensure_nutrition_defaults
 
 
 DEFAULT_PROFILE_SETTINGS = {
@@ -76,4 +76,5 @@ def seed_defaults(session: Session) -> None:
     ensure_default_templates(session)
     ensure_nutrition_defaults(session)
     ensure_catalog_defaults(session)
+    ensure_ingredient_macros_seed(session)
     session.flush()

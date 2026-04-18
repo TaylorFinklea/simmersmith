@@ -284,19 +284,49 @@ def _fetch_json(
         return json.loads(response.read().decode("utf-8"))
 
 
-def _usda_calories(food: dict[str, Any]) -> float | None:
+USDA_NUTRIENT_NUMBERS = {
+    "calories": "208",      # Energy (kcal)
+    "protein_g": "203",     # Protein
+    "fat_g": "204",         # Total lipid (fat)
+    "carbs_g": "205",       # Carbohydrate, by difference
+    "fiber_g": "291",       # Fiber, total dietary
+}
+
+
+def _usda_nutrient_value(food: dict[str, Any], nutrient_number: str) -> float | None:
     nutrients = food.get("foodNutrients") or []
     for nutrient in nutrients:
         number = str(nutrient.get("nutrientNumber") or "").strip()
-        if number == "208":
+        if number == nutrient_number:
             value = nutrient.get("value")
-            return float(value) if value is not None else None
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
     return None
 
 
-def _off_calories(product: dict[str, Any]) -> float | None:
-    nutriments = product.get("nutriments") or {}
-    for key in ("energy-kcal_100g", "energy-kcal_serving", "energy-kcal"):
+def _usda_calories(food: dict[str, Any]) -> float | None:
+    return _usda_nutrient_value(food, USDA_NUTRIENT_NUMBERS["calories"])
+
+
+def _usda_macros(food: dict[str, Any]) -> dict[str, float | None]:
+    """Extract the five tracked macros from a USDA FDC food record.
+
+    Returns a dict keyed by `calories`, `protein_g`, `carbs_g`, `fat_g`,
+    `fiber_g`. Any missing value surfaces as `None` so downstream code can
+    treat "unknown" distinctly from "zero".
+    """
+    return {
+        key: _usda_nutrient_value(food, number)
+        for key, number in USDA_NUTRIENT_NUMBERS.items()
+    }
+
+
+def _off_nutriment(nutriments: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
         value = nutriments.get(key)
         if value not in {None, ""}:
             try:
@@ -304,6 +334,22 @@ def _off_calories(product: dict[str, Any]) -> float | None:
             except (TypeError, ValueError):
                 continue
     return None
+
+
+def _off_calories(product: dict[str, Any]) -> float | None:
+    nutriments = product.get("nutriments") or {}
+    return _off_nutriment(nutriments, "energy-kcal_100g", "energy-kcal_serving", "energy-kcal")
+
+
+def _off_macros(product: dict[str, Any]) -> dict[str, float | None]:
+    nutriments = product.get("nutriments") or {}
+    return {
+        "calories": _off_nutriment(nutriments, "energy-kcal_100g", "energy-kcal_serving", "energy-kcal"),
+        "protein_g": _off_nutriment(nutriments, "proteins_100g", "proteins_serving", "proteins"),
+        "carbs_g": _off_nutriment(nutriments, "carbohydrates_100g", "carbohydrates_serving", "carbohydrates"),
+        "fat_g": _off_nutriment(nutriments, "fat_100g", "fat_serving", "fat"),
+        "fiber_g": _off_nutriment(nutriments, "fiber_100g", "fiber_serving", "fiber"),
+    }
 
 
 def _title_case_name(value: str) -> str:
@@ -362,6 +408,7 @@ def ingest_usda_terms(
         category = str(
             best_food.get("foodCategory") or best_food.get("foodCategoryDescription") or ""
         ).strip()
+        macros = _usda_macros(best_food)
         ensure_base_ingredient(
             session,
             name=_title_case_name(term),
@@ -377,7 +424,11 @@ def ingest_usda_terms(
             active=True,
             nutrition_reference_amount=100.0,
             nutrition_reference_unit="g",
-            calories=_usda_calories(best_food),
+            calories=macros["calories"],
+            protein_g=macros["protein_g"],
+            carbs_g=macros["carbs_g"],
+            fat_g=macros["fat_g"],
+            fiber_g=macros["fiber_g"],
         )
         base_count += 1
     session.flush()
@@ -425,6 +476,7 @@ def ingest_open_food_facts_terms(
                 continue
             brand = str(product.get("brands") or "").split(",")[0].strip()
             base_name = _generic_name_from_product(product_name, brand)
+            off_macros = _off_macros(product)
             base = ensure_base_ingredient(
                 session,
                 name=_title_case_name(base_name),
@@ -444,7 +496,11 @@ def ingest_open_food_facts_terms(
                 active=True,
                 nutrition_reference_amount=100.0,
                 nutrition_reference_unit="g",
-                calories=_off_calories(product),
+                calories=off_macros["calories"],
+                protein_g=off_macros["protein_g"],
+                carbs_g=off_macros["carbs_g"],
+                fat_g=off_macros["fat_g"],
+                fiber_g=off_macros["fiber_g"],
             )
             base_count += 1
             create_or_update_variation(
@@ -467,7 +523,11 @@ def ingest_open_food_facts_terms(
                 active=True,
                 nutrition_reference_amount=100.0,
                 nutrition_reference_unit="g",
-                calories=_off_calories(product),
+                calories=off_macros["calories"],
+                protein_g=off_macros["protein_g"],
+                carbs_g=off_macros["carbs_g"],
+                fat_g=off_macros["fat_g"],
+                fiber_g=off_macros["fiber_g"],
             )
             variation_count += 1
     session.flush()
