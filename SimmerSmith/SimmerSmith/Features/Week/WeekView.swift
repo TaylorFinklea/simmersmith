@@ -63,6 +63,7 @@ struct WeekView: View {
 
                     if let week = displayedWeek {
                         approveAllBar(week)
+                        todayHero(week)
                         daysSection(week)
                         groceryBar(week)
                     } else {
@@ -378,17 +379,118 @@ struct WeekView: View {
         }
     }
 
+    // MARK: - Day key helpers (match server's calendar-day semantics)
+    //
+    // Server sends `meal_date` / `week_start` as "YYYY-MM-DD" strings. The iOS
+    // JSON decoder parses those as Date at UTC midnight, so interpreting them
+    // in the user's local timezone shifts the wall-clock date by several hours
+    // in either direction. To stay consistent with what the server meant, we
+    // compare calendar days as "YYYY-MM-DD" strings formatted in UTC for
+    // server-supplied dates, and in local time for "now".
+
+    private static let utcDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .iso8601)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let localDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .iso8601)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let utcWeekdayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .iso8601)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "EEEE"
+        return f
+    }()
+
+    private static let utcShortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .iso8601)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private static var utcCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        return cal
+    }()
+
+    private func dayKey(_ date: Date) -> String {
+        Self.utcDayFormatter.string(from: date)
+    }
+
+    private var todayKey: String {
+        Self.localDayFormatter.string(from: Date())
+    }
+
+    private func isTodayDate(_ date: Date) -> Bool {
+        dayKey(date) == todayKey
+    }
+
+    private func mealsForDate(_ date: Date, in week: WeekSnapshot) -> [WeekMeal] {
+        let key = dayKey(date)
+        return week.meals
+            .filter { dayKey($0.mealDate) == key }
+            .sorted { slotOrder($0.slot) < slotOrder($1.slot) }
+    }
+
+    // MARK: - Today Hero (always at the top)
+
+    @ViewBuilder
+    private func todayHero(_ week: WeekSnapshot) -> some View {
+        let today = Date()
+        let weekContainsToday = (0..<7).contains { offset in
+            guard let d = Self.utcCalendar.date(byAdding: .day, value: offset, to: week.weekStart) else { return false }
+            return isTodayDate(d)
+        }
+
+        if weekContainsToday {
+            let todayDate = (0..<7).compactMap {
+                Self.utcCalendar.date(byAdding: .day, value: $0, to: week.weekStart)
+            }.first(where: { isTodayDate($0) }) ?? today
+
+            let meals = mealsForDate(todayDate, in: week)
+            let dayName = meals.first?.dayName ?? Self.utcWeekdayFormatter.string(from: todayDate)
+
+            VStack(alignment: .leading, spacing: SMSpacing.md) {
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Text("Today")
+                        .font(SMFont.display)
+                        .foregroundStyle(SMColor.textPrimary)
+
+                    Text(Self.utcShortDateFormatter.string(from: todayDate) + " · " + dayName)
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+                renderSlots(for: todayDate, dayName: dayName, meals: meals, style: .hero)
+            }
+            .padding(.top, SMSpacing.sm)
+        }
+    }
+
     // MARK: - Days Grid (all 7 days of the week)
 
     private func weekDays(of week: WeekSnapshot) -> [(date: Date, dayName: String)] {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: week.weekStart)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
+        let cal = Self.utcCalendar
+        let start = cal.startOfDay(for: week.weekStart)
         return (0..<7).map { offset in
-            let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
-            let name = week.meals.first(where: { calendar.isDate($0.mealDate, inSameDayAs: date) })?.dayName
-                ?? formatter.string(from: date)
+            let date = cal.date(byAdding: .day, value: offset, to: start) ?? start
+            let name = Self.utcWeekdayFormatter.string(from: date)
             return (date, name)
         }
     }
@@ -404,56 +506,80 @@ struct WeekView: View {
     @ViewBuilder
     private func daysSection(_ week: WeekSnapshot) -> some View {
         let days = weekDays(of: week)
-        ForEach(days, id: \.date) { day in
-            daySection(week: week, date: day.date, dayName: day.dayName)
+        VStack(alignment: .leading, spacing: SMSpacing.xs) {
+            Text("This Week")
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
+                .padding(.top, SMSpacing.md)
+
+            ForEach(days, id: \.date) { day in
+                daySection(week: week, date: day.date, dayName: day.dayName)
+            }
         }
     }
 
     @ViewBuilder
     private func daySection(week: WeekSnapshot, date: Date, dayName: String) -> some View {
-        let isToday = Calendar.current.isDateInToday(date)
-        let meals = week.meals
-            .filter { Calendar.current.isDate($0.mealDate, inSameDayAs: date) }
-            .sorted { slotOrder($0.slot) < slotOrder($1.slot) }
+        let meals = mealsForDate(date, in: week)
+        let isToday = isTodayDate(date)
+
+        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
+                Text(dayName)
+                    .font(SMFont.subheadline)
+                    .foregroundStyle(isToday ? SMColor.textPrimary : SMColor.primary)
+
+                Text(Self.utcShortDateFormatter.string(from: date))
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                if isToday {
+                    Text("Today")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.primary)
+                        .padding(.horizontal, SMSpacing.xs)
+                        .padding(.vertical, 2)
+                        .background(SMColor.primary.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+
+                Spacer()
+            }
+            .padding(.top, SMSpacing.xs)
+
+            renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
+        }
+    }
+
+    private enum SlotStyle {
+        case hero
+        case compact
+    }
+
+    @ViewBuilder
+    private func renderSlots(for date: Date, dayName: String, meals: [WeekMeal], style: SlotStyle) -> some View {
         let filledSlots = Set(meals.map(\.slot))
         let slots = configuredSlots + meals.map(\.slot).filter { !configuredSlots.contains($0) }
         let uniqueSlots = Array(NSOrderedSet(array: slots)) as? [String] ?? configuredSlots
 
-        VStack(alignment: .leading, spacing: SMSpacing.sm) {
-            HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
-                Text(isToday ? "Today" : dayName)
-                    .font(isToday ? SMFont.headline : SMFont.subheadline)
-                    .foregroundStyle(isToday ? SMColor.textPrimary : SMColor.primary)
-
-                Text(date.formatted(.dateTime.month(.abbreviated).day()))
-                    .font(SMFont.caption)
-                    .foregroundStyle(SMColor.textTertiary)
-
-                Spacer()
-            }
-            .padding(.top, isToday ? SMSpacing.sm : 0)
-
-            ForEach(uniqueSlots, id: \.self) { slot in
-                if let meal = meals.first(where: { $0.slot == slot }) {
-                    if isToday {
-                        TodayMealCard(
-                            meal: meal,
-                            recipe: recipeSummary(for: meal),
-                            onTap: { selectedMealForAction = meal }
-                        )
-                    } else {
-                        CompactMealCard(meal: meal) {
-                            selectedMealForAction = meal
-                        }
+        ForEach(uniqueSlots, id: \.self) { slot in
+            if let meal = meals.first(where: { $0.slot == slot }) {
+                switch style {
+                case .hero:
+                    TodayMealCard(
+                        meal: meal,
+                        recipe: recipeSummary(for: meal),
+                        onTap: { selectedMealForAction = meal }
+                    )
+                case .compact:
+                    CompactMealCard(meal: meal) {
+                        selectedMealForAction = meal
                     }
-                } else if !filledSlots.contains(slot) {
-                    emptySlotButton(dayName: dayName, mealDate: date, slot: slot)
                 }
+            } else if !filledSlots.contains(slot) {
+                emptySlotButton(dayName: dayName, mealDate: date, slot: slot)
             }
         }
-        .padding(isToday ? SMSpacing.md : 0)
-        .background(isToday ? SMColor.primary.opacity(0.04) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
     }
 
     private func slotOrder(_ slot: String) -> Int {
