@@ -9,7 +9,7 @@ from app.models.catalog import (
     NutritionItem,
     RecipeTemplate,
 )
-from app.models.profile import PreferenceSignal, ProfileSetting, Staple
+from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.user import User
 from app.models.week import (
@@ -31,6 +31,7 @@ __all__ = [
     "AssistantMessage",
     "AssistantThread",
     "BaseIngredient",
+    "DietaryGoal",
     "ExportItem",
     "ExportRun",
     "FeedbackEntry",

@@ -40,6 +40,8 @@ from app.schemas.preferences import (
     PreferenceSummary,
 )
 from app.schemas.profile import (
+    DietaryGoalOut,
+    DietaryGoalPayload,
     ProfileResponse,
     ProfileUpdateRequest,
     StaplePayload,
@@ -111,6 +113,8 @@ __all__ = [
     "BaseIngredientDetailOut",
     "BaseIngredientOut",
     "BaseIngredientPayload",
+    "DietaryGoalOut",
+    "DietaryGoalPayload",
     "DraftFromAIRequest",
     "ExportCompleteRequest",
     "ExportCreateRequest",

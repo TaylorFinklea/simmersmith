@@ -49,6 +49,53 @@ VOLUME_UNIT_ML = {
 
 
 @dataclass(frozen=True)
+class MacroBreakdown:
+    """Per-serving or absolute nutrition totals."""
+    calories: float = 0.0
+    protein_g: float = 0.0
+    carbs_g: float = 0.0
+    fat_g: float = 0.0
+    fiber_g: float = 0.0
+
+    def as_payload(self) -> dict[str, float]:
+        return {
+            "calories": round(self.calories, 1),
+            "protein_g": round(self.protein_g, 1),
+            "carbs_g": round(self.carbs_g, 1),
+            "fat_g": round(self.fat_g, 1),
+            "fiber_g": round(self.fiber_g, 1),
+        }
+
+    def __add__(self, other: "MacroBreakdown") -> "MacroBreakdown":
+        return MacroBreakdown(
+            calories=self.calories + other.calories,
+            protein_g=self.protein_g + other.protein_g,
+            carbs_g=self.carbs_g + other.carbs_g,
+            fat_g=self.fat_g + other.fat_g,
+            fiber_g=self.fiber_g + other.fiber_g,
+        )
+
+    def scaled(self, factor: float) -> "MacroBreakdown":
+        return MacroBreakdown(
+            calories=self.calories * factor,
+            protein_g=self.protein_g * factor,
+            carbs_g=self.carbs_g * factor,
+            fat_g=self.fat_g * factor,
+            fiber_g=self.fiber_g * factor,
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.calories == 0.0
+            and self.protein_g == 0.0
+            and self.carbs_g == 0.0
+            and self.fat_g == 0.0
+            and self.fiber_g == 0.0
+        )
+
+
+@dataclass(frozen=True)
 class NutritionSummary:
     total_calories: float | None
     calories_per_serving: float | None
@@ -266,6 +313,146 @@ def _lookup_catalog_calories(
                 calories=base.calories,
             )
     return None
+
+
+def _macros_for_reference(
+    quantity: float | None,
+    unit: str,
+    *,
+    reference_amount: float | None,
+    reference_unit: str,
+    calories: float | None,
+    protein_g: float | None,
+    carbs_g: float | None,
+    fat_g: float | None,
+    fiber_g: float | None,
+) -> MacroBreakdown | None:
+    """Return a scaled MacroBreakdown for the given `(quantity, unit)` pair.
+
+    Uses the same scaling factor the calories helper uses, but applied to the
+    macro tuple. Returns None when we can't compute at least one value (e.g.
+    unknown reference unit, or all macro fields are null).
+    """
+    if reference_amount is None or reference_amount <= 0:
+        return None
+    if quantity is None or quantity <= 0:
+        return None
+    if (
+        calories is None
+        and protein_g is None
+        and carbs_g is None
+        and fat_g is None
+        and fiber_g is None
+    ):
+        return None
+
+    recipe_unit = normalize_name(unit)
+    normalized_reference_unit = normalize_name(reference_unit)
+    if recipe_unit == normalized_reference_unit:
+        factor = quantity / reference_amount
+    else:
+        recipe_group = _unit_group(recipe_unit)
+        reference_group = _unit_group(normalized_reference_unit)
+        if not (
+            recipe_group and reference_group and recipe_group[0] == reference_group[0]
+        ):
+            return None
+        base_quantity = quantity * recipe_group[1]
+        reference_quantity = reference_amount * reference_group[1]
+        if reference_quantity <= 0:
+            return None
+        factor = base_quantity / reference_quantity
+
+    return MacroBreakdown(
+        calories=(calories or 0.0) * factor,
+        protein_g=(protein_g or 0.0) * factor,
+        carbs_g=(carbs_g or 0.0) * factor,
+        fat_g=(fat_g or 0.0) * factor,
+        fiber_g=(fiber_g or 0.0) * factor,
+    )
+
+
+def _lookup_catalog_macros(
+    session: Session,
+    *,
+    base_ingredient_id: str | None,
+    ingredient_variation_id: str | None,
+    quantity: float | None,
+    unit: str,
+) -> MacroBreakdown | None:
+    if ingredient_variation_id:
+        variation = session.get(IngredientVariation, ingredient_variation_id)
+        if variation is not None:
+            macros = _macros_for_reference(
+                quantity,
+                unit,
+                reference_amount=variation.nutrition_reference_amount,
+                reference_unit=variation.nutrition_reference_unit,
+                calories=variation.calories,
+                protein_g=variation.protein_g,
+                carbs_g=variation.carbs_g,
+                fat_g=variation.fat_g,
+                fiber_g=variation.fiber_g,
+            )
+            if macros is not None and not macros.is_empty:
+                return macros
+            base_ingredient_id = variation.base_ingredient_id
+    if base_ingredient_id:
+        base = session.get(BaseIngredient, base_ingredient_id)
+        if base is not None:
+            return _macros_for_reference(
+                quantity,
+                unit,
+                reference_amount=base.nutrition_reference_amount,
+                reference_unit=base.nutrition_reference_unit,
+                calories=base.calories,
+                protein_g=base.protein_g,
+                carbs_g=base.carbs_g,
+                fat_g=base.fat_g,
+                fiber_g=base.fiber_g,
+            )
+    return None
+
+
+def calculate_meal_macros(
+    session: Session,
+    ingredients: list[dict[str, Any]],
+) -> MacroBreakdown:
+    """Sum macro contributions across a meal's ingredients.
+
+    Ingredients that can't be resolved contribute zero; we return partial
+    coverage rather than refuse. The caller decides whether a meal's macros
+    are trustworthy (e.g. by counting how many ingredients resolved).
+    """
+    total = MacroBreakdown()
+    for ingredient in ingredients:
+        quantity_raw = ingredient.get("quantity")
+        try:
+            quantity_value = float(quantity_raw) if quantity_raw is not None else None
+        except (TypeError, ValueError):
+            quantity_value = None
+        unit = str(ingredient.get("unit") or "").strip()
+        base_id = str(ingredient.get("base_ingredient_id") or "") or None
+        variation_id = str(ingredient.get("ingredient_variation_id") or "") or None
+        macros = _lookup_catalog_macros(
+            session,
+            base_ingredient_id=base_id,
+            ingredient_variation_id=variation_id,
+            quantity=quantity_value,
+            unit=unit,
+        )
+        if macros is None:
+            # Calorie-only fallback via NutritionItem catalog (no macros yet).
+            ingredient_name = str(ingredient.get("ingredient_name") or "").strip()
+            normalized_name = str(ingredient.get("normalized_name") or "").strip() or None
+            item = _lookup_nutrition_item(session, ingredient_name, normalized_name)
+            if item is not None:
+                calories = _calories_for_item(quantity_value, unit, item)
+                if calories is not None:
+                    total = total + MacroBreakdown(calories=calories)
+            continue
+        total = total + macros
+    return total
 
 
 def _lookup_nutrition_item(session: Session, ingredient_name: str, normalized_name: str | None) -> NutritionItem | None:

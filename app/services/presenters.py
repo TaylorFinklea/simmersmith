@@ -6,11 +6,26 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import AssistantMessage, AssistantThread, ProfileSetting, Recipe, Staple, Week
+from app.models import AssistantMessage, AssistantThread, DietaryGoal, ProfileSetting, Recipe, Staple, Week
 from app.schemas import RecipePayload
 from app.services.ai import secret_profile_flags, visible_profile_settings
-from app.services.nutrition import calculate_recipe_nutrition
+from app.services.nutrition import MacroBreakdown, calculate_meal_macros, calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
+
+
+def dietary_goal_payload(goal: DietaryGoal | None) -> dict[str, object] | None:
+    if goal is None:
+        return None
+    return {
+        "goal_type": goal.goal_type,
+        "daily_calories": goal.daily_calories,
+        "protein_g": goal.protein_g,
+        "carbs_g": goal.carbs_g,
+        "fat_g": goal.fat_g,
+        "fiber_g": goal.fiber_g,
+        "notes": goal.notes,
+        "updated_at": goal.updated_at,
+    }
 
 
 def profile_payload(session: Session, user_id: str) -> dict[str, object]:
@@ -20,6 +35,7 @@ def profile_payload(session: Session, user_id: str) -> dict[str, object]:
     staple_records = session.scalars(
         select(Staple).where(Staple.user_id == user_id).order_by(Staple.staple_name)
     ).all()
+    dietary_goal = session.scalar(select(DietaryGoal).where(DietaryGoal.user_id == user_id))
     raw_settings = {setting.key: setting.value for setting in settings_records}
     settings = visible_profile_settings(raw_settings)
     staples = [
@@ -32,11 +48,14 @@ def profile_payload(session: Session, user_id: str) -> dict[str, object]:
         for staple in staple_records
     ]
     timestamps = [setting.updated_at for setting in settings_records] + [staple.updated_at for staple in staple_records]
+    if dietary_goal is not None:
+        timestamps.append(dietary_goal.updated_at)
     return {
         "updated_at": max(timestamps) if timestamps else None,
         "settings": settings,
         "secret_flags": secret_profile_flags(raw_settings),
         "staples": staples,
+        "dietary_goal": dietary_goal_payload(dietary_goal),
     }
 
 
@@ -127,12 +146,54 @@ def recipes_payload(
     return [recipe_payload(session, recipe, all_source_counts=counts) for recipe in recipes]
 
 
-def week_payload(week: Week | None) -> dict[str, object] | None:
+def week_payload(week: Week | None, *, session: Session | None = None) -> dict[str, object] | None:
     if week is None:
         return None
 
     meals = sorted(week.meals, key=lambda meal: (meal.meal_date, meal.sort_order, meal.slot))
     grocery_items = sorted(week.grocery_items, key=lambda item: (item.category, item.ingredient_name))
+
+    meal_macros: dict[str, MacroBreakdown] = {}
+    if session is not None:
+        for meal in meals:
+            # Scale by servings * scale_multiplier so the AI's "per-person"
+            # plan lands near the user's daily target rather than the
+            # recipe's full yield.
+            ingredients = [
+                {
+                    "ingredient_name": ingredient.ingredient_name,
+                    "normalized_name": ingredient.normalized_name,
+                    "base_ingredient_id": ingredient.base_ingredient_id,
+                    "ingredient_variation_id": ingredient.ingredient_variation_id,
+                    "quantity": ingredient.quantity,
+                    "unit": ingredient.unit,
+                }
+                for ingredient in meal.inline_ingredients
+            ]
+            raw = calculate_meal_macros(session, ingredients)
+            scale = float(meal.scale_multiplier or 1.0)
+            servings = float(meal.servings or 0.0)
+            # Per-person macros: if the meal has servings, divide; otherwise
+            # the raw total is already "per the household".
+            factor = scale / servings if servings > 0 else scale
+            meal_macros[meal.id] = raw.scaled(factor) if factor != 1.0 else raw
+
+    daily_totals: dict[str, MacroBreakdown] = defaultdict(MacroBreakdown)
+    for meal in meals:
+        macros = meal_macros.get(meal.id)
+        if macros is None or macros.is_empty:
+            continue
+        day_key = meal.meal_date.isoformat()
+        daily_totals[day_key] = daily_totals[day_key] + macros
+
+    nutrition_totals = [
+        {"meal_date": day, **daily_totals[day].as_payload()}
+        for day in sorted(daily_totals.keys())
+    ]
+    weekly_total = MacroBreakdown()
+    for macros in daily_totals.values():
+        weekly_total = weekly_total + macros
+
     return {
         "week_id": week.id,
         "week_start": week.week_start,
@@ -161,6 +222,7 @@ def week_payload(week: Week | None) -> dict[str, object] | None:
                 "notes": meal.notes,
                 "ai_generated": meal.ai_generated,
                 "updated_at": meal.updated_at,
+                "macros": meal_macros[meal.id].as_payload() if meal.id in meal_macros and not meal_macros[meal.id].is_empty else None,
                 "ingredients": [
                     {
                         "ingredient_id": ingredient.id,
@@ -229,6 +291,8 @@ def week_payload(week: Week | None) -> dict[str, object] | None:
             }
             for item in grocery_items
         ],
+        "nutrition_totals": nutrition_totals,
+        "weekly_totals": weekly_total.as_payload() if not weekly_total.is_empty else None,
     }
 
 
@@ -266,7 +330,7 @@ def pricing_payload(week: Week | None) -> dict[str, object] | None:
         "week_id": week.id,
         "week_start": week.week_start,
         "totals": {key: round(value, 2) for key, value in sorted(retailer_totals.items())},
-        "items": (week_payload(week) or {}).get("grocery_items", []),
+        "items": (week_payload(week, session=None) or {}).get("grocery_items", []),
     }
 
 

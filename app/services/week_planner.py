@@ -30,6 +30,19 @@ SLOTS = ["breakfast", "lunch", "dinner"]
 
 
 @dataclass
+class DietaryGoalContext:
+    """Snapshot of a user's daily calorie + macro target."""
+
+    goal_type: str = "maintain"
+    daily_calories: int = 0
+    protein_g: int = 0
+    carbs_g: int = 0
+    fat_g: int = 0
+    fiber_g: int | None = None
+    notes: str = ""
+
+
+@dataclass
 class PlanningContext:
     """Structured context gathered from the DB for prompt enrichment."""
 
@@ -41,14 +54,16 @@ class PlanningContext:
     staples: list[str] = field(default_factory=list)
     recent_meals: list[str] = field(default_factory=list)
     rules: list[str] = field(default_factory=list)
+    dietary_goal: DietaryGoalContext | None = None
 
 
 def gather_planning_context(
     session: Session, user_id: str, exclude_week_id: str | None = None,
 ) -> PlanningContext:
-    """Fetch preference signals, staples, and recent meal history from the DB."""
+    """Fetch preference signals, staples, recent meal history, and dietary goal."""
     from app.services.grocery import staple_names
     from app.services.preferences import list_preference_signals, preference_summary_payload
+    from app.services.profile import get_dietary_goal
     from app.services.weeks import list_weeks
 
     summary = preference_summary_payload(session, user_id)
@@ -76,6 +91,19 @@ def gather_planning_context(
                 seen.add(name)
                 recent_meal_names.append(name)
 
+    goal_row = get_dietary_goal(session, user_id)
+    dietary_goal = None
+    if goal_row is not None:
+        dietary_goal = DietaryGoalContext(
+            goal_type=goal_row.goal_type,
+            daily_calories=goal_row.daily_calories,
+            protein_g=goal_row.protein_g,
+            carbs_g=goal_row.carbs_g,
+            fat_g=goal_row.fat_g,
+            fiber_g=goal_row.fiber_g,
+            notes=goal_row.notes or "",
+        )
+
     return PlanningContext(
         hard_avoids=summary["hard_avoids"],
         strong_likes=summary["strong_likes"],
@@ -85,6 +113,7 @@ def gather_planning_context(
         staples=pantry,
         recent_meals=recent_meal_names[:60],
         rules=summary["rules"],
+        dietary_goal=dietary_goal,
     )
 
 
@@ -142,6 +171,19 @@ def _build_system_prompt(
                 + ", ".join(context.recent_meals)
             )
 
+        # Dietary goal
+        if context.dietary_goal and context.dietary_goal.daily_calories > 0:
+            g = context.dietary_goal
+            goal_lines = [
+                f"- Daily target: {g.daily_calories} calories,"
+                f" {g.protein_g}g protein, {g.carbs_g}g carbs, {g.fat_g}g fat"
+                + (f", {g.fiber_g}g fiber" if g.fiber_g else ""),
+                f"- Goal type: {g.goal_type}",
+            ]
+            if g.notes.strip():
+                goal_lines.append(f"- Notes: {g.notes.strip()}")
+            sections.append("Dietary goal (per-person, per-day):\n" + "\n".join(goal_lines))
+
         if sections:
             context_sections = "\n\n" + "\n\n".join(sections)
 
@@ -171,6 +213,13 @@ def _build_system_prompt(
         if context.staples:
             extra_lines.append(
                 "- Leverage pantry staples when possible to reduce grocery costs"
+            )
+        if context.dietary_goal and context.dietary_goal.daily_calories > 0:
+            extra_lines.append(
+                "- Design each day so the three meals together land within ±10% of the daily calorie target"
+            )
+            extra_lines.append(
+                "- Prioritize recipes that help hit the protein target (especially at dinner)"
             )
         if extra_lines:
             extra_rules = "\n" + "\n".join(extra_lines)
@@ -366,11 +415,59 @@ def score_generated_plan(
         if result["blocked"]:
             blocked.append(recipe.get("name", ""))
 
+    macro_flags = score_macro_drift(session, plan, user_id)
+
     return {
         "meal_scores": meal_scores,
         "plan_total_score": total,
         "blocked_meals": blocked,
+        "macro_flags": macro_flags,
     }
+
+
+def score_macro_drift(
+    session: Session, plan: dict, user_id: str,
+) -> list[dict]:
+    """Score the generated plan against the user's daily calorie target.
+
+    Returns a list of `{day_name, meal_date, calories, target, drift_pct}`
+    entries for each day that drifts more than ±15% from the target. When
+    there is no goal, no catalog macros, or no ingredients to match, returns
+    an empty list — absence of flags does NOT mean the plan is on-target.
+    """
+    from app.services.nutrition import calculate_meal_macros
+    from app.services.profile import get_dietary_goal
+
+    goal = get_dietary_goal(session, user_id)
+    if goal is None or goal.daily_calories <= 0:
+        return []
+
+    daily_calories: dict[str, float] = {}
+    daily_day_name: dict[str, str] = {}
+    for meal in plan.get("meal_plan", []):
+        day_key = str(meal.get("meal_date") or "")
+        if not day_key:
+            continue
+        ingredients = meal.get("ingredients") or []
+        macros = calculate_meal_macros(session, ingredients)
+        if macros.is_empty:
+            continue
+        daily_calories[day_key] = daily_calories.get(day_key, 0.0) + macros.calories
+        daily_day_name.setdefault(day_key, str(meal.get("day_name") or ""))
+
+    target = float(goal.daily_calories)
+    flags: list[dict] = []
+    for day_key, calories in sorted(daily_calories.items()):
+        drift = (calories - target) / target if target > 0 else 0.0
+        if abs(drift) >= 0.15:
+            flags.append({
+                "day_name": daily_day_name.get(day_key, ""),
+                "meal_date": day_key,
+                "calories": round(calories, 1),
+                "target": int(target),
+                "drift_pct": round(drift * 100, 1),
+            })
+    return flags
 
 
 def generate_week_plan(

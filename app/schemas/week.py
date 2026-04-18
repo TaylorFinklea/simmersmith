@@ -204,6 +204,18 @@ class GroceryItemOut(BaseModel):
     retailer_prices: list[RetailerPriceOut] = Field(default_factory=list)
 
 
+class MacroBreakdownOut(BaseModel):
+    calories: float = 0.0
+    protein_g: float = 0.0
+    carbs_g: float = 0.0
+    fat_g: float = 0.0
+    fiber_g: float = 0.0
+
+
+class DailyNutritionOut(MacroBreakdownOut):
+    meal_date: DateLike
+
+
 class WeekMealOut(BaseModel):
     meal_id: str
     day_name: str
@@ -219,6 +231,7 @@ class WeekMealOut(BaseModel):
     ai_generated: bool
     updated_at: datetime
     ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
+    macros: MacroBreakdownOut | None = None
 
 
 class WeekOut(BaseModel):
@@ -236,6 +249,8 @@ class WeekOut(BaseModel):
     export_count: int = 0
     meals: list[WeekMealOut] = Field(default_factory=list)
     grocery_items: list[GroceryItemOut] = Field(default_factory=list)
+    nutrition_totals: list[DailyNutritionOut] = Field(default_factory=list)
+    weekly_totals: MacroBreakdownOut | None = None
 
 
 class WeekSummaryOut(BaseModel):

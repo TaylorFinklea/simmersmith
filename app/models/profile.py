@@ -34,6 +34,29 @@ class Staple(Base):
     )
 
 
+class DietaryGoal(Base):
+    """Per-user daily calorie + macro target used by the AI planner.
+
+    One row per user (user_id is the primary key). Absence of a row means the
+    user has not configured a goal and the planner falls back to
+    preference-only behaviour.
+    """
+    __tablename__ = "dietary_goals"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    goal_type: Mapped[str] = mapped_column(String(24), default="maintain", nullable=False)
+    daily_calories: Mapped[int] = mapped_column(Integer, nullable=False)
+    protein_g: Mapped[int] = mapped_column(Integer, nullable=False)
+    carbs_g: Mapped[int] = mapped_column(Integer, nullable=False)
+    fat_g: Mapped[int] = mapped_column(Integer, nullable=False)
+    fiber_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class PreferenceSignal(Base):
     __tablename__ = "preference_signals"
     __table_args__ = (

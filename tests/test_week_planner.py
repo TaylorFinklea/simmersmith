@@ -341,3 +341,142 @@ def test_score_generated_plan_returns_scores(client) -> None:
     # Eggplant Parmesan should be blocked due to eggplant avoidance
     assert "Eggplant Parmesan" in scores["blocked_meals"]
     assert "Grilled Chicken" not in scores["blocked_meals"]
+
+
+# ---------------------------------------------------------------------------
+# Dietary goal integration (M4)
+# ---------------------------------------------------------------------------
+
+def test_prompt_includes_dietary_goal_section() -> None:
+    from app.services.week_planner import DietaryGoalContext
+
+    ctx = PlanningContext(
+        dietary_goal=DietaryGoalContext(
+            goal_type="lose",
+            daily_calories=1800,
+            protein_g=180,
+            carbs_g=135,
+            fat_g=60,
+            fiber_g=30,
+            notes="Low sodium",
+        )
+    )
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    assert "Dietary goal" in prompt
+    assert "1800 calories" in prompt
+    assert "180g protein" in prompt
+    assert "30g fiber" in prompt
+    assert "Low sodium" in prompt
+    assert "±10%" in prompt
+
+
+def test_prompt_without_dietary_goal_omits_section() -> None:
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=PlanningContext(hard_avoids=["peanuts"]),
+    )
+    assert "Dietary goal" not in prompt
+    assert "±10%" not in prompt
+
+
+def test_dietary_goal_endpoint_roundtrip(client) -> None:
+    # No goal on a fresh profile.
+    response = client.get("/api/profile/dietary-goal")
+    assert response.status_code == 200
+    assert response.json() is None
+
+    payload = {
+        "goal_type": "maintain",
+        "daily_calories": 2100,
+        "protein_g": 150,
+        "carbs_g": 240,
+        "fat_g": 70,
+        "fiber_g": 30,
+        "notes": "Keep it balanced",
+    }
+    response = client.put("/api/profile/dietary-goal", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["daily_calories"] == 2100
+    assert body["protein_g"] == 150
+    assert body["notes"] == "Keep it balanced"
+
+    # Profile now surfaces the goal too.
+    profile = client.get("/api/profile").json()
+    assert profile["dietary_goal"]["daily_calories"] == 2100
+
+    # Delete clears it.
+    response = client.delete("/api/profile/dietary-goal")
+    assert response.status_code == 204
+    assert client.get("/api/profile/dietary-goal").json() is None
+
+
+def test_gather_planning_context_includes_goal(client) -> None:
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    client.put("/api/profile/dietary-goal", json={
+        "goal_type": "gain",
+        "daily_calories": 2800,
+        "protein_g": 200,
+        "carbs_g": 320,
+        "fat_g": 90,
+        "fiber_g": 35,
+        "notes": "",
+    })
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    assert ctx.dietary_goal is not None
+    assert ctx.dietary_goal.daily_calories == 2800
+    assert ctx.dietary_goal.goal_type == "gain"
+
+
+def test_dietary_goal_rejects_out_of_range_calories(client) -> None:
+    response = client.put("/api/profile/dietary-goal", json={
+        "goal_type": "lose",
+        "daily_calories": 100,  # well under the 800 minimum
+        "protein_g": 100,
+        "carbs_g": 100,
+        "fat_g": 50,
+    })
+    assert response.status_code == 422
+
+
+def test_preset_macros_splits_calories() -> None:
+    from app.services.profile import preset_macros
+
+    protein, carbs, fat = preset_macros("maintain", 2000)
+    # Calories from macros should be within 5 of the target (rounding).
+    assert abs((protein * 4 + carbs * 4 + fat * 9) - 2000) <= 5
+    lose_p, _, _ = preset_macros("lose", 1800)
+    # "Lose" preset biases toward protein.
+    assert lose_p > protein * (1800 / 2000)
+
+
+def test_macro_flags_empty_without_goal(client) -> None:
+    """With no goal set, macro_flags is empty regardless of plan content."""
+    from app.db import session_scope
+    from app.services.week_planner import score_generated_plan
+
+    plan = {
+        "recipes": [],
+        "meal_plan": [
+            {
+                "day_name": "Monday",
+                "meal_date": "2026-04-13",
+                "slot": "breakfast",
+                "ingredients": [{"ingredient_name": "oats", "quantity": 100, "unit": "g"}],
+            }
+        ],
+    }
+    with session_scope() as session:
+        scores = score_generated_plan(session, TEST_USER_ID, plan)
+
+    assert scores["macro_flags"] == []
