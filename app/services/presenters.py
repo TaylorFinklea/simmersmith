@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import AssistantMessage, AssistantThread, DietaryGoal, ProfileSetting, Recipe, Staple, Week
 from app.schemas import RecipePayload
 from app.services.ai import secret_profile_flags, visible_profile_settings
+from app.services.entitlements import all_usage_summaries, is_pro
 from app.services.nutrition import MacroBreakdown, calculate_meal_macros, calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
 
@@ -50,12 +51,15 @@ def profile_payload(session: Session, user_id: str) -> dict[str, object]:
     timestamps = [setting.updated_at for setting in settings_records] + [staple.updated_at for staple in staple_records]
     if dietary_goal is not None:
         timestamps.append(dietary_goal.updated_at)
+    usage = [summary.as_payload() for summary in all_usage_summaries(session, user_id)]
     return {
         "updated_at": max(timestamps) if timestamps else None,
         "settings": settings,
         "secret_flags": secret_profile_flags(raw_settings),
         "staples": staples,
         "dietary_goal": dietary_goal_payload(dietary_goal),
+        "is_pro": is_pro(session, user_id),
+        "usage": usage,
     }
 
 

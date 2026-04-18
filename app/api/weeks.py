@@ -25,6 +25,13 @@ from app.schemas import (
     WeekSummaryOut,
 )
 from app.services.ai import profile_settings_map
+from app.services.entitlements import (
+    ACTION_AI_GENERATE,
+    ACTION_PRICING_FETCH,
+    ACTION_REBALANCE_DAY,
+    ensure_action_allowed,
+    increment_usage,
+)
 from app.services.drafts import apply_ai_draft, set_week_approved, set_week_ready_for_ai, update_week_meals
 from app.services.exports import create_export_run, export_runs_payload
 from app.services.feedback import feedback_response_payload, upsert_feedback_entries
@@ -130,6 +137,8 @@ def generate_week_plan(
         score_generated_plan,
     )
 
+    ensure_action_allowed(session, current_user.id, ACTION_AI_GENERATE)
+
     week = load_week_or_404(session, current_user.id, week_id)
     settings = get_settings()
     user_settings = profile_settings_map(session, current_user.id)
@@ -170,6 +179,8 @@ def generate_week_plan(
 
     draft = DraftFromAIRequest.model_validate(draft_data)
     apply_ai_draft(session, week, draft)
+    session.commit()
+    increment_usage(session, current_user.id, ACTION_AI_GENERATE)
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.id, week.id), session=session) or {}
@@ -238,6 +249,8 @@ def rebalance_day_endpoint(
         rebalance_day as run_rebalance,
     )
 
+    ensure_action_allowed(session, current_user.id, ACTION_REBALANCE_DAY)
+
     week = load_week_or_404(session, current_user.id, week_id)
     settings = get_settings()
     user_settings = profile_settings_map(session, current_user.id)
@@ -283,6 +296,8 @@ def rebalance_day_endpoint(
 
     draft = DraftFromAIRequest.model_validate(draft_data)
     apply_ai_draft(session, week, draft)
+    session.commit()
+    increment_usage(session, current_user.id, ACTION_REBALANCE_DAY)
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.id, week_id), session=session) or {}
@@ -339,6 +354,8 @@ def fetch_week_pricing(
     """Fetch live grocery prices from Kroger API for a week's grocery list."""
     from app.services.pricing import fetch_kroger_pricing
 
+    ensure_action_allowed(session, current_user.id, ACTION_PRICING_FETCH)
+
     week = load_week_or_404(session, current_user.id, week_id)
     settings = get_settings()
 
@@ -359,6 +376,8 @@ def fetch_week_pricing(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    session.commit()
+    increment_usage(session, current_user.id, ACTION_PRICING_FETCH)
     session.commit()
     session.expire_all()
     return result

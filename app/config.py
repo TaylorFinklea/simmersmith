@@ -56,6 +56,22 @@ class Settings(BaseSettings):
     kroger_client_id: str = ""
     kroger_client_secret: str = ""
 
+    # App Store Connect — in-app purchase verification
+    #
+    # `apple_iap_bundle_id` is usually the same as `apple_bundle_id` but kept
+    # separate so teams can run a separate IAP sandbox app if needed.
+    # `apple_iap_environment` is `"Sandbox"` for TestFlight / dev builds and
+    # `"Production"` for public App Store builds — used when calling the
+    # App Store Server API.
+    apple_iap_bundle_id: str = ""
+    apple_iap_environment: str = "Sandbox"
+    # App Store Connect API key (to call the Server API and verify JWS
+    # notifications). Leave all three empty to disable verification; the
+    # /api/subscriptions endpoints will 503 until they are configured.
+    apple_iap_key_id: str = ""
+    apple_iap_issuer_id: str = ""
+    apple_iap_private_key_pem: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

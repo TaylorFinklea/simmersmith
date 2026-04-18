@@ -31,12 +31,21 @@ class DietaryGoalOut(DietaryGoalPayload):
     updated_at: datetime
 
 
+class UsageSummaryOut(BaseModel):
+    action: str
+    limit: int
+    used: int
+    remaining: int
+
+
 class ProfileResponse(BaseModel):
     updated_at: datetime | None = None
     settings: dict[str, str]
     secret_flags: dict[str, bool] = Field(default_factory=dict)
     staples: list[StaplePayload]
     dietary_goal: DietaryGoalOut | None = None
+    is_pro: bool = False
+    usage: list[UsageSummaryOut] = Field(default_factory=list)
 
 
 class ProfileUpdateRequest(BaseModel):

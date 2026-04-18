@@ -1,5 +1,6 @@
 from app.models._base import new_id, utcnow
 from app.models.ai import AIRun, AssistantMessage, AssistantThread
+from app.models.billing import Subscription, UsageCounter
 from app.models.catalog import (
     BaseIngredient,
     IngredientNutritionMatch,
@@ -50,6 +51,8 @@ __all__ = [
     "RecipeTemplate",
     "RetailerPrice",
     "Staple",
+    "Subscription",
+    "UsageCounter",
     "User",
     "Week",
     "WeekChangeBatch",

@@ -45,6 +45,7 @@ from app.schemas.profile import (
     ProfileResponse,
     ProfileUpdateRequest,
     StaplePayload,
+    UsageSummaryOut,
 )
 from app.schemas.recipe import (
     IngredientNutritionMatchOut,
@@ -169,6 +170,7 @@ __all__ = [
     "RecipeVariationDraftRequest",
     "RetailerPriceOut",
     "StaplePayload",
+    "UsageSummaryOut",
     "WeekChangeBatchOut",
     "WeekChangeEventOut",
     "WeekCreateRequest",
