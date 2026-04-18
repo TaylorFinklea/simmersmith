@@ -200,6 +200,30 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func fetchDietaryGoal() async throws -> DietaryGoal? {
+        struct Wrapper: Decodable {
+            let value: DietaryGoal?
+            init(from decoder: Decoder) throws {
+                let container = try decoder.singleValueContainer()
+                if container.decodeNil() {
+                    value = nil
+                } else {
+                    value = try container.decode(DietaryGoal.self)
+                }
+            }
+        }
+        let wrapped: Wrapper = try await request(path: "/api/profile/dietary-goal")
+        return wrapped.value
+    }
+
+    public func saveDietaryGoal(_ goal: DietaryGoal) async throws -> DietaryGoal {
+        try await request(path: "/api/profile/dietary-goal", method: "PUT", body: goal)
+    }
+
+    public func clearDietaryGoal() async throws {
+        let _: EmptyResponse = try await request(path: "/api/profile/dietary-goal", method: "DELETE")
+    }
+
     public func fetchCurrentWeek() async throws -> WeekSnapshot? {
         try await request(path: "/api/weeks/current")
     }
@@ -234,6 +258,20 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func regenerateGrocery(weekID: String) async throws -> WeekSnapshot {
         try await request(path: "/api/weeks/\(weekID)/grocery/regenerate", method: "POST", body: EmptyBody())
+    }
+
+    public func rebalanceDay(weekID: String, mealDate: Date) async throws -> WeekSnapshot {
+        struct Body: Encodable { let mealDate: String }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return try await request(
+            path: "/api/weeks/\(weekID)/days/rebalance",
+            method: "POST",
+            body: Body(mealDate: formatter.string(from: mealDate))
+        )
     }
 
     public func fetchRecipes(includeArchived: Bool = false) async throws -> [RecipeSummary] {

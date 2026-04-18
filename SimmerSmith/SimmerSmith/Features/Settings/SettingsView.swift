@@ -171,6 +171,27 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Nutrition") {
+                NavigationLink {
+                    DietaryGoalView()
+                } label: {
+                    HStack {
+                        Label("Dietary Goal", systemImage: "target")
+                        Spacer()
+                        if let goal = appState.profile?.dietaryGoal {
+                            Text("\(goal.dailyCalories) cal · \(goal.goalType.rawValue.capitalized)")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
+                                .lineLimit(1)
+                        } else {
+                            Text("Not set")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                    }
+                }
+            }
+
             Section("Ingredient Preferences") {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")

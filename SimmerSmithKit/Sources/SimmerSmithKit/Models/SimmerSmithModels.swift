@@ -38,12 +38,14 @@ public struct ProfileSnapshot: Codable, Sendable {
     public let settings: [String: String]
     public let secretFlags: [String: Bool]
     public let staples: [Staple]
+    public let dietaryGoal: DietaryGoal?
 
     enum CodingKeys: String, CodingKey {
         case updatedAt
         case settings
         case secretFlags
         case staples
+        case dietaryGoal
     }
 
     public init(from decoder: Decoder) throws {
@@ -52,6 +54,74 @@ public struct ProfileSnapshot: Codable, Sendable {
         settings = try container.decodeIfPresent([String: String].self, forKey: .settings) ?? [:]
         secretFlags = try container.decodeIfPresent([String: Bool].self, forKey: .secretFlags) ?? [:]
         staples = try container.decodeIfPresent([Staple].self, forKey: .staples) ?? []
+        dietaryGoal = try container.decodeIfPresent(DietaryGoal.self, forKey: .dietaryGoal)
+    }
+}
+
+public enum DietaryGoalType: String, Codable, Sendable, CaseIterable {
+    case lose
+    case maintain
+    case gain
+    case custom
+}
+
+public struct DietaryGoal: Codable, Sendable, Hashable {
+    public var goalType: DietaryGoalType
+    public var dailyCalories: Int
+    public var proteinG: Int
+    public var carbsG: Int
+    public var fatG: Int
+    public var fiberG: Int?
+    public var notes: String
+    public var updatedAt: Date?
+
+    public init(
+        goalType: DietaryGoalType = .maintain,
+        dailyCalories: Int,
+        proteinG: Int,
+        carbsG: Int,
+        fatG: Int,
+        fiberG: Int? = nil,
+        notes: String = "",
+        updatedAt: Date? = nil
+    ) {
+        self.goalType = goalType
+        self.dailyCalories = dailyCalories
+        self.proteinG = proteinG
+        self.carbsG = carbsG
+        self.fatG = fatG
+        self.fiberG = fiberG
+        self.notes = notes
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct MacroBreakdown: Codable, Sendable, Hashable {
+    public let calories: Double
+    public let proteinG: Double
+    public let carbsG: Double
+    public let fatG: Double
+    public let fiberG: Double
+
+    public init(calories: Double = 0, proteinG: Double = 0, carbsG: Double = 0, fatG: Double = 0, fiberG: Double = 0) {
+        self.calories = calories
+        self.proteinG = proteinG
+        self.carbsG = carbsG
+        self.fatG = fatG
+        self.fiberG = fiberG
+    }
+}
+
+public struct DailyNutrition: Codable, Sendable, Hashable {
+    public let mealDate: Date
+    public let calories: Double
+    public let proteinG: Double
+    public let carbsG: Double
+    public let fatG: Double
+    public let fiberG: Double
+
+    public var macros: MacroBreakdown {
+        MacroBreakdown(calories: calories, proteinG: proteinG, carbsG: carbsG, fatG: fatG, fiberG: fiberG)
     }
 }
 
@@ -953,6 +1023,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
     public let aiGenerated: Bool
     public let updatedAt: Date
     public let ingredients: [RecipeIngredient]
+    public let macros: MacroBreakdown?
 
     public var id: String { mealId }
 
@@ -971,6 +1042,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
         case aiGenerated
         case updatedAt
         case ingredients
+        case macros
     }
 
     public init(from decoder: Decoder) throws {
@@ -989,6 +1061,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
         aiGenerated = try container.decodeIfPresent(Bool.self, forKey: .aiGenerated) ?? false
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
+        macros = try container.decodeIfPresent(MacroBreakdown.self, forKey: .macros)
     }
 }
 
@@ -1007,8 +1080,49 @@ public struct WeekSnapshot: Codable, Identifiable, Sendable {
     public let exportCount: Int
     public let meals: [WeekMeal]
     public let groceryItems: [GroceryItem]
+    public let nutritionTotals: [DailyNutrition]
+    public let weeklyTotals: MacroBreakdown?
 
     public var id: String { weekId }
+
+    enum CodingKeys: String, CodingKey {
+        case weekId
+        case weekStart
+        case weekEnd
+        case status
+        case notes
+        case readyForAiAt
+        case approvedAt
+        case pricedAt
+        case updatedAt
+        case stagedChangeCount
+        case feedbackCount
+        case exportCount
+        case meals
+        case groceryItems
+        case nutritionTotals
+        case weeklyTotals
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        weekId = try container.decode(String.self, forKey: .weekId)
+        weekStart = try container.decode(Date.self, forKey: .weekStart)
+        weekEnd = try container.decode(Date.self, forKey: .weekEnd)
+        status = try container.decode(String.self, forKey: .status)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        readyForAiAt = try container.decodeIfPresent(Date.self, forKey: .readyForAiAt)
+        approvedAt = try container.decodeIfPresent(Date.self, forKey: .approvedAt)
+        pricedAt = try container.decodeIfPresent(Date.self, forKey: .pricedAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        stagedChangeCount = try container.decodeIfPresent(Int.self, forKey: .stagedChangeCount) ?? 0
+        feedbackCount = try container.decodeIfPresent(Int.self, forKey: .feedbackCount) ?? 0
+        exportCount = try container.decodeIfPresent(Int.self, forKey: .exportCount) ?? 0
+        meals = try container.decodeIfPresent([WeekMeal].self, forKey: .meals) ?? []
+        groceryItems = try container.decodeIfPresent([GroceryItem].self, forKey: .groceryItems) ?? []
+        nutritionTotals = try container.decodeIfPresent([DailyNutrition].self, forKey: .nutritionTotals) ?? []
+        weeklyTotals = try container.decodeIfPresent(MacroBreakdown.self, forKey: .weeklyTotals)
+    }
 }
 
 public struct WeekSummary: Codable, Identifiable, Hashable, Sendable {

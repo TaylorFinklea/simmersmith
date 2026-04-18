@@ -212,6 +212,82 @@ def approve_week(week_id: str, session: Session = Depends(get_session), current_
     return week_payload(get_week(session, current_user.id, week.id), session=session) or {}
 
 
+class RebalanceDayRequest(BaseModel):
+    meal_date: str  # YYYY-MM-DD
+
+
+@router.post("/{week_id}/days/rebalance", response_model=WeekOut)
+def rebalance_day_endpoint(
+    week_id: str,
+    payload: RebalanceDayRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Regenerate a single day's meals to hit the dietary goal.
+
+    Keeps the rest of the week untouched. Requires the user to have a
+    dietary goal set (422 otherwise — rebalancing without a target makes no
+    sense).
+    """
+    from datetime import date as _date
+
+    from app.models import WeekMeal, WeekMealIngredient
+    from app.services.profile import get_dietary_goal
+    from app.services.week_planner import (
+        gather_planning_context,
+        rebalance_day as run_rebalance,
+    )
+
+    week = load_week_or_404(session, current_user.id, week_id)
+    settings = get_settings()
+    user_settings = profile_settings_map(session, current_user.id)
+
+    goal = get_dietary_goal(session, current_user.id)
+    if goal is None or goal.daily_calories <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Set a dietary goal before rebalancing a day.",
+        )
+
+    try:
+        target_date = _date.fromisoformat(payload.meal_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid meal_date: {payload.meal_date}") from exc
+
+    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id)
+
+    # Delete the existing meals + inline ingredients for that day.
+    existing = [m for m in week.meals if m.meal_date == target_date]
+    day_name = existing[0].day_name if existing else ""
+    if not day_name:
+        # Fall back to weekday name so the prompt + new meals stay consistent.
+        day_name = target_date.strftime("%A")
+    for meal in existing:
+        session.execute(
+            WeekMealIngredient.__table__.delete().where(WeekMealIngredient.meal_id == meal.id)
+        )
+        session.execute(WeekMeal.__table__.delete().where(WeekMeal.id == meal.id))
+    session.flush()
+
+    try:
+        draft_data = run_rebalance(
+            settings=settings,
+            user_settings=user_settings,
+            week_start=week.week_start,
+            target_date=target_date,
+            day_name=day_name,
+            planning_context=context,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    draft = DraftFromAIRequest.model_validate(draft_data)
+    apply_ai_draft(session, week, draft)
+    session.commit()
+    session.expire_all()
+    return week_payload(get_week(session, current_user.id, week_id), session=session) or {}
+
+
 @router.post("/{week_id}/grocery/regenerate", response_model=WeekOut)
 def regenerate_grocery(week_id: str, session: Session = Depends(get_session), current_user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     week = load_week_or_404(session, current_user.id, week_id)

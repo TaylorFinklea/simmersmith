@@ -532,3 +532,74 @@ def generate_week_plan(
         "meal_plan": meal_plan,
         "week_notes": week_notes,
     }
+
+
+def rebalance_day(
+    *,
+    settings: Settings,
+    user_settings: dict[str, str],
+    week_start: date,
+    target_date: date,
+    day_name: str,
+    planning_context: PlanningContext | None = None,
+    existing_deficit_note: str = "",
+) -> dict:
+    """Generate fresh meals for a single day that hit the user's dietary goal.
+
+    Returns a draft shaped like `generate_week_plan`: a `recipes` list and a
+    `meal_plan` list containing only the rebuilt day's meals. Callers are
+    responsible for deleting the day's existing meals before applying the
+    draft.
+    """
+    base_prompt = _build_system_prompt(user_settings, week_start, context=planning_context)
+
+    user_prompt = (
+        f"Replan only {day_name} ({target_date.isoformat()}) with three meals "
+        "(breakfast, lunch, dinner) that land within ±5% of the daily calorie "
+        "target and respect every rule already stated in the system prompt. "
+        f"Return a JSON object with `recipes` for the new meals and a "
+        f"`meal_plan` array containing exactly 3 entries, all for "
+        f"meal_date \"{target_date.isoformat()}\" and day_name \"{day_name}\"."
+    )
+    if existing_deficit_note:
+        user_prompt += f" {existing_deficit_note}"
+
+    raw = _call_ai_provider(
+        settings=settings,
+        user_settings=user_settings,
+        system_prompt=base_prompt,
+        user_prompt=user_prompt,
+    )
+    try:
+        plan = _extract_json(raw)
+    except json.JSONDecodeError as exc:
+        logger.error("AI returned invalid JSON for day rebalance: %s", raw[:500])
+        raise RuntimeError("AI returned an invalid meal plan. Please try again.") from exc
+
+    recipes = plan.get("recipes", [])
+    meal_plan = plan.get("meal_plan", [])
+
+    for recipe in recipes:
+        recipe.setdefault("ingredients", [])
+        recipe.setdefault("steps", [])
+        recipe.setdefault("meal_type", "")
+        recipe.setdefault("cuisine", "")
+        recipe.setdefault("servings", None)
+        recipe.setdefault("prep_minutes", None)
+        recipe.setdefault("cook_minutes", None)
+
+    for meal in meal_plan:
+        meal.setdefault("source", "ai")
+        meal.setdefault("approved", False)
+        meal.setdefault("notes", "")
+        meal.setdefault("ingredients", [])
+        meal.setdefault("meal_date", target_date.isoformat())
+        meal.setdefault("day_name", day_name)
+
+    return {
+        "prompt": user_prompt,
+        "model": "week-planner-rebalance",
+        "recipes": recipes,
+        "meal_plan": meal_plan,
+        "week_notes": "",
+    }

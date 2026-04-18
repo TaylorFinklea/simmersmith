@@ -44,6 +44,12 @@ struct WeekView: View {
     // Meal feedback
     @State private var feedbackMeal: WeekMeal?
 
+    // Day nutrition sheet
+    @State private var nutritionDay: (dayName: String, date: Date, meals: [WeekMeal], totals: MacroBreakdown)?
+
+    // Rebalance-this-day
+    @State private var rebalancingDayKey: String?
+
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
             return browsedWeek ?? appState.currentWeek
@@ -283,6 +289,19 @@ struct WeekView: View {
                 try await appState.submitMealFeedback(for: meal, sentiment: sentiment, notes: notes)
             }
         }
+        .sheet(isPresented: Binding(
+            get: { nutritionDay != nil },
+            set: { if !$0 { nutritionDay = nil } }
+        )) {
+            if let day = nutritionDay {
+                DayNutritionSheet(
+                    dayName: day.dayName,
+                    date: day.date,
+                    meals: day.meals,
+                    totals: day.totals
+                )
+            }
+        }
         .task {
             await loadAvailableWeeks()
         }
@@ -399,16 +418,28 @@ struct WeekView: View {
         if let todayDate = weekDates.first(where: { DayKey.isToday($0) }) {
             let meals = mealsForDate(todayDate, in: week)
             let dayName = meals.first?.dayName ?? DayKey.weekdayName(todayDate)
+            let totals = dayMacros(for: todayDate, meals: meals, week: week)
 
             VStack(alignment: .leading, spacing: SMSpacing.md) {
-                VStack(alignment: .leading, spacing: SMSpacing.xs) {
-                    Text("Today")
-                        .font(SMFont.display)
-                        .foregroundStyle(SMColor.textPrimary)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                        Text("Today")
+                            .font(SMFont.display)
+                            .foregroundStyle(SMColor.textPrimary)
 
-                    Text(DayKey.shortMonthDay(todayDate) + " · " + dayName)
-                        .font(SMFont.subheadline)
-                        .foregroundStyle(SMColor.textSecondary)
+                        Text(DayKey.shortMonthDay(todayDate) + " · " + dayName)
+                            .font(SMFont.subheadline)
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                    Spacer()
+                    if appState.profile?.dietaryGoal != nil || !totals.isEmpty {
+                        Button {
+                            nutritionDay = (dayName: dayName, date: todayDate, meals: meals, totals: totals)
+                        } label: {
+                            MacroRing(macros: totals, goal: appState.profile?.dietaryGoal, compact: false)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
                 renderSlots(for: todayDate, dayName: dayName, meals: meals, style: .hero)
@@ -441,10 +472,30 @@ struct WeekView: View {
     private func daysSection(_ week: WeekSnapshot) -> some View {
         let days = weekDays(of: week)
         VStack(alignment: .leading, spacing: SMSpacing.xs) {
-            Text("This Week")
-                .font(SMFont.headline)
-                .foregroundStyle(SMColor.textPrimary)
-                .padding(.top, SMSpacing.md)
+            HStack(alignment: .firstTextBaseline) {
+                Text("This Week")
+                    .font(SMFont.headline)
+                    .foregroundStyle(SMColor.textPrimary)
+
+                Spacer()
+
+                if let weekly = week.weeklyTotals, let goal = appState.profile?.dietaryGoal {
+                    let weeklyTarget = goal.dailyCalories * 7
+                    let pctOff = weeklyTarget > 0 ? Int(((weekly.calories - Double(weeklyTarget)) / Double(weeklyTarget)) * 100) : 0
+                    let inRange = abs(pctOff) <= 10
+                    HStack(spacing: SMSpacing.xs) {
+                        Image(systemName: inRange ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .font(.caption)
+                        Text("Week: \(Int(weekly.calories)) / \(weeklyTarget) cal")
+                            .font(SMFont.caption.monospacedDigit())
+                    }
+                    .foregroundStyle(inRange ? SMColor.success : .orange)
+                    .padding(.horizontal, SMSpacing.sm)
+                    .padding(.vertical, SMSpacing.xs)
+                    .background((inRange ? SMColor.success : Color.orange).opacity(0.12), in: Capsule())
+                }
+            }
+            .padding(.top, SMSpacing.md)
 
             ForEach(days, id: \.date) { day in
                 daySection(week: week, date: day.date, dayName: day.dayName)
@@ -456,6 +507,8 @@ struct WeekView: View {
     private func daySection(week: WeekSnapshot, date: Date, dayName: String) -> some View {
         let meals = mealsForDate(date, in: week)
         let isToday = DayKey.isToday(date)
+        let totals = dayMacros(for: date, meals: meals, week: week)
+        let showMacros = !totals.isEmpty && (appState.profile?.dietaryGoal != nil || totals.calories > 0)
 
         VStack(alignment: .leading, spacing: SMSpacing.sm) {
             HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
@@ -478,11 +531,104 @@ struct WeekView: View {
                 }
 
                 Spacer()
+
+                if showMacros {
+                    Button {
+                        nutritionDay = (dayName: dayName, date: date, meals: meals, totals: totals)
+                    } label: {
+                        MacroRing(macros: totals, goal: appState.profile?.dietaryGoal)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.top, SMSpacing.xs)
 
             renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
+
+            rebalanceBanner(for: date, dayName: dayName, totals: totals)
         }
+    }
+
+    @ViewBuilder
+    private func rebalanceBanner(for date: Date, dayName: String, totals: MacroBreakdown) -> some View {
+        if let goal = appState.profile?.dietaryGoal,
+           goal.dailyCalories > 0,
+           !totals.isEmpty {
+            let target = Double(goal.dailyCalories)
+            let drift = (totals.calories - target) / target
+            if abs(drift) >= 0.15 {
+                let dayKey = DayKey.server(date)
+                let isRebalancing = rebalancingDayKey == dayKey
+                let direction = drift > 0 ? "over" : "under"
+                let diff = abs(Int(totals.calories - target))
+                Button {
+                    Task { await rebalance(date: date, key: dayKey) }
+                } label: {
+                    HStack(spacing: SMSpacing.sm) {
+                        Image(systemName: "wand.and.stars")
+                            .foregroundStyle(SMColor.aiPurple)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isRebalancing ? "Rebalancing \(dayName)…" : "\(dayName) is \(diff) cal \(direction) target")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textPrimary)
+                            Text(isRebalancing ? "Asking AI for replacement meals" : "Tap to have AI replan this day")
+                                .font(.caption2)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                        Spacer()
+                        if isRebalancing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                    }
+                    .padding(SMSpacing.sm)
+                    .background(SMColor.aiPurple.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous)
+                            .strokeBorder(SMColor.aiPurple.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isRebalancing)
+            }
+        }
+    }
+
+    private func rebalance(date: Date, key: String) async {
+        guard let week = displayedWeek else { return }
+        rebalancingDayKey = key
+        defer { rebalancingDayKey = nil }
+        do {
+            let updated = try await appState.rebalanceDay(weekID: week.weekId, mealDate: date)
+            if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Sum per-meal macros for a given day. Prefers the backend's per-meal
+    /// numbers (already scaled by `servings * scale_multiplier`) when
+    /// available, and falls back to the backend's per-day totals.
+    private func dayMacros(for date: Date, meals: [WeekMeal], week: WeekSnapshot) -> MacroBreakdown {
+        let fromMeals = meals.reduce(MacroBreakdown()) { acc, meal in
+            guard let m = meal.macros else { return acc }
+            return MacroBreakdown(
+                calories: acc.calories + m.calories,
+                proteinG: acc.proteinG + m.proteinG,
+                carbsG: acc.carbsG + m.carbsG,
+                fatG: acc.fatG + m.fatG,
+                fiberG: acc.fiberG + m.fiberG
+            )
+        }
+        if !fromMeals.isEmpty { return fromMeals }
+        if let daily = week.nutritionTotals.first(where: { DayKey.isSameServerDay($0.mealDate, date) }) {
+            return daily.macros
+        }
+        return MacroBreakdown()
     }
 
     private enum SlotStyle {
