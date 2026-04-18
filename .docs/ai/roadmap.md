@@ -80,28 +80,42 @@ Complete remaining launch prerequisites and submit.
 - [ ] App Store metadata (description, keywords, category, screenshots)
 - [ ] Submit for App Store review
 
-## M4: Nutrition-Aware AI + Dietary Goals (next)
+## M4: Nutrition-Aware AI + Dietary Goals (complete)
 
 > Spec: `.docs/ai/phases/nutrition-goals-spec.md`
 
 Post-launch stickiness milestone. Users set a dietary goal; the AI planner hits it; the app shows per-day and per-week macro progress. Builds on the existing USDA FDC ingredient catalog. Enables the future premium tier.
 
-- [ ] Ingredient macros (protein/carbs/fat/fiber) via Alembic + FDC enrichment
-- [ ] `DietaryGoal` model + settings UI
-- [ ] Per-day and per-week macro aggregation on `WeekOut`
-- [ ] Planner prompt + post-generation scoring against the goal
-- [ ] iOS macro rings on Today hero + each day card
-- [ ] "Rebalance this day" AI CTA when a day drifts >15%
+- [x] Ingredient macros (protein/carbs/fat/fiber) via Alembic migration
+- [x] Curated macro seed (~82 common ingredients) + USDA/OFF ingest extended to capture macros
+- [x] `DietaryGoal` model + settings UI
+- [x] Per-meal / per-day / per-week macro aggregation on `WeekOut`
+- [x] Planner prompt + post-generation scoring against the goal (macro-drift flags)
+- [x] iOS macro rings on Today hero + each day card + weekly total chip
+- [x] Day-breakdown nutrition sheet
+- [x] "Rebalance this day" AI CTA when a day drifts ≥±15%
 
-## M5: Post-Launch Growth
+## M5: Freemium + Subscription (next)
 
-After M4 ships and the core loop is validated.
+> Spec: `.docs/ai/phases/freemium-subscription-spec.md`
 
-- [ ] Freemium boundaries (AI usage limits, StoreKit subscription)
-- [ ] Household sharing
+The AI generations + Kroger + macros cost real money to run. Ship StoreKit 2 + server-enforced usage limits so the app can pay for itself.
+
+- [ ] `Subscription` + `UsageCounter` models + Alembic migration
+- [ ] `is_pro` / `ensure_action_allowed` / 402-on-limit gate on AI/pricing/rebalance endpoints
+- [ ] Apple JWS verification + `POST /api/subscriptions/verify` + App Store Server Notifications v2 webhook
+- [ ] StoreKit 2 client + paywall sheet + Settings subscription row
+- [ ] App Store Connect products (`simmersmith.pro.monthly`, `.annual`) + TestFlight sandbox validation
+
+## M6: Post-Launch Growth
+
+After M5 is monetized.
+
+- [ ] Household sharing tied to a Pro seat
 - [ ] Recipe images (AI-generated or fetched)
 - [ ] Smart substitutions powered by ingredient preferences
 - [ ] Remote push notifications from backend (APNs integration)
+- [ ] Proactive intelligence (leftover tracking, weekly theme, calendar-aware planning)
 
 ## Backlog
 
