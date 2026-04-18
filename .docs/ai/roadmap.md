@@ -56,7 +56,7 @@ Make the AI the star of the app. The planner now uses preference signals, meal h
 - [x] Post-generation quality scoring (score_meal_candidate on each recipe)
 - [x] Deduplication guardrails (max 3 reuses per recipe per week)
 
-## M2: Store-Specific Grocery Pricing (in progress)
+## M2: Store-Specific Grocery Pricing (complete)
 
 Must-have for launch. Kroger API selected as primary integration.
 
@@ -65,28 +65,42 @@ Must-have for launch. Kroger API selected as primary integration.
 - [x] Live pricing fetch endpoint (POST /api/weeks/{id}/pricing/fetch)
 - [x] Store search endpoint (GET /api/stores/search?zip=...)
 - [x] Relaxed retailer schema (supports kroger + existing retailers)
-- [ ] Store selection + configuration in iOS
-- [ ] Price display in grocery list (iOS)
-- [ ] Instacart "shop now" integration (secondary, affiliate revenue)
-- [ ] Spoonacular estimated pricing fallback
+- [x] Store selection + configuration in iOS (`StoreSelectionView`)
+- [x] Price display in grocery list (per-item + weekly total)
+- [x] "Fetch Kroger prices" button in Grocery view
+- [ ] Instacart "shop now" integration (secondary, affiliate revenue — deferred)
+- [ ] Spoonacular estimated pricing fallback (deferred)
 
 ## M3: App Store Submission (in progress)
 
 Complete remaining launch prerequisites and submit.
 
-- [ ] TestFlight validation + bug fixes
-- [x] Google Sign-In SDK integration (GoogleSignIn-iOS SPM, wired in SignInView + AppState)
+- [ ] TestFlight validation + bug fixes (build 8 on device, eating-out / timezone / Fetch Prices fixes shipped)
+- [x] Google Sign-In SDK integration (GoogleSignIn-iOS SPM, restore-on-launch + signOut wired)
 - [ ] App Store metadata (description, keywords, category, screenshots)
 - [ ] Submit for App Store review
 
-## M4: Post-Launch
+## M4: Nutrition-Aware AI + Dietary Goals (next)
 
-Growth features after the core loop is validated.
+> Spec: `.docs/ai/phases/nutrition-goals-spec.md`
 
-- [ ] Freemium boundaries (AI usage limits, premium tier)
+Post-launch stickiness milestone. Users set a dietary goal; the AI planner hits it; the app shows per-day and per-week macro progress. Builds on the existing USDA FDC ingredient catalog. Enables the future premium tier.
+
+- [ ] Ingredient macros (protein/carbs/fat/fiber) via Alembic + FDC enrichment
+- [ ] `DietaryGoal` model + settings UI
+- [ ] Per-day and per-week macro aggregation on `WeekOut`
+- [ ] Planner prompt + post-generation scoring against the goal
+- [ ] iOS macro rings on Today hero + each day card
+- [ ] "Rebalance this day" AI CTA when a day drifts >15%
+
+## M5: Post-Launch Growth
+
+After M4 ships and the core loop is validated.
+
+- [ ] Freemium boundaries (AI usage limits, StoreKit subscription)
 - [ ] Household sharing
 - [ ] Recipe images (AI-generated or fetched)
-- [ ] Advanced AI features (nutrition tracking, dietary progress, smart substitutions)
+- [ ] Smart substitutions powered by ingredient preferences
 - [ ] Remote push notifications from backend (APNs integration)
 
 ## Backlog
