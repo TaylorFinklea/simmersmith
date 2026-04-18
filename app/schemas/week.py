@@ -1,22 +1,43 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from app.schemas.recipe import RecipeIngredientPayload, RecipePayload
 
 
+def _coerce_to_date(value: object) -> object:
+    """Accept ISO datetime strings for date fields.
+
+    iOS clients serialize Swift ``Date`` values as full ISO-8601 datetimes
+    with a timezone offset (e.g. ``2026-04-13T05:00:00.000+00:00``). Pydantic
+    v2 rejects those for plain ``date`` fields when the time component is
+    non-zero. We pre-parse and truncate to the date portion so the API stays
+    forgiving about what the client sends.
+    """
+    if isinstance(value, str) and "T" in value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+        return parsed.date()
+    return value
+
+
+DateLike = Annotated[date, BeforeValidator(_coerce_to_date)]
+
+
 class WeekCreateRequest(BaseModel):
-    week_start: date
+    week_start: DateLike
     notes: str = ""
 
 
 class MealDraftPayload(BaseModel):
     meal_id: str | None = None
     day_name: str
-    meal_date: date
+    meal_date: DateLike
     slot: str
     recipe_id: str | None = None
     recipe_name: str
@@ -43,7 +64,7 @@ class DraftFromAIRequest(BaseModel):
 class MealUpdatePayload(BaseModel):
     meal_id: str | None = None
     day_name: str
-    meal_date: date
+    meal_date: DateLike
     slot: str
     recipe_id: str | None = None
     recipe_name: str = ""
