@@ -55,8 +55,6 @@ struct WeekView: View {
         displayedWeekStart == nil
     }
 
-    private static let allSlots = ["breakfast", "lunch", "dinner"]
-
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
@@ -65,9 +63,7 @@ struct WeekView: View {
 
                     if let week = displayedWeek {
                         approveAllBar(week)
-                        todaySection(week)
-                        tomorrowSection(week)
-                        restOfWeekSection(week)
+                        daysSection(week)
                         groceryBar(week)
                     } else {
                         emptyState
@@ -227,15 +223,27 @@ struct WeekView: View {
                 MealQuickAddSheet(
                     dayName: info.dayName,
                     mealDate: info.mealDate,
-                    slot: info.slot
-                ) { mealName in
-                    await addQuickMeal(
-                        dayName: info.dayName,
-                        mealDate: info.mealDate,
-                        slot: info.slot,
-                        recipeName: mealName
-                    )
-                }
+                    slot: info.slot,
+                    recipes: appState.recipes,
+                    onSaveFreeform: { mealName in
+                        await addQuickMeal(
+                            dayName: info.dayName,
+                            mealDate: info.mealDate,
+                            slot: info.slot,
+                            recipeName: mealName,
+                            recipeId: nil
+                        )
+                    },
+                    onSaveRecipe: { recipe in
+                        await addQuickMeal(
+                            dayName: info.dayName,
+                            mealDate: info.mealDate,
+                            slot: info.slot,
+                            recipeName: recipe.name,
+                            recipeId: recipe.recipeId
+                        )
+                    }
+                )
             }
         }
         .alert("Rename Meal", isPresented: Binding(
@@ -370,156 +378,91 @@ struct WeekView: View {
         }
     }
 
-    // MARK: - Today Section
+    // MARK: - Days Grid (all 7 days of the week)
 
-    @ViewBuilder
-    private func todaySection(_ week: WeekSnapshot) -> some View {
-        let todayMeals = isViewingCurrentWeek
-            ? week.meals.filter { Calendar.current.isDateInToday($0.mealDate) }
-            : mealsForFirstDay(of: week)
-
-        let sectionTitle = isViewingCurrentWeek ? "Today" : firstDayName(of: week)
-        let sectionDate: Date = isViewingCurrentWeek ? Date() : week.weekStart
-
-        VStack(alignment: .leading, spacing: SMSpacing.md) {
-            VStack(alignment: .leading, spacing: SMSpacing.xs) {
-                Text(sectionTitle)
-                    .font(SMFont.display)
-                    .foregroundStyle(SMColor.textPrimary)
-
-                Text(sectionDate.formatted(date: .abbreviated, time: .omitted))
-                    .font(SMFont.subheadline)
-                    .foregroundStyle(SMColor.textSecondary)
-            }
-            .padding(.top, SMSpacing.sm)
-
-            if todayMeals.isEmpty {
-                VStack(spacing: SMSpacing.sm) {
-                    Text("Nothing planned")
-                        .font(SMFont.body)
-                        .foregroundStyle(SMColor.textSecondary)
-                    Text("Tap the sparkle button to plan meals with AI")
-                        .font(SMFont.caption)
-                        .foregroundStyle(SMColor.textTertiary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, SMSpacing.xl)
-            } else {
-                ForEach(todayMeals) { meal in
-                    TodayMealCard(
-                        meal: meal,
-                        recipe: recipeSummary(for: meal),
-                        onTap: { selectedMealForAction = meal }
-                    )
-                }
-            }
-
-            // Empty slot placeholders
-            let filledSlots = Set(todayMeals.map(\.slot))
-            let dayNameForSlots = todayMeals.first?.dayName ?? sectionTitle
-            let dateForSlots = todayMeals.first?.mealDate ?? sectionDate
-            ForEach(Self.allSlots.filter { !filledSlots.contains($0) }, id: \.self) { slot in
-                emptySlotButton(dayName: dayNameForSlots, mealDate: dateForSlots, slot: slot)
-            }
+    private func weekDays(of week: WeekSnapshot) -> [(date: Date, dayName: String)] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: week.weekStart)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return (0..<7).map { offset in
+            let date = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+            let name = week.meals.first(where: { calendar.isDate($0.mealDate, inSameDayAs: date) })?.dayName
+                ?? formatter.string(from: date)
+            return (date, name)
         }
     }
 
-    // MARK: - Tomorrow Section
-
-    private func tomorrowMeals(for week: WeekSnapshot) -> [WeekMeal] {
-        if isViewingCurrentWeek {
-            return week.meals.filter { Calendar.current.isDateInTomorrow($0.mealDate) }
-        } else {
-            return mealsForSecondDay(of: week)
-        }
-    }
-
-    private func tomorrowTitle(for week: WeekSnapshot) -> String {
-        isViewingCurrentWeek ? "Tomorrow" : secondDayName(of: week)
+    private var configuredSlots: [String] {
+        let raw = appState.profile?.settings["default_slots"] ?? ""
+        let parts = raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? ["breakfast", "lunch", "dinner"] : parts
     }
 
     @ViewBuilder
-    private func tomorrowSection(_ week: WeekSnapshot) -> some View {
-        let meals = tomorrowMeals(for: week)
-        let title = tomorrowTitle(for: week)
-
-        if !meals.isEmpty || !isViewingCurrentWeek {
-            VStack(alignment: .leading, spacing: SMSpacing.md) {
-                Text(title)
-                    .font(SMFont.headline)
-                    .foregroundStyle(SMColor.textPrimary)
-
-                ForEach(meals) { meal in
-                    CompactMealCard(meal: meal) {
-                        selectedMealForAction = meal
-                    }
-                }
-
-                // Empty slot placeholders
-                tomorrowEmptySlots(week: week, meals: meals)
-            }
+    private func daysSection(_ week: WeekSnapshot) -> some View {
+        let days = weekDays(of: week)
+        ForEach(days, id: \.date) { day in
+            daySection(week: week, date: day.date, dayName: day.dayName)
         }
     }
 
     @ViewBuilder
-    private func tomorrowEmptySlots(week: WeekSnapshot, meals: [WeekMeal]) -> some View {
+    private func daySection(week: WeekSnapshot, date: Date, dayName: String) -> some View {
+        let isToday = Calendar.current.isDateInToday(date)
+        let meals = week.meals
+            .filter { Calendar.current.isDate($0.mealDate, inSameDayAs: date) }
+            .sorted { slotOrder($0.slot) < slotOrder($1.slot) }
         let filledSlots = Set(meals.map(\.slot))
-        if let firstMeal = meals.first {
-            ForEach(Self.allSlots.filter { !filledSlots.contains($0) }, id: \.self) { slot in
-                emptySlotButton(dayName: firstMeal.dayName, mealDate: firstMeal.mealDate, slot: slot)
+        let slots = configuredSlots + meals.map(\.slot).filter { !configuredSlots.contains($0) }
+        let uniqueSlots = Array(NSOrderedSet(array: slots)) as? [String] ?? configuredSlots
+
+        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
+                Text(isToday ? "Today" : dayName)
+                    .font(isToday ? SMFont.headline : SMFont.subheadline)
+                    .foregroundStyle(isToday ? SMColor.textPrimary : SMColor.primary)
+
+                Text(date.formatted(.dateTime.month(.abbreviated).day()))
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+
+                Spacer()
             }
-        } else if !isViewingCurrentWeek {
-            let dayDate = Calendar.current.date(byAdding: .day, value: 1, to: week.weekStart) ?? week.weekStart
-            let dayName = secondDayName(of: week)
-            ForEach(Self.allSlots, id: \.self) { slot in
-                emptySlotButton(dayName: dayName, mealDate: dayDate, slot: slot)
-            }
-        }
-    }
+            .padding(.top, isToday ? SMSpacing.sm : 0)
 
-    // MARK: - Rest of Week
-
-    private func remainingMeals(for week: WeekSnapshot) -> [WeekMeal] {
-        if isViewingCurrentWeek {
-            let calendar = Calendar.current
-            return week.meals.filter {
-                !calendar.isDateInToday($0.mealDate) && !calendar.isDateInTomorrow($0.mealDate)
-            }
-        } else {
-            let sortedDates = uniqueSortedDates(of: week)
-            let skipDates = Set(sortedDates.prefix(2))
-            return week.meals.filter { !skipDates.contains(Calendar.current.startOfDay(for: $0.mealDate)) }
-        }
-    }
-
-    @ViewBuilder
-    private func restOfWeekSection(_ week: WeekSnapshot) -> some View {
-        let remaining = remainingMeals(for: week)
-
-        if !remaining.isEmpty {
-            let grouped = groupedMeals(from: remaining)
-
-            ForEach(grouped, id: \.dayName) { day in
-                VStack(alignment: .leading, spacing: SMSpacing.sm) {
-                    Text(day.dayName)
-                        .font(SMFont.subheadline)
-                        .foregroundStyle(SMColor.primary)
-
-                    ForEach(day.meals) { meal in
+            ForEach(uniqueSlots, id: \.self) { slot in
+                if let meal = meals.first(where: { $0.slot == slot }) {
+                    if isToday {
+                        TodayMealCard(
+                            meal: meal,
+                            recipe: recipeSummary(for: meal),
+                            onTap: { selectedMealForAction = meal }
+                        )
+                    } else {
                         CompactMealCard(meal: meal) {
                             selectedMealForAction = meal
                         }
                     }
-
-                    // Empty slot placeholders for each day
-                    let filledSlots = Set(day.meals.map(\.slot))
-                    if let firstMeal = day.meals.first {
-                        ForEach(Self.allSlots.filter { !filledSlots.contains($0) }, id: \.self) { slot in
-                            emptySlotButton(dayName: firstMeal.dayName, mealDate: firstMeal.mealDate, slot: slot)
-                        }
-                    }
+                } else if !filledSlots.contains(slot) {
+                    emptySlotButton(dayName: dayName, mealDate: date, slot: slot)
                 }
             }
+        }
+        .padding(isToday ? SMSpacing.md : 0)
+        .background(isToday ? SMColor.primary.opacity(0.04) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+    }
+
+    private func slotOrder(_ slot: String) -> Int {
+        switch slot.lowercased() {
+        case "breakfast": return 0
+        case "lunch": return 1
+        case "dinner": return 2
+        case "snack", "snacks": return 3
+        default: return 99
         }
     }
 
@@ -533,7 +476,9 @@ struct WeekView: View {
                 Text(slot.capitalized)
                     .font(SMFont.label)
                     .foregroundStyle(SMColor.textTertiary)
-                    .frame(width: 56, alignment: .leading)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 80, alignment: .leading)
 
                 HStack(spacing: SMSpacing.xs) {
                     Image(systemName: "plus.circle")
@@ -981,7 +926,7 @@ struct WeekView: View {
         }
     }
 
-    private func addQuickMeal(dayName: String, mealDate: Date, slot: String, recipeName: String) async {
+    private func addQuickMeal(dayName: String, mealDate: Date, slot: String, recipeName: String, recipeId: String?) async {
         guard let week = displayedWeek else { return }
         var meals = week.meals.map { m in
             MealUpdateRequest(
@@ -993,7 +938,7 @@ struct WeekView: View {
         }
         meals.append(MealUpdateRequest(
             dayName: dayName, mealDate: mealDate, slot: slot,
-            recipeName: recipeName
+            recipeId: recipeId, recipeName: recipeName
         ))
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
@@ -1121,50 +1066,5 @@ struct WeekView: View {
     private func recipeSummary(for meal: WeekMeal) -> RecipeSummary? {
         guard let recipeId = meal.recipeId else { return nil }
         return appState.recipes.first { $0.recipeId == recipeId }
-    }
-
-    private func groupedMeals(from meals: [WeekMeal]) -> [(dayName: String, meals: [WeekMeal])] {
-        let grouped = Dictionary(grouping: meals, by: \.dayName)
-        return grouped
-            .map { key, value in
-                (key, value.sorted { ($0.mealDate, $0.slot) < ($1.mealDate, $1.slot) })
-            }
-            .sorted { ($0.meals.first?.mealDate ?? .distantFuture) < ($1.meals.first?.mealDate ?? .distantFuture) }
-    }
-
-    private func uniqueSortedDates(of week: WeekSnapshot) -> [Date] {
-        let calendar = Calendar.current
-        let dates = Set(week.meals.map { calendar.startOfDay(for: $0.mealDate) })
-        return dates.sorted()
-    }
-
-    private func mealsForFirstDay(of week: WeekSnapshot) -> [WeekMeal] {
-        let dates = uniqueSortedDates(of: week)
-        guard let first = dates.first else { return [] }
-        return week.meals.filter { Calendar.current.isDate($0.mealDate, inSameDayAs: first) }
-    }
-
-    private func mealsForSecondDay(of week: WeekSnapshot) -> [WeekMeal] {
-        let dates = uniqueSortedDates(of: week)
-        guard dates.count >= 2 else { return [] }
-        return week.meals.filter { Calendar.current.isDate($0.mealDate, inSameDayAs: dates[1]) }
-    }
-
-    private func firstDayName(of week: WeekSnapshot) -> String {
-        let meals = mealsForFirstDay(of: week)
-        return meals.first?.dayName ?? dayNameFromDate(week.weekStart)
-    }
-
-    private func secondDayName(of week: WeekSnapshot) -> String {
-        let meals = mealsForSecondDay(of: week)
-        if let name = meals.first?.dayName { return name }
-        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: week.weekStart) ?? week.weekStart
-        return dayNameFromDate(nextDay)
-    }
-
-    private func dayNameFromDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: date)
     }
 }

@@ -11,11 +11,13 @@ struct CompactMealCard: View {
                 Text(meal.slot.capitalized)
                     .font(SMFont.label)
                     .foregroundStyle(SMColor.textTertiary)
-                    .frame(width: 56, alignment: .leading)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 80, alignment: .leading)
 
                 Text(meal.recipeName)
-                    .font(SMFont.body)
-                    .foregroundStyle(meal.recipeId == nil ? SMColor.textTertiary : SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+                    .foregroundStyle(SMColor.textPrimary)
                     .lineLimit(1)
 
                 Spacer()
