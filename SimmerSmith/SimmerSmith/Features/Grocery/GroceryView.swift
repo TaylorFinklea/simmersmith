@@ -242,6 +242,8 @@ struct GroceryView: View {
         do {
             _ = try await appState.apiClient.fetchPricing(weekID: weekID, locationID: krogerLocationId)
             await appState.refreshWeek()
+        } catch SimmerSmithAPIError.usageLimitReached(let action, let limit, let used, _) {
+            appState.presentPaywall(.limitReached(action: action, used: used, limit: limit))
         } catch {
             appState.lastErrorMessage = "Fetch prices failed: \(error.localizedDescription)"
         }

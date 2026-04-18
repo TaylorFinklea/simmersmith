@@ -46,6 +46,7 @@
 		7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */; };
 		822CEF7F346BD614AEB07A6F /* RecipeListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AE2B7D371803789AF07846 /* RecipeListRow.swift */; };
 		84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */; };
+		8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */; };
 		923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E77574E1813D8C368CBAFF27 /* AssistantView.swift */; };
 		925114D0E678B77DE951E987 /* RecipeEditorIngredientResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14092FA88319FB68CC7C86E4 /* RecipeEditorIngredientResolution.swift */; };
 		9726A5E160270D61C79C1AFF /* MealMoveSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D99BDCE7DF25F031B23486 /* MealMoveSheet.swift */; };
@@ -69,8 +70,10 @@
 		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
+		F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */; };
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
 		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
+		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -104,6 +107,7 @@
 		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C86214020223D614C5A52CE /* CompactMealCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactMealCard.swift; sourceTree = "<group>"; };
 		1DDDF7EF8A400097345D93F0 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallSheet.swift; sourceTree = "<group>"; };
 		27B617C15FBB7189BE5086D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		3679DF56BB2C65A8DA4541BD /* MealSlotRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealSlotRow.swift; sourceTree = "<group>"; };
 		36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePickerSheet.swift; sourceTree = "<group>"; };
@@ -132,9 +136,11 @@
 		7F6AC90F65369FDFDE3B64F6 /* SMCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCard.swift; sourceTree = "<group>"; };
 		826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DietaryGoalView.swift; sourceTree = "<group>"; };
 		8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseIngredientMergeSheet.swift; sourceTree = "<group>"; };
+		8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Subscription.swift"; sourceTree = "<group>"; };
 		8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithTests.swift; sourceTree = "<group>"; };
 		90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayNutritionSheet.swift; sourceTree = "<group>"; };
 		943154DAFF1DC47F701B6AF6 /* HeroRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroRecipeCard.swift; sourceTree = "<group>"; };
+		9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionStore.swift; sourceTree = "<group>"; };
 		9AC343882E82E9D7CE676F34 /* AppState+Weeks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Weeks.swift"; sourceTree = "<group>"; };
 		9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientCatalogList.swift; sourceTree = "<group>"; };
 		9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithUITests.swift; sourceTree = "<group>"; };
@@ -193,6 +199,7 @@
 				C7B4A917F0710310FDFAE525 /* Grocery */,
 				3A248CC4192B34E04AB0DA95 /* Ingredients */,
 				D3DD53FF55F643B88DFC320C /* Onboarding */,
+				DE59617CC6B5167ED8E3A2CF /* Paywall */,
 				7EBADF07E0E6DB08A57494D0 /* Recipes */,
 				AF385378308CFFCC95BB6B62 /* Settings */,
 				EE923BEF33AA4479174A71DE /* Shared */,
@@ -259,6 +266,7 @@
 				EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */,
 				5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */,
 				614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */,
+				8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */,
 				9AC343882E82E9D7CE676F34 /* AppState+Weeks.swift */,
 				42FB8215B29EE1469EE3AA1E /* MainTabView.swift */,
 				FF982BE7185D4506E4BAC7C6 /* RootView.swift */,
@@ -366,6 +374,15 @@
 				6DF738967CD3644971E26635 /* SignInView.swift */,
 			);
 			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		DE59617CC6B5167ED8E3A2CF /* Paywall */ = {
+			isa = PBXGroup;
+			children = (
+				1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */,
+				9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */,
+			);
+			path = Paywall;
 			sourceTree = "<group>";
 		};
 		E6E4414FC4DC6C79EE543C7D /* SimmerSmithTests */ = {
@@ -563,6 +580,7 @@
 				84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */,
 				44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */,
 				60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */,
+				8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */,
 				6A33B301E1727D4D46AB6A25 /* AppState+Weeks.swift in Sources */,
 				C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */,
 				923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */,
@@ -590,6 +608,7 @@
 				A50492A8C75536C4828C7951 /* MealSlotRow.swift in Sources */,
 				F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */,
 				3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */,
+				FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */,
 				72BD0CBA5C14220174E5ECA2 /* RecipeCard.swift in Sources */,
 				2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */,
 				925114D0E678B77DE951E987 /* RecipeEditorIngredientResolution.swift in Sources */,
@@ -610,6 +629,7 @@
 				D6D665599BB2121248AC3271 /* SignInView.swift in Sources */,
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
 				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
+				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
 				F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */,
 				BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */,
 				0D17009AD5B6DBF392246D57 /* TodayMealCard.swift in Sources */,
@@ -658,7 +678,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -774,7 +794,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

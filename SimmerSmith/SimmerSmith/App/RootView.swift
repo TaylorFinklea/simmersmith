@@ -20,5 +20,8 @@ struct RootView: View {
                 }
             }
         }
+        .sheet(item: $appState.pendingPaywall) { reason in
+            PaywallSheet(reason: reason)
+        }
     }
 }

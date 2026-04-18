@@ -33,12 +33,21 @@ public struct Staple: Codable, Identifiable, Hashable, Sendable {
     public var id: String { normalizedName }
 }
 
+public struct UsageSummary: Codable, Sendable, Hashable {
+    public let action: String
+    public let limit: Int
+    public let used: Int
+    public let remaining: Int
+}
+
 public struct ProfileSnapshot: Codable, Sendable {
     public let updatedAt: Date?
     public let settings: [String: String]
     public let secretFlags: [String: Bool]
     public let staples: [Staple]
     public let dietaryGoal: DietaryGoal?
+    public let isPro: Bool
+    public let usage: [UsageSummary]
 
     enum CodingKeys: String, CodingKey {
         case updatedAt
@@ -46,6 +55,8 @@ public struct ProfileSnapshot: Codable, Sendable {
         case secretFlags
         case staples
         case dietaryGoal
+        case isPro
+        case usage
     }
 
     public init(from decoder: Decoder) throws {
@@ -55,6 +66,43 @@ public struct ProfileSnapshot: Codable, Sendable {
         secretFlags = try container.decodeIfPresent([String: Bool].self, forKey: .secretFlags) ?? [:]
         staples = try container.decodeIfPresent([Staple].self, forKey: .staples) ?? []
         dietaryGoal = try container.decodeIfPresent(DietaryGoal.self, forKey: .dietaryGoal)
+        isPro = try container.decodeIfPresent(Bool.self, forKey: .isPro) ?? false
+        usage = try container.decodeIfPresent([UsageSummary].self, forKey: .usage) ?? []
+    }
+}
+
+public struct SubscriptionStatus: Codable, Sendable {
+    public let status: String
+    public let productId: String
+    public let currentPeriodEndsAt: Date?
+    public let autoRenew: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case productId
+        case currentPeriodEndsAt
+        case autoRenew
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decode(String.self, forKey: .status)
+        productId = try container.decode(String.self, forKey: .productId)
+        autoRenew = try container.decodeIfPresent(Bool.self, forKey: .autoRenew) ?? false
+
+        // Backend emits ISO-8601 with the full datetime + offset (via
+        // `.isoformat()`). Use the default decoder when available; fall
+        // back to a permissive ISO-8601 parse for the offset-aware form.
+        if let raw = try? container.decode(Date.self, forKey: .currentPeriodEndsAt) {
+            currentPeriodEndsAt = raw
+        } else if let string = try? container.decode(String.self, forKey: .currentPeriodEndsAt) {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withColonSeparatorInTimeZone]
+            currentPeriodEndsAt = formatter.date(from: string)
+                ?? ISO8601DateFormatter().date(from: string)
+        } else {
+            currentPeriodEndsAt = nil
+        }
     }
 }
 

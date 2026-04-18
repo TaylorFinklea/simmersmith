@@ -192,6 +192,54 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Subscription") {
+                if appState.isPro {
+                    HStack {
+                        Label("SimmerSmith Pro", systemImage: "sparkles")
+                            .foregroundStyle(SMColor.aiPurple)
+                        Spacer()
+                        Text("Active")
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.success)
+                    }
+                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                        Link("Manage in App Store", destination: url)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.primary)
+                    }
+                } else {
+                    let aiUsage = appState.usage(for: "ai_generate")
+                    let priceUsage = appState.usage(for: "pricing_fetch")
+                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                        HStack {
+                            Label("Free tier", systemImage: "circle.dotted")
+                            Spacer()
+                        }
+                        if let aiUsage {
+                            Text("AI generations: \(aiUsage.used) of \(aiUsage.limit) this month")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                        if let priceUsage {
+                            Text("Kroger fetches: \(priceUsage.used) of \(priceUsage.limit) this month")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    }
+                    Button {
+                        appState.presentPaywall(.manualUpgrade)
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Upgrade to Pro", systemImage: "sparkles")
+                                .font(SMFont.subheadline)
+                            Spacer()
+                        }
+                    }
+                    .foregroundStyle(SMColor.aiPurple)
+                }
+            }
+
             Section("Ingredient Preferences") {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")

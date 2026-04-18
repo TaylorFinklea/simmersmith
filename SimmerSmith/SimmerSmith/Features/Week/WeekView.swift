@@ -605,6 +605,8 @@ struct WeekView: View {
         do {
             let updated = try await appState.rebalanceDay(weekID: week.weekId, mealDate: date)
             if !isViewingCurrentWeek { browsedWeek = updated }
+        } catch SimmerSmithAPIError.usageLimitReached(let action, let limit, let used, _) {
+            appState.presentPaywall(.limitReached(action: action, used: used, limit: limit))
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1190,6 +1192,9 @@ struct WeekView: View {
         do {
             _ = try await appState.generateWeekFromAI(weekID: weekID, prompt: aiPrompt)
             showingAIPlanner = false
+        } catch SimmerSmithAPIError.usageLimitReached(let action, let limit, let used, _) {
+            showingAIPlanner = false
+            appState.presentPaywall(.limitReached(action: action, used: used, limit: limit))
         } catch {
             generationError = error.localizedDescription
         }

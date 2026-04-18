@@ -5,6 +5,10 @@ public enum SimmerSmithAPIError: LocalizedError {
     case invalidResponse
     case unauthorized
     case server(String)
+    /// HTTP 402 from the freemium gate. `action` tells the client which
+    /// flow hit the limit (e.g. "ai_generate") so the paywall copy can
+    /// explain what just got blocked.
+    case usageLimitReached(action: String, limit: Int, used: Int, message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,12 +20,25 @@ public enum SimmerSmithAPIError: LocalizedError {
             return "The server rejected the current bearer token."
         case .server(let message):
             return message
+        case .usageLimitReached(_, _, _, let message):
+            return message
         }
     }
 }
 
 private struct APIErrorResponse: Decodable {
     let detail: String
+}
+
+private struct UsageLimitResponse: Decodable {
+    let detail: DetailBody
+
+    struct DetailBody: Decodable {
+        let message: String
+        let action: String
+        let limit: Int
+        let used: Int
+    }
 }
 
 private struct RecipeImportBody: Encodable {
@@ -222,6 +239,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func clearDietaryGoal() async throws {
         let _: EmptyResponse = try await request(path: "/api/profile/dietary-goal", method: "DELETE")
+    }
+
+    // MARK: - Subscriptions (StoreKit 2)
+
+    public func verifySubscriptionTransaction(signedJWS: String) async throws -> SubscriptionStatus {
+        struct Body: Encodable { let signedTransaction: String }
+        return try await request(
+            path: "/api/subscriptions/verify",
+            method: "POST",
+            body: Body(signedTransaction: signedJWS)
+        )
     }
 
     public func fetchCurrentWeek() async throws -> WeekSnapshot? {
@@ -866,6 +894,15 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 {
                 throw SimmerSmithAPIError.unauthorized
+            }
+            if http.statusCode == 402,
+               let payload = try? decoder.decode(UsageLimitResponse.self, from: data) {
+                throw SimmerSmithAPIError.usageLimitReached(
+                    action: payload.detail.action,
+                    limit: payload.detail.limit,
+                    used: payload.detail.used,
+                    message: payload.detail.message
+                )
             }
             if let errorPayload = try? decoder.decode(APIErrorResponse.self, from: data) {
                 throw SimmerSmithAPIError.server(errorPayload.detail)

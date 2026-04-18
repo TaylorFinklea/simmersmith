@@ -39,6 +39,7 @@ struct SimmerSmithApp: App {
                     // already persisted in ConnectionSettingsStore, so this is
                     // purely for the native Google UI state.
                     GIDSignIn.sharedInstance.restorePreviousSignIn { _, _ in }
+                    await appState.subscriptionStore.start()
                     if appState.hasSavedConnection {
                         await appState.refreshAll()
                     }

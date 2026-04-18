@@ -49,6 +49,8 @@ final class AppState {
     let settingsStore: ConnectionSettingsStore
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient
+    let subscriptionStore = SubscriptionStore()
+    var pendingPaywall: PaywallReason?
 
     // Tracks the refresh task started by clearLocalCache() so that a
     // follow-up resetConnection() can cancel it before it races with the
