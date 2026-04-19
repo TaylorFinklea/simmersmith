@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Callable
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -10,7 +14,17 @@ from pydantic import BaseModel, ValidationError
 from app.config import Settings
 from app.schemas import AssistantRespondRequest, RecipePayload
 from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability, resolve_direct_api_key, resolve_direct_model
+from app.services.assistant_tools import (
+    MAX_TOOL_ITERATIONS,
+    AssistantToolResult,
+    openai_tools_schema,
+)
 from app.services.mcp_client import run_codex_mcp
+
+logger = logging.getLogger(__name__)
+
+ToolRunner = Callable[[str, dict], AssistantToolResult]
+EventCallback = Callable[[str, dict], None]
 
 
 class AssistantProviderEnvelope(BaseModel):
@@ -64,6 +78,7 @@ class AssistantTurnResult:
     raw_output: str
     envelope: AssistantProviderEnvelope
     provider_thread_id: str | None = None
+    tool_calls: list[dict[str, object]] = field(default_factory=list)
 
 
 def resolve_assistant_execution_target(
@@ -123,17 +138,40 @@ def run_assistant_turn(
     request: AssistantRespondRequest,
     attached_recipe: RecipePayload | None = None,
     existing_provider_thread_id: str | None = None,
+    tool_runner: ToolRunner | None = None,
+    on_event: EventCallback | None = None,
+    planning_context: str | None = None,
 ) -> AssistantTurnResult:
     target = resolve_assistant_execution_target(
         settings,
         user_settings,
         existing_provider_thread_id=existing_provider_thread_id,
     )
+
+    if (
+        tool_runner is not None
+        and target.provider_kind == "direct"
+        and target.provider_name == "openai"
+    ):
+        return _run_openai_tool_loop(
+            target=target,
+            settings=settings,
+            user_settings=user_settings,
+            thread_title=thread_title,
+            conversation=conversation,
+            request=request,
+            attached_recipe=attached_recipe,
+            planning_context=planning_context or "",
+            tool_runner=tool_runner,
+            on_event=on_event,
+        )
+
     prompt = build_assistant_prompt(
         thread_title=thread_title,
         conversation=conversation,
         request=request,
         attached_recipe=attached_recipe,
+        planning_context=planning_context,
     )
     provider_thread_id = existing_provider_thread_id
     if target.provider_kind == "mcp":
@@ -158,12 +196,183 @@ def run_assistant_turn(
     )
 
 
+def _run_openai_tool_loop(
+    *,
+    target: AssistantExecutionTarget,
+    settings: Settings,
+    user_settings: dict[str, str],
+    thread_title: str,
+    conversation: list[dict[str, object]],
+    request: AssistantRespondRequest,
+    attached_recipe: RecipePayload | None,
+    planning_context: str,
+    tool_runner: ToolRunner,
+    on_event: EventCallback | None,
+) -> AssistantTurnResult:
+    system_prompt = build_planning_system_prompt(
+        thread_title=thread_title, planning_context=planning_context
+    )
+    attached_note = ""
+    if attached_recipe is not None:
+        attached_note = (
+            "\nAttached recipe context:\n"
+            f"{json.dumps(attached_recipe.model_dump(mode='json'), indent=2)}\n"
+        )
+
+    messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
+    for message in conversation[-20:]:
+        role = str(message.get("role", "user"))
+        content = str(message.get("content_markdown", "")).strip()
+        if not content:
+            continue
+        messages.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+    user_text = (request.text.strip() or "(empty message)") + attached_note
+    messages.append({"role": "user", "content": user_text})
+
+    tool_transcript: list[dict[str, object]] = []
+    api_key = resolve_direct_api_key("openai", settings=settings, user_settings=user_settings)
+    final_text: str | None = None
+    raw_final = ""
+
+    def _emit(event: str, payload: dict[str, object]) -> None:
+        if on_event is not None:
+            try:
+                on_event(event, payload)
+            except Exception:
+                logger.exception("Assistant event callback raised")
+
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
+            response = client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": target.model,
+                    "messages": messages,
+                    "tools": openai_tools_schema(),
+                    "tool_choice": "auto",
+                    "temperature": 0.3,
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        raw_final = json.dumps(payload)
+        choice = payload["choices"][0]
+        message = choice.get("message", {})
+        finish_reason = choice.get("finish_reason", "")
+        tool_calls = message.get("tool_calls") or []
+
+        if not tool_calls:
+            final_text = (message.get("content") or "").strip()
+            break
+
+        assistant_msg: dict[str, object] = {
+            "role": "assistant",
+            "content": message.get("content") or None,
+            "tool_calls": tool_calls,
+        }
+        messages.append(assistant_msg)
+
+        for call in tool_calls:
+            call_id = str(call.get("id") or uuid.uuid4())
+            fn = call.get("function", {})
+            name = str(fn.get("name") or "")
+            raw_args = fn.get("arguments") or "{}"
+            try:
+                args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                if not isinstance(args, dict):
+                    args = {}
+            except json.JSONDecodeError:
+                args = {}
+
+            started_at = datetime.now(timezone.utc).isoformat()
+            _emit(
+                "assistant.tool_call",
+                {
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": args,
+                    "status": "running",
+                    "started_at": started_at,
+                },
+            )
+
+            result = tool_runner(name, args)
+
+            completed_at = datetime.now(timezone.utc).isoformat()
+            tool_entry: dict[str, object] = {
+                "call_id": call_id,
+                "name": name,
+                "arguments": args,
+                "ok": result.ok,
+                "detail": result.detail,
+                "status": "completed" if result.ok else "failed",
+                "started_at": started_at,
+                "completed_at": completed_at,
+            }
+            tool_transcript.append(tool_entry)
+
+            _emit("assistant.tool_result", dict(tool_entry))
+            if result.week is not None:
+                _emit("week.updated", {"week": result.week})
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": json.dumps(result.to_model_reply()),
+                }
+            )
+
+        if finish_reason == "stop":
+            break
+    else:
+        logger.warning("Assistant tool loop exceeded %s iterations", MAX_TOOL_ITERATIONS)
+
+    if final_text is None:
+        final_text = "I hit a tool-call limit before I could finish. Can you try again?"
+
+    envelope = AssistantProviderEnvelope(assistant_markdown=final_text or "Done.")
+    return AssistantTurnResult(
+        target=target,
+        prompt=system_prompt,
+        raw_output=raw_final,
+        envelope=envelope,
+        provider_thread_id=None,
+        tool_calls=tool_transcript,
+    )
+
+
+def build_planning_system_prompt(
+    *, thread_title: str, planning_context: str
+) -> str:
+    return (
+        "You are SimmerSmith's Planning Assistant, a conversational agent that helps "
+        "a single user plan their week of meals.\n"
+        "You have tools that can READ and MODIFY the user's current week in real time. "
+        "When the user asks for a change, CALL THE TOOL rather than describing what you would do. "
+        "Do not claim to have done something you haven't called a tool for.\n"
+        "When a tool returns ok=false, tell the user the tool's detail verbatim and propose a recovery.\n"
+        "After you call tools, end your turn with a short, natural-language summary of what changed. "
+        "Do NOT wrap your final reply in JSON or markdown fences.\n"
+        "Prefer small edits (add/swap/remove/rebalance) to a full regenerate — only call generate_week_plan "
+        "when the user asks for a full reset.\n"
+        "Be concise. Two or three sentences per reply is plenty.\n\n"
+        f"Thread: {thread_title or 'Weekly Planning'}\n"
+        f"{planning_context}"
+    )
+
+
 def build_assistant_prompt(
     *,
     thread_title: str,
     conversation: list[dict[str, object]],
     request: AssistantRespondRequest,
     attached_recipe: RecipePayload | None,
+    planning_context: str | None = None,
 ) -> str:
     envelope_schema = json.dumps(strict_json_schema(AssistantProviderEnvelope), indent=2)
     transcript = []

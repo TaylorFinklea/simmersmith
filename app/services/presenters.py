@@ -340,9 +340,18 @@ def pricing_payload(week: Week | None) -> dict[str, object] | None:
 
 
 def assistant_message_payload(message: AssistantMessage) -> dict[str, Any]:
+    import json as _json
+
     recipe_draft = None
     if (message.recipe_draft_json or "").strip():
         recipe_draft = RecipePayload.model_validate_json(message.recipe_draft_json).model_dump(mode="json")
+    raw_tool_calls = (message.tool_calls_json or "").strip() or "[]"
+    try:
+        tool_calls = _json.loads(raw_tool_calls)
+        if not isinstance(tool_calls, list):
+            tool_calls = []
+    except Exception:
+        tool_calls = []
     return {
         "message_id": message.id,
         "thread_id": message.thread_id,
@@ -351,6 +360,7 @@ def assistant_message_payload(message: AssistantMessage) -> dict[str, Any]:
         "content_markdown": message.content_markdown,
         "recipe_draft": recipe_draft,
         "attached_recipe_id": message.attached_recipe_id,
+        "tool_calls": tool_calls,
         "created_at": message.created_at,
         "completed_at": message.completed_at,
         "error": message.error,
@@ -362,6 +372,8 @@ def assistant_thread_summary_payload(thread: AssistantThread) -> dict[str, Any]:
         "thread_id": thread.id,
         "title": thread.title,
         "preview": thread.preview,
+        "thread_kind": thread.thread_kind,
+        "linked_week_id": thread.linked_week_id,
         "created_at": thread.created_at,
         "updated_at": thread.updated_at,
     }

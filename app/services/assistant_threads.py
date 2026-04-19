@@ -31,8 +31,20 @@ def get_thread(session: Session, user_id: str, thread_id: str) -> AssistantThrea
     )
 
 
-def create_thread(session: Session, user_id: str, title: str = "") -> AssistantThread:
-    thread = AssistantThread(user_id=user_id, title=title.strip())
+def create_thread(
+    session: Session,
+    user_id: str,
+    title: str = "",
+    *,
+    thread_kind: str = "chat",
+    linked_week_id: str | None = None,
+) -> AssistantThread:
+    thread = AssistantThread(
+        user_id=user_id,
+        title=title.strip(),
+        thread_kind=thread_kind,
+        linked_week_id=linked_week_id,
+    )
     session.add(thread)
     session.flush()
     return thread
@@ -54,6 +66,7 @@ def create_message(
     recipe_draft: RecipePayload | None = None,
     attached_recipe_id: str | None = None,
     error: str = "",
+    tool_calls: list[dict[str, object]] | None = None,
 ) -> AssistantMessage:
     message = AssistantMessage(
         thread=thread,
@@ -61,6 +74,7 @@ def create_message(
         status=status,
         content_markdown=content_markdown,
         recipe_draft_json=recipe_draft.model_dump_json() if recipe_draft is not None else "",
+        tool_calls_json=json.dumps(tool_calls or [], separators=(",", ":")),
         attached_recipe_id=attached_recipe_id,
         error=error,
     )
@@ -78,10 +92,13 @@ def update_assistant_message(
     content_markdown: str,
     recipe_draft: RecipePayload | None = None,
     error: str = "",
+    tool_calls: list[dict[str, object]] | None = None,
 ) -> None:
     message.status = status
     message.content_markdown = content_markdown
     message.recipe_draft_json = recipe_draft.model_dump_json() if recipe_draft is not None else ""
+    if tool_calls is not None:
+        message.tool_calls_json = json.dumps(tool_calls, separators=(",", ":"))
     message.error = error
     message.completed_at = utcnow() if status in {"completed", "failed"} else None
     refresh_thread_metadata(thread)

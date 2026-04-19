@@ -41,6 +41,12 @@ class AssistantThread(Base):
     title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     preview: Mapped[str] = mapped_column(Text, default="", nullable=False)
     provider_thread_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    thread_kind: Mapped[str] = mapped_column(String(24), default="chat", nullable=False)
+    linked_week_id: Mapped[str | None] = mapped_column(
+        ForeignKey("weeks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -52,6 +58,7 @@ class AssistantThread(Base):
         cascade="all, delete-orphan",
         order_by=lambda: AssistantMessage.created_at,
     )
+    linked_week: Mapped["Week | None"] = relationship(foreign_keys=[linked_week_id])
 
 
 class AssistantMessage(Base):
@@ -63,6 +70,7 @@ class AssistantMessage(Base):
     status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
     content_markdown: Mapped[str] = mapped_column(Text, default="", nullable=False)
     recipe_draft_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    tool_calls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     attached_recipe_id: Mapped[str | None] = mapped_column(
         ForeignKey("recipes.id", ondelete="SET NULL"),
         nullable=True,
