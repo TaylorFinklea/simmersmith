@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=24), nullable=False, server_default="active"),
         sa.Column("current_period_starts_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("current_period_ends_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("auto_renew", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("auto_renew", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("raw_payload_json", sa.Text(), nullable=False, server_default="{}"),
         sa.Column(
