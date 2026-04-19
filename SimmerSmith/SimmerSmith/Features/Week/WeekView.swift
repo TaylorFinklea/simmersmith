@@ -88,6 +88,11 @@ struct WeekView: View {
             .padding(.bottom, SMSpacing.xl)
         }
         .overlay(alignment: .top) {
+            if isPlanningChatActive {
+                activeChatChip
+            }
+        }
+        .overlay(alignment: .top) {
             if let message = appState.lastErrorMessage, !message.isEmpty {
                 HStack(alignment: .top, spacing: SMSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -520,6 +525,18 @@ struct WeekView: View {
                 }
 
                 Spacer()
+
+                Button {
+                    Task { await openPlanningChat(forDate: date, dayName: dayName) }
+                } label: {
+                    Image(systemName: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(SMColor.aiPurple)
+                        .padding(6)
+                        .background(SMColor.aiPurple.opacity(0.12), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ask AI about \(dayName)")
 
                 if showMacros {
                     Button {
@@ -1080,7 +1097,7 @@ struct WeekView: View {
 
     // MARK: - Actions
 
-    private func openPlanningChat() async {
+    private func openPlanningChat(forDate: Date? = nil, dayName: String? = nil) async {
         var weekID = appState.currentWeek?.weekId
         if weekID == nil {
             let calendar = Calendar.current
@@ -1101,11 +1118,12 @@ struct WeekView: View {
 
         guard let linkedWeekID = weekID else { return }
 
-        let seed = buildPlanningSeedMessage()
+        let seed = buildPlanningSeedMessage(forDate: forDate, dayName: dayName)
+        let title = dayName.map { "Plan \($0)" } ?? "Plan this week"
         do {
             try await appState.beginAssistantLaunch(
                 initialText: seed,
-                title: "Plan this week",
+                title: title,
                 intent: "planning",
                 threadKind: "planning",
                 linkedWeekID: linkedWeekID
@@ -1115,7 +1133,50 @@ struct WeekView: View {
         }
     }
 
-    private func buildPlanningSeedMessage() -> String {
+    private var isPlanningChatActive: Bool {
+        guard let weekID = appState.currentWeek?.weekId else { return false }
+        return appState.assistantSendingThreadIDs.contains { threadID in
+            let linkedID =
+                appState.assistantThreadDetails[threadID]?.linkedWeekId
+                ?? appState.assistantThreads.first(where: { $0.threadId == threadID })?.linkedWeekId
+            return linkedID == weekID
+        }
+    }
+
+    private var activeChatChip: some View {
+        HStack(spacing: SMSpacing.sm) {
+            ProgressView().controlSize(.small).tint(SMColor.aiPurple)
+            Text("AI is editing this week…")
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textPrimary)
+            Spacer()
+            Button {
+                appState.selectedTab = .assistant
+            } label: {
+                Text("Open")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.primary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, SMSpacing.md)
+        .padding(.vertical, SMSpacing.sm)
+        .background(SMColor.aiPurple.opacity(0.14))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.aiPurple.opacity(0.4), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .padding(.horizontal, SMSpacing.md)
+        .padding(.top, SMSpacing.sm)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func buildPlanningSeedMessage(forDate: Date? = nil, dayName: String? = nil) -> String {
+        if let dayName, let forDate {
+            let iso = DayKey.server(forDate)
+            return "Help me with \(dayName) (\(iso)). What should I cook or change?"
+        }
         if let week = appState.currentWeek, !week.meals.isEmpty {
             return "Let's refine this week. What should I change?"
         }

@@ -10,8 +10,10 @@
 
 **Date**: 2026-04-19
 
-Shipped M6.1 + M6.2 (and most of M6.5 + M6.6): the Week-page sparkle button is
-now a conversational AI agent that can read and modify the week in real time.
+Shipped M6 end-to-end: the Week-page sparkle button is now a conversational
+AI agent that can read and modify the week in real time. Per-day "Ask AI",
+active-chat chip, 11 tools, and day-by-day `generate_week_plan` application
+all landed in this session.
 
 **What was done:**
 

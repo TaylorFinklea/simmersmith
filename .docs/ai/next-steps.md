@@ -17,8 +17,6 @@
 ## Immediate (M6 polish)
 
 - [ ] Live shakedown of the planning tool loop against real OpenAI (not just the monkeypatched test)
-- [ ] Incremental `generate_week_plan` (stream one day at a time; emit `week.updated` per day)
-- [ ] Per-day "Ask AI" button + active-chat chip on Week page
 - [ ] Anthropic tool-use support (current loop only runs on OpenAI-direct; Anthropic falls back to envelope path)
 - [ ] Deploy backend to Fly
 - [ ] Cut a new TestFlight build

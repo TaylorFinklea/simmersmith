@@ -164,6 +164,9 @@ async def respond_route(
 
         event_queue: "queue.Queue[tuple[str, dict[str, object]] | None]" = queue.Queue()
 
+        def on_event(event: str, data: dict[str, object]) -> None:
+            event_queue.put((event, data))
+
         def tool_runner(name: str, args: dict) -> AssistantToolResult:
             with session_scope() as tool_session:
                 result = run_tool(
@@ -173,11 +176,9 @@ async def respond_route(
                     linked_week_id=linked_week_id,
                     args=args,
                     settings=settings,
+                    on_event=on_event if use_tools else None,
                 )
             return result
-
-        def on_event(event: str, data: dict[str, object]) -> None:
-            event_queue.put((event, data))
 
         def worker() -> AssistantTurnResult:
             try:

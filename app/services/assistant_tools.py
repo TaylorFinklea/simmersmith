@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import Week, WeekMeal, WeekMealIngredient
+from sqlalchemy import delete as sa_delete
 from app.schemas import DietaryGoalPayload, DraftFromAIRequest, MealUpdatePayload
 from app.services.ai import profile_settings_map
 from app.services.drafts import apply_ai_draft, update_week_meals
@@ -153,6 +154,24 @@ def _run_get_current_week(
     )
 
 
+def _run_get_preferences_summary(
+    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+) -> AssistantToolResult:
+    from app.services.preferences import preference_summary_payload
+
+    del args, week, settings
+    summary = preference_summary_payload(session, user_id)
+    parts: list[str] = []
+    if summary.get("hard_avoids"):
+        parts.append("avoid " + ", ".join(summary["hard_avoids"]))
+    if summary.get("strong_likes"):
+        parts.append("loves " + ", ".join(summary["strong_likes"]))
+    if summary.get("rules"):
+        parts.append("rules: " + "; ".join(summary["rules"]))
+    detail = "; ".join(parts) if parts else "No strong preferences recorded yet."
+    return AssistantToolResult(ok=True, detail=detail, data={"summary": summary})
+
+
 def _run_get_dietary_goal(
     *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
@@ -177,7 +196,13 @@ def _run_get_dietary_goal(
 
 
 def _run_generate_week_plan(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *,
+    session: Session,
+    user_id: str,
+    week: Week | None,
+    args: dict,
+    settings: Settings,
+    on_event: Callable[[str, dict[str, object]], None] | None = None,
 ) -> AssistantToolResult:
     from app.services.week_planner import gather_planning_context, generate_week_plan
 
@@ -200,15 +225,95 @@ def _run_generate_week_plan(
         return AssistantToolResult(ok=False, detail=f"Planner failed: {exc}")
 
     draft = DraftFromAIRequest.model_validate(plan)
-    apply_ai_draft(session, week, draft)
-    session.flush()
+
+    # Apply day-by-day so the iOS client can show meals appearing
+    # progressively rather than all at once. The AI call is still one
+    # shot (the model returns the full week in a single response), but
+    # applying each day in its own commit + emitting week.updated gives
+    # the user a sense of progress while grocery/nutrition recomputation
+    # happens.
+    if on_event is None:
+        apply_ai_draft(session, week, draft)
+        session.flush()
+        payload = _week_payload_dict(session, user_id, week.id) or {}
+        meal_count = len(payload.get("meals") or [])
+        return AssistantToolResult(
+            ok=True,
+            detail=f"Planned the week with {meal_count} meals.",
+            week=payload,
+        )
+
+    meal_count = _apply_week_plan_incrementally(
+        session=session,
+        user_id=user_id,
+        week=week,
+        draft=draft,
+        on_event=on_event,
+    )
     payload = _week_payload_dict(session, user_id, week.id) or {}
-    meal_count = len(payload.get("meals", []) or [])
     return AssistantToolResult(
         ok=True,
         detail=f"Planned the week with {meal_count} meals.",
         week=payload,
     )
+
+
+def _apply_week_plan_incrementally(
+    *,
+    session: Session,
+    user_id: str,
+    week: Week,
+    draft: DraftFromAIRequest,
+    on_event: Callable[[str, dict[str, object]], None],
+) -> int:
+    """Apply an AI draft day-by-day, emitting week.updated between each day.
+
+    The heavy lifting (recipe upserts, grocery regen, change log) still runs
+    in `apply_ai_draft` — we just commit per-day partial state first so the
+    client can render a progressive reveal while the full commit finishes.
+    """
+    # Group draft meals by day.
+    by_day: dict[str, list] = {}
+    for meal in draft.meal_plan:
+        key = meal.meal_date.isoformat() if hasattr(meal.meal_date, "isoformat") else str(meal.meal_date)
+        by_day.setdefault(key, []).append(meal)
+
+    # Clear existing meals so we can add the new ones day by day.
+    session.execute(sa_delete(WeekMeal).where(WeekMeal.week_id == week.id))
+    session.flush()
+
+    meal_count = 0
+    for day_key in sorted(by_day.keys()):
+        for meal in by_day[day_key]:
+            session.add(
+                WeekMeal(
+                    week_id=week.id,
+                    day_name=meal.day_name,
+                    meal_date=meal.meal_date,
+                    slot=meal.slot,
+                    recipe_id=meal.recipe_id,
+                    recipe_name=meal.recipe_name,
+                    servings=meal.servings,
+                    scale_multiplier=1.0,
+                    source=meal.source,
+                    approved=False,
+                    notes=meal.notes,
+                    ai_generated=True,
+                    sort_order=0,
+                )
+            )
+            meal_count += 1
+        session.flush()
+        partial_payload = _week_payload_dict(session, user_id, week.id) or {}
+        on_event("week.updated", {"week": partial_payload})
+
+    # Now run the full apply pipeline. It'll delete the placeholder meals we
+    # inserted above and re-insert them with ingredient resolution + grocery
+    # regeneration + change history. The final week.updated event emits the
+    # authoritative state.
+    apply_ai_draft(session, week, draft)
+    session.flush()
+    return meal_count
 
 
 def _run_add_meal(
@@ -478,6 +583,14 @@ REGISTRY: dict[str, AssistantTool] = {
         gated_action=None,
         runner=_run_get_dietary_goal,
     ),
+    "get_preferences_summary": AssistantTool(
+        name="get_preferences_summary",
+        description="Read the user's taste preferences — likes, dislikes, hard avoids, household rules.",
+        parameters_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        mutates_week=False,
+        gated_action=None,
+        runner=_run_get_preferences_summary,
+    ),
     "generate_week_plan": AssistantTool(
         name="generate_week_plan",
         description=(
@@ -661,6 +774,7 @@ def run_tool(
     linked_week_id: str | None,
     args: dict[str, object],
     settings: Settings,
+    on_event: Callable[[str, dict[str, object]], None] | None = None,
 ) -> AssistantToolResult:
     tool = REGISTRY.get(name)
     if tool is None:
@@ -681,14 +795,20 @@ def run_tool(
                 detail=f"{text} (This is a Pro feature on the free tier.)",
             )
 
+    runner_kwargs: dict[str, object] = {
+        "session": session,
+        "user_id": user_id,
+        "week": week,
+        "args": dict(args or {}),
+        "settings": settings,
+    }
+    # Only the tools that advertise support for incremental events accept
+    # `on_event`. `generate_week_plan` is the only one today.
+    if tool.runner is _run_generate_week_plan:
+        runner_kwargs["on_event"] = on_event
+
     try:
-        result = tool.runner(
-            session=session,
-            user_id=user_id,
-            week=week,
-            args=dict(args or {}),
-            settings=settings,
-        )
+        result = tool.runner(**runner_kwargs)
     except Exception as exc:
         logger.exception("Assistant tool %s crashed", name)
         return AssistantToolResult(ok=False, detail=f"Tool {name} crashed: {exc}")

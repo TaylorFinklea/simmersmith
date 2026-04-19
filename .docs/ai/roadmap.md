@@ -107,19 +107,23 @@ The AI generations + Kroger + macros cost real money to run. Ship StoreKit 2 + s
 - [ ] StoreKit 2 client + paywall sheet + Settings subscription row
 - [ ] App Store Connect products (`simmersmith.pro.monthly`, `.annual`) + TestFlight sandbox validation
 
-## M6: Conversational Planning (in progress)
+## M6: Conversational Planning (complete)
 
 > Spec: `.docs/ai/phases/conversational-planning-spec.md`
 
-Rework the AI experience from two disconnected surfaces (one-shot sparkle + isolated Assistant chat) into one conversation. The Assistant gains tool access to the current week (read + write), the Week page becomes the execution view of what the Assistant built, and "plan my week" becomes a dialogue that streams meals in one at a time.
+Reworked the AI experience from two disconnected surfaces (one-shot sparkle + isolated Assistant chat) into one conversation. The Assistant has tool access to the current week (read + write), the Week page is the execution view of what the Assistant built, and "plan my week" is a dialogue.
 
-- [x] Assistant tool registry + gate reuse (read-only first)
+- [x] Assistant tool registry + gate reuse (11 tools)
 - [x] Mutation tools (add/swap/remove meal, rebalance day, fetch pricing, set dietary goal)
-- [ ] Incremental `generate_week_plan` (stream one day at a time)
+- [x] Incremental `generate_week_plan` (day-by-day commit + `week.updated` per day)
 - [x] Week-aware system prompt + `linked_week_id` per thread
 - [x] iOS tool-call cards in Assistant + `week.updated` SSE handler
 - [x] Week → Assistant entry points (sparkle opens a linked planning thread)
-- [ ] Per-day "Ask AI" button + active-chat chip on the Week page
+- [x] Per-day "Ask AI" button + active-chat chip on the Week page
+
+Deferred (future polish):
+- Anthropic tool-use support (OpenAI direct only for now; Anthropic threads fall back to the envelope-JSON path)
+- True per-day AI generation (one call per day) — current implementation keeps a single AI call but applies day-by-day so the client sees progressive state updates
 
 ## M7: Post-Launch Growth
 

@@ -44,6 +44,7 @@ def test_registry_exposes_expected_tools() -> None:
     expected = {
         "get_current_week",
         "get_dietary_goal",
+        "get_preferences_summary",
         "generate_week_plan",
         "add_meal",
         "swap_meal",
