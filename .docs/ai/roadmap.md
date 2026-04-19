@@ -107,18 +107,19 @@ The AI generations + Kroger + macros cost real money to run. Ship StoreKit 2 + s
 - [ ] StoreKit 2 client + paywall sheet + Settings subscription row
 - [ ] App Store Connect products (`simmersmith.pro.monthly`, `.annual`) + TestFlight sandbox validation
 
-## M6: Conversational Planning (next)
+## M6: Conversational Planning (in progress)
 
 > Spec: `.docs/ai/phases/conversational-planning-spec.md`
 
 Rework the AI experience from two disconnected surfaces (one-shot sparkle + isolated Assistant chat) into one conversation. The Assistant gains tool access to the current week (read + write), the Week page becomes the execution view of what the Assistant built, and "plan my week" becomes a dialogue that streams meals in one at a time.
 
-- [ ] Assistant tool registry + gate reuse (read-only first)
-- [ ] Mutation tools (add/swap/remove meal, rebalance day, fetch pricing, set dietary goal)
+- [x] Assistant tool registry + gate reuse (read-only first)
+- [x] Mutation tools (add/swap/remove meal, rebalance day, fetch pricing, set dietary goal)
 - [ ] Incremental `generate_week_plan` (stream one day at a time)
-- [ ] Week-aware system prompt + `linked_week_id` per thread
-- [ ] iOS tool-call cards in Assistant + `week_updated` SSE handler
-- [ ] Week → Assistant entry points ("Ask AI" long-tap, per-day link, active-chat chip)
+- [x] Week-aware system prompt + `linked_week_id` per thread
+- [x] iOS tool-call cards in Assistant + `week.updated` SSE handler
+- [x] Week → Assistant entry points (sparkle opens a linked planning thread)
+- [ ] Per-day "Ask AI" button + active-chat chip on the Week page
 
 ## M7: Post-Launch Growth
 

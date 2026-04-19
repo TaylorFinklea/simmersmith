@@ -8,12 +8,8 @@ struct WeekView: View {
     @State private var editingMeal: WeekMeal?
     @State private var navigatingToRecipeID: String?
     @State private var showingActivity = false
-    @State private var showingAIPlanner = false
     @State private var showingGrocery = false
     @State private var showingSettings = false
-    @State private var aiPrompt = ""
-    @State private var isGenerating = false
-    @State private var generationError: String?
 
     // Week navigation
     @State private var displayedWeekStart: Date?
@@ -86,11 +82,7 @@ struct WeekView: View {
             }
 
             AIFloatingButton {
-                if appState.currentWeek == nil {
-                    Task { await createWeekAndShowPlanner() }
-                } else {
-                    showingAIPlanner = true
-                }
+                Task { await openPlanningChat() }
             }
             .padding(.trailing, SMSpacing.xl)
             .padding(.bottom, SMSpacing.xl)
@@ -218,9 +210,6 @@ struct WeekView: View {
         }
         .sheet(isPresented: $showingSettings) {
             NavigationStack { SettingsView() }
-        }
-        .sheet(isPresented: $showingAIPlanner) {
-            aiPlannerSheet
         }
         .sheet(isPresented: Binding(
             get: { quickAddSlot != nil },
@@ -810,7 +799,7 @@ struct WeekView: View {
                 Text("No Week Yet")
                     .font(SMFont.headline)
                     .foregroundStyle(SMColor.textPrimary)
-                Text("Tap the sparkle button to plan your first week with AI.")
+                Text("Tap the sparkle button to chat with the AI and plan your first week.")
                     .font(SMFont.body)
                     .foregroundStyle(SMColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -818,83 +807,6 @@ struct WeekView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, SMSpacing.xxl)
-    }
-
-    // MARK: - AI Planner Sheet
-
-    private var aiPlannerSheet: some View {
-        NavigationStack {
-            ZStack {
-                SMColor.surface.ignoresSafeArea()
-
-                VStack(spacing: SMSpacing.xl) {
-                    VStack(spacing: SMSpacing.sm) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 36))
-                            .foregroundStyle(SMColor.primary)
-
-                        Text("Plan My Week")
-                            .font(SMFont.display)
-                            .foregroundStyle(SMColor.textPrimary)
-
-                        Text("Describe what you'd like to eat and AI will generate a full week of meals with recipes.")
-                            .font(SMFont.body)
-                            .foregroundStyle(SMColor.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, SMSpacing.xl)
-
-                    TextField(
-                        "e.g., healthy meals for two, quick dinners, lots of veggies...",
-                        text: $aiPrompt,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...6)
-                    .padding(SMSpacing.lg)
-                    .background(SMColor.surfaceCard)
-                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                    .foregroundStyle(SMColor.textPrimary)
-
-                    if let error = generationError {
-                        Text(error)
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.destructive)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    Button { Task { await generatePlan() } } label: {
-                        if isGenerating {
-                            HStack(spacing: SMSpacing.sm) {
-                                ProgressView()
-                                    .tint(SMColor.surface)
-                                Text("Generating meals...")
-                                    .font(SMFont.subheadline)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, SMSpacing.lg)
-                        } else {
-                            Label("Generate Week", systemImage: "wand.and.stars")
-                                .font(SMFont.subheadline)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, SMSpacing.lg)
-                        }
-                    }
-                    .foregroundStyle(isGenerating ? SMColor.textSecondary : .white)
-                    .background(isGenerating ? SMColor.surfaceElevated : SMColor.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                    .disabled(isGenerating)
-
-                    Spacer()
-                }
-                .padding(.horizontal, SMSpacing.xl)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showingAIPlanner = false }
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-            }
-        }
     }
 
     // MARK: - Approval Actions
@@ -1168,37 +1080,46 @@ struct WeekView: View {
 
     // MARK: - Actions
 
-    private func createWeekAndShowPlanner() async {
-        let calendar = Calendar.current
-        let today = Date()
-        let weekday = calendar.component(.weekday, from: today)
-        let daysFromMonday = (weekday + 5) % 7
-        let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: today)!
+    private func openPlanningChat() async {
+        var weekID = appState.currentWeek?.weekId
+        if weekID == nil {
+            let calendar = Calendar.current
+            let today = Date()
+            let weekday = calendar.component(.weekday, from: today)
+            let daysFromMonday = (weekday + 5) % 7
+            guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: today) else { return }
+            do {
+                let snapshot = try await appState.createWeek(weekStart: monday)
+                await appState.refreshWeek()
+                await loadAvailableWeeks()
+                weekID = snapshot.weekId
+            } catch {
+                appState.lastErrorMessage = error.localizedDescription
+                return
+            }
+        }
 
+        guard let linkedWeekID = weekID else { return }
+
+        let seed = buildPlanningSeedMessage()
         do {
-            _ = try await appState.createWeek(weekStart: monday)
-            await appState.refreshWeek()
-            await loadAvailableWeeks()
-            showingAIPlanner = true
+            try await appState.beginAssistantLaunch(
+                initialText: seed,
+                title: "Plan this week",
+                intent: "planning",
+                threadKind: "planning",
+                linkedWeekID: linkedWeekID
+            )
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
     }
 
-    private func generatePlan() async {
-        guard let weekID = appState.currentWeek?.weekId else { return }
-        isGenerating = true
-        generationError = nil
-        do {
-            _ = try await appState.generateWeekFromAI(weekID: weekID, prompt: aiPrompt)
-            showingAIPlanner = false
-        } catch SimmerSmithAPIError.usageLimitReached(let action, let limit, let used, _) {
-            showingAIPlanner = false
-            appState.presentPaywall(.limitReached(action: action, used: used, limit: limit))
-        } catch {
-            generationError = error.localizedDescription
+    private func buildPlanningSeedMessage() -> String {
+        if let week = appState.currentWeek, !week.meals.isEmpty {
+            return "Let's refine this week. What should I change?"
         }
-        isGenerating = false
+        return "Plan my week — tell me what sounds good and I'll suggest meals as we go."
     }
 
     // MARK: - Week Navigation

@@ -388,6 +388,13 @@ private struct AssistantMessageBubble: View {
     var body: some View {
         VStack(alignment: isUser ? .trailing : .leading, spacing: SMSpacing.sm) {
             VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                if !message.toolCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                        ForEach(message.toolCalls) { call in
+                            AssistantToolCallCard(call: call)
+                        }
+                    }
+                }
                 Text(displayText)
                     .font(SMFont.body)
                     .foregroundStyle(SMColor.textPrimary)

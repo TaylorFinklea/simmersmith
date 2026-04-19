@@ -8,30 +8,44 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-15
+**Date**: 2026-04-19
 
-Massive feature sprint across backend and iOS. Completed M1 (AI Planning Excellence), built M2 backend (Kroger pricing), and started M3 (Google Sign-In + iOS store/pricing UI).
+Shipped M6.1 + M6.2 (and most of M6.5 + M6.6): the Week-page sparkle button is
+now a conversational AI agent that can read and modify the week in real time.
 
 **What was done:**
 
-### M1: AI Planning Excellence (complete)
-- `PlanningContext` dataclass and `gather_planning_context()` in `week_planner.py`
-- Enhanced AI prompt with preference signals, staples, recent meals, stronger rules
-- `validate_plan_guardrails()` and `score_generated_plan()`
-- 19 new tests in `tests/test_week_planner.py`
+### Backend (commit `b288b80`)
+- New Alembic migration `20260419_0017` — adds `assistant_threads.linked_week_id`,
+  `assistant_threads.thread_kind`, and `assistant_messages.tool_calls_json`.
+- New `app/services/assistant_tools.py` — registry of 10 tools (get_current_week,
+  get_dietary_goal, generate_week_plan, add_meal, swap_meal, remove_meal,
+  set_meal_approved, rebalance_day, fetch_pricing, set_dietary_goal) with
+  JSON Schemas and gating via `ensure_action_allowed` / `increment_usage`.
+- `app/services/assistant_ai.py` gains `_run_openai_tool_loop` — native OpenAI
+  tool-calling with streamed `assistant.tool_call`, `assistant.tool_result`, and
+  `week.updated` SSE events, max 6 iterations.
+- `app/api/assistant.py` — streams the new events for planning threads; accepts
+  `thread_kind` + `linked_week_id` on thread create; persists tool-call
+  transcript on the assistant message.
+- Tests: `tests/test_assistant_tools.py` — registry shape, per-tool behavior,
+  planning-thread SSE round-trip (6 new tests; 130 total pass).
 
-### M2: Kroger Grocery Pricing (backend complete)
-- `app/services/kroger.py` — Kroger API client (OAuth2, store search, product pricing)
-- `fetch_kroger_pricing()` in `app/services/pricing.py`
-- `GET /api/stores/search` and `POST /api/weeks/{id}/pricing/fetch` endpoints
-- Relaxed retailer schema from Literal to `str`
-- 12 new tests in `tests/test_kroger.py`
-
-### M3: App Store Submission (in progress)
-- **Google Sign-In**: GoogleSignIn-iOS SPM dependency, `GIDSignIn` wired in SignInView, `signInWithGoogle()` in AppState + API client
-- **Store selection UI**: New `StoreSelectionView` (zip search → store picker → save to profile), Grocery section added to SettingsView
-- **Price display**: Kroger prices shown inline on grocery items, weekly estimated total at top
-- **API client**: Added `searchStores()`, `fetchPricing()`, `getPricing()`, `StoreLocation`, `PricingResponse` models
+### iOS
+- `SimmerSmithKit` models gain `threadKind` + `linkedWeekId` on thread summary
+  and thread; `AssistantMessage` gains `toolCalls: [AssistantToolCall]`; new
+  `SimmerSmithJSONValue` type for heterogeneous tool arguments. Custom
+  Decodable keeps old test fixtures working.
+- `apiClient.createAssistantThread` now forwards `threadKind` + `linkedWeekID`.
+- `AppState+Assistant` handles the three new SSE events; `week.updated` writes
+  directly to `appState.currentWeek` so the Week page reflects the AI's edits
+  live.
+- New `Features/Assistant/AssistantToolCallCard.swift` renders per-tool status
+  cards inline with message bubbles (running / done / failed).
+- `WeekView.swift` sparkle button now opens a planning-linked Assistant thread
+  pre-seeded with "Plan my week…" (or "refine this week" when meals exist)
+  instead of the old one-shot sheet. Dead modal + state variables removed.
+- Swift tests: 26/26 pass. iOS build: green on `generic/platform=iOS Simulator`.
 
 ## Production
 
@@ -41,15 +55,37 @@ Massive feature sprint across backend and iOS. Completed M1 (AI Planning Excelle
 
 ## Build Status
 
-- Backend: ruff clean, pytest 96/96 pass
+- Backend: ruff clean, pytest 130/130 pass
 - Swift tests: 26/26 pass
-- iOS build: pending (GoogleSignIn SPM resolving)
-- TestFlight: UPLOADED (build 3, not yet tested)
-- Production: deployed and healthy
+- iOS build: green (`generic/platform=iOS Simulator`)
+- TestFlight: UPLOADED (build 3, M6 changes not yet built to a new TestFlight build)
+- Production: not yet deployed with M6 changes
 
 ## Blockers
 
-- **iOS build**: Needs verification after GoogleSignIn SPM resolution
-- **Kroger credentials**: Need to register at developer.kroger.com
-- **Google Sign-In**: Need Google Cloud Console iOS client ID configured
-- **TestFlight**: Build 3 untested on device
+- **OpenAI API key required**: the tool-calling loop only fires when the thread
+  resolves to a `direct` OpenAI provider. MCP / Anthropic threads fall back to
+  the existing envelope-JSON (one-shot) behavior.
+- **No live end-to-end test yet**: all M6 testing so far uses a mocked
+  `run_assistant_turn`. The first real OpenAI-backed run of the planning
+  sparkle will be the shakedown.
+
+## Files Changed
+
+- `alembic/versions/20260419_0017_assistant_planning_tools.py` (new)
+- `app/services/assistant_tools.py` (new)
+- `app/services/assistant_ai.py`
+- `app/services/assistant_threads.py`
+- `app/services/presenters.py`
+- `app/api/assistant.py`
+- `app/models/ai.py`
+- `app/schemas/assistant.py`
+- `tests/test_assistant_tools.py` (new)
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+- `SimmerSmith/SimmerSmith/App/AppState+Assistant.swift`
+- `SimmerSmith/SimmerSmith/Features/Week/WeekView.swift`
+- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantView.swift`
+- `SimmerSmith/SimmerSmith/Features/Assistant/AssistantToolCallCard.swift` (new)
+- `.docs/ai/roadmap.md`

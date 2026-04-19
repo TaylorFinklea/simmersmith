@@ -46,6 +46,10 @@ final class AppState {
         let detail: String
     }
 
+    struct AssistantWeekUpdatedEvent: Decodable {
+        let week: WeekSnapshot
+    }
+
     let settingsStore: ConnectionSettingsStore
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient

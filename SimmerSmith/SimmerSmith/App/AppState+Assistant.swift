@@ -19,6 +19,8 @@ extension AppState {
                 threadId: thread.threadId,
                 title: thread.title,
                 preview: thread.preview,
+                threadKind: thread.threadKind,
+                linkedWeekId: thread.linkedWeekId,
                 createdAt: thread.createdAt,
                 updatedAt: thread.updatedAt
             )
@@ -26,8 +28,16 @@ extension AppState {
         return thread
     }
 
-    func createAssistantThread(title: String = "") async throws -> AssistantThreadSummary {
-        let thread = try await apiClient.createAssistantThread(title: title)
+    func createAssistantThread(
+        title: String = "",
+        threadKind: String = "chat",
+        linkedWeekID: String? = nil
+    ) async throws -> AssistantThreadSummary {
+        let thread = try await apiClient.createAssistantThread(
+            title: title,
+            threadKind: threadKind,
+            linkedWeekID: linkedWeekID
+        )
         upsertAssistantThreadSummary(thread)
         return thread
     }
@@ -44,9 +54,15 @@ extension AppState {
         title: String = "",
         attachedRecipeID: String? = nil,
         attachedRecipeDraft: RecipeDraft? = nil,
-        intent: String = "general"
+        intent: String = "general",
+        threadKind: String = "chat",
+        linkedWeekID: String? = nil
     ) async throws {
-        let thread = try await createAssistantThread(title: title)
+        let thread = try await createAssistantThread(
+            title: title,
+            threadKind: threadKind,
+            linkedWeekID: linkedWeekID
+        )
         assistantLaunchContext = AssistantLaunchContext(
             threadID: thread.threadId,
             initialText: initialText,
@@ -111,6 +127,8 @@ extension AppState {
                     threadId: detail.threadId,
                     title: summary.title,
                     preview: summary.preview,
+                    threadKind: summary.threadKind,
+                    linkedWeekId: summary.linkedWeekId,
                     createdAt: detail.createdAt,
                     updatedAt: summary.updatedAt,
                     messages: detail.messages
@@ -126,6 +144,15 @@ extension AppState {
         case "assistant.recipe_draft":
             let draftEvent = try event.decode(AssistantRecipeDraftEvent.self)
             attachAssistantDraft(threadID: threadID, event: draftEvent)
+        case "assistant.tool_call":
+            let call = try event.decode(AssistantToolCall.self)
+            appendAssistantToolCall(call, to: threadID)
+        case "assistant.tool_result":
+            let call = try event.decode(AssistantToolCall.self)
+            appendAssistantToolCall(call, to: threadID)
+        case "week.updated":
+            let updated = try event.decode(AssistantWeekUpdatedEvent.self)
+            currentWeek = updated.week
         case "assistant.completed":
             let message = try event.decode(AssistantMessage.self)
             replaceAssistantMessage(message, in: threadID)
@@ -135,6 +162,46 @@ extension AppState {
         default:
             break
         }
+    }
+
+    private func appendAssistantToolCall(_ call: AssistantToolCall, to threadID: String) {
+        guard let detail = assistantThreadDetails[threadID] else { return }
+        // Find the last streaming assistant message; attach/replace the tool
+        // call on it so the UI can render a live card.
+        guard let lastIndex = detail.messages.lastIndex(where: { $0.role == "assistant" }) else {
+            return
+        }
+        var messages = detail.messages
+        let existing = messages[lastIndex]
+        var toolCalls = existing.toolCalls
+        if let callIndex = toolCalls.firstIndex(where: { $0.callId == call.callId }) {
+            toolCalls[callIndex] = call
+        } else {
+            toolCalls.append(call)
+        }
+        messages[lastIndex] = AssistantMessage(
+            messageId: existing.messageId,
+            threadId: existing.threadId,
+            role: existing.role,
+            status: existing.status,
+            contentMarkdown: existing.contentMarkdown,
+            recipeDraft: existing.recipeDraft,
+            attachedRecipeId: existing.attachedRecipeId,
+            toolCalls: toolCalls,
+            createdAt: existing.createdAt,
+            completedAt: existing.completedAt,
+            error: existing.error
+        )
+        assistantThreadDetails[threadID] = AssistantThread(
+            threadId: detail.threadId,
+            title: detail.title,
+            preview: detail.preview,
+            threadKind: detail.threadKind,
+            linkedWeekId: detail.linkedWeekId,
+            createdAt: detail.createdAt,
+            updatedAt: detail.updatedAt,
+            messages: messages
+        )
     }
 
     private func upsertAssistantThreadSummary(_ thread: AssistantThreadSummary) {
@@ -148,7 +215,8 @@ extension AppState {
 
     private func appendAssistantMessage(_ message: AssistantMessage, to threadID: String) {
         let existing = assistantThreadDetails[threadID]
-        let createdAt = existing?.createdAt ?? assistantThreads.first(where: { $0.threadId == threadID })?.createdAt ?? .now
+        let summary = assistantThreads.first(where: { $0.threadId == threadID })
+        let createdAt = existing?.createdAt ?? summary?.createdAt ?? .now
         var messages = existing?.messages ?? []
         if messages.contains(where: { $0.messageId == message.messageId }) {
             replaceAssistantMessage(message, in: threadID)
@@ -158,8 +226,10 @@ extension AppState {
         messages.sort { $0.createdAt < $1.createdAt }
         assistantThreadDetails[threadID] = AssistantThread(
             threadId: threadID,
-            title: existing?.title ?? assistantThreads.first(where: { $0.threadId == threadID })?.title ?? "New Assistant Chat",
-            preview: existing?.preview ?? assistantThreads.first(where: { $0.threadId == threadID })?.preview ?? "",
+            title: existing?.title ?? summary?.title ?? "New Assistant Chat",
+            preview: existing?.preview ?? summary?.preview ?? "",
+            threadKind: existing?.threadKind ?? summary?.threadKind ?? "chat",
+            linkedWeekId: existing?.linkedWeekId ?? summary?.linkedWeekId,
             createdAt: createdAt,
             updatedAt: existing?.updatedAt ?? .now,
             messages: messages
@@ -173,11 +243,29 @@ extension AppState {
         }
         if let index = detail.messages.firstIndex(where: { $0.messageId == message.messageId }) {
             var messages = detail.messages
-            messages[index] = message
+            // Preserve any tool_calls we accumulated from SSE events if the
+            // server-sent "completed" message is missing them (defensive).
+            let preservedCalls = messages[index].toolCalls
+            let incoming = message.toolCalls.isEmpty ? preservedCalls : message.toolCalls
+            messages[index] = AssistantMessage(
+                messageId: message.messageId,
+                threadId: message.threadId,
+                role: message.role,
+                status: message.status,
+                contentMarkdown: message.contentMarkdown,
+                recipeDraft: message.recipeDraft,
+                attachedRecipeId: message.attachedRecipeId,
+                toolCalls: incoming,
+                createdAt: message.createdAt,
+                completedAt: message.completedAt,
+                error: message.error
+            )
             detail = AssistantThread(
                 threadId: detail.threadId,
                 title: detail.title,
                 preview: detail.preview,
+                threadKind: detail.threadKind,
+                linkedWeekId: detail.linkedWeekId,
                 createdAt: detail.createdAt,
                 updatedAt: detail.updatedAt,
                 messages: messages
@@ -199,6 +287,7 @@ extension AppState {
                     contentMarkdown: existing.contentMarkdown + delta.delta,
                     recipeDraft: existing.recipeDraft,
                     attachedRecipeId: existing.attachedRecipeId,
+                    toolCalls: existing.toolCalls,
                     createdAt: existing.createdAt,
                     completedAt: existing.completedAt,
                     error: existing.error
@@ -237,6 +326,7 @@ extension AppState {
                 contentMarkdown: existing.contentMarkdown,
                 recipeDraft: event.draft,
                 attachedRecipeId: existing.attachedRecipeId,
+                toolCalls: existing.toolCalls,
                 createdAt: existing.createdAt,
                 completedAt: existing.completedAt,
                 error: existing.error

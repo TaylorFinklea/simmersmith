@@ -79,6 +79,8 @@ private struct FetchPricingBody: Encodable {
 
 private struct AssistantThreadCreateBody: Encodable {
     let title: String
+    let threadKind: String
+    let linkedWeekId: String?
 }
 
 private struct ProfileUpdateBody: Encodable {
@@ -694,11 +696,19 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/assistant/threads")
     }
 
-    public func createAssistantThread(title: String = "") async throws -> AssistantThreadSummary {
+    public func createAssistantThread(
+        title: String = "",
+        threadKind: String = "chat",
+        linkedWeekID: String? = nil
+    ) async throws -> AssistantThreadSummary {
         try await request(
             path: "/api/assistant/threads",
             method: "POST",
-            body: AssistantThreadCreateBody(title: title)
+            body: AssistantThreadCreateBody(
+                title: title,
+                threadKind: threadKind,
+                linkedWeekId: linkedWeekID
+            )
         )
     }
 

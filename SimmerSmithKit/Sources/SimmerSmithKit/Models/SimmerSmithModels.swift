@@ -1,5 +1,80 @@
 import Foundation
 
+/// A small type that can round-trip arbitrary JSON values — used for
+/// assistant tool-call arguments where the shape varies per tool.
+public enum SimmerSmithJSONValue: Codable, Hashable, Sendable {
+    case string(String)
+    case number(Double)
+    case integer(Int)
+    case bool(Bool)
+    case null
+    case array([SimmerSmithJSONValue])
+    case object([String: SimmerSmithJSONValue])
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+            return
+        }
+        if let bool = try? container.decode(Bool.self) {
+            self = .bool(bool)
+            return
+        }
+        if let int = try? container.decode(Int.self) {
+            self = .integer(int)
+            return
+        }
+        if let double = try? container.decode(Double.self) {
+            self = .number(double)
+            return
+        }
+        if let string = try? container.decode(String.self) {
+            self = .string(string)
+            return
+        }
+        if let array = try? container.decode([SimmerSmithJSONValue].self) {
+            self = .array(array)
+            return
+        }
+        if let object = try? container.decode([String: SimmerSmithJSONValue].self) {
+            self = .object(object)
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Unsupported JSON value"
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .integer(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+
+    public var stringDescription: String {
+        switch self {
+        case .string(let value): return value
+        case .number(let value): return String(value)
+        case .integer(let value): return String(value)
+        case .bool(let value): return String(value)
+        case .null: return "null"
+        case .array(let value):
+            return "[" + value.map { $0.stringDescription }.joined(separator: ", ") + "]"
+        case .object(let value):
+            return "{" + value.map { "\($0.key): \($0.value.stringDescription)" }.joined(separator: ", ") + "}"
+        }
+    }
+}
+
 public struct AuthTokenResponse: Codable, Sendable {
     public let token: String
     public let userId: String
@@ -755,10 +830,45 @@ public struct RecipeAIOptions: Codable, Hashable, Sendable {
     public let options: [RecipeAIDraftOption]
 }
 
+public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
+    public let callId: String
+    public let name: String
+    public let arguments: [String: SimmerSmithJSONValue]
+    public let ok: Bool
+    public let detail: String
+    public let status: String
+    public let startedAt: Date?
+    public let completedAt: Date?
+
+    public var id: String { callId }
+
+    public init(
+        callId: String,
+        name: String,
+        arguments: [String: SimmerSmithJSONValue] = [:],
+        ok: Bool = true,
+        detail: String = "",
+        status: String = "completed",
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
+    ) {
+        self.callId = callId
+        self.name = name
+        self.arguments = arguments
+        self.ok = ok
+        self.detail = detail
+        self.status = status
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
+}
+
 public struct AssistantThreadSummary: Codable, Identifiable, Hashable, Sendable {
     public let threadId: String
     public let title: String
     public let preview: String
+    public let threadKind: String
+    public let linkedWeekId: String?
     public let createdAt: Date
     public let updatedAt: Date
 
@@ -768,14 +878,29 @@ public struct AssistantThreadSummary: Codable, Identifiable, Hashable, Sendable 
         threadId: String,
         title: String,
         preview: String,
+        threadKind: String = "chat",
+        linkedWeekId: String? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
         self.threadId = threadId
         self.title = title
         self.preview = preview
+        self.threadKind = threadKind
+        self.linkedWeekId = linkedWeekId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        threadId = try container.decode(String.self, forKey: .threadId)
+        title = try container.decode(String.self, forKey: .title)
+        preview = (try container.decodeIfPresent(String.self, forKey: .preview)) ?? ""
+        threadKind = (try container.decodeIfPresent(String.self, forKey: .threadKind)) ?? "chat"
+        linkedWeekId = try container.decodeIfPresent(String.self, forKey: .linkedWeekId)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -787,6 +912,7 @@ public struct AssistantMessage: Codable, Identifiable, Hashable, Sendable {
     public let contentMarkdown: String
     public let recipeDraft: RecipeDraft?
     public let attachedRecipeId: String?
+    public let toolCalls: [AssistantToolCall]
     public let createdAt: Date
     public let completedAt: Date?
     public let error: String
@@ -801,6 +927,7 @@ public struct AssistantMessage: Codable, Identifiable, Hashable, Sendable {
         contentMarkdown: String,
         recipeDraft: RecipeDraft?,
         attachedRecipeId: String?,
+        toolCalls: [AssistantToolCall] = [],
         createdAt: Date,
         completedAt: Date?,
         error: String
@@ -812,9 +939,25 @@ public struct AssistantMessage: Codable, Identifiable, Hashable, Sendable {
         self.contentMarkdown = contentMarkdown
         self.recipeDraft = recipeDraft
         self.attachedRecipeId = attachedRecipeId
+        self.toolCalls = toolCalls
         self.createdAt = createdAt
         self.completedAt = completedAt
         self.error = error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        messageId = try container.decode(String.self, forKey: .messageId)
+        threadId = try container.decode(String.self, forKey: .threadId)
+        role = try container.decode(String.self, forKey: .role)
+        status = try container.decode(String.self, forKey: .status)
+        contentMarkdown = (try container.decodeIfPresent(String.self, forKey: .contentMarkdown)) ?? ""
+        recipeDraft = try container.decodeIfPresent(RecipeDraft.self, forKey: .recipeDraft)
+        attachedRecipeId = try container.decodeIfPresent(String.self, forKey: .attachedRecipeId)
+        toolCalls = (try container.decodeIfPresent([AssistantToolCall].self, forKey: .toolCalls)) ?? []
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        error = (try container.decodeIfPresent(String.self, forKey: .error)) ?? ""
     }
 }
 
@@ -822,6 +965,8 @@ public struct AssistantThread: Codable, Identifiable, Hashable, Sendable {
     public let threadId: String
     public let title: String
     public let preview: String
+    public let threadKind: String
+    public let linkedWeekId: String?
     public let createdAt: Date
     public let updatedAt: Date
     public let messages: [AssistantMessage]
@@ -832,6 +977,8 @@ public struct AssistantThread: Codable, Identifiable, Hashable, Sendable {
         threadId: String,
         title: String,
         preview: String,
+        threadKind: String = "chat",
+        linkedWeekId: String? = nil,
         createdAt: Date,
         updatedAt: Date,
         messages: [AssistantMessage]
@@ -839,9 +986,23 @@ public struct AssistantThread: Codable, Identifiable, Hashable, Sendable {
         self.threadId = threadId
         self.title = title
         self.preview = preview
+        self.threadKind = threadKind
+        self.linkedWeekId = linkedWeekId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.messages = messages
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        threadId = try container.decode(String.self, forKey: .threadId)
+        title = try container.decode(String.self, forKey: .title)
+        preview = (try container.decodeIfPresent(String.self, forKey: .preview)) ?? ""
+        threadKind = (try container.decodeIfPresent(String.self, forKey: .threadKind)) ?? "chat"
+        linkedWeekId = try container.decodeIfPresent(String.self, forKey: .linkedWeekId)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        messages = (try container.decodeIfPresent([AssistantMessage].self, forKey: .messages)) ?? []
     }
 }
 
