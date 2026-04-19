@@ -45,6 +45,7 @@ class ProfileResponse(BaseModel):
     staples: list[StaplePayload]
     dietary_goal: DietaryGoalOut | None = None
     is_pro: bool = False
+    is_trial: bool = False
     usage: list[UsageSummaryOut] = Field(default_factory=list)
 
 

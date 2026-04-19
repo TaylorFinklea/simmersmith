@@ -89,7 +89,20 @@ def is_open_mode(settings: Settings | None = None) -> bool:
     return not bool(settings.jwt_secret) and not bool(settings.api_token.strip())
 
 
-def is_pro(session: Session, user_id: str, *, now: datetime | None = None) -> bool:
+def is_trial_pro(settings: Settings | None = None) -> bool:
+    """The temporary "free Pro for everyone during beta" switch.
+
+    Controlled by the `SIMMERSMITH_TRIAL_MODE_ENABLED` env var on the
+    backend. Separate from real paid Pro so the iOS client can render
+    promotional copy instead of the usual "you're subscribed" row.
+    """
+    settings = settings or get_settings()
+    return bool(settings.trial_mode_enabled)
+
+
+def is_pro(session: Session, user_id: str, *, now: datetime | None = None, settings: Settings | None = None) -> bool:
+    if is_trial_pro(settings):
+        return True
     sub = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
     if sub is None:
         return False

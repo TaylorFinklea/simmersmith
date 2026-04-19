@@ -193,7 +193,24 @@ struct SettingsView: View {
             }
 
             Section("Subscription") {
-                if appState.isPro {
+                if appState.isTrialPro {
+                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                        HStack {
+                            Label("SimmerSmith Pro", systemImage: "sparkles")
+                                .foregroundStyle(SMColor.aiPurple)
+                            Spacer()
+                            Text("Beta promo")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SMColor.aiPurple)
+                                .padding(.horizontal, SMSpacing.xs)
+                                .padding(.vertical, 2)
+                                .background(SMColor.aiPurple.opacity(0.15), in: Capsule())
+                        }
+                        Text("All Pro features are unlocked during SimmerSmith's beta. No payment required — this will convert to a paid tier before public launch.")
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                } else if appState.isPro {
                     HStack {
                         Label("SimmerSmith Pro", systemImage: "sparkles")
                             .foregroundStyle(SMColor.aiPurple)

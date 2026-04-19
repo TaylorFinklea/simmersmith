@@ -107,9 +107,22 @@ The AI generations + Kroger + macros cost real money to run. Ship StoreKit 2 + s
 - [ ] StoreKit 2 client + paywall sheet + Settings subscription row
 - [ ] App Store Connect products (`simmersmith.pro.monthly`, `.annual`) + TestFlight sandbox validation
 
-## M6: Post-Launch Growth
+## M6: Conversational Planning (next)
 
-After M5 is monetized.
+> Spec: `.docs/ai/phases/conversational-planning-spec.md`
+
+Rework the AI experience from two disconnected surfaces (one-shot sparkle + isolated Assistant chat) into one conversation. The Assistant gains tool access to the current week (read + write), the Week page becomes the execution view of what the Assistant built, and "plan my week" becomes a dialogue that streams meals in one at a time.
+
+- [ ] Assistant tool registry + gate reuse (read-only first)
+- [ ] Mutation tools (add/swap/remove meal, rebalance day, fetch pricing, set dietary goal)
+- [ ] Incremental `generate_week_plan` (stream one day at a time)
+- [ ] Week-aware system prompt + `linked_week_id` per thread
+- [ ] iOS tool-call cards in Assistant + `week_updated` SSE handler
+- [ ] Week → Assistant entry points ("Ask AI" long-tap, per-day link, active-chat chip)
+
+## M7: Post-Launch Growth
+
+After M6 is shipped.
 
 - [ ] Household sharing tied to a Pro seat
 - [ ] Recipe images (AI-generated or fetched)

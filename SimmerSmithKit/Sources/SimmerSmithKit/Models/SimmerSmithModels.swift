@@ -47,6 +47,7 @@ public struct ProfileSnapshot: Codable, Sendable {
     public let staples: [Staple]
     public let dietaryGoal: DietaryGoal?
     public let isPro: Bool
+    public let isTrial: Bool
     public let usage: [UsageSummary]
 
     enum CodingKeys: String, CodingKey {
@@ -56,6 +57,7 @@ public struct ProfileSnapshot: Codable, Sendable {
         case staples
         case dietaryGoal
         case isPro
+        case isTrial
         case usage
     }
 
@@ -67,6 +69,7 @@ public struct ProfileSnapshot: Codable, Sendable {
         staples = try container.decodeIfPresent([Staple].self, forKey: .staples) ?? []
         dietaryGoal = try container.decodeIfPresent(DietaryGoal.self, forKey: .dietaryGoal)
         isPro = try container.decodeIfPresent(Bool.self, forKey: .isPro) ?? false
+        isTrial = try container.decodeIfPresent(Bool.self, forKey: .isTrial) ?? false
         usage = try container.decodeIfPresent([UsageSummary].self, forKey: .usage) ?? []
     }
 }

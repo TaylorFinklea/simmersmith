@@ -13,6 +13,13 @@ extension AppState {
         return subscriptionStore.isEntitled
     }
 
+    /// True when the "Pro for everyone during beta" toggle is driving
+    /// `isPro`, not a real StoreKit transaction. Used to render
+    /// promotional copy in Settings instead of the subscription row.
+    var isTrialPro: Bool {
+        profile?.isTrial ?? false
+    }
+
     /// The current monthly usage summary the server returned. Returns an
     /// empty list if the profile hasn't loaded yet.
     var usageSummaries: [UsageSummary] {

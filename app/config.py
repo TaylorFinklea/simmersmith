@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     kroger_client_id: str = ""
     kroger_client_secret: str = ""
 
+    # Temporary "Pro for everyone" promo. When true, `is_pro()` returns
+    # True for all users regardless of their Subscription row, and the
+    # /api/profile response flags `is_trial: true` so the iOS client can
+    # show a promotional copy in Settings rather than the paid-Pro copy.
+    # Flip off by setting SIMMERSMITH_TRIAL_MODE_ENABLED=false (or
+    # unsetting it).
+    trial_mode_enabled: bool = False
+
     # App Store Connect — in-app purchase verification
     #
     # `apple_iap_bundle_id` is usually the same as `apple_bundle_id` but kept

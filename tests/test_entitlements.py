@@ -202,6 +202,7 @@ def test_upsert_subscription_migrates_between_users(client) -> None:  # noqa: AR
 def test_profile_response_exposes_is_pro_and_usage(client) -> None:
     body = client.get("/api/profile").json()
     assert "is_pro" in body
+    assert "is_trial" in body
     assert "usage" in body
     # Open mode returns is_pro=False but the 4 gated actions appear so the
     # iOS client can render progress indicators even before paywall time.
@@ -212,3 +213,31 @@ def test_profile_response_exposes_is_pro_and_usage(client) -> None:
         ACTION_REBALANCE_DAY,
         "recipe_import",
     }
+
+
+def test_trial_mode_unlocks_pro_for_everyone(enforced_mode) -> None:  # noqa: ARG001
+    """When SIMMERSMITH_TRIAL_MODE_ENABLED=true, any user is Pro."""
+    os.environ["SIMMERSMITH_TRIAL_MODE_ENABLED"] = "true"
+    get_settings.cache_clear()
+    try:
+        with session_scope() as session:
+            # Fresh user has no subscription row, so normally would be free.
+            assert is_pro(session, "nobody-in-particular") is True
+            # Gate should be a no-op for every action.
+            for _ in range(5):
+                ensure_action_allowed(session, "nobody-in-particular", ACTION_AI_GENERATE)
+    finally:
+        os.environ.pop("SIMMERSMITH_TRIAL_MODE_ENABLED", None)
+        get_settings.cache_clear()
+
+
+def test_trial_mode_surfaces_is_trial_flag(client) -> None:
+    os.environ["SIMMERSMITH_TRIAL_MODE_ENABLED"] = "true"
+    get_settings.cache_clear()
+    try:
+        body = client.get("/api/profile").json()
+        assert body["is_pro"] is True
+        assert body["is_trial"] is True
+    finally:
+        os.environ.pop("SIMMERSMITH_TRIAL_MODE_ENABLED", None)
+        get_settings.cache_clear()
