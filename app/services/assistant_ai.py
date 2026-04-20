@@ -79,6 +79,10 @@ class AssistantTurnResult:
     envelope: AssistantProviderEnvelope
     provider_thread_id: str | None = None
     tool_calls: list[dict[str, object]] = field(default_factory=list)
+    # True when the runner already emitted `assistant.delta` events via the
+    # on_event callback (streaming mode). When True the endpoint should skip
+    # re-emitting the final content as chunks.
+    streamed_deltas: bool = False
 
 
 def resolve_assistant_execution_target(
@@ -241,13 +245,23 @@ def _run_openai_tool_loop(
             except Exception:
                 logger.exception("Assistant event callback raised")
 
+    accumulated_text = ""
+
     for iteration in range(MAX_TOOL_ITERATIONS):
+        # Stream tokens + tool_call deltas so the iOS client renders text as
+        # it arrives instead of waiting for the whole response to buffer.
+        turn_text = ""
+        tool_calls_acc: dict[int, dict[str, str]] = {}
+        finish_reason = ""
+
         with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
-            response = client.post(
+            with client.stream(
+                "POST",
                 "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    "Accept": "text/event-stream",
                 },
                 json={
                     "model": target.model,
@@ -255,34 +269,99 @@ def _run_openai_tool_loop(
                     "tools": openai_tools_schema(),
                     "tool_choice": "auto",
                     "temperature": 0.3,
+                    "stream": True,
                 },
-            )
-        response.raise_for_status()
-        payload = response.json()
-        raw_final = json.dumps(payload)
-        choice = payload["choices"][0]
-        message = choice.get("message", {})
-        finish_reason = choice.get("finish_reason", "")
-        tool_calls = message.get("tool_calls") or []
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    delta = choice.get("delta") or {}
+                    content_piece = delta.get("content")
+                    if content_piece:
+                        turn_text += content_piece
+                        accumulated_text += content_piece
+                        _emit("assistant.delta", {"delta": content_piece})
+                    for tc_delta in delta.get("tool_calls") or []:
+                        idx = tc_delta.get("index")
+                        if idx is None:
+                            continue
+                        acc = tool_calls_acc.setdefault(
+                            int(idx),
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        if tc_delta.get("id"):
+                            acc["id"] = str(tc_delta["id"])
+                        fn_delta = tc_delta.get("function") or {}
+                        if fn_delta.get("name"):
+                            acc["name"] += str(fn_delta["name"])
+                        if fn_delta.get("arguments"):
+                            acc["arguments"] += str(fn_delta["arguments"])
+                    if choice.get("finish_reason"):
+                        finish_reason = str(choice["finish_reason"])
 
-        if not tool_calls:
-            final_text = (message.get("content") or "").strip()
+        # Capture the last raw chunk for AIRun logging (full record is
+        # approximated as the accumulated text + tool calls).
+        raw_final = json.dumps(
+            {
+                "finish_reason": finish_reason,
+                "content": turn_text,
+                "tool_calls": [
+                    {
+                        "index": idx,
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "arguments": tc["arguments"],
+                    }
+                    for idx, tc in sorted(tool_calls_acc.items())
+                ],
+            }
+        )
+
+        if not tool_calls_acc:
+            final_text = turn_text.strip()
             break
 
-        assistant_msg: dict[str, object] = {
-            "role": "assistant",
-            "content": message.get("content") or None,
-            "tool_calls": tool_calls,
-        }
-        messages.append(assistant_msg)
+        # Preserve OpenAI's expected assistant message shape for the next turn.
+        assistant_msg_tool_calls = [
+            {
+                "id": tool_calls_acc[idx]["id"] or f"call_{idx}",
+                "type": "function",
+                "function": {
+                    "name": tool_calls_acc[idx]["name"],
+                    "arguments": tool_calls_acc[idx]["arguments"] or "{}",
+                },
+            }
+            for idx in sorted(tool_calls_acc.keys())
+        ]
+        messages.append(
+            {
+                "role": "assistant",
+                "content": turn_text or None,
+                "tool_calls": assistant_msg_tool_calls,
+            }
+        )
 
-        for call in tool_calls:
-            call_id = str(call.get("id") or uuid.uuid4())
-            fn = call.get("function", {})
-            name = str(fn.get("name") or "")
-            raw_args = fn.get("arguments") or "{}"
+        for idx in sorted(tool_calls_acc.keys()):
+            acc = tool_calls_acc[idx]
+            call_id = acc["id"] or str(uuid.uuid4())
+            name = acc["name"]
+            raw_args = acc["arguments"] or "{}"
             try:
-                args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                args = json.loads(raw_args)
                 if not isinstance(args, dict):
                     args = {}
             except json.JSONDecodeError:
@@ -328,12 +407,13 @@ def _run_openai_tool_loop(
             )
 
         if finish_reason == "stop":
+            final_text = turn_text.strip()
             break
     else:
         logger.warning("Assistant tool loop exceeded %s iterations", MAX_TOOL_ITERATIONS)
 
-    if final_text is None:
-        final_text = "I hit a tool-call limit before I could finish. Can you try again?"
+    if final_text is None or not final_text:
+        final_text = accumulated_text.strip() or "I hit a tool-call limit before I could finish. Can you try again?"
 
     envelope = AssistantProviderEnvelope(assistant_markdown=final_text or "Done.")
     return AssistantTurnResult(
@@ -343,6 +423,7 @@ def _run_openai_tool_loop(
         envelope=envelope,
         provider_thread_id=None,
         tool_calls=tool_transcript,
+        streamed_deltas=True,
     )
 
 

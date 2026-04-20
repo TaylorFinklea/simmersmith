@@ -181,6 +181,11 @@ async def respond_route(
         event_queue: "queue.Queue[tuple[str, dict[str, object]] | None]" = queue.Queue()
 
         def on_event(event: str, data: dict[str, object]) -> None:
+            # The tool loop doesn't know the assistant_message_id; inject it
+            # here so the iOS client can attribute deltas to the correct
+            # message bubble.
+            if event == "assistant.delta" and "message_id" not in data:
+                data["message_id"] = assistant_message_id
             event_queue.put((event, data))
 
         def tool_runner(name: str, args: dict) -> AssistantToolResult:
@@ -273,8 +278,9 @@ async def respond_route(
                 message_payload = assistant_message_payload(live_message)
                 thread_payload = assistant_thread_summary_payload(live_thread)
 
-            for chunk in chunk_text(result.envelope.assistant_markdown):
-                yield encode_sse("assistant.delta", {"message_id": assistant_message_id, "delta": chunk})
+            if not result.streamed_deltas:
+                for chunk in chunk_text(result.envelope.assistant_markdown):
+                    yield encode_sse("assistant.delta", {"message_id": assistant_message_id, "delta": chunk})
             if message_payload["recipe_draft"] is not None:
                 yield encode_sse(
                     "assistant.recipe_draft",

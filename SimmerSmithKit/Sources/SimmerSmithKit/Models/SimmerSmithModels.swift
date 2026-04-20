@@ -861,6 +861,22 @@ public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
         self.startedAt = startedAt
         self.completedAt = completedAt
     }
+
+    public init(from decoder: Decoder) throws {
+        // Custom decoder because `assistant.tool_call` (running state) doesn't
+        // carry `ok`/`detail` — only `assistant.tool_result` does. Synthesized
+        // Decodable would reject those partial payloads and break the SSE
+        // stream. Defaults mirror the init above.
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        callId = try container.decode(String.self, forKey: .callId)
+        name = try container.decode(String.self, forKey: .name)
+        arguments = (try container.decodeIfPresent([String: SimmerSmithJSONValue].self, forKey: .arguments)) ?? [:]
+        ok = (try container.decodeIfPresent(Bool.self, forKey: .ok)) ?? true
+        detail = (try container.decodeIfPresent(String.self, forKey: .detail)) ?? ""
+        status = (try container.decodeIfPresent(String.self, forKey: .status)) ?? "running"
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+    }
 }
 
 public struct AssistantThreadSummary: Codable, Identifiable, Hashable, Sendable {

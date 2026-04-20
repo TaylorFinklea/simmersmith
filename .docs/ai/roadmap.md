@@ -125,10 +125,21 @@ Deferred (future polish):
 - Anthropic tool-use support (OpenAI direct only for now; Anthropic threads fall back to the envelope-JSON path)
 - True per-day AI generation (one call per day) — current implementation keeps a single AI call but applies day-by-day so the client sees progressive state updates
 
-## M7: Post-Launch Growth
+## M7: Assistant Polish + Post-Launch Growth
 
 After M6 is shipped.
 
+### Assistant polish (open from the 2026-04-20 shakedown)
+- [x] True token-by-token streaming via OpenAI `stream: true` (was: chunk-on-complete)
+- [x] Tolerant `AssistantToolCall` decoder (missing `ok`/`detail` on running events)
+- [ ] Investigate "cancelled" error on pull-to-refresh after closing the assistant sheet mid-stream
+- [ ] When the AI writes text that describes a tool-like action but doesn't call a tool, detect + warn (no more "I swapped Tuesday" hallucinations when nothing was swapped)
+- [ ] Persist streamed deltas server-side as they arrive (current: whole `content_markdown` written only on completion)
+- [ ] Cancel the SSE stream + abort the assistant turn when the user dismisses the sheet mid-stream
+- [ ] Anthropic tool-use support (OpenAI-direct only today; Anthropic falls back to envelope JSON)
+- [ ] True per-day AI generation (one AI call per day of `generate_week_plan`)
+
+### Post-launch growth
 - [ ] Household sharing tied to a Pro seat
 - [ ] Recipe images (AI-generated or fetched)
 - [ ] Smart substitutions powered by ingredient preferences
