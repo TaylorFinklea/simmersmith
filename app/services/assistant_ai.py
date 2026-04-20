@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 import httpx
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
@@ -402,7 +403,11 @@ def _run_openai_tool_loop(
                 {
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": json.dumps(result.to_model_reply()),
+                    # `result.to_model_reply()` can contain `date` / `datetime`
+                    # objects (week_start, meal_date) from the week payload.
+                    # Plain `json.dumps` can't serialize those — route through
+                    # FastAPI's jsonable_encoder first.
+                    "content": json.dumps(jsonable_encoder(result.to_model_reply())),
                 }
             )
 

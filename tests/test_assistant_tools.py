@@ -175,6 +175,39 @@ def test_tool_set_dietary_goal(client) -> None:
     assert read_back.data["goal"]["daily_calories"] == 2000
 
 
+def test_tool_result_reply_is_json_serializable(client) -> None:
+    """Regression: the tool loop feeds `json.dumps(result.to_model_reply())`
+    back to the model. Week payloads contain `date` / `datetime` objects, so
+    a naive `json.dumps` raises `TypeError: Object of type date is not JSON
+    serializable`. The tool result must be pre-encoded via jsonable_encoder.
+    """
+    import json as _json
+
+    from fastapi.encoders import jsonable_encoder
+
+    week_id = _seed_week(client)
+    with session_scope() as session:
+        add_result = run_tool(
+            "add_meal",
+            session=session,
+            user_id=get_settings().local_user_id,
+            linked_week_id=week_id,
+            args={
+                "day_name": "Monday",
+                "meal_date": "2026-04-20",
+                "slot": "dinner",
+                "recipe_name": "Salmon Tacos",
+            },
+            settings=get_settings(),
+        )
+    assert add_result.ok is True
+    assert add_result.week is not None
+    # Plain json.dumps would blow up on date objects inside the week payload.
+    # jsonable_encoder must normalize them to ISO strings first.
+    encoded = _json.dumps(jsonable_encoder(add_result.to_model_reply()))
+    assert "week_summary" in encoded
+
+
 def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
     week_id = _seed_week(client)
     _add_meal_directly(client, week_id, "Wednesday", "dinner", "Pasta Primavera")
