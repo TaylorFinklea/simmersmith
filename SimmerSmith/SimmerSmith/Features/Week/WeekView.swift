@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct WeekView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AIAssistantCoordinator.self) private var aiCoordinator
 
     @State private var selectedMealForAction: WeekMeal?
     @State private var editingMeal: WeekMeal?
@@ -80,12 +81,6 @@ struct WeekView: View {
                 await appState.refreshWeek()
                 await loadAvailableWeeks()
             }
-
-            AIFloatingButton {
-                Task { await openPlanningChat() }
-            }
-            .padding(.trailing, SMSpacing.xl)
-            .padding(.bottom, SMSpacing.xl)
         }
         .overlay(alignment: .top) {
             if isPlanningChatActive {
@@ -123,6 +118,9 @@ struct WeekView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: appState.lastErrorMessage)
+        .onAppear { publishContext() }
+        .onChange(of: appState.currentWeek?.weekId) { _, _ in publishContext() }
+        .onChange(of: displayedWeekStart) { _, _ in publishContext() }
         .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -527,7 +525,8 @@ struct WeekView: View {
                 Spacer()
 
                 Button {
-                    Task { await openPlanningChat(forDate: date, dayName: dayName) }
+                    publishFocus(date: date, dayName: dayName)
+                    aiCoordinator.present()
                 } label: {
                     Image(systemName: "sparkles")
                         .font(.caption)
@@ -1097,50 +1096,39 @@ struct WeekView: View {
 
     // MARK: - Actions
 
-    private func openPlanningChat(forDate: Date? = nil, dayName: String? = nil) async {
-        var weekID = appState.currentWeek?.weekId
-        if weekID == nil {
-            let calendar = Calendar.current
-            let today = Date()
-            let weekday = calendar.component(.weekday, from: today)
-            let daysFromMonday = (weekday + 5) % 7
-            guard let monday = calendar.date(byAdding: .day, value: -daysFromMonday, to: today) else { return }
-            do {
-                let snapshot = try await appState.createWeek(weekStart: monday)
-                await appState.refreshWeek()
-                await loadAvailableWeeks()
-                weekID = snapshot.weekId
-            } catch {
-                appState.lastErrorMessage = error.localizedDescription
-                return
-            }
-        }
+    private func publishContext() {
+        let week = displayedWeek
+        let context = AIPageContext(
+            pageType: "week",
+            pageLabel: week.map { "Week of \(DayKey.shortMonthDay($0.weekStart))" } ?? "Week",
+            weekId: week?.weekId,
+            weekStart: week.map { DayKey.server($0.weekStart) },
+            weekStatus: week?.status,
+            briefSummary: week.map {
+                "\($0.meals.count) meals, status: \($0.status)."
+            } ?? "No week yet."
+        )
+        aiCoordinator.updateContext(context)
+    }
 
-        guard let linkedWeekID = weekID else { return }
-
-        let seed = buildPlanningSeedMessage(forDate: forDate, dayName: dayName)
-        let title = dayName.map { "Plan \($0)" } ?? "Plan this week"
-        do {
-            try await appState.beginAssistantLaunch(
-                initialText: seed,
-                title: title,
-                intent: "planning",
-                threadKind: "planning",
-                linkedWeekID: linkedWeekID
+    private func publishFocus(date: Date, dayName: String) {
+        let week = displayedWeek
+        aiCoordinator.updateContext(
+            AIPageContext(
+                pageType: "week",
+                pageLabel: "\(dayName) on this week",
+                weekId: week?.weekId,
+                weekStart: week.map { DayKey.server($0.weekStart) },
+                weekStatus: week?.status,
+                focusDate: DayKey.server(date),
+                focusDayName: dayName
             )
-        } catch {
-            appState.lastErrorMessage = error.localizedDescription
-        }
+        )
     }
 
     private var isPlanningChatActive: Bool {
         guard let weekID = appState.currentWeek?.weekId else { return false }
-        return appState.assistantSendingThreadIDs.contains { threadID in
-            let linkedID =
-                appState.assistantThreadDetails[threadID]?.linkedWeekId
-                ?? appState.assistantThreads.first(where: { $0.threadId == threadID })?.linkedWeekId
-            return linkedID == weekID
-        }
+        return aiCoordinator.isSending && aiCoordinator.currentContext?.weekId == weekID
     }
 
     private var activeChatChip: some View {
@@ -1151,7 +1139,7 @@ struct WeekView: View {
                 .foregroundStyle(SMColor.textPrimary)
             Spacer()
             Button {
-                appState.selectedTab = .assistant
+                aiCoordinator.present()
             } label: {
                 Text("Open")
                     .font(SMFont.caption)
@@ -1170,17 +1158,6 @@ struct WeekView: View {
         .padding(.horizontal, SMSpacing.md)
         .padding(.top, SMSpacing.sm)
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private func buildPlanningSeedMessage(forDate: Date? = nil, dayName: String? = nil) -> String {
-        if let dayName, let forDate {
-            let iso = DayKey.server(forDate)
-            return "Help me with \(dayName) (\(iso)). What should I cook or change?"
-        }
-        if let week = appState.currentWeek, !week.meals.isEmpty {
-            return "Let's refine this week. What should I change?"
-        }
-        return "Plan my week — tell me what sounds good and I'll suggest meals as we go."
     }
 
     // MARK: - Week Navigation

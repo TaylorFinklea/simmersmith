@@ -14,11 +14,33 @@ class AssistantThreadCreateRequest(BaseModel):
     linked_week_id: str | None = None
 
 
+class AssistantPageContext(BaseModel):
+    """What the user is currently looking at when they opened the assistant.
+
+    Sent per-message so the AI can reason about "this recipe" / "today's
+    plan" / "the grocery list" without requiring a dedicated thread kind.
+    Fields are all optional — views populate only what's relevant.
+    """
+
+    page_type: str
+    page_label: str = ""
+    week_id: str | None = None
+    week_start: str | None = None
+    week_status: str | None = None
+    focus_date: str | None = None
+    focus_day_name: str | None = None
+    recipe_id: str | None = None
+    recipe_name: str | None = None
+    grocery_item_count: int | None = None
+    brief_summary: str = ""
+
+
 class AssistantRespondRequest(BaseModel):
     text: str = ""
     attached_recipe_id: str | None = None
     attached_recipe_draft: RecipePayload | None = None
     intent: Literal["general", "recipe_creation", "recipe_refinement", "cooking_help", "planning"] = "general"
+    page_context: AssistantPageContext | None = None
 
 
 class AssistantToolCallOut(BaseModel):

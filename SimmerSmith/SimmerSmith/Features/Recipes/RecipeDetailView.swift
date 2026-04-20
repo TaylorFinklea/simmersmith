@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct RecipeDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AIAssistantCoordinator.self) private var aiCoordinator
     @Environment(\.dismiss) private var dismiss
 
     let recipeID: String
@@ -59,6 +60,8 @@ struct RecipeDetailView: View {
         .navigationTitle(recipe?.name ?? "Recipe")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(SMColor.surface, for: .navigationBar)
+        .onAppear { publishContext() }
+        .onChange(of: recipe?.recipeId) { _, _ in publishContext() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if let recipe {
@@ -793,6 +796,32 @@ struct RecipeDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func publishContext() {
+        guard let recipe else {
+            aiCoordinator.updateContext(
+                AIPageContext(pageType: "recipe_detail", pageLabel: "Recipe")
+            )
+            return
+        }
+        aiCoordinator.updateContext(
+            AIPageContext(
+                pageType: "recipe_detail",
+                pageLabel: recipe.name,
+                recipeId: recipe.recipeId,
+                recipeName: recipe.name,
+                briefSummary: recipeSummaryText(recipe)
+            )
+        )
+    }
+
+    private func recipeSummaryText(_ recipe: RecipeSummary) -> String {
+        var parts: [String] = []
+        if !recipe.cuisine.isEmpty { parts.append(recipe.cuisine) }
+        if !recipe.mealType.isEmpty { parts.append(recipe.mealType) }
+        if let servings = recipe.servings { parts.append("\(Int(servings)) servings") }
+        return parts.joined(separator: " · ")
     }
 
     private func toggleFavorite(_ recipe: RecipeSummary) async {

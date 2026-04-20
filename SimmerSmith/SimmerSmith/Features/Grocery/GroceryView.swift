@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct GroceryView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AIAssistantCoordinator.self) private var aiCoordinator
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedItem: GroceryItem?
@@ -117,6 +118,17 @@ struct GroceryView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            aiCoordinator.updateContext(
+                AIPageContext(
+                    pageType: "grocery",
+                    pageLabel: "Grocery list",
+                    weekId: appState.currentWeek?.weekId,
+                    groceryItemCount: appState.currentWeek?.groceryItems.count,
+                    briefSummary: "Grocery list for the current week."
+                )
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Grocery")

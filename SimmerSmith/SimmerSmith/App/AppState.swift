@@ -54,6 +54,8 @@ final class AppState {
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient
     let subscriptionStore = SubscriptionStore()
+    @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
+    var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?
 
     // Tracks the refresh task started by clearLocalCache() so that a

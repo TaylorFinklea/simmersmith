@@ -142,9 +142,25 @@ async def respond_route(
     )
     session.commit()
 
-    thread_kind = thread.thread_kind
-    linked_week_id = thread.linked_week_id
-    planning_context_text = _planning_context_text(session, current_user.id, linked_week_id)
+    # Effective context comes from per-message page_context (Nebular-style)
+    # with fallback to the thread's linked_week_id for older clients.
+    page_context = payload.page_context
+    page_context_week_id = page_context.week_id if page_context else None
+    effective_linked_week_id = page_context_week_id or thread.linked_week_id
+    # We treat ANY message that carries a week_id (via page_context or thread
+    # linkage) as a planning turn — that's when the tool loop fires.
+    thread_kind = (
+        "planning"
+        if effective_linked_week_id or thread.thread_kind == "planning"
+        else thread.thread_kind
+    )
+    linked_week_id = effective_linked_week_id
+    planning_context_text = _planning_context_text(
+        session,
+        current_user.id,
+        linked_week_id,
+        page_context=page_context,
+    )
 
     initial_thread_payload = assistant_thread_summary_payload(thread)
     initial_user_payload = assistant_message_payload(user_message)
@@ -277,7 +293,7 @@ async def respond_route(
                         live_thread,
                         live_message,
                         status="failed",
-                        content_markdown="Assistant request failed. Please try again.",
+                        content_markdown=f"Assistant request failed: {detail}",
                         error=detail,
                     )
                 stream_session.add(
@@ -304,21 +320,52 @@ async def respond_route(
                 )
             yield encode_sse(
                 "assistant.error",
-                {"message_id": assistant_message_id, "detail": "Assistant request failed. Please try again."},
+                {"message_id": assistant_message_id, "detail": detail},
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-def _planning_context_text(session: Session, user_id: str, linked_week_id: str | None) -> str:
-    """Build a compact week snapshot for the planning system prompt."""
+def _planning_context_text(
+    session: Session,
+    user_id: str,
+    linked_week_id: str | None,
+    *,
+    page_context: object | None = None,
+) -> str:
+    """Build a compact week snapshot + page context for the system prompt."""
+    page_lines: list[str] = []
+    if page_context is not None:
+        # AssistantPageContext model; dump with pydantic to tolerate any type.
+        try:
+            data = page_context.model_dump() if hasattr(page_context, "model_dump") else dict(page_context)
+        except Exception:
+            data = {}
+        if data.get("page_type"):
+            label = data.get("page_label") or ""
+            page_lines.append(
+                f"User is looking at: {data.get('page_type')}"
+                + (f" — {label}" if label else "")
+            )
+        if data.get("recipe_name") or data.get("recipe_id"):
+            page_lines.append(
+                f"Focused recipe: {data.get('recipe_name') or ''} (id={data.get('recipe_id') or ''})"
+            )
+        if data.get("focus_day_name") or data.get("focus_date"):
+            page_lines.append(
+                f"Focused day: {data.get('focus_day_name') or ''} ({data.get('focus_date') or ''})"
+            )
+        if data.get("brief_summary"):
+            page_lines.append(f"Page summary: {data['brief_summary']}")
+
     week = None
     if linked_week_id:
         week = get_week(session, user_id, linked_week_id)
     if week is None:
         week = get_current_week(session, user_id)
     if week is None:
-        return "Current week: none. Ask the user to create one before editing."
+        joined = ("\n".join(page_lines) + "\n") if page_lines else ""
+        return joined + "Current week: none. Ask the user to create one before editing."
 
     payload = week_payload(week, session=session) or {}
     meals = payload.get("meals") or []
@@ -347,7 +394,7 @@ def _planning_context_text(session: Session, user_id: str, linked_week_id: str |
                 f"(meal_id={meal.get('meal_id')}){tag}"
             )
     lines.append("")
-    return "\n".join(lines)
+    return "\n".join(page_lines + lines)
 
 
 def encode_sse(event: str, payload: dict[str, object]) -> str:

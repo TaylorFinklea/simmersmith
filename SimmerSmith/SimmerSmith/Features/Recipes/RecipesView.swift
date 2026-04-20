@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct RecipesView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AIAssistantCoordinator.self) private var aiCoordinator
 
     @State private var searchText = ""
     @State private var selectedMealType: String = ""
@@ -44,6 +45,15 @@ struct RecipesView: View {
         }
         .navigationTitle("Recipes")
         .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            aiCoordinator.updateContext(
+                AIPageContext(
+                    pageType: "recipes",
+                    pageLabel: "Your recipes",
+                    briefSummary: "Browsing \(appState.recipes.count) saved recipes."
+                )
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

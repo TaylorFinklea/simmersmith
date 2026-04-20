@@ -9,6 +9,7 @@ from app.schemas.ai import (
 )
 from app.schemas.assistant import (
     AssistantMessageOut,
+    AssistantPageContext,
     AssistantRespondRequest,
     AssistantStreamEventOut,
     AssistantThreadCreateRequest,
@@ -106,6 +107,7 @@ __all__ = [
     "AIProviderModelsOut",
     "AIProviderTargetOut",
     "AssistantMessageOut",
+    "AssistantPageContext",
     "AssistantRespondRequest",
     "AssistantStreamEventOut",
     "AssistantThreadCreateRequest",

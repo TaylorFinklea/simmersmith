@@ -725,7 +725,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         text: String,
         attachedRecipeID: String? = nil,
         attachedRecipeDraft: RecipeDraft? = nil,
-        intent: String = "general"
+        intent: String = "general",
+        pageContext: AssistantPageContextPayload? = nil
     ) async throws -> AsyncThrowingStream<AssistantStreamEnvelope, Error> {
         let request = try buildRequest(
             path: "/api/assistant/threads/\(threadID)/respond",
@@ -736,7 +737,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                     text: text,
                     attachedRecipeId: attachedRecipeID,
                     attachedRecipeDraft: attachedRecipeDraft,
-                    intent: intent
+                    intent: intent,
+                    pageContext: pageContext
                 )
             )
         )

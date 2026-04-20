@@ -1006,22 +1006,65 @@ public struct AssistantThread: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+public struct AssistantPageContextPayload: Codable, Hashable, Sendable {
+    public let pageType: String
+    public let pageLabel: String
+    public let weekId: String?
+    public let weekStart: String?
+    public let weekStatus: String?
+    public let focusDate: String?
+    public let focusDayName: String?
+    public let recipeId: String?
+    public let recipeName: String?
+    public let groceryItemCount: Int?
+    public let briefSummary: String
+
+    public init(
+        pageType: String,
+        pageLabel: String = "",
+        weekId: String? = nil,
+        weekStart: String? = nil,
+        weekStatus: String? = nil,
+        focusDate: String? = nil,
+        focusDayName: String? = nil,
+        recipeId: String? = nil,
+        recipeName: String? = nil,
+        groceryItemCount: Int? = nil,
+        briefSummary: String = ""
+    ) {
+        self.pageType = pageType
+        self.pageLabel = pageLabel
+        self.weekId = weekId
+        self.weekStart = weekStart
+        self.weekStatus = weekStatus
+        self.focusDate = focusDate
+        self.focusDayName = focusDayName
+        self.recipeId = recipeId
+        self.recipeName = recipeName
+        self.groceryItemCount = groceryItemCount
+        self.briefSummary = briefSummary
+    }
+}
+
 public struct AssistantRespondRequestBody: Codable, Hashable, Sendable {
     public let text: String
     public let attachedRecipeId: String?
     public let attachedRecipeDraft: RecipeDraft?
     public let intent: String
+    public let pageContext: AssistantPageContextPayload?
 
     public init(
         text: String,
         attachedRecipeId: String? = nil,
         attachedRecipeDraft: RecipeDraft? = nil,
-        intent: String = "general"
+        intent: String = "general",
+        pageContext: AssistantPageContextPayload? = nil
     ) {
         self.text = text
         self.attachedRecipeId = attachedRecipeId
         self.attachedRecipeDraft = attachedRecipeDraft
         self.intent = intent
+        self.pageContext = pageContext
     }
 }
 

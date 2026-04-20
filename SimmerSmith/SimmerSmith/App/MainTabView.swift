@@ -5,30 +5,37 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var appState = appState
+        let coordinator = appState.assistantCoordinator
 
-        TabView(selection: $appState.selectedTab) {
-            NavigationStack {
-                WeekView()
-            }
-            .tag(AppState.MainTab.week)
-            .tabItem {
-                Label("Week", systemImage: "calendar")
-            }
-
-            NavigationStack {
-                RecipesView()
-            }
-            .tag(AppState.MainTab.recipes)
-            .tabItem {
-                Label("Recipes", systemImage: "book")
-            }
-
-            AssistantView()
-                .tag(AppState.MainTab.assistant)
-                .tabItem {
-                    Label("Assistant", systemImage: "sparkles")
+        ZStack {
+            TabView(selection: $appState.selectedTab) {
+                NavigationStack {
+                    WeekView()
                 }
+                .tag(AppState.MainTab.week)
+                .tabItem {
+                    Label("Week", systemImage: "calendar")
+                }
+
+                NavigationStack {
+                    RecipesView()
+                }
+                .tag(AppState.MainTab.recipes)
+                .tabItem {
+                    Label("Recipes", systemImage: "book")
+                }
+
+                AssistantView()
+                    .tag(AppState.MainTab.assistant)
+                    .tabItem {
+                        Label("Assistant", systemImage: "sparkles")
+                    }
+            }
+            .tint(SMColor.primary)
+
+            AIAssistantOverlay()
+                .ignoresSafeArea(.keyboard)
         }
-        .tint(SMColor.primary)
+        .environment(coordinator)
     }
 }

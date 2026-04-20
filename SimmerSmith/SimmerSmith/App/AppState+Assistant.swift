@@ -84,19 +84,36 @@ extension AppState {
         text: String,
         attachedRecipeID: String? = nil,
         attachedRecipeDraft: RecipeDraft? = nil,
-        intent: String = "general"
+        intent: String = "general",
+        pageContext: AIPageContext? = nil
     ) async throws {
         assistantSendingThreadIDs.insert(threadID)
         assistantErrorByThreadID[threadID] = nil
         defer { assistantSendingThreadIDs.remove(threadID) }
 
+        let payload = pageContext.map {
+            AssistantPageContextPayload(
+                pageType: $0.pageType,
+                pageLabel: $0.pageLabel,
+                weekId: $0.weekId,
+                weekStart: $0.weekStart,
+                weekStatus: $0.weekStatus,
+                focusDate: $0.focusDate,
+                focusDayName: $0.focusDayName,
+                recipeId: $0.recipeId,
+                recipeName: $0.recipeName,
+                groceryItemCount: $0.groceryItemCount,
+                briefSummary: $0.briefSummary
+            )
+        }
         let initialMessageCount = assistantThreadDetails[threadID]?.messages.count ?? 0
         let stream = try await apiClient.streamAssistantResponse(
             threadID: threadID,
             text: text,
             attachedRecipeID: attachedRecipeID,
             attachedRecipeDraft: attachedRecipeDraft,
-            intent: intent
+            intent: intent,
+            pageContext: payload
         )
         var streamFailure: Error?
         do {
