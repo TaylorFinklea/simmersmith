@@ -26,8 +26,81 @@ public enum SimmerSmithAPIError: LocalizedError {
     }
 }
 
+/// FastAPI returns validation errors as `{"detail": [{"loc": [...], "msg": "...", ...}]}`
+/// and generic exceptions as `{"detail": "message"}`. This decoder handles both
+/// (plus an arbitrary JSON object for forward compatibility) so we surface the
+/// real reason to the user instead of falling through to a generic
+/// "invalid response" error.
 private struct APIErrorResponse: Decodable {
     let detail: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let stringDetail = try? container.decode(String.self, forKey: .detail) {
+            self.detail = stringDetail
+            return
+        }
+        if let errors = try? container.decode([ValidationErrorItem].self, forKey: .detail) {
+            self.detail = errors.map { $0.displayText }.joined(separator: "; ")
+            return
+        }
+        if let object = try? container.decode([String: JSONRaw].self, forKey: .detail),
+           let message = object["message"]?.stringValue {
+            self.detail = message
+            return
+        }
+        throw DecodingError.typeMismatch(
+            String.self,
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unrecognized error detail shape"
+            )
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case detail
+    }
+
+    private struct ValidationErrorItem: Decodable {
+        let loc: [JSONRaw]?
+        let msg: String?
+        let type: String?
+
+        var displayText: String {
+            let field = (loc ?? []).compactMap { $0.stringValue }.joined(separator: ".")
+            let message = msg ?? type ?? "Invalid field"
+            return field.isEmpty ? message : "\(field): \(message)"
+        }
+    }
+
+    private enum JSONRaw: Decodable {
+        case string(String)
+        case int(Int)
+        case double(Double)
+        case bool(Bool)
+        case null
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { self = .null; return }
+            if let s = try? c.decode(String.self) { self = .string(s); return }
+            if let i = try? c.decode(Int.self) { self = .int(i); return }
+            if let d = try? c.decode(Double.self) { self = .double(d); return }
+            if let b = try? c.decode(Bool.self) { self = .bool(b); return }
+            self = .null
+        }
+
+        var stringValue: String? {
+            switch self {
+            case .string(let s): return s
+            case .int(let i): return String(i)
+            case .double(let d): return String(d)
+            case .bool(let b): return String(b)
+            case .null: return nil
+            }
+        }
+    }
 }
 
 private struct UsageLimitResponse: Decodable {

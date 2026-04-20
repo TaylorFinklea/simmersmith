@@ -96,10 +96,14 @@ final class AIAssistantCoordinator {
             if appState.assistantThreadDetails[threadID] == nil {
                 try? await appState.fetchAssistantThread(threadID: threadID)
             }
+            // `intent` stays "general" — page_context.weekId is what tells the
+            // backend to use the planning tool loop. Sending "planning" tripped
+            // an older backend's strict Literal validator → 422 → iOS saw
+            // "invalid response" instead of the real detail.
             try await appState.sendAssistantMessage(
                 threadID: threadID,
                 text: trimmed,
-                intent: currentContext?.weekId != nil ? "planning" : "general",
+                intent: "general",
                 pageContext: currentContext
             )
             if let threadError = appState.assistantErrorByThreadID[threadID], !threadError.isEmpty {
