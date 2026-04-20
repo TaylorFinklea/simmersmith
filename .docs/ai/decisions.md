@@ -326,3 +326,21 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 **Context**: Global Claude Code convention uses `.docs/ai/` (dot-prefixed). This project used `docs/ai/` (old convention).
 
 **Decision**: Migrated all handoff docs to `.docs/ai/`. Updated all references in CLAUDE.md, AGENTS.md, and the docs themselves. Old `docs/ai/` directory removed via git.
+
+## 2026-04-20 - Assistant context is per-message, not per-thread
+
+**Context**: M6 originally keyed planning-mode on `AssistantThread.thread_kind == "planning"` with a `linked_week_id` column. After the Nebular-News-style UX pivot, every tab publishes an `AIPageContext` to a single global coordinator and that context ships with every message.
+
+**Decision**: The backend now treats per-message `page_context.week_id` as the authoritative "which week does this conversation care about" signal. `thread.linked_week_id` is kept for backward compat but no longer set by the iOS client. The tool loop fires whenever a message carries a `week_id` — so a single `thread_kind="chat"` thread can switch between "general cooking help" and "plan Wednesday" turn-by-turn based on which screen the user has open. This matches the one-coordinator / many-contexts pattern from Nebular News (`/Users/tfinklea/git/nebularnews-ios/NebularNews/NebularNews/Features/AIAssistant/`).
+
+## 2026-04-20 - Tool-result payloads are always jsonable_encoded before being shown to the model
+
+**Context**: `_run_openai_tool_loop` appends `{role: "tool", content: json.dumps(result.to_model_reply())}` after each tool call. Mutating tools embed the fresh `week_payload` in the result so the model can reason about the new state. The week payload contains `date` / `datetime` objects (week_start, meal_date, etc.) which plain `json.dumps` can't serialize.
+
+**Decision**: Always route tool replies through `fastapi.encoders.jsonable_encoder` before `json.dumps`. Same normalization the SSE emitter (`encode_sse`) has been doing all along. Regression test in `tests/test_assistant_tools.py::test_tool_result_reply_is_json_serializable` keeps us honest.
+
+## 2026-04-20 - Backend streams OpenAI deltas instead of buffering + chunking
+
+**Context**: The first cut of the tool loop called chat-completions non-streaming, then chunked the final text server-side into `assistant.delta` events. The user saw one long pause + a dump of text instead of true streaming.
+
+**Decision**: The tool loop now uses `client.stream("POST", …, json={"stream": True, …})` and emits each OpenAI `content` delta directly through the `on_event` SSE pipe. Tool-call deltas accumulate per `index` across incremental chunks (OpenAI sends function name + arguments piecewise). `AssistantTurnResult.streamed_deltas` tells the endpoint whether to skip the fallback `chunk_text(...)` so we don't double-emit. The envelope-JSON fallback (MCP / legacy Anthropic) still uses the chunk-on-complete path.
