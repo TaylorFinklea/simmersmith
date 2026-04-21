@@ -4,33 +4,30 @@
 
 ## Requires Your Action
 
-- [ ] End-to-end test the Nebular overlay on a rebuilt iOS: sparkle → ask
-      for a meal swap → verify tool-call card appears + Week page updates
-      live (page_context + streaming + tool loop wired up to prod)
-- [ ] Cut a new TestFlight build with M6 + Nebular overlay
+- [ ] Deploy M7 Phases 1–4 to fly.io: `fly deploy`
+- [ ] Cut a new TestFlight build (v1.0.0 build 4+) with M6 + M7 Phases 1–4
+- [ ] End-to-end test on a real device (simulator can't fully reproduce
+      the URLSession cancel surface):
+  - Open assistant sheet, send "Swap Tuesday dinner for something lighter"
+  - While streaming, pull-to-refresh on Week → stream must NOT error (Phase 1)
+  - Start a turn, dismiss the sheet immediately → backend logs should
+    show abort fired, DB row should have `status="cancelled"` (Phase 3)
+  - Ask "did you swap it?" when nothing changed → amber "Nothing
+    changed" affordance appears (Phase 4)
 - [ ] Register at developer.kroger.com — get client_id/secret
 - [ ] `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=... SIMMERSMITH_KROGER_CLIENT_SECRET=...`
 - [ ] Configure Google Cloud Console: add iOS client ID for `app.simmersmith.ios` bundle
 - [ ] Add internal testers to TestFlight
 
-## Immediate (M7 assistant polish)
+## Immediate (M7 Phases 5 + 6 — deferred this session)
 
-- [ ] Investigate the "cancelled" error that shows on pull-to-refresh after
-      closing the assistant sheet mid-stream — likely URLSession cancellation
-      cascading from the dismissed sheet to the in-flight stream
-- [ ] Guardrail: if the AI text describes a tool-like action but no tool was
-      called that turn, append a "Nothing changed — want me to actually do it?"
-      affordance so users don't get fooled by hallucinations
-- [ ] Persist streamed deltas server-side as they arrive so refresh mid-stream
-      shows partial content (today `content_markdown` only writes on
-      completion)
-- [ ] Cancel the server-side turn when the user dismisses the sheet mid-stream
-      (hook into AsyncThrowingStream onTermination → abort the SSE on server)
-- [ ] Anthropic tool-use support (OpenAI-direct only today; Anthropic falls
-      back to envelope-JSON without tool access)
-- [ ] True per-day AI generation for `generate_week_plan` (one call per day
-      for real progressive reveal; current impl is one call + day-by-day
-      application)
+- [ ] Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop`
+      into a provider-agnostic `_run_tool_loop(adapter, ...)` with
+      OpenAI + Anthropic stream adapters. Plan doc:
+      `/Users/tfinklea/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+- [ ] Phase 6: True per-day `generate_week_plan` — one AI call per day
+      with prior days in context. 7× tokens on a full week; flag cost
+      impact before shipping since freemium gating is postponed.
 
 ## Soon
 
@@ -47,3 +44,9 @@
 - [ ] Remote push notifications from backend (APNs integration)
 - [ ] Proactive intelligence (leftover tracking, weekly theme,
       calendar-aware planning)
+
+## Deferred
+
+- **M5 Freemium + Subscription**: postponed at user's request on
+  2026-04-20. Do not restart without explicit re-authorization. Saved
+  to memory (`project_m5_freemium_deferred.md`).

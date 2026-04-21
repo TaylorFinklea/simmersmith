@@ -344,3 +344,29 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 **Context**: The first cut of the tool loop called chat-completions non-streaming, then chunked the final text server-side into `assistant.delta` events. The user saw one long pause + a dump of text instead of true streaming.
 
 **Decision**: The tool loop now uses `client.stream("POST", …, json={"stream": True, …})` and emits each OpenAI `content` delta directly through the `on_event` SSE pipe. Tool-call deltas accumulate per `index` across incremental chunks (OpenAI sends function name + arguments piecewise). `AssistantTurnResult.streamed_deltas` tells the endpoint whether to skip the fallback `chunk_text(...)` so we don't double-emit. The envelope-JSON fallback (MCP / legacy Anthropic) still uses the chunk-on-complete path.
+
+## 2026-04-20 (evening) - M5 freemium deferred in favor of M7 polish
+
+**Context**: The roadmap listed M5 (Freemium + Subscription) as "next" after M6 shipped. During the same session the user surfaced six shakedown bugs on the live assistant flow (pull-to-refresh cancel, sheet-dismiss not cancelling the turn, mid-stream persistence gap, hallucinated actions, Anthropic tool-use gap, per-day gen not real). The user explicitly asked to postpone freemium so the focus could be polish.
+
+**Decision**: M5 is parked under "deferred". M7 "Assistant Polish" is the active milestone. Phases 1–4 of M7 shipped this session (URLSession isolation, mid-turn persistence, client-disconnect cancel, hallucination guardrail). Phases 5 + 6 (Anthropic tool-use, true per-day gen) are deferred as follow-ups — Phase 6 in particular has a 7× token cost impact that needs a cost gate, which was the original motivation for M5. Do not restart M5 work without explicit re-authorization; saved to memory as `project_m5_freemium_deferred.md`.
+
+## 2026-04-20 (evening) - Dedicated URLSession for SSE streaming
+
+**Context**: iOS pull-to-refresh on the Week tab raised a `CancellationError` in the assistant stream whenever a stream was live. Root cause: `SimmerSmithAPIClient` used `URLSession.shared` for both `bytes(for:)` SSE streaming and regular requests, so concurrent requests could cancel the stream's data task.
+
+**Decision**: `SimmerSmithAPIClient` now owns a dedicated `streamingSession` (separate `URLSessionConfiguration` with 300s request timeout, 600s resource timeout, `waitsForConnectivity: true`). `streamAssistantResponse` uses the dedicated session; every other request path stays on the shared session. Isolation between shared-request cancellations and long-lived SSE is now a structural guarantee rather than a happy accident.
+
+## 2026-04-20 (evening) - Client-disconnect cancels the server assistant turn
+
+**Context**: Before today, dismissing the assistant sheet mid-stream left `_run_openai_tool_loop` running to completion — up to 6 tool iterations worth of OpenAI tokens were spent on a reply no one would read. There was no cancel path on the server and no task retention on the client.
+
+**Decision**: Two-sided cancellation:
+- **Server**: the SSE endpoint spawns a `_watch_disconnect` coroutine that polls `request.is_disconnected()` on a 1s cadence and fires a `threading.Event`. The tool loop checks the event between OpenAI chunks, before each tool invocation, and between iterations. On abort it returns `AssistantTurnResult(cancelled=True, ...)` with whatever text arrived pre-abort. The endpoint persists `status="cancelled"` on the message, `AIRun.status="cancelled"`, and emits a final `assistant.cancelled` SSE frame.
+- **Client**: `AIAssistantCoordinator` retains the streaming `Task` and exposes `cancelInFlightTurn()`. `AIAssistantSheetView.onDisappear` calls it so closing the sheet closes the TCP connection via Swift's structured-concurrency cancellation chain (`URLSession.bytes` → stream continuation → disconnect).
+
+## 2026-04-20 (evening) - Hallucination guardrail lives on iOS, not the backend
+
+**Context**: The M6 tool loop is permissive — if the model narrates "I swapped Tuesday's dinner" without firing `swap_meal`, the UI previously showed the text as if the swap happened. Users reasonably assumed the change was applied.
+
+**Decision**: Detection is iOS-only for now. `AssistantMessageInlineBubble` flags completed assistant messages with mutation-verb prose and an empty `toolCalls` list, rendering an amber "Nothing changed in your plan — run it now?" affordance. The pattern list is inline and deliberately permissive (false positives over false negatives). Backend persistence of the flag would require a migration (`assistant_messages.flags_json`); we'll add that later if we want the warning to survive app restarts. For a shakedown fix this is enough.

@@ -8,123 +8,115 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-20
+**Date**: 2026-04-20 (evening)
 
-Shipped the full M6 conversational planning milestone, then reworked the
-assistant UX into a Nebular-News-style global overlay with per-view context,
-fixed two streaming-path bugs that surfaced during a live shakedown, and
-deployed twice to fly.io. The sparkle/assistant flow is now working
-end-to-end against `gpt-5.4-mini` on production.
+Shipped Phases 1–4 of the M7 "Assistant Polish" milestone. M5 freemium
+work was explicitly postponed at the user's request — M7 is the active
+focus until the overlay + streaming flow is production-solid. Ready for
+a TestFlight cut.
 
 ### What landed this session
 
-**Phase 1 — M6 conversational planning (commits `b288b80` → `13d7d3b`)**
+**Phase 1 — Stop the pull-to-refresh cancel cascade (commit `5fdde1a`)**
 
-- Alembic migration `20260419_0017` adds `assistant_threads.linked_week_id`,
-  `thread_kind`, and `assistant_messages.tool_calls_json`.
-- New `app/services/assistant_tools.py` registry with 11 tools: 3 read-only
-  (`get_current_week`, `get_dietary_goal`, `get_preferences_summary`) and 8
-  mutating (`generate_week_plan`, `add_meal`, `swap_meal`, `remove_meal`,
-  `set_meal_approved`, `rebalance_day`, `fetch_pricing`, `set_dietary_goal`).
-  Each has a JSON Schema and reuses `ensure_action_allowed` /
-  `increment_usage` for the freemium gate.
-- `app/services/assistant_ai.py` gains `_run_openai_tool_loop` — native
-  OpenAI tool-calling, max 6 iterations, with `on_event` callbacks for
-  `assistant.tool_call`, `assistant.tool_result`, and `week.updated`.
-- `generate_week_plan` applies day-by-day with a `week.updated` event
-  between each day so the iOS client renders progressive state.
-- iOS: new `AssistantToolCallCard` renders tool cards inline with message
-  bubbles. Per-day "Ask AI" sparkle button + active-chat chip on the Week
-  page.
+- `SimmerSmithKit/.../API/SimmerSmithAPIClient.swift` now owns a
+  dedicated `streamingSession: URLSession` for SSE streaming, separate
+  from `URLSession.shared` used for regular requests.
+- `streamAssistantResponse` uses the new session. Pull-to-refresh on
+  Week can no longer kill the in-flight assistant stream.
+- Config: 300s request timeout, 600s resource timeout,
+  `waitsForConnectivity: true`.
 
-**Phase 2 — Nebular-style contextual overlay (commit `5ce2ede`)**
+**Phase 2 — Persist streamed deltas mid-turn (commit `f9b4990`)**
 
-- New `SimmerSmith/.../Features/AIAssistant/` files:
-  `AIPageContext.swift`, `AIAssistantCoordinator.swift` (@MainActor
-  @Observable), `AIAssistantSheetView.swift`, `AIAssistantOverlay.swift`.
-- Global floating sparkle on every tab, `.sheet` with detents 1/3, medium,
-  large, background interaction enabled at 1/3. Context chip + contextual
-  suggestions in the empty state.
-- Each tab/view publishes an `AIPageContext` on `.onAppear` (Week, Recipe
-  detail, Recipes list, Grocery). Backend accepts `page_context` per
-  message and folds it into the planning system prompt.
-- Tool loop now fires whenever a message carries a `week_id` (not just
-  `thread_kind="planning"`), so the chat-kind thread + per-message context
-  is the new default.
-- Error SSE emission now surfaces the real exception detail (was:
-  "Assistant request failed. Please try again.") so future failures are
-  visible.
+- `app/services/assistant_threads.py` — new `persist_streaming_content`
+  helper writes only `content_markdown`, leaving status / tool_calls /
+  completed_at for the final `update_assistant_message` call.
+- `app/api/assistant.py` — SSE endpoint accumulates text from
+  `assistant.delta` events and flushes to the DB every 500ms (tunable
+  via `STREAM_PERSIST_INTERVAL_SECONDS`). Final flush before the
+  completion write.
+- Regression test asserts partial persists land when the throttle is
+  patched to 0.
 
-**Phase 3 — Shakedown bug fixes (commits `e6938f4`, `9e5f123`, `103d0aa`)**
+**Phase 3 — Cancel server turn on client disconnect (commit `1fd8017`)**
 
-- `fix(ios): tolerate legacy backends and show real FastAPI validation errors`
-  — iOS `APIErrorResponse` now decodes all three FastAPI detail shapes
-  (string, validation-error array, object with `message`). Coordinator sends
-  `intent: "general"` so `page_context.weekId` is the only planning trigger,
-  preventing a 422 against older backends.
-- `feat(ai): true token-by-token streaming + fix decoder crash on tool calls`
-  — backend uses OpenAI `stream: true`, forwards each `content` delta via
-  `assistant.delta` as it arrives. Tool-call deltas accumulate per-index
-  across incremental chunks. `AssistantToolCall` iOS decoder now tolerates
-  missing `ok`/`detail` on running-state events (the bug that was breaking
-  streams mid-turn and producing "Response may be incomplete").
-- `fix(api): serialize date objects in tool-call replies to model` —
-  `_run_openai_tool_loop` feeds each tool result back to the model; the
-  week payload contains `date` objects which plain `json.dumps` rejects.
-  Now routes through `jsonable_encoder` first. Regression test added.
+- `app/services/assistant_ai.py` — new `abort_event: threading.Event`
+  parameter threaded from `run_assistant_turn` into
+  `_run_openai_tool_loop`. Checked before each iteration, between OpenAI
+  chunks, and before each tool invocation.
+- `AssistantTurnResult` gains `cancelled: bool = False`. On cancel the
+  envelope preserves whatever arrived before the abort.
+- `app/api/assistant.py` — spawns a `_watch_disconnect` coroutine that
+  polls `request.is_disconnected()` on a 1s cadence and fires the
+  abort_event. Cancelled turns persist with `status="cancelled"`, log
+  `AIRun.status="cancelled"` + `cancelled=true` in the request payload,
+  and emit an `assistant.cancelled` SSE frame.
+- iOS `AIAssistantCoordinator` retains the streaming `Task` and exposes
+  `cancelInFlightTurn()`. `AIAssistantSheetView.onDisappear` calls it so
+  closing the sheet stops the server turn via TCP close → Starlette
+  disconnect detection.
+- `AssistantMessageInlineBubble` renders a muted "Cancelled" capsule on
+  messages with `status == "cancelled"`.
+- Regression test stubs `httpx.Client` to emit deltas and asserts
+  abort_event short-circuits the loop while preserving pre-abort text.
+
+**Phase 4 — Hallucination guardrail (commit `0fb46b8`)**
+
+- `AssistantMessageInlineBubble` detects "I swapped / added / removed /
+  rebalanced / updated …" prose on completed assistant messages with an
+  empty `toolCalls` list and renders an amber affordance:
+  "Nothing changed in your plan" + "Run it now" button that sends
+  "Yes, actually do that." as a follow-up turn.
+- Kept iOS-only — pattern list is inline, deliberately permissive
+  (false positives over false negatives). If we want the warning to
+  survive app restarts we can promote detection to the backend and
+  persist a flag, but that'd mean a migration.
 
 ### Production state
 
-- **URL**: https://simmersmith.fly.dev (healthy, deploy
-  `deployment-01KPNAD0KQQQMX9P1VF8S2SRAN`)
+- **URL**: https://simmersmith.fly.dev (healthy; last deploy was the M6
+  rollout — these phase-1–4 changes have NOT been deployed yet)
 - **Model**: `gpt-5.4-mini` (default in config; no fly override)
 - **Secret**: `SIMMERSMITH_AI_OPENAI_API_KEY` set on fly
 - **Privacy Policy**: https://simmersmith.fly.dev/privacy
-- **TestFlight**: v1.0.0 build 3 (stale — not rebuilt with M6 changes)
+- **TestFlight**: v1.0.0 build 3 (stale — does not include M6 or any M7
+  work)
 
 ### Build status
 
-- Backend: ruff clean, pytest 131/131 pass (6 new assistant tool tests)
+- Backend: ruff clean, pytest 133/133 pass (added 2 new M7 tests)
 - Swift tests: 26/26 pass
 - iOS build: green on `generic/platform=iOS Simulator`
-- Fly production: healthy, M6 live
-- TestFlight: not yet cut with M6
+- Fly production: healthy but stale (pre-M7)
+- TestFlight: stale (pre-M6)
 
-### Open issues (tagged into M7 → "Assistant polish")
+### Deferred (M7 Phases 5 + 6)
 
-- `"cancelled"` error on pull-to-refresh after closing the sheet mid-stream
-  (not reproduced yet)
-- Model hallucinating tool-like actions without actually calling a tool
-  (the "I swapped it" without a tool-call card case)
-- Streamed deltas aren't persisted server-side until completion (mid-stream
-  refresh shows nothing)
-- No cancel path: dismissing the sheet leaves the server turn running
-- Anthropic tool-use support (OpenAI-direct only today)
-- True per-day AI generation (one call per day) for `generate_week_plan`
+Still in M7 but deferred because Phases 1–4 are shippable as a
+standalone TestFlight cut:
 
-## Files Changed (since last session)
+- **Phase 5 — Anthropic tool-use support**: refactor `_run_openai_tool_loop`
+  into a provider-agnostic `_run_tool_loop(adapter, ...)` with an
+  `AnthropicToolStreamAdapter`. `anthropic_tools_schema()` already
+  exists at `assistant_ai.py:758–766` but is never called.
+- **Phase 6 — True per-day `generate_week_plan`**: one AI call per day
+  with prior days in context. 7× the tokens on a full week. Worth
+  flagging before shipping given freemium gating is postponed.
+
+### Open issues (M7 follow-ups)
+
+All resolved in this session except the two deferred phases above.
+
+## Files Changed (this session)
 
 Backend:
-- `alembic/versions/20260419_0017_assistant_planning_tools.py` (new)
-- `app/services/assistant_tools.py` (new)
-- `app/services/assistant_ai.py`
-- `app/services/assistant_threads.py`
-- `app/services/presenters.py`
-- `app/api/assistant.py`
-- `app/models/ai.py`
-- `app/schemas/assistant.py`, `app/schemas/__init__.py`
-- `tests/test_assistant_tools.py` (new)
+- `app/services/assistant_ai.py` — abort_event plumbing, cancelled flag
+- `app/services/assistant_threads.py` — `persist_streaming_content` helper
+- `app/api/assistant.py` — disconnect watcher, throttled persist, cancelled handling
+- `tests/test_assistant_tools.py` — 2 new regression tests
 
 iOS:
-- `SimmerSmithKit/Sources/.../Models/SimmerSmithModels.swift`
-- `SimmerSmithKit/Sources/.../API/SimmerSmithAPIClient.swift`
-- `SimmerSmith/.../App/AppState.swift`, `App/AppState+Assistant.swift`
-- `SimmerSmith/.../App/MainTabView.swift`
-- `SimmerSmith/.../Features/AIAssistant/*.swift` (4 new files)
-- `SimmerSmith/.../Features/Week/WeekView.swift`
-- `SimmerSmith/.../Features/Assistant/AssistantView.swift`
-- `SimmerSmith/.../Features/Assistant/AssistantToolCallCard.swift` (new)
-- `SimmerSmith/.../Features/Recipes/RecipeDetailView.swift`,
-  `Features/Recipes/RecipesView.swift`
-- `SimmerSmith/.../Features/Grocery/GroceryView.swift`
-- Xcode project regenerated (xcodegen)
+- `SimmerSmithKit/.../API/SimmerSmithAPIClient.swift` — dedicated streamingSession
+- `SimmerSmith/.../Features/AIAssistant/AIAssistantCoordinator.swift` — retained sendTask, cancelInFlightTurn
+- `SimmerSmith/.../Features/AIAssistant/AIAssistantSheetView.swift` — onDisappear cancel, cancelled pill, hallucination affordance

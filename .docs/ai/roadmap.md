@@ -95,7 +95,7 @@ Post-launch stickiness milestone. Users set a dietary goal; the AI planner hits 
 - [x] Day-breakdown nutrition sheet
 - [x] "Rebalance this day" AI CTA when a day drifts ≥±15%
 
-## M5: Freemium + Subscription (next)
+## M5: Freemium + Subscription (deferred — postponed 2026-04-20)
 
 > Spec: `.docs/ai/phases/freemium-subscription-spec.md`
 
@@ -132,12 +132,12 @@ After M6 is shipped.
 ### Assistant polish (open from the 2026-04-20 shakedown)
 - [x] True token-by-token streaming via OpenAI `stream: true` (was: chunk-on-complete)
 - [x] Tolerant `AssistantToolCall` decoder (missing `ok`/`detail` on running events)
-- [ ] Investigate "cancelled" error on pull-to-refresh after closing the assistant sheet mid-stream
-- [ ] When the AI writes text that describes a tool-like action but doesn't call a tool, detect + warn (no more "I swapped Tuesday" hallucinations when nothing was swapped)
-- [ ] Persist streamed deltas server-side as they arrive (current: whole `content_markdown` written only on completion)
-- [ ] Cancel the SSE stream + abort the assistant turn when the user dismisses the sheet mid-stream
-- [ ] Anthropic tool-use support (OpenAI-direct only today; Anthropic falls back to envelope JSON)
-- [ ] True per-day AI generation (one AI call per day of `generate_week_plan`)
+- [x] Fix "cancelled" error on pull-to-refresh — dedicated streaming URLSession so it's isolated from the shared session
+- [x] Hallucination guardrail — amber "Nothing changed" affordance when the AI narrates an action without firing a tool
+- [x] Persist streamed deltas server-side as they arrive (throttled to 500ms)
+- [x] Cancel the SSE stream + abort the assistant turn when the user dismisses the sheet mid-stream
+- [ ] Anthropic tool-use support (OpenAI-direct only today; Anthropic falls back to envelope JSON) — deferred
+- [ ] True per-day AI generation (one AI call per day of `generate_week_plan`) — deferred, 7× token cost
 
 ### Post-launch growth
 - [ ] Household sharing tied to a Pro seat
