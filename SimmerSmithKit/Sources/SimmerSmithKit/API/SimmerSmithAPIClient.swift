@@ -236,19 +236,34 @@ private struct IngredientMergeBody: Encodable {
 public final class SimmerSmithAPIClient: @unchecked Sendable {
     private let settingsStore: ConnectionSettingsStore
     private let session: URLSession
+    // Dedicated session for long-lived SSE connections. Kept separate from
+    // `session` so unrelated requests (pull-to-refresh, autosave) can't
+    // cancel the assistant stream via shared-task teardown.
+    private let streamingSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
     public init(
         settingsStore: ConnectionSettingsStore = .shared,
         session: URLSession = .shared,
+        streamingSession: URLSession? = nil,
         decoder: JSONDecoder = SimmerSmithJSONCoding.makeDecoder(),
         encoder: JSONEncoder = SimmerSmithJSONCoding.makeEncoder()
     ) {
         self.settingsStore = settingsStore
         self.session = session
+        self.streamingSession = streamingSession ?? Self.makeStreamingSession()
         self.decoder = decoder
         self.encoder = encoder
+    }
+
+    private static func makeStreamingSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 600
+        config.waitsForConnectivity = true
+        config.httpShouldUsePipelining = false
+        return URLSession(configuration: config)
     }
 
     public func fetchHealth() async throws -> HealthResponse {
@@ -815,7 +830,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 )
             )
         )
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await streamingSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SimmerSmithAPIError.invalidResponse
         }
