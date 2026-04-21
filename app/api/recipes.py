@@ -11,6 +11,8 @@ from app.schemas import (
     RecipeAIDraftOptionOut,
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
+    IngredientSubstituteRequest,
+    IngredientSubstituteResponse,
     ManagedListItemCreateRequest,
     ManagedListItemOut,
     NutritionItemOut,
@@ -40,6 +42,7 @@ from app.services.nutrition import (
 )
 from app.services.presenters import recipe_payload, recipes_payload
 from app.services.recipe_ai import build_companion_drafts, build_suggestion_draft, build_variation_draft
+from app.services.substitution_ai import suggest_substitutions
 from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
 from app.services.recipes import archive_recipe, get_recipe, list_recipes, restore_recipe
 
@@ -337,6 +340,71 @@ def recipe_variation_draft_route(
     )
     session.commit()
     return RecipeAIDraftOut(goal=resolved_goal, rationale=rationale, draft=draft).model_dump()
+
+
+@router.post(
+    "/{recipe_id}/ai/substitute",
+    response_model=IngredientSubstituteResponse,
+)
+def recipe_ingredient_substitute_route(
+    recipe_id: str,
+    payload: IngredientSubstituteRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Ask the AI for 3-5 substitutes for a single ingredient in a recipe.
+
+    The picked substitute is applied client-side (iOS) by re-upserting the
+    whole recipe — this endpoint only returns suggestions and never
+    mutates the recipe itself. Keeps the preview flow cheap.
+    """
+    from app.models import IngredientPreference
+    from app.services.ingredient_catalog.variation import list_ingredient_preferences
+
+    recipe = get_recipe(session, current_user.id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    target = next(
+        (ing for ing in recipe.ingredients if ing.id == payload.ingredient_id),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Ingredient not found in this recipe.",
+        )
+
+    user_settings = profile_settings_map(session, current_user.id)
+    preferences: list[IngredientPreference] = list_ingredient_preferences(session, current_user.id)
+
+    try:
+        response = suggest_substitutions(
+            recipe=recipe,
+            target_ingredient=target,
+            user_preferences=preferences,
+            settings=settings,
+            user_settings=user_settings,
+            hint=payload.hint,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    session.add(
+        AIRun(
+            user_id=current_user.id,
+            week_id=None,
+            run_type="recipe_substitute",
+            model="substitution-v1",
+            prompt=f"{target.ingredient_name} in {recipe.name}",
+            status="completed",
+            request_payload=payload.model_dump_json(),
+            response_payload=response.model_dump_json(),
+        )
+    )
+    session.commit()
+    return response.model_dump()
 
 
 @router.post("/nutrition/estimate", response_model=NutritionSummaryOut)

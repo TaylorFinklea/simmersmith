@@ -903,6 +903,91 @@ def test_recipe_variation_draft_route_returns_draft_only_transform(client) -> No
     assert len(list_response.json()) == 1
 
 
+def test_recipe_ingredient_substitute_route_returns_ai_suggestions(client, monkeypatch) -> None:
+    """M8: the substitute endpoint calls the AI and returns parsed
+    suggestions. We monkeypatch run_direct_provider to avoid a network
+    round-trip and to prove the prompt + parser work end-to-end.
+    """
+    import json as _json
+
+    create = client.post(
+        "/api/recipes",
+        json={
+            "name": "Chicken Tacos",
+            "meal_type": "dinner",
+            "cuisine": "Mexican",
+            "servings": 4,
+            "source": "manual",
+            "ingredients": [
+                {"ingredient_name": "1/2 cup sour cream"},
+                {"ingredient_name": "1 lb chicken thighs"},
+                {"ingredient_name": "8 flour tortillas"},
+            ],
+            "steps": [{"instruction": "Assemble the tacos."}],
+        },
+    )
+    assert create.status_code == 200
+    recipe = create.json()
+    sour_cream_id = next(
+        ing["ingredient_id"] for ing in recipe["ingredients"] if "sour cream" in ing["ingredient_name"].lower()
+    )
+
+    def fake_run_direct_provider(*, target, settings, user_settings, prompt):  # noqa: ARG001
+        assert "sour cream" in prompt.lower()
+        return _json.dumps(
+            {
+                "suggestions": [
+                    {"name": "Greek yogurt", "reason": "Same tang, stirs in smoothly", "quantity": "1/2", "unit": "cup"},
+                    {"name": "Crème fraîche", "reason": "Richer but same acidity", "quantity": "", "unit": ""},
+                    {"name": "Mexican crema", "reason": "Traditional taco companion", "quantity": "", "unit": ""},
+                ]
+            }
+        )
+
+    def fake_direct_provider_availability(name, *, settings, user_settings):  # noqa: ARG001
+        return (True, "env") if name == "openai" else (False, "unset")
+
+    monkeypatch.setattr("app.services.substitution_ai.run_direct_provider", fake_run_direct_provider)
+    monkeypatch.setattr(
+        "app.services.substitution_ai.direct_provider_availability",
+        fake_direct_provider_availability,
+    )
+    monkeypatch.setattr(
+        "app.services.substitution_ai.resolve_direct_model",
+        lambda name, *, settings, user_settings: "gpt-test",  # noqa: ARG005
+    )
+
+    response = client.post(
+        f"/api/recipes/{recipe['recipe_id']}/ai/substitute",
+        json={"ingredient_id": sour_cream_id, "hint": "out of sour cream"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ingredient_id"] == sour_cream_id
+    assert payload["original_name"].lower().endswith("sour cream")
+    names = [s["name"] for s in payload["suggestions"]]
+    assert "Greek yogurt" in names
+    assert len(payload["suggestions"]) == 3
+
+
+def test_recipe_ingredient_substitute_returns_404_for_unknown_ingredient(client) -> None:
+    create = client.post(
+        "/api/recipes",
+        json={
+            "name": "Soup",
+            "source": "manual",
+            "ingredients": [{"ingredient_name": "1 cup broth"}],
+            "steps": [{"instruction": "Heat."}],
+        },
+    )
+    recipe = create.json()
+    response = client.post(
+        f"/api/recipes/{recipe['recipe_id']}/ai/substitute",
+        json={"ingredient_id": "does-not-exist", "hint": ""},
+    )
+    assert response.status_code == 404
+
+
 def test_variation_draft_can_be_saved_as_recipe(client) -> None:
     create_recipe_response = client.post(
         "/api/recipes",

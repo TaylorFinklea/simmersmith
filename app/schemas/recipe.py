@@ -198,3 +198,21 @@ class RecipeAIOptionsOut(BaseModel):
     goal: str
     rationale: str = ""
     options: list[RecipeAIDraftOptionOut] = Field(default_factory=list)
+
+
+class SubstitutionSuggestion(BaseModel):
+    name: str
+    reason: str = ""
+    quantity: str = ""
+    unit: str = ""
+
+
+class IngredientSubstituteRequest(BaseModel):
+    ingredient_id: str
+    hint: str = ""
+
+
+class IngredientSubstituteResponse(BaseModel):
+    ingredient_id: str
+    original_name: str
+    suggestions: list[SubstitutionSuggestion] = Field(default_factory=list)

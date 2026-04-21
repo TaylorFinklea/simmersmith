@@ -51,6 +51,8 @@ from app.schemas.profile import (
 from app.schemas.recipe import (
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
+    IngredientSubstituteRequest,
+    IngredientSubstituteResponse,
     ManagedListItemCreateRequest,
     ManagedListItemOut,
     NutritionItemOut,
@@ -69,6 +71,7 @@ from app.schemas.recipe import (
     RecipeTemplateOut,
     RecipeTextImportRequest,
     RecipeVariationDraftRequest,
+    SubstitutionSuggestion,
 )
 from app.schemas.week import (
     DraftFromAIRequest,
@@ -134,6 +137,8 @@ __all__ = [
     "IngredientPreferencePayload",
     "IngredientResolveOut",
     "IngredientResolveRequest",
+    "IngredientSubstituteRequest",
+    "IngredientSubstituteResponse",
     "IngredientUsageSummaryOut",
     "IngredientVariationOut",
     "IngredientVariationPayload",
@@ -172,6 +177,7 @@ __all__ = [
     "RecipeVariationDraftRequest",
     "RetailerPriceOut",
     "StaplePayload",
+    "SubstitutionSuggestion",
     "UsageSummaryOut",
     "WeekChangeBatchOut",
     "WeekChangeEventOut",
