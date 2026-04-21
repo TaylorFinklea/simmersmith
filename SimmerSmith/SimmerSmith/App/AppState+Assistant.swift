@@ -120,6 +120,12 @@ extension AppState {
             for try await event in stream {
                 try applyAssistantStreamEvent(threadID: threadID, event: event)
             }
+        } catch is CancellationError {
+            // User tapped Stop or dismissed the sheet — propagate quietly
+            // without the "response may be incomplete" banner, which reads
+            // as a failure to the user. The server's cancelled message +
+            // "Cancelled" pill on the bubble are the right signal.
+            throw CancellationError()
         } catch {
             streamFailure = error
         }
