@@ -142,9 +142,24 @@ After M6 is shipped.
 ### Post-launch growth
 - [ ] Household sharing tied to a Pro seat
 - [ ] Recipe images (AI-generated or fetched)
-- [ ] Smart substitutions powered by ingredient preferences
 - [ ] Remote push notifications from backend (APNs integration)
 - [ ] Proactive intelligence (leftover tracking, weekly theme, calendar-aware planning)
+
+## M8: Smart Substitutions (complete)
+
+> Spec: `.docs/ai/phases/smart-substitutions-spec.md`
+
+AI-powered per-ingredient substitutions. Tapping the wand next to any
+ingredient in recipe detail opens a sheet that asks the AI for 3-5
+alternatives (with a short reason + optional adjusted quantity/unit),
+respects the user's active ingredient preferences, and applies the
+picked one via the existing recipe upsert flow.
+
+- [x] `POST /api/recipes/{recipe_id}/ai/substitute` endpoint
+- [x] `app/services/substitution_ai.py` + strict-JSON response parser
+- [x] Preference-aware prompt (avoids re-introducing flagged items)
+- [x] iOS `SubstitutionSheetView` + per-ingredient wand affordance
+- [x] `applySubstitution` on AppState reusing `saveRecipe` upsert
 
 ## Backlog
 
