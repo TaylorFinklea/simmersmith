@@ -14,6 +14,7 @@ struct RecipeDetailView: View {
     @State private var assignmentContext: RecipeAssignmentSheetContext?
     @State private var companionContext: RecipeCompanionSheetContext?
     @State private var nutritionMatchContext: RecipeNutritionMatchContext?
+    @State private var substitutionContext: SubstitutionSheetContext?
     @State private var pendingDelete = false
     @State private var selectedScale: RecipeScaleOption = .single
     @State private var isGeneratingVariation = false
@@ -177,6 +178,15 @@ struct RecipeDetailView: View {
             RecipeNutritionMatchView(context: context) {
                 Task { await loadRecipe(forceRefresh: true) }
             }
+        }
+        .sheet(item: $substitutionContext) { context in
+            SubstitutionSheetView(
+                recipe: context.recipe,
+                ingredient: context.ingredient,
+                onApplied: {
+                    Task { await loadRecipe(forceRefresh: true) }
+                }
+            )
         }
         .confirmationDialog(
             "Delete this recipe?",
@@ -610,6 +620,23 @@ struct RecipeDetailView: View {
                         }
 
                         Spacer()
+
+                        // Per-ingredient AI substitution affordance. Opens a
+                        // sheet that asks the AI for 3-5 alternatives that
+                        // fit the recipe.
+                        Button {
+                            substitutionContext = SubstitutionSheetContext(
+                                recipe: recipe,
+                                ingredient: ingredient
+                            )
+                        } label: {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(SMColor.aiPurple.opacity(0.85))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Substitute \(ingredient.ingredientName)")
                     }
 
                     if ingredient.id != recipe.ingredients.last?.id {

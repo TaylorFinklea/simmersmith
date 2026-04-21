@@ -961,6 +961,22 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/recipes", method: "POST", body: recipe)
     }
 
+    public func suggestIngredientSubstitutions(
+        recipeID: String,
+        ingredientID: String,
+        hint: String = ""
+    ) async throws -> IngredientSubstituteResponse {
+        struct Body: Encodable {
+            let ingredientId: String
+            let hint: String
+        }
+        return try await request(
+            path: "/api/recipes/\(recipeID)/ai/substitute",
+            method: "POST",
+            body: Body(ingredientId: ingredientID, hint: hint)
+        )
+    }
+
     public func archiveRecipe(recipeID: String) async throws -> RecipeSummary {
         try await request(path: "/api/recipes/\(recipeID)/archive", method: "POST", body: EmptyBody())
     }

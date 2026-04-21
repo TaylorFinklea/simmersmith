@@ -80,6 +80,7 @@
 		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
 		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
+		FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -122,6 +123,7 @@
 		42FB8215B29EE1469EE3AA1E /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		49A10F1ED3FB047CF6466481 /* IngredientsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsView.swift; sourceTree = "<group>"; };
 		4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrappingHStack.swift; sourceTree = "<group>"; };
+		5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstitutionSheetView.swift; sourceTree = "<group>"; };
 		577414F6ADB8299D9172472F /* SimmerSmith.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimmerSmith.entitlements; sourceTree = "<group>"; };
 		5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingInterviewView.swift; sourceTree = "<group>"; };
 		5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipesView.swift; sourceTree = "<group>"; };
@@ -325,6 +327,7 @@
 				5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */,
 				F80EE82F42F6428AF84B3E94 /* RecipeWebImportView.swift */,
 				01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */,
+				5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */,
 			);
 			path = Recipes;
 			sourceTree = "<group>";
@@ -658,6 +661,7 @@
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
 				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
 				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
+				FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */,
 				F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */,
 				BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */,
 				0D17009AD5B6DBF392246D57 /* TodayMealCard.swift in Sources */,

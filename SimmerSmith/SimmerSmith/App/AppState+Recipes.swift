@@ -100,6 +100,47 @@ extension AppState {
         return savedRecipe
     }
 
+    /// Replace a single ingredient in a recipe with the picked substitute
+    /// suggestion and persist via the existing upsert flow. The replaced
+    /// row keeps all other fields (prep, category, notes) and only swaps
+    /// `ingredientName`, `quantity`, `unit` — plus clears catalog links
+    /// so the resolver runs fresh against the new name.
+    func applySubstitution(
+        recipe: RecipeSummary,
+        ingredientID: String,
+        suggestion: SubstitutionSuggestion
+    ) async throws {
+        var draft = recipe.editingDraft()
+        guard let index = draft.ingredients.firstIndex(where: { $0.id == ingredientID }) else {
+            throw NSError(
+                domain: "SimmerSmith.SubstitutionError",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Ingredient was not found in the recipe."]
+            )
+        }
+        let existing = draft.ingredients[index]
+        // Parse the suggested quantity if present; otherwise reuse the
+        // original so recipe scaling still works.
+        let newQuantity = Double(suggestion.quantity.trimmingCharacters(in: .whitespaces)) ?? existing.quantity
+        let newUnit = suggestion.unit.isEmpty ? existing.unit : suggestion.unit
+        draft.ingredients[index] = RecipeIngredient(
+            ingredientId: existing.ingredientId,
+            ingredientName: suggestion.name,
+            normalizedName: nil,
+            baseIngredientId: nil,
+            baseIngredientName: nil,
+            ingredientVariationId: nil,
+            ingredientVariationName: nil,
+            resolutionStatus: "unresolved",
+            quantity: newQuantity,
+            unit: newUnit,
+            prep: existing.prep,
+            category: existing.category,
+            notes: existing.notes
+        )
+        _ = try await saveRecipe(draft)
+    }
+
     func archiveRecipe(_ recipe: RecipeSummary) async throws {
         let archivedRecipe = try await apiClient.archiveRecipe(recipeID: recipe.recipeId)
         upsertRecipe(archivedRecipe)

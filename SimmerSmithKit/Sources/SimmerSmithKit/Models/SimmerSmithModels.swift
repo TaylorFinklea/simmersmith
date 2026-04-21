@@ -1093,6 +1093,38 @@ public struct AssistantStreamEnvelope: Sendable {
     }
 }
 
+public struct SubstitutionSuggestion: Codable, Identifiable, Hashable, Sendable {
+    public let name: String
+    public let reason: String
+    public let quantity: String
+    public let unit: String
+
+    public var id: String { name }
+
+    public init(name: String, reason: String = "", quantity: String = "", unit: String = "") {
+        self.name = name
+        self.reason = reason
+        self.quantity = quantity
+        self.unit = unit
+    }
+}
+
+public struct IngredientSubstituteResponse: Codable, Hashable, Sendable {
+    public let ingredientId: String
+    public let originalName: String
+    public let suggestions: [SubstitutionSuggestion]
+
+    public init(
+        ingredientId: String,
+        originalName: String,
+        suggestions: [SubstitutionSuggestion]
+    ) {
+        self.ingredientId = ingredientId
+        self.originalName = originalName
+        self.suggestions = suggestions
+    }
+}
+
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let recipeId: String
     public let recipeTemplateId: String?
