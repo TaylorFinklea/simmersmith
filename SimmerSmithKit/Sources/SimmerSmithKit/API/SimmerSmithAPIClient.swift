@@ -233,6 +233,104 @@ private struct IngredientMergeBody: Encodable {
     let targetId: String
 }
 
+/// URLSessionDataDelegate that parses SSE frames as bytes arrive. Used by
+/// `streamAssistantResponse` — URLSession.bytes(for:) buffers HTTP/2 DATA
+/// frames client-side so deltas bunch up, but didReceive fires as each TLS
+/// record lands. Parsing incrementally from a rolling Data buffer and
+/// yielding complete frames into the AsyncThrowingStream continuation
+/// gives true streaming.
+final class SSEStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let continuation: AsyncThrowingStream<AssistantStreamEnvelope, Error>.Continuation
+    // Holds incomplete text between `didReceive` calls. Parsed down into
+    // lines on every chunk; unfinished lines stay in the buffer.
+    private var pending = Data()
+    private var currentEvent = ""
+    private var dataLines: [String] = []
+    fileprivate weak var task: URLSessionDataTask?
+
+    init(continuation: AsyncThrowingStream<AssistantStreamEnvelope, Error>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            continuation.finish(throwing: SimmerSmithAPIError.invalidResponse)
+            completionHandler(.cancel)
+            return
+        }
+        if !(200..<300).contains(http.statusCode) {
+            let error: SimmerSmithAPIError = http.statusCode == 401
+                ? .unauthorized
+                : .server("HTTP \(http.statusCode)")
+            continuation.finish(throwing: error)
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        pending.append(data)
+        // Split on \n. Keep any trailing partial line in `pending`.
+        while let newlineIndex = pending.firstIndex(of: 0x0A) {
+            let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
+            pending.removeSubrange(pending.startIndex...newlineIndex)
+            // Strip optional trailing \r for CRLF tolerance.
+            let trimmed: Data
+            if lineData.last == 0x0D {
+                trimmed = lineData.subdata(in: lineData.startIndex..<(lineData.endIndex - 1))
+            } else {
+                trimmed = lineData
+            }
+            let line = String(data: trimmed, encoding: .utf8) ?? ""
+            if line.isEmpty {
+                if !currentEvent.isEmpty {
+                    let payload = Data(dataLines.joined(separator: "\n").utf8)
+                    continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
+                }
+                currentEvent = ""
+                dataLines = []
+            } else if line.hasPrefix("event: ") {
+                currentEvent = String(line.dropFirst(7))
+            } else if line.hasPrefix("data: ") {
+                dataLines.append(String(line.dropFirst(6)))
+            }
+            // Lines starting with ":" are SSE comments — ignore.
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let nsError = error as NSError?,
+           nsError.domain == NSURLErrorDomain,
+           nsError.code == NSURLErrorCancelled {
+            continuation.finish()
+            return
+        }
+        if let error {
+            continuation.finish(throwing: error)
+            return
+        }
+        if !currentEvent.isEmpty {
+            let payload = Data(dataLines.joined(separator: "\n").utf8)
+            continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
+        }
+        continuation.finish()
+    }
+}
+
 public final class SimmerSmithAPIClient: @unchecked Sendable {
     private let settingsStore: ConnectionSettingsStore
     private let session: URLSession
@@ -262,7 +360,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 600
         config.waitsForConnectivity = true
-        config.httpShouldUsePipelining = false
+        // Hint the OS that this stream should be low-latency. Combined with
+        // the URLSessionDataDelegate reader this keeps HTTP/2 DATA frame
+        // delivery near-real-time instead of batched.
+        config.networkServiceType = .responsiveData
         return URLSession(configuration: config)
     }
 
@@ -830,64 +931,28 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 )
             )
         )
-        let (bytes, response) = try await streamingSession.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw SimmerSmithAPIError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            var data = Data()
-            for try await byte in bytes {
-                data.append(contentsOf: [byte])
-            }
-            if http.statusCode == 401 {
-                throw SimmerSmithAPIError.unauthorized
-            }
-            if let errorPayload = try? decoder.decode(APIErrorResponse.self, from: data) {
-                throw SimmerSmithAPIError.server(errorPayload.detail)
-            }
-            throw SimmerSmithAPIError.invalidResponse
-        }
 
+        // URLSession.bytes(for:) buffers aggressively on HTTP/2 connections
+        // (verified against production: curl sees each delta at 100ms
+        // boundaries, iOS AsyncBytes reveals them all at once at the end).
+        // Use a URLSessionDataDelegate instead — didReceive fires as each
+        // TLS record arrives, so we get near-real-time SSE delivery.
         return AsyncThrowingStream { continuation in
-            // Capture the reader task so we can cancel it when the stream
-            // consumer terminates early (e.g. the user navigates away from
-            // the thread view mid-stream). Without this, the inner SSE
-            // connection stays open writing deltas into a deallocated
-            // thread context.
-            let task = Task {
-                do {
-                    var currentEvent = ""
-                    var dataLines: [String] = []
-                    for try await line in bytes.lines {
-                        try Task.checkCancellation()
-                        if line.isEmpty {
-                            if !currentEvent.isEmpty {
-                                let payload = Data(dataLines.joined(separator: "\n").utf8)
-                                continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
-                            }
-                            currentEvent = ""
-                            dataLines = []
-                            continue
-                        }
-                        if line.hasPrefix("event: ") {
-                            currentEvent = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            dataLines.append(String(line.dropFirst(6)))
-                        }
-                    }
-                    if !currentEvent.isEmpty {
-                        let payload = Data(dataLines.joined(separator: "\n").utf8)
-                        continuation.yield(AssistantStreamEnvelope(event: currentEvent, data: payload))
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
+            let delegate = SSEStreamDelegate(continuation: continuation)
+            let session = URLSession(
+                configuration: streamingSession.configuration,
+                delegate: delegate,
+                delegateQueue: nil
+            )
+            let task = session.dataTask(with: request)
+            delegate.task = task
+            task.resume()
             continuation.onTermination = { _ in
                 task.cancel()
+                // Finish the delegate's session so it doesn't leak across
+                // cancellation. The delegate holds a strong ref via
+                // `delegate:` on init; invalidateAndCancel breaks it.
+                session.invalidateAndCancel()
             }
         }
     }
