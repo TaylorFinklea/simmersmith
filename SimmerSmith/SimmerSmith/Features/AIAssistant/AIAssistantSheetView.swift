@@ -47,6 +47,22 @@ struct AIAssistantSheetView: View {
                             withAnimation { proxy.scrollTo(newValue, anchor: .bottom) }
                         }
                     }
+                    // Track the last message's content length too so the
+                    // scroll keeps up with streaming deltas — the messageId
+                    // stays constant during a turn, so onChange(messageId)
+                    // alone only fires when a new message arrives.
+                    .onChange(of: coordinator.currentMessages.last?.contentMarkdown.count) { _, _ in
+                        if let lastId = coordinator.currentMessages.last?.messageId {
+                            proxy.scrollTo(lastId, anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: coordinator.currentMessages.last?.toolCalls.count) { _, _ in
+                        // Also scroll when new tool cards land — a swap_meal
+                        // tool call can push the text bubble off-screen.
+                        if let lastId = coordinator.currentMessages.last?.messageId {
+                            withAnimation { proxy.scrollTo(lastId, anchor: .bottom) }
+                        }
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {
