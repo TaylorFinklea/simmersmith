@@ -67,6 +67,15 @@ async def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+# Public SSE diagnostic — emits 20 deltas spaced 100ms apart so we can curl
+# this route to prove the server + fly-proxy transport streams incrementally
+# independently of OpenAI and any iOS client behavior.
+@app.get("/api/assistant/_streamtest")
+async def stream_test():
+    from app.api.assistant import stream_test_response
+    return await stream_test_response()
+
+
 @app.get("/privacy", include_in_schema=False)
 async def privacy_policy():
     from fastapi.responses import HTMLResponse
