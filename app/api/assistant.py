@@ -29,6 +29,7 @@ from app.services.assistant_threads import (
     create_thread,
     get_thread,
     list_threads,
+    persist_streaming_content,
     update_assistant_message,
 )
 from app.services.assistant_tools import AssistantToolResult, run_tool
@@ -47,6 +48,10 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
+
+# How often the SSE endpoint flushes accumulated streamed text to the DB.
+# Tunable for tests (monkeypatch to 0 to flush on every delta).
+STREAM_PERSIST_INTERVAL_SECONDS = 0.5
 
 
 @router.get("/threads", response_model=list[AssistantThreadSummaryOut])
@@ -220,6 +225,28 @@ async def respond_route(
 
         task = asyncio.create_task(asyncio.to_thread(worker))
 
+        # Track streamed text so we can periodically flush it to the DB.
+        # Without this, closing + reopening the assistant sheet mid-turn
+        # shows an empty bubble until the whole turn completes.
+        streamed_text = ""
+        last_persist_at = 0.0
+
+        def _flush_streamed_content() -> None:
+            nonlocal last_persist_at
+            if not streamed_text:
+                return
+            try:
+                with session_scope() as persist_session:
+                    persist_streaming_content(
+                        persist_session, assistant_message_id, streamed_text
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to persist streamed deltas for message %s",
+                    assistant_message_id,
+                )
+            last_persist_at = asyncio.get_event_loop().time()
+
         try:
             while True:
                 try:
@@ -233,7 +260,18 @@ async def respond_route(
                 if item is None:
                     break
                 event_name, data = item
+                if event_name == "assistant.delta":
+                    delta_piece = str(data.get("delta", ""))
+                    if delta_piece:
+                        streamed_text += delta_piece
+                        now = asyncio.get_event_loop().time()
+                        if now - last_persist_at >= STREAM_PERSIST_INTERVAL_SECONDS:
+                            _flush_streamed_content()
                 yield encode_sse(event_name, data)
+
+            # Final flush before `update_assistant_message` overwrites with
+            # the envelope text — harmless if they're equal.
+            _flush_streamed_content()
 
             result = await task
             with session_scope() as stream_session:

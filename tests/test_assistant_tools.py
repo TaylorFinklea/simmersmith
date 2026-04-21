@@ -331,3 +331,87 @@ def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
     assert len(assistant_messages) == 1
     tool_calls = assistant_messages[0]["tool_calls"]
     assert [call["name"] for call in tool_calls] == ["get_current_week", "swap_meal"]
+
+
+def test_streamed_deltas_persist_before_turn_completes(client, monkeypatch) -> None:
+    """Regression: closing + reopening the assistant sheet mid-stream should
+    show the text that's already arrived. The SSE endpoint flushes
+    `content_markdown` on a throttle while deltas come in.
+    """
+    from app.db import session_scope as _session_scope
+    from app.models import AssistantMessage
+
+    week_id = _seed_week(client)
+
+    # Force a flush on every delta so the test doesn't need real time.
+    monkeypatch.setattr("app.api.assistant.STREAM_PERSIST_INTERVAL_SECONDS", 0.0)
+
+    observed_partials: list[str] = []
+
+    def fake_run_assistant_turn(
+        *, tool_runner=None, on_event=None, **_: object
+    ) -> AssistantTurnResult:
+        assert on_event is not None
+        on_event("assistant.delta", {"delta": "I'll "})
+        # After the first delta, the row should have partial content written.
+        # We can't inspect mid-request here (session scope differs), but the
+        # final assertion below proves it — an intermediate sampling here
+        # would couple too tightly to the stream loop timing.
+        on_event("assistant.delta", {"delta": "plan "})
+        on_event("assistant.delta", {"delta": "Wednesday."})
+        envelope = AssistantProviderEnvelope(
+            assistant_markdown="I'll plan Wednesday."
+        )
+        return AssistantTurnResult(
+            target=AssistantExecutionTarget(
+                provider_kind="direct",
+                source="test",
+                provider_name="openai",
+                model="test-model",
+            ),
+            prompt="system",
+            raw_output="{}",
+            envelope=envelope,
+            provider_thread_id=None,
+            tool_calls=[],
+            streamed_deltas=True,
+        )
+
+    # Wrap persist_streaming_content so we can observe every partial write.
+    from app.services import assistant_threads as _threads_module
+    original_persist = _threads_module.persist_streaming_content
+
+    def spy_persist(session, message_id, content_markdown):  # noqa: ANN001
+        observed_partials.append(content_markdown)
+        return original_persist(session, message_id, content_markdown)
+
+    monkeypatch.setattr("app.api.assistant.persist_streaming_content", spy_persist)
+    monkeypatch.setattr("app.api.assistant.run_assistant_turn", fake_run_assistant_turn)
+
+    create = client.post(
+        "/api/assistant/threads",
+        json={"title": "Plan Wed", "thread_kind": "planning", "linked_week_id": week_id},
+    )
+    thread_id = create.json()["thread_id"]
+
+    with client.stream(
+        "POST",
+        f"/api/assistant/threads/{thread_id}/respond",
+        json={"text": "plan wednesday", "intent": "planning"},
+    ) as response:
+        assert response.status_code == 200
+        "".join(response.iter_text())
+
+    # Every delta should have triggered a partial persist (interval=0).
+    # At minimum: first non-empty text + final flush.
+    assert len(observed_partials) >= 2
+    assert observed_partials[0] == "I'll "
+    # Final observation is the full accumulated text
+    assert observed_partials[-1] == "I'll plan Wednesday."
+
+    # Final DB state matches (update_assistant_message runs after the loop
+    # with the envelope text, so content_markdown reads the completed text).
+    with _session_scope() as session:
+        messages = session.query(AssistantMessage).all()
+        assistant_row = next(m for m in messages if m.role == "assistant")
+        assert assistant_row.content_markdown == "I'll plan Wednesday."

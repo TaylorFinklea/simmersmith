@@ -104,6 +104,24 @@ def update_assistant_message(
     refresh_thread_metadata(thread)
 
 
+def persist_streaming_content(
+    session: Session,
+    message_id: str,
+    content_markdown: str,
+) -> None:
+    """Mid-turn partial update of `content_markdown` only.
+
+    Called periodically from the SSE endpoint while deltas stream so a
+    sheet-reopen mid-turn shows the text that's already arrived. Leaves
+    `status`, `tool_calls_json`, and `completed_at` untouched — those
+    still get finalized by `update_assistant_message` on turn completion.
+    """
+    message = session.get(AssistantMessage, message_id)
+    if message is None:
+        return
+    message.content_markdown = content_markdown
+
+
 def refresh_thread_metadata(thread: AssistantThread) -> None:
     latest_message = thread.messages[-1] if thread.messages else None
     if not thread.title.strip():
