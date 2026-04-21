@@ -333,6 +333,105 @@ def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
     assert [call["name"] for call in tool_calls] == ["get_current_week", "swap_meal"]
 
 
+def test_abort_event_cancels_tool_loop_mid_stream(client, monkeypatch) -> None:
+    """When abort_event fires mid-stream, the tool loop exits early,
+    preserves accumulated text, and returns cancelled=True.
+    """
+    import threading as _threading
+
+    from app.services.assistant_ai import (
+        AssistantExecutionTarget,
+        _run_openai_tool_loop,
+    )
+
+    abort_event = _threading.Event()
+
+    class _FakeLineStream:
+        def __init__(self, lines):
+            self._lines = lines
+
+        def iter_lines(self):
+            for line in self._lines:
+                yield line
+
+        def raise_for_status(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def stream(self, *args, **kwargs):
+            # Emit two content deltas, then the test asserts abort fires
+            # before any `finish_reason` — so we never send [DONE].
+            lines = [
+                'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+                'data: {"choices":[{"delta":{"content":"lo"}}]}',
+                # After this one lands, abort_event will be set by the test
+                # so the next iteration of iter_lines short-circuits.
+                'data: {"choices":[{"delta":{"content":"_ABORT_"}}]}',
+                'data: {"choices":[{"delta":{"content":" ignored"}}]}',
+                "data: [DONE]",
+            ]
+            return _FakeLineStream(lines)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("app.services.assistant_ai.httpx.Client", _FakeClient)
+    monkeypatch.setattr(
+        "app.services.assistant_ai.resolve_direct_api_key", lambda *a, **k: "fake-key"
+    )
+
+    events: list[tuple[str, dict]] = []
+
+    def on_event(name, data):
+        events.append((name, data))
+        if data.get("delta") == "_ABORT_":
+            abort_event.set()
+
+    def never_called_tool_runner(name, args):  # noqa: ARG001
+        raise AssertionError("tool_runner should not fire on a pure-text abort test")
+
+    from app.schemas import AssistantRespondRequest
+
+    target = AssistantExecutionTarget(
+        provider_kind="direct",
+        source="test",
+        provider_name="openai",
+        model="test-model",
+    )
+    result = _run_openai_tool_loop(
+        target=target,
+        settings=get_settings(),
+        user_settings={},
+        thread_title="t",
+        conversation=[],
+        request=AssistantRespondRequest(text="say hi"),
+        attached_recipe=None,
+        planning_context="",
+        tool_runner=never_called_tool_runner,
+        on_event=on_event,
+        abort_event=abort_event,
+    )
+
+    assert result.cancelled is True
+    # The text that arrived before the abort is preserved.
+    assert "Hel" in result.envelope.assistant_markdown
+    assert "lo" in result.envelope.assistant_markdown
+    # The "ignored" delta came after the abort check and never fired.
+    assert "ignored" not in result.envelope.assistant_markdown
+
+
 def test_streamed_deltas_persist_before_turn_completes(client, monkeypatch) -> None:
     """Regression: closing + reopening the assistant sheet mid-stream should
     show the text that's already arrived. The SSE endpoint flushes

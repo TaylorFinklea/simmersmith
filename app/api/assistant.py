@@ -4,9 +4,10 @@ import asyncio
 import json
 import logging
 import queue
+import threading
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -116,6 +117,7 @@ def delete_thread_route(
 async def respond_route(
     thread_id: str,
     payload: AssistantRespondRequest,
+    request: Request,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
     current_user: CurrentUser = Depends(get_current_user),
@@ -184,6 +186,10 @@ async def respond_route(
         yield encode_sse("user_message.created", initial_user_payload)
 
         event_queue: "queue.Queue[tuple[str, dict[str, object]] | None]" = queue.Queue()
+        # Signaled when the client disconnects so the tool loop can exit
+        # between OpenAI chunks / tool calls instead of running to completion
+        # spending tokens on a reply nobody will read.
+        abort_event = threading.Event()
 
         def on_event(event: str, data: dict[str, object]) -> None:
             # The tool loop doesn't know the assistant_message_id; inject it
@@ -219,11 +225,28 @@ async def respond_route(
                     tool_runner=tool_runner if use_tools else None,
                     on_event=on_event if use_tools else None,
                     planning_context=planning_context_text if use_tools else None,
+                    abort_event=abort_event,
                 )
             finally:
                 event_queue.put(None)
 
         task = asyncio.create_task(asyncio.to_thread(worker))
+
+        async def _watch_disconnect() -> None:
+            # Poll the Starlette receive channel so we can fire the abort
+            # event as soon as the client goes away. ~1s cadence keeps
+            # overhead low; the tool loop checks the flag between OpenAI
+            # chunks anyway, so sub-second precision isn't useful.
+            while not task.done():
+                try:
+                    if await request.is_disconnected():
+                        abort_event.set()
+                        return
+                except Exception:
+                    return
+                await asyncio.sleep(1.0)
+
+        disconnect_watcher = asyncio.create_task(_watch_disconnect())
 
         # Track streamed text so we can periodically flush it to the DB.
         # Without this, closing + reopening the assistant sheet mid-turn
@@ -274,6 +297,8 @@ async def respond_route(
             _flush_streamed_content()
 
             result = await task
+            final_status = "cancelled" if result.cancelled else "completed"
+            run_status = "cancelled" if result.cancelled else "completed"
             with session_scope() as stream_session:
                 live_thread = get_thread(stream_session, user_id, thread_id)
                 live_message = stream_session.get(AssistantMessage, assistant_message_id)
@@ -284,7 +309,7 @@ async def respond_route(
                 update_assistant_message(
                     live_thread,
                     live_message,
-                    status="completed",
+                    status=final_status,
                     content_markdown=result.envelope.assistant_markdown,
                     recipe_draft=result.envelope.recipe_draft,
                     tool_calls=result.tool_calls,
@@ -296,7 +321,7 @@ async def respond_route(
                         run_type="assistant_turn" if not use_tools else "assistant_planning_turn",
                         model=result.target.model,
                         prompt=payload.text,
-                        status="completed",
+                        status=run_status,
                         request_payload=json.dumps(
                             {
                                 "thread_id": thread_id,
@@ -307,6 +332,7 @@ async def respond_route(
                                 "thread_kind": thread_kind,
                                 "linked_week_id": linked_week_id,
                                 "tool_calls": result.tool_calls,
+                                "cancelled": result.cancelled,
                             }
                         ),
                         response_payload=result.envelope.model_dump_json(),
@@ -316,16 +342,29 @@ async def respond_route(
                 message_payload = assistant_message_payload(live_message)
                 thread_payload = assistant_thread_summary_payload(live_thread)
 
-            if not result.streamed_deltas:
-                for chunk in chunk_text(result.envelope.assistant_markdown):
-                    yield encode_sse("assistant.delta", {"message_id": assistant_message_id, "delta": chunk})
-            if message_payload["recipe_draft"] is not None:
+            if result.cancelled:
+                # Client is already gone; these yields will just no-op into a
+                # closed TCP stream. Still try them so any proxy caching a
+                # partial response sees a clean terminator.
+                yield encode_sse("thread.updated", thread_payload)
                 yield encode_sse(
-                    "assistant.recipe_draft",
-                    {"message_id": assistant_message_id, "draft": message_payload["recipe_draft"]},
+                    "assistant.cancelled",
+                    {
+                        "message_id": assistant_message_id,
+                        "content_markdown": result.envelope.assistant_markdown,
+                    },
                 )
-            yield encode_sse("thread.updated", thread_payload)
-            yield encode_sse("assistant.completed", message_payload)
+            else:
+                if not result.streamed_deltas:
+                    for chunk in chunk_text(result.envelope.assistant_markdown):
+                        yield encode_sse("assistant.delta", {"message_id": assistant_message_id, "delta": chunk})
+                if message_payload["recipe_draft"] is not None:
+                    yield encode_sse(
+                        "assistant.recipe_draft",
+                        {"message_id": assistant_message_id, "draft": message_payload["recipe_draft"]},
+                    )
+                yield encode_sse("thread.updated", thread_payload)
+                yield encode_sse("assistant.completed", message_payload)
         except Exception as exc:
             detail = str(exc) or "Assistant response failed."
             logger.exception("Assistant turn failed for thread %s", thread_id)
@@ -366,6 +405,14 @@ async def respond_route(
                 "assistant.error",
                 {"message_id": assistant_message_id, "detail": detail},
             )
+        finally:
+            # Always tear down the disconnect watcher so it doesn't outlive
+            # the stream (prevents a leaking polling coroutine per request).
+            disconnect_watcher.cancel()
+            try:
+                await disconnect_watcher
+            except (asyncio.CancelledError, Exception):
+                pass
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -84,6 +85,10 @@ class AssistantTurnResult:
     # on_event callback (streaming mode). When True the endpoint should skip
     # re-emitting the final content as chunks.
     streamed_deltas: bool = False
+    # True when the turn exited early because the caller's `abort_event`
+    # fired (typically client disconnect). The envelope still carries any
+    # text that arrived before the abort.
+    cancelled: bool = False
 
 
 def resolve_assistant_execution_target(
@@ -146,6 +151,7 @@ def run_assistant_turn(
     tool_runner: ToolRunner | None = None,
     on_event: EventCallback | None = None,
     planning_context: str | None = None,
+    abort_event: threading.Event | None = None,
 ) -> AssistantTurnResult:
     target = resolve_assistant_execution_target(
         settings,
@@ -169,6 +175,7 @@ def run_assistant_turn(
             planning_context=planning_context or "",
             tool_runner=tool_runner,
             on_event=on_event,
+            abort_event=abort_event,
         )
 
     prompt = build_assistant_prompt(
@@ -213,6 +220,7 @@ def _run_openai_tool_loop(
     planning_context: str,
     tool_runner: ToolRunner,
     on_event: EventCallback | None,
+    abort_event: threading.Event | None = None,
 ) -> AssistantTurnResult:
     system_prompt = build_planning_system_prompt(
         thread_title=thread_title, planning_context=planning_context
@@ -247,8 +255,15 @@ def _run_openai_tool_loop(
                 logger.exception("Assistant event callback raised")
 
     accumulated_text = ""
+    cancelled = False
+
+    def _is_aborted() -> bool:
+        return abort_event is not None and abort_event.is_set()
 
     for iteration in range(MAX_TOOL_ITERATIONS):
+        if _is_aborted():
+            cancelled = True
+            break
         # Stream tokens + tool_call deltas so the iOS client renders text as
         # it arrives instead of waiting for the whole response to buffer.
         turn_text = ""
@@ -275,6 +290,9 @@ def _run_openai_tool_loop(
             ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
+                    if _is_aborted():
+                        cancelled = True
+                        break
                     if not line:
                         continue
                     if not line.startswith("data: "):
@@ -313,6 +331,8 @@ def _run_openai_tool_loop(
                             acc["arguments"] += str(fn_delta["arguments"])
                     if choice.get("finish_reason"):
                         finish_reason = str(choice["finish_reason"])
+        if cancelled:
+            break
 
         # Capture the last raw chunk for AIRun logging (full record is
         # approximated as the accumulated text + tool calls).
@@ -357,6 +377,9 @@ def _run_openai_tool_loop(
         )
 
         for idx in sorted(tool_calls_acc.keys()):
+            if _is_aborted():
+                cancelled = True
+                break
             acc = tool_calls_acc[idx]
             call_id = acc["id"] or str(uuid.uuid4())
             name = acc["name"]
@@ -411,16 +434,25 @@ def _run_openai_tool_loop(
                 }
             )
 
+        if cancelled:
+            break
         if finish_reason == "stop":
             final_text = turn_text.strip()
             break
     else:
         logger.warning("Assistant tool loop exceeded %s iterations", MAX_TOOL_ITERATIONS)
 
+    if cancelled:
+        # Preserve whatever arrived before the abort so the persisted
+        # message and audit log show partial progress.
+        final_text = accumulated_text.strip()
     if final_text is None or not final_text:
-        final_text = accumulated_text.strip() or "I hit a tool-call limit before I could finish. Can you try again?"
+        final_text = accumulated_text.strip() or (
+            "Turn cancelled." if cancelled
+            else "I hit a tool-call limit before I could finish. Can you try again?"
+        )
 
-    envelope = AssistantProviderEnvelope(assistant_markdown=final_text or "Done.")
+    envelope = AssistantProviderEnvelope(assistant_markdown=final_text or ("Cancelled." if cancelled else "Done."))
     return AssistantTurnResult(
         target=target,
         prompt=system_prompt,
@@ -429,6 +461,7 @@ def _run_openai_tool_loop(
         provider_thread_id=None,
         tool_calls=tool_transcript,
         streamed_deltas=True,
+        cancelled=cancelled,
     )
 
 

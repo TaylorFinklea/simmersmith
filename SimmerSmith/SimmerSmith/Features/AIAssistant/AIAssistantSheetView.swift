@@ -73,6 +73,11 @@ struct AIAssistantSheetView: View {
         .presentationDetents([.fraction(1.0 / 3.0), .medium, .large])
         .presentationBackgroundInteraction(.enabled(upThrough: .fraction(1.0 / 3.0)))
         .presentationDragIndicator(.visible)
+        .onDisappear {
+            // Sheet closed mid-turn → cancel the stream so the server stops
+            // spending tokens on a reply the user won't see.
+            coordinator.cancelInFlightTurn()
+        }
     }
 
     private var emptyState: some View {
@@ -283,6 +288,17 @@ private struct AssistantMessageInlineBubble: View {
                         in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
                     )
                     .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
+            }
+            if message.status == "cancelled" {
+                Text("Cancelled")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textSecondary)
+                    .padding(.horizontal, SMSpacing.sm)
+                    .padding(.vertical, SMSpacing.xs)
+                    .background(
+                        SMColor.surfaceElevated.opacity(0.6),
+                        in: Capsule()
+                    )
             }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)

@@ -29,6 +29,11 @@ final class AIAssistantCoordinator {
     var composerText: String = ""
 
     private let appState: AppState
+    // Retained so we can cancel the in-flight stream when the user dismisses
+    // the sheet mid-turn. Cancellation propagates through the URLSession
+    // bytes(...) iteration → stream continuation finishes → server sees
+    // request.is_disconnected() and aborts the OpenAI tool loop.
+    private var sendTask: Task<Void, Never>?
 
     init(appState: AppState) {
         self.appState = appState
@@ -52,6 +57,14 @@ final class AIAssistantCoordinator {
 
     func dismiss() {
         isSheetPresented = false
+    }
+
+    /// Cancel any in-flight streaming turn. Called by the sheet view on
+    /// disappear so closing the sheet doesn't leave the server burning
+    /// tokens on a reply the user won't see.
+    func cancelInFlightTurn() {
+        sendTask?.cancel()
+        sendTask = nil
     }
 
     // MARK: - Messages
@@ -89,8 +102,18 @@ final class AIAssistantCoordinator {
         composerText = ""
         errorMessage = ""
         isSending = true
-        defer { isSending = false }
+        // Retain the task so cancelInFlightTurn() can cancel it. Use
+        // `await task.value` to preserve the async-sendMessage contract.
+        let task = Task { [weak self] () -> Void in
+            await self?._performSend(trimmed)
+        }
+        sendTask = task
+        await task.value
+        sendTask = nil
+        isSending = false
+    }
 
+    private func _performSend(_ text: String) async {
         do {
             let threadID = try await ensureThread()
             if appState.assistantThreadDetails[threadID] == nil {
@@ -102,13 +125,17 @@ final class AIAssistantCoordinator {
             // "invalid response" instead of the real detail.
             try await appState.sendAssistantMessage(
                 threadID: threadID,
-                text: trimmed,
+                text: text,
                 intent: "general",
                 pageContext: currentContext
             )
             if let threadError = appState.assistantErrorByThreadID[threadID], !threadError.isEmpty {
                 errorMessage = threadError
             }
+        } catch is CancellationError {
+            // Expected path when the user dismisses the sheet mid-stream.
+            // Leave errorMessage empty so nothing surfaces in the UI.
+            return
         } catch {
             errorMessage = error.localizedDescription
         }
