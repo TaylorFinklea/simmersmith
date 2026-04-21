@@ -155,6 +155,12 @@ extension AppState {
         case "user_message.created":
             let message = try event.decode(AssistantMessage.self)
             appendAssistantMessage(message, to: threadID)
+        case "assistant.message.created":
+            // Seeded empty assistant row so tool_call events have an
+            // anchor before any content delta arrives. Same decode shape
+            // as user_message.created.
+            let message = try event.decode(AssistantMessage.self)
+            appendAssistantMessage(message, to: threadID)
         case "assistant.delta":
             let delta = try event.decode(AssistantDeltaEvent.self)
             applyAssistantDelta(threadID: threadID, delta: delta)
@@ -184,7 +190,10 @@ extension AppState {
     private func appendAssistantToolCall(_ call: AssistantToolCall, to threadID: String) {
         guard let detail = assistantThreadDetails[threadID] else { return }
         // Find the last streaming assistant message; attach/replace the tool
-        // call on it so the UI can render a live card.
+        // call on it so the UI can render a live card. The assistant row
+        // is seeded from `assistant.message.created` which the backend
+        // emits before the tool loop starts — so by the time tool_call
+        // events arrive there's always a row to attach to.
         guard let lastIndex = detail.messages.lastIndex(where: { $0.role == "assistant" }) else {
             return
         }

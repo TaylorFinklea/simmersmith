@@ -171,6 +171,11 @@ async def respond_route(
 
     initial_thread_payload = assistant_thread_summary_payload(thread)
     initial_user_payload = assistant_message_payload(user_message)
+    # Empty assistant row so tool_call events have an anchor before any
+    # content delta arrives. iOS appendAssistantToolCall requires a
+    # role="assistant" message to attach the card to — without this the
+    # card gets silently dropped when the AI goes straight to a tool.
+    initial_assistant_payload = assistant_message_payload(assistant_message)
     conversation = [
         assistant_message_payload(message)
         for message in thread.messages
@@ -189,6 +194,7 @@ async def respond_route(
         yield ":" + (" " * 2048) + "\n\n"
         yield encode_sse("thread.updated", initial_thread_payload)
         yield encode_sse("user_message.created", initial_user_payload)
+        yield encode_sse("assistant.message.created", initial_assistant_payload)
 
         event_queue: "queue.Queue[tuple[str, dict[str, object]] | None]" = queue.Queue()
         # Signaled when the client disconnects so the tool loop can exit

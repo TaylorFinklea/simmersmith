@@ -239,11 +239,26 @@ struct AIAssistantSheetView: View {
                     .focused($composerFocused)
 
                 Button {
-                    let text = coord.composerText
-                    Task { await coordinator.sendMessage(text) }
+                    if coordinator.isSending {
+                        // Tapping while streaming cancels the turn. The
+                        // server polls request.is_disconnected() so the
+                        // cancel propagates through TCP close → abort_event
+                        // → tool loop exits early.
+                        coordinator.cancelInFlightTurn()
+                    } else {
+                        let text = coord.composerText
+                        Task { await coordinator.sendMessage(text) }
+                    }
                 } label: {
                     if coordinator.isSending {
-                        ProgressView().controlSize(.small)
+                        ZStack {
+                            Circle()
+                                .fill(SMColor.primary.opacity(0.15))
+                                .frame(width: 28, height: 28)
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(SMColor.primary)
+                        }
                     } else {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 28))
@@ -251,9 +266,10 @@ struct AIAssistantSheetView: View {
                     }
                 }
                 .disabled(
-                    coordinator.isSending
-                    || coord.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    !coordinator.isSending
+                    && coord.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 )
+                .accessibilityLabel(coordinator.isSending ? "Stop" : "Send")
             }
             .padding(.horizontal, SMSpacing.lg)
             .padding(.top, SMSpacing.sm)
