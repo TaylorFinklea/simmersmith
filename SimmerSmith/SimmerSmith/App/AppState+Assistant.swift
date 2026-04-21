@@ -122,9 +122,12 @@ extension AppState {
             }
         } catch is CancellationError {
             // User tapped Stop or dismissed the sheet — propagate quietly
-            // without the "response may be incomplete" banner, which reads
-            // as a failure to the user. The server's cancelled message +
-            // "Cancelled" pill on the bubble are the right signal.
+            // without the "response may be incomplete" banner. Also mark
+            // the last streaming assistant row as cancelled locally so
+            // the "Cancelled" pill appears immediately. The server-side
+            // assistant.cancelled event can't reach us because we're the
+            // ones who closed the socket.
+            markLastStreamingAssistantAsCancelled(threadID: threadID)
             throw CancellationError()
         } catch {
             streamFailure = error
@@ -191,6 +194,44 @@ extension AppState {
         default:
             break
         }
+    }
+
+    /// Flip the last streaming assistant row's status to "cancelled" without
+    /// touching anything else. Used when the user cancels a turn — we're the
+    /// ones who closed the socket, so the server's assistant.cancelled event
+    /// can't reach us. Preserves any streamed content that arrived before
+    /// the cancel.
+    private func markLastStreamingAssistantAsCancelled(threadID: String) {
+        guard var detail = assistantThreadDetails[threadID] else { return }
+        guard let index = detail.messages.lastIndex(where: {
+            $0.role == "assistant" && $0.status == "streaming"
+        }) else { return }
+        let existing = detail.messages[index]
+        var messages = detail.messages
+        messages[index] = AssistantMessage(
+            messageId: existing.messageId,
+            threadId: existing.threadId,
+            role: existing.role,
+            status: "cancelled",
+            contentMarkdown: existing.contentMarkdown,
+            recipeDraft: existing.recipeDraft,
+            attachedRecipeId: existing.attachedRecipeId,
+            toolCalls: existing.toolCalls,
+            createdAt: existing.createdAt,
+            completedAt: existing.completedAt ?? .now,
+            error: existing.error
+        )
+        detail = AssistantThread(
+            threadId: detail.threadId,
+            title: detail.title,
+            preview: detail.preview,
+            threadKind: detail.threadKind,
+            linkedWeekId: detail.linkedWeekId,
+            createdAt: detail.createdAt,
+            updatedAt: detail.updatedAt,
+            messages: messages
+        )
+        assistantThreadDetails[threadID] = detail
     }
 
     private func appendAssistantToolCall(_ call: AssistantToolCall, to threadID: String) {

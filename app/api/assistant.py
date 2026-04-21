@@ -55,6 +55,34 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 STREAM_PERSIST_INTERVAL_SECONDS = 0.5
 
 
+@router.get("/_streamtest")
+async def stream_test_route() -> StreamingResponse:
+    """Unauthenticated SSE smoke test. Emits 20 pre-canned delta events
+    spaced 100ms apart so we can confirm the server + fly-proxy + curl
+    pipeline streams incrementally without involving OpenAI or the tool
+    loop. If curl sees chunks arrive one-by-one, the transport is good
+    and any perceived buffering lives elsewhere (OpenAI granularity, iOS
+    URLSession, or SwiftUI frame coalescing).
+    """
+
+    async def gen() -> AsyncIterator[str]:
+        yield ":" + (" " * 2048) + "\n\n"
+        for index in range(20):
+            yield encode_sse("assistant.delta", {"delta": f"tok{index} "})
+            await asyncio.sleep(0.1)
+        yield encode_sse("assistant.completed", {"total": 20})
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @router.get("/threads", response_model=list[AssistantThreadSummaryOut])
 def list_threads_route(
     session: Session = Depends(get_session),
