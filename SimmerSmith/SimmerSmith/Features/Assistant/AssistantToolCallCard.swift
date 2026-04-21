@@ -42,6 +42,7 @@ struct AssistantToolCallCard: View {
         switch call.name {
         case "get_current_week": return "Read current week"
         case "get_dietary_goal": return "Read dietary goal"
+        case "get_preferences_summary": return "Read preferences"
         case "generate_week_plan": return "Plan the whole week"
         case "add_meal": return "Add meal"
         case "swap_meal": return "Swap meal"
@@ -55,9 +56,72 @@ struct AssistantToolCallCard: View {
     }
 
     private var subtitle: String {
+        // Prefer server-provided detail when we have it — that's the
+        // authoritative post-tool summary. While running, fall back to an
+        // argument-derived context string so the user sees what's being
+        // done instead of a generic "Running…".
         if !call.detail.isEmpty { return call.detail }
-        if call.status == "running" { return "Running…" }
+        if call.status == "running" {
+            let context = argumentContext
+            return context.isEmpty ? "Running…" : context
+        }
         return call.ok ? "Done" : "Failed"
+    }
+
+    private func argValue(_ key: String) -> String? {
+        guard let value = call.arguments[key] else { return nil }
+        let text = value.stringDescription
+        return text.isEmpty ? nil : text
+    }
+
+    /// Short, human-readable context extracted from the tool arguments.
+    /// Kept per-tool so each card tells the user what's actually happening
+    /// instead of a generic progress label.
+    private var argumentContext: String {
+        switch call.name {
+        case "swap_meal":
+            // `swap_meal` carries either (day+slot) or meal_id plus the new
+            // recipe name. Day/slot is friendlier than a UUID.
+            let target = [argValue("day_name"), argValue("slot")]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            let recipe = argValue("recipe_name") ?? ""
+            if !recipe.isEmpty && !target.isEmpty {
+                return "\(recipe) · \(target.capitalized)"
+            }
+            return recipe.isEmpty ? target.capitalized : recipe
+        case "add_meal":
+            let target = [argValue("day_name"), argValue("slot")]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            let recipe = argValue("recipe_name") ?? ""
+            if !recipe.isEmpty && !target.isEmpty {
+                return "\(recipe) → \(target.capitalized)"
+            }
+            return recipe.isEmpty ? target.capitalized : recipe
+        case "remove_meal":
+            return [argValue("day_name"), argValue("slot")]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .capitalized
+        case "rebalance_day":
+            return argValue("day_name")?.capitalized ?? ""
+        case "set_meal_approved":
+            let approved = argValue("approved") ?? ""
+            return approved.contains("true") ? "Marking as approved" : "Marking as not approved"
+        case "set_dietary_goal":
+            let type = argValue("goal_type") ?? ""
+            let kcal = argValue("daily_calories") ?? ""
+            return [type.capitalized, kcal.isEmpty ? "" : "\(kcal) kcal"]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+        case "fetch_pricing":
+            return "Getting current store prices"
+        case "generate_week_plan":
+            return "Building 21 meals"
+        default:
+            return ""
+        }
     }
 
     private var subtitleColor: Color {

@@ -275,8 +275,13 @@ private struct AssistantMessageInlineBubble: View {
                 VStack(alignment: .leading, spacing: SMSpacing.xs) {
                     ForEach(message.toolCalls) { call in
                         AssistantToolCallCard(call: call)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .leading).combined(with: .opacity),
+                                removal: .opacity
+                            ))
                     }
                 }
+                .animation(.easeOut(duration: 0.22), value: message.toolCalls.map(\.callId))
             }
             if !displayText.isEmpty {
                 Text(displayText)
