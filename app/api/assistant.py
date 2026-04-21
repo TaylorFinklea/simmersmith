@@ -182,6 +182,11 @@ async def respond_route(
     assistant_message_id = assistant_message.id
 
     async def event_stream() -> AsyncIterator[str]:
+        # 2KB padding comment to push past any intermediate proxy's initial
+        # buffer threshold. SSE comment lines start with ":". Harmless to
+        # clients but forces fly-proxy to flush its read-ahead buffer so
+        # subsequent small frames (80-200 bytes each) aren't held up.
+        yield ":" + (" " * 2048) + "\n\n"
         yield encode_sse("thread.updated", initial_thread_payload)
         yield encode_sse("user_message.created", initial_user_payload)
 
@@ -414,7 +419,20 @@ async def respond_route(
             except (asyncio.CancelledError, Exception):
                 pass
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            # Disable any intermediate buffering between uvicorn → fly-proxy
+            # → client. Without these, Fly's proxy can hold chunks for
+            # hundreds of ms before flushing, which looks like "not
+            # streaming" in the iOS UI. `X-Accel-Buffering` is the nginx
+            # signal; other proxies honor it too.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _planning_context_text(
