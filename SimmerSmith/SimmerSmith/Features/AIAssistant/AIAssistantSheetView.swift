@@ -265,6 +265,7 @@ struct AIAssistantSheetView: View {
 
 private struct AssistantMessageInlineBubble: View {
     let message: AssistantMessage
+    @Environment(AIAssistantCoordinator.self) private var coordinator
 
     private var isUser: Bool { message.role == "user" }
 
@@ -300,6 +301,9 @@ private struct AssistantMessageInlineBubble: View {
                         in: Capsule()
                     )
             }
+            if showsHallucinationAffordance {
+                hallucinationAffordance
+            }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .padding(.horizontal, SMSpacing.md)
@@ -312,5 +316,71 @@ private struct AssistantMessageInlineBubble: View {
         let errorText = message.error.trimmingCharacters(in: .whitespacesAndNewlines)
         if !errorText.isEmpty { return "Failed: \(errorText)" }
         return ""
+    }
+
+    /// Only shown for completed assistant messages whose text describes a
+    /// mutation the user would expect to see applied but where no tool
+    /// actually fired. Catches the "I swapped Tuesday" hallucination
+    /// without a corresponding swap_meal tool call.
+    private var showsHallucinationAffordance: Bool {
+        guard !isUser,
+              message.status == "completed",
+              message.toolCalls.isEmpty
+        else { return false }
+        return Self.textDescribesMutation(displayText)
+    }
+
+    /// Keeps the pattern list inline so it's easy to audit. Favors false
+    /// positives over false negatives — the affordance is a soft nudge, not
+    /// a hard error.
+    private static let mutationPatterns: [String] = [
+        "swapped", "swapping",
+        "added", "adding",
+        "removed", "removing",
+        "rebalanced", "rebalancing",
+        "planned your week", "plan your week",
+        "set your goal", "updated your goal",
+        "fetched prices", "fetching prices",
+        "changed", "updated",
+        "approved",
+    ]
+
+    private static func textDescribesMutation(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return mutationPatterns.contains { lower.contains($0) }
+    }
+
+    private var hallucinationAffordance: some View {
+        VStack(alignment: .leading, spacing: SMSpacing.xs) {
+            HStack(spacing: SMSpacing.xs) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Nothing changed in your plan")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textPrimary)
+            }
+            Text("The AI described an action but didn't actually run any tools.")
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textSecondary)
+            Button {
+                Task {
+                    await coordinator.sendMessage("Yes, actually do that.")
+                }
+            } label: {
+                Text("Run it now")
+                    .font(SMFont.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, SMSpacing.md)
+                    .padding(.vertical, SMSpacing.xs)
+                    .background(.orange, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(SMSpacing.sm)
+        .background(
+            Color.orange.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous)
+        )
+        .frame(maxWidth: 520, alignment: .leading)
     }
 }
