@@ -1125,6 +1125,171 @@ public struct IngredientSubstituteResponse: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Event Plans (M10)
+
+public struct Guest: Codable, Identifiable, Hashable, Sendable {
+    public let guestId: String
+    public var name: String
+    public var relationshipLabel: String
+    public var dietaryNotes: String
+    public var allergies: String
+    public var active: Bool
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public var id: String { guestId }
+
+    public init(
+        guestId: String,
+        name: String,
+        relationshipLabel: String = "",
+        dietaryNotes: String = "",
+        allergies: String = "",
+        active: Bool = true,
+        createdAt: Date = .now,
+        updatedAt: Date = .now
+    ) {
+        self.guestId = guestId
+        self.name = name
+        self.relationshipLabel = relationshipLabel
+        self.dietaryNotes = dietaryNotes
+        self.allergies = allergies
+        self.active = active
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct EventAttendee: Codable, Identifiable, Hashable, Sendable {
+    public let guestId: String
+    public let plusOnes: Int
+    public let guest: Guest
+
+    public var id: String { guestId }
+
+    public init(guestId: String, plusOnes: Int, guest: Guest) {
+        self.guestId = guestId
+        self.plusOnes = plusOnes
+        self.guest = guest
+    }
+}
+
+public struct EventMealIngredient: Codable, Identifiable, Hashable, Sendable {
+    public let ingredientId: String
+    public let ingredientName: String
+    public let baseIngredientId: String?
+    public let ingredientVariationId: String?
+    public let quantity: Double?
+    public let unit: String
+    public let prep: String
+    public let category: String
+    public let notes: String
+
+    public var id: String { ingredientId }
+}
+
+public struct EventMeal: Codable, Identifiable, Hashable, Sendable {
+    public let mealId: String
+    public let role: String
+    public let recipeId: String?
+    public let recipeName: String
+    public let servings: Double?
+    public let scaleMultiplier: Double
+    public let notes: String
+    public let sortOrder: Int
+    public let aiGenerated: Bool
+    public let approved: Bool
+    /// List of guest_ids this dish is compatible with. Empty = safe for
+    /// all. Populated by the AI menu generator in Phase 2.
+    public let constraintCoverage: [String]
+    public let ingredients: [EventMealIngredient]
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public var id: String { mealId }
+}
+
+public struct EventGroceryItem: Codable, Identifiable, Hashable, Sendable {
+    public let groceryItemId: String
+    public let ingredientName: String
+    public let baseIngredientId: String?
+    public let ingredientVariationId: String?
+    public let totalQuantity: Double?
+    public let unit: String
+    public let quantityText: String
+    public let category: String
+    public let sourceMeals: [String]
+    public let notes: String
+    public let reviewFlag: String
+    public let mergedIntoWeekId: String?
+    public let mergedIntoGroceryItemId: String?
+
+    public var id: String { groceryItemId }
+}
+
+public struct EventSummary: Codable, Identifiable, Hashable, Sendable {
+    public let eventId: String
+    public let name: String
+    public let eventDate: Date?
+    public let occasion: String
+    public let attendeeCount: Int
+    public let status: String
+    public let linkedWeekId: String?
+    public let mealCount: Int
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public var id: String { eventId }
+
+    public init(
+        eventId: String,
+        name: String,
+        eventDate: Date?,
+        occasion: String,
+        attendeeCount: Int,
+        status: String,
+        linkedWeekId: String?,
+        mealCount: Int,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.eventId = eventId
+        self.name = name
+        self.eventDate = eventDate
+        self.occasion = occasion
+        self.attendeeCount = attendeeCount
+        self.status = status
+        self.linkedWeekId = linkedWeekId
+        self.mealCount = mealCount
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct Event: Codable, Identifiable, Hashable, Sendable {
+    public let eventId: String
+    public let name: String
+    public let eventDate: Date?
+    public let occasion: String
+    public let attendeeCount: Int
+    public let status: String
+    public let linkedWeekId: String?
+    public let mealCount: Int
+    public let createdAt: Date
+    public let updatedAt: Date
+    public let notes: String
+    public let attendees: [EventAttendee]
+    public let meals: [EventMeal]
+    public let groceryItems: [EventGroceryItem]
+
+    public var id: String { eventId }
+}
+
+public struct EventMenuResponse: Codable, Hashable, Sendable {
+    public let event: Event
+    public let coverageSummary: String
+}
+
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let recipeId: String
     public let recipeTemplateId: String?

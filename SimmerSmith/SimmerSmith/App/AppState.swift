@@ -11,6 +11,7 @@ final class AppState {
         case week
         case grocery
         case recipes
+        case events
         case assistant
         case settings
     }
@@ -81,6 +82,9 @@ final class AppState {
     var assistantThreads: [AssistantThreadSummary] = []
     var assistantThreadDetails: [String: AssistantThread] = [:]
     var ingredientPreferences: [IngredientPreference] = []
+    var guests: [Guest] = []
+    var eventSummaries: [EventSummary] = []
+    var eventDetails: [String: Event] = [:]
     var checkedGroceryItemIDs: Set<String> = []
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]

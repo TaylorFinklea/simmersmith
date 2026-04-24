@@ -977,6 +977,171 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    // MARK: - Event Plans (M10)
+
+    public func fetchGuests(includeInactive: Bool = false) async throws -> [Guest] {
+        let query = includeInactive ? "?include_inactive=true" : ""
+        return try await request(path: "/api/guests\(query)")
+    }
+
+    public func upsertGuest(
+        guestID: String? = nil,
+        name: String,
+        relationshipLabel: String = "",
+        dietaryNotes: String = "",
+        allergies: String = "",
+        active: Bool = true
+    ) async throws -> Guest {
+        struct Body: Encodable {
+            let guestId: String?
+            let name: String
+            let relationshipLabel: String
+            let dietaryNotes: String
+            let allergies: String
+            let active: Bool
+        }
+        return try await request(
+            path: "/api/guests",
+            method: "POST",
+            body: Body(
+                guestId: guestID,
+                name: name,
+                relationshipLabel: relationshipLabel,
+                dietaryNotes: dietaryNotes,
+                allergies: allergies,
+                active: active
+            )
+        )
+    }
+
+    public func deleteGuest(guestID: String) async throws {
+        let _: EmptyResponse = try await request(path: "/api/guests/\(guestID)", method: "DELETE")
+    }
+
+    public func fetchEvents() async throws -> [EventSummary] {
+        try await request(path: "/api/events")
+    }
+
+    public func fetchEvent(eventID: String) async throws -> Event {
+        try await request(path: "/api/events/\(eventID)")
+    }
+
+    public func createEvent(
+        name: String,
+        eventDate: Date? = nil,
+        occasion: String = "other",
+        attendeeCount: Int = 0,
+        notes: String = "",
+        attendees: [(guestID: String, plusOnes: Int)] = []
+    ) async throws -> Event {
+        struct AttendeeBody: Encodable {
+            let guestId: String
+            let plusOnes: Int
+        }
+        struct Body: Encodable {
+            let name: String
+            let eventDate: Date?
+            let occasion: String
+            let attendeeCount: Int
+            let notes: String
+            let attendees: [AttendeeBody]
+        }
+        return try await request(
+            path: "/api/events",
+            method: "POST",
+            body: Body(
+                name: name,
+                eventDate: eventDate,
+                occasion: occasion,
+                attendeeCount: attendeeCount,
+                notes: notes,
+                attendees: attendees.map { AttendeeBody(guestId: $0.guestID, plusOnes: $0.plusOnes) }
+            )
+        )
+    }
+
+    public func updateEvent(
+        eventID: String,
+        name: String,
+        eventDate: Date?,
+        occasion: String,
+        attendeeCount: Int,
+        notes: String,
+        status: String,
+        attendees: [(guestID: String, plusOnes: Int)]
+    ) async throws -> Event {
+        struct AttendeeBody: Encodable {
+            let guestId: String
+            let plusOnes: Int
+        }
+        struct Body: Encodable {
+            let name: String
+            let eventDate: Date?
+            let occasion: String
+            let attendeeCount: Int
+            let notes: String
+            let status: String
+            let attendees: [AttendeeBody]
+        }
+        return try await request(
+            path: "/api/events/\(eventID)",
+            method: "PATCH",
+            body: Body(
+                name: name,
+                eventDate: eventDate,
+                occasion: occasion,
+                attendeeCount: attendeeCount,
+                notes: notes,
+                status: status,
+                attendees: attendees.map { AttendeeBody(guestId: $0.guestID, plusOnes: $0.plusOnes) }
+            )
+        )
+    }
+
+    public func deleteEvent(eventID: String) async throws {
+        let _: EmptyResponse = try await request(path: "/api/events/\(eventID)", method: "DELETE")
+    }
+
+    public func generateEventMenu(
+        eventID: String,
+        prompt: String = "",
+        roles: [String] = []
+    ) async throws -> EventMenuResponse {
+        struct Body: Encodable {
+            let prompt: String
+            let roles: [String]
+        }
+        return try await request(
+            path: "/api/events/\(eventID)/ai/menu",
+            method: "POST",
+            body: Body(prompt: prompt, roles: roles)
+        )
+    }
+
+    public func refreshEventGrocery(eventID: String) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/grocery/refresh",
+            method: "POST",
+            body: EmptyBody()
+        )
+    }
+
+    public func mergeEventGroceryIntoWeek(eventID: String, weekID: String) async throws -> Event {
+        struct Body: Encodable { let weekId: String }
+        return try await request(
+            path: "/api/events/\(eventID)/grocery/merge",
+            method: "POST",
+            body: Body(weekId: weekID)
+        )
+    }
+
+    public func unmergeEventGroceryFromWeek(eventID: String, weekID: String) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/grocery/merge?week_id=\(weekID)",
+            method: "DELETE"
+        )
+    }
+
     public func archiveRecipe(recipeID: String) async throws -> RecipeSummary {
         try await request(path: "/api/recipes/\(recipeID)/archive", method: "POST", body: EmptyBody())
     }

@@ -25,6 +25,12 @@ struct MainTabView: View {
                     Label("Recipes", systemImage: "book")
                 }
 
+                EventsView()
+                    .tag(AppState.MainTab.events)
+                    .tabItem {
+                        Label("Events", systemImage: "party.popper")
+                    }
+
                 AssistantView()
                     .tag(AppState.MainTab.assistant)
                     .tabItem {
