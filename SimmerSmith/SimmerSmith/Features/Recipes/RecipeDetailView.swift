@@ -15,6 +15,9 @@ struct RecipeDetailView: View {
     @State private var companionContext: RecipeCompanionSheetContext?
     @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var substitutionContext: SubstitutionSheetContext?
+    // Transient toast shown after marking an ingredient avoid/allergy —
+    // clears itself after ~2s via a Task.sleep.
+    @State private var preferenceToast: String?
     @State private var pendingDelete = false
     @State private var selectedScale: RecipeScaleOption = .single
     @State private var isGeneratingVariation = false
@@ -63,6 +66,20 @@ struct RecipeDetailView: View {
         .toolbarBackground(SMColor.surface, for: .navigationBar)
         .onAppear { publishContext() }
         .onChange(of: recipe?.recipeId) { _, _ in publishContext() }
+        .overlay(alignment: .top) {
+            if let toast = preferenceToast {
+                Text(toast)
+                    .font(SMFont.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, SMSpacing.md)
+                    .padding(.vertical, SMSpacing.sm)
+                    .background(SMColor.primary.opacity(0.92), in: Capsule())
+                    .shadow(radius: 4)
+                    .padding(.top, SMSpacing.lg)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: preferenceToast)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if let recipe {
@@ -627,22 +644,41 @@ struct RecipeDetailView: View {
 
                         Spacer()
 
-                        // Per-ingredient AI substitution affordance. Opens a
-                        // sheet that asks the AI for 3-5 alternatives that
-                        // fit the recipe.
-                        Button {
-                            substitutionContext = SubstitutionSheetContext(
-                                recipe: recipe,
-                                ingredient: ingredient
-                            )
+                        // Per-ingredient AI menu: substitute, never plan
+                        // with this, or mark as allergy. The bottom two
+                        // options need a resolved baseIngredientId so they
+                        // can upsert an IngredientPreference row keyed on
+                        // the catalog entry.
+                        Menu {
+                            Button {
+                                substitutionContext = SubstitutionSheetContext(
+                                    recipe: recipe,
+                                    ingredient: ingredient
+                                )
+                            } label: {
+                                Label("Substitute…", systemImage: "arrow.triangle.2.circlepath")
+                            }
+
+                            if let baseID = ingredient.baseIngredientId, !baseID.isEmpty {
+                                Divider()
+                                Button {
+                                    Task { await markPreference(ingredient: ingredient, mode: "avoid") }
+                                } label: {
+                                    Label("Never use this in my plans", systemImage: "nosign")
+                                }
+                                Button(role: .destructive) {
+                                    Task { await markPreference(ingredient: ingredient, mode: "allergy") }
+                                } label: {
+                                    Label("I'm allergic to this", systemImage: "exclamationmark.triangle")
+                                }
+                            }
                         } label: {
                             Image(systemName: "wand.and.stars")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(SMColor.aiPurple.opacity(0.85))
                                 .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Substitute \(ingredient.ingredientName)")
+                        .accessibilityLabel("Options for \(ingredient.ingredientName)")
                     }
 
                     if ingredient.id != recipe.ingredients.last?.id {
@@ -855,6 +891,31 @@ struct RecipeDetailView: View {
         if !recipe.mealType.isEmpty { parts.append(recipe.mealType) }
         if let servings = recipe.servings { parts.append("\(Int(servings)) servings") }
         return parts.joined(separator: " · ")
+    }
+
+    /// Upsert an IngredientPreference with `choice_mode = avoid` or
+    /// `allergy` keyed on the recipe ingredient's baseIngredientId, then
+    /// flash a toast. Next time the planner runs, the AI won't propose
+    /// meals with this ingredient. Existing recipes in the library are
+    /// unaffected — those are data, not plans.
+    private func markPreference(ingredient: RecipeIngredient, mode: String) async {
+        guard let baseID = ingredient.baseIngredientId, !baseID.isEmpty else { return }
+        do {
+            _ = try await appState.upsertIngredientPreference(
+                baseIngredientID: baseID,
+                choiceMode: mode
+            )
+            let verb = mode == "allergy" ? "Allergy noted" : "Avoiding"
+            preferenceToast = "\(verb): \(ingredient.ingredientName)"
+            // Auto-dismiss the toast after ~2s. A new mark will overwrite.
+            let snapshot = preferenceToast
+            try? await Task.sleep(for: .seconds(2))
+            if preferenceToast == snapshot {
+                preferenceToast = nil
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func toggleFavorite(_ recipe: RecipeSummary) async {
