@@ -160,6 +160,27 @@ picked one via the existing recipe upsert flow.
 - [x] Preference-aware prompt (avoids re-introducing flagged items)
 - [x] iOS `SubstitutionSheetView` + per-ingredient wand affordance
 - [x] `applySubstitution` on AppState reusing `saveRecipe` upsert
+- [x] "Replace recipe" vs. "Save as variation" choice after picking a
+      substitute — variation mode uses the existing `variationDraft()`
+      machinery so the new recipe links back via `baseRecipeId`
+
+## M9: Preference-Aware Planner (complete)
+
+Closes the loop on M8. Rather than reacting to disliked ingredients
+after they show up, the week planner now avoids them at generation
+time. Users can flag ingredients via the wand menu on any recipe or
+via Settings → Ingredient Preferences.
+
+- [x] Backend: `choice_mode` accepts `avoid` + `allergy`;
+      `gather_planning_context` merges these into `hard_avoids` and
+      surfaces allergies on their own emphasized prompt line
+- [x] Backend: `score_meal_candidate` flips `blocked=True` for meals
+      containing avoid/allergy-flagged ingredients (defense in depth)
+- [x] iOS Settings: amber "Avoid" / red "Allergy" pills on the
+      preference list; editor hides brand/variation when irrelevant
+- [x] iOS Recipe Detail: wand button became a Menu with "Substitute",
+      "Never use this in my plans", and "I'm allergic to this"
+      — catalog-resolved ingredients only
 
 ## Backlog
 
