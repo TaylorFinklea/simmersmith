@@ -13,6 +13,8 @@ from app.config import Settings, get_settings
 from app.schemas import (
     EventCreateRequest,
     EventGroceryMergeRequest,
+    EventMealCreateRequest,
+    EventMealUpdateRequest,
     EventMenuGenerateRequest,
     EventMenuGenerateResponse,
     EventOut,
@@ -28,13 +30,16 @@ from app.services.event_presenters import (
     guest_payload,
 )
 from app.services.events import (
+    add_event_meal,
     create_event,
     delete_event,
+    delete_event_meal,
     delete_guest,
     get_event,
     list_events,
     list_guests,
     update_event,
+    update_event_meal,
     upsert_guest,
 )
 
@@ -204,6 +209,106 @@ def delete_event_route(
     delete_event(session, event)
     session.commit()
     return Response(status_code=204)
+
+
+@events_router.post("/{event_id}/meals", response_model=EventOut)
+def add_event_meal_route(
+    event_id: str,
+    payload: EventMealCreateRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Manually add a dish to the event. Use for "Kirsten is bringing
+    salad" or just "+ Add another side" after the AI generated the
+    core menu.
+    """
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    try:
+        add_event_meal(
+            session,
+            event,
+            role=payload.role,
+            recipe_id=payload.recipe_id,
+            recipe_name=payload.recipe_name,
+            servings=payload.servings,
+            notes=payload.notes,
+            assigned_guest_id=payload.assigned_guest_id,
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.patch("/{event_id}/meals/{meal_id}", response_model=EventOut)
+def update_event_meal_route(
+    event_id: str,
+    meal_id: str,
+    payload: EventMealUpdateRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    try:
+        update_event_meal(
+            session,
+            event,
+            meal_id,
+            role=payload.role,
+            recipe_id=payload.recipe_id,
+            recipe_name=payload.recipe_name,
+            servings=payload.servings,
+            notes=payload.notes,
+            assigned_guest_id=payload.assigned_guest_id,
+            clear_assignee=payload.clear_assignee,
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.delete("/{event_id}/meals/{meal_id}", response_model=EventOut)
+def delete_event_meal_route(
+    event_id: str,
+    meal_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if not delete_event_meal(session, event, meal_id):
+        raise HTTPException(status_code=404, detail="Meal not found")
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
 
 
 @events_router.post("/{event_id}/ai/menu", response_model=EventMenuGenerateResponse)

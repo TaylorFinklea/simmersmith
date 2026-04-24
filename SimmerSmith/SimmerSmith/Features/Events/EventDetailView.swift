@@ -12,6 +12,7 @@ struct EventDetailView: View {
     @State private var coverageSummary: String?
     @State private var errorMessage: String?
     @State private var showingGuestPicker = false
+    @State private var mealEditorContext: EventMealEditorContext?
 
     private var event: Event? { appState.eventDetails[eventID] }
 
@@ -22,9 +23,7 @@ struct EventDetailView: View {
                     header(for: event)
                     attendeesSection(for: event)
                     generateSection
-                    if !event.meals.isEmpty {
-                        menuSection(for: event)
-                    }
+                    menuSection(for: event)
                     if !event.groceryItems.isEmpty {
                         grocerySection(for: event)
                     }
@@ -50,6 +49,9 @@ struct EventDetailView: View {
         .toolbarBackground(SMColor.surface, for: .navigationBar)
         .task { await loadIfNeeded() }
         .refreshable { await load() }
+        .sheet(item: $mealEditorContext) { context in
+            EventMealEditorSheet(event: context.event, meal: context.meal)
+        }
     }
 
     // MARK: - Sections
@@ -172,11 +174,27 @@ struct EventDetailView: View {
 
     private func menuSection(for event: Event) -> some View {
         VStack(alignment: .leading, spacing: SMSpacing.sm) {
-            Text("Menu")
-                .font(SMFont.label)
-                .foregroundStyle(SMColor.textTertiary)
+            HStack {
+                Text("Menu")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+                Spacer()
+                Button {
+                    mealEditorContext = EventMealEditorContext(event: event, meal: nil)
+                } label: {
+                    Label("Add dish", systemImage: "plus.circle")
+                        .font(SMFont.caption.weight(.semibold))
+                        .foregroundStyle(SMColor.primary)
+                }
+                .buttonStyle(.plain)
+            }
             ForEach(event.meals) { meal in
-                EventMealCard(meal: meal, guests: event.attendees)
+                Button {
+                    mealEditorContext = EventMealEditorContext(event: event, meal: meal)
+                } label: {
+                    EventMealCard(meal: meal, guests: event.attendees)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -232,9 +250,20 @@ struct EventDetailView: View {
 
 // MARK: - Cards
 
+struct EventMealEditorContext: Identifiable {
+    let id = UUID()
+    let event: Event
+    let meal: EventMeal?
+}
+
 private struct EventMealCard: View {
     let meal: EventMeal
     let guests: [EventAttendee]
+
+    private var assignee: Guest? {
+        guard let id = meal.assignedGuestId else { return nil }
+        return guests.first(where: { $0.guestId == id })?.guest
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SMSpacing.xs) {
@@ -245,6 +274,18 @@ private struct EventMealCard: View {
                     .padding(.horizontal, SMSpacing.sm)
                     .padding(.vertical, 3)
                     .background(SMColor.primary.opacity(0.12), in: Capsule())
+                if let assignee {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill")
+                            .font(.caption2)
+                        Text(assignee.name)
+                            .font(SMFont.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, SMSpacing.sm)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.15), in: Capsule())
+                }
                 Spacer()
                 if let servings = meal.servings {
                     Text("serves \(Int(servings))")
@@ -255,6 +296,11 @@ private struct EventMealCard: View {
             Text(meal.recipeName)
                 .font(SMFont.body.weight(.semibold))
                 .foregroundStyle(SMColor.textPrimary)
+            if let assignee {
+                Text("\(assignee.name) is bringing this dish")
+                    .font(SMFont.caption)
+                    .foregroundStyle(.orange)
+            }
             if !meal.notes.isEmpty {
                 Text(meal.notes)
                     .font(SMFont.caption)

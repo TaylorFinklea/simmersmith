@@ -56,8 +56,32 @@ class EventMealPayload(BaseModel):
     notes: str = ""
     sort_order: int = 0
     approved: bool = False
+    assigned_guest_id: str | None = None
     constraint_coverage: list[str] = Field(default_factory=list)
     ingredients: list[EventMealIngredientPayload] = Field(default_factory=list)
+
+
+class EventMealCreateRequest(BaseModel):
+    """Manual dish add. Either link a saved recipe via `recipe_id` or
+    provide a free-text `recipe_name`. Optional `assigned_guest_id`
+    flags a guest as bringing the dish."""
+
+    role: Literal["main", "side", "starter", "dessert", "beverage", "other"] = "main"
+    recipe_id: str | None = None
+    recipe_name: str
+    servings: float | None = None
+    notes: str = ""
+    assigned_guest_id: str | None = None
+
+
+class EventMealUpdateRequest(BaseModel):
+    role: Literal["main", "side", "starter", "dessert", "beverage", "other"] | None = None
+    recipe_id: str | None = None
+    recipe_name: str | None = None
+    servings: float | None = None
+    notes: str | None = None
+    assigned_guest_id: str | None = None
+    clear_assignee: bool = False
 
 
 class EventMealOut(EventMealPayload):

@@ -120,6 +120,66 @@ extension AppState {
     }
 
     @discardableResult
+    func addEventMeal(
+        eventID: String,
+        role: String,
+        recipeName: String,
+        recipeID: String? = nil,
+        servings: Double? = nil,
+        notes: String = "",
+        assignedGuestID: String? = nil
+    ) async throws -> Event {
+        let event = try await apiClient.addEventMeal(
+            eventID: eventID,
+            role: role,
+            recipeName: recipeName,
+            recipeID: recipeID,
+            servings: servings,
+            notes: notes,
+            assignedGuestID: assignedGuestID
+        )
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
+    @discardableResult
+    func updateEventMeal(
+        eventID: String,
+        mealID: String,
+        role: String? = nil,
+        recipeID: String? = nil,
+        recipeName: String? = nil,
+        servings: Double? = nil,
+        notes: String? = nil,
+        assignedGuestID: String? = nil,
+        clearAssignee: Bool = false
+    ) async throws -> Event {
+        let event = try await apiClient.updateEventMeal(
+            eventID: eventID,
+            mealID: mealID,
+            role: role,
+            recipeID: recipeID,
+            recipeName: recipeName,
+            servings: servings,
+            notes: notes,
+            assignedGuestID: assignedGuestID,
+            clearAssignee: clearAssignee
+        )
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
+    @discardableResult
+    func deleteEventMeal(eventID: String, mealID: String) async throws -> Event {
+        let event = try await apiClient.deleteEventMeal(eventID: eventID, mealID: mealID)
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
+    @discardableResult
     func generateEventMenu(
         eventID: String,
         prompt: String = "",

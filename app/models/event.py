@@ -134,6 +134,13 @@ class EventMeal(Base):
     # JSON list of guest_ids this dish is known to work for. Empty list
     # means the dish is unconstrained / works for everyone.
     constraint_coverage: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    # Optional: the guest bringing this dish. Null means the host is
+    # cooking it. Set via the event detail "who's bringing it?" picker.
+    assigned_guest_id: Mapped[str | None] = mapped_column(
+        ForeignKey("guests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -141,6 +148,7 @@ class EventMeal(Base):
 
     event: Mapped["Event"] = relationship(back_populates="meals")
     recipe: Mapped["Recipe | None"] = relationship()
+    assigned_guest: Mapped["Guest | None"] = relationship()
     inline_ingredients: Mapped[list["EventMealIngredient"]] = relationship(
         back_populates="event_meal",
         cascade="all, delete-orphan",

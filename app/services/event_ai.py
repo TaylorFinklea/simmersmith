@@ -115,6 +115,24 @@ def _describe_guests(attendees: list[tuple[Guest, int]]) -> tuple[str, dict[str,
     return "\n".join(lines), lookup
 
 
+def _describe_preassigned_meals(event: Event) -> str:
+    """Describe dishes the user already added (and potentially assigned
+    to a guest) so the AI doesn't duplicate them when designing the
+    rest of the menu. Only non-AI-generated meals count — regenerated
+    AI dishes are wiped and replaced.
+    """
+    manual = [m for m in event.meals if not m.ai_generated]
+    if not manual:
+        return ""
+    lines = ["Already on the menu (do NOT propose duplicates):"]
+    for meal in manual:
+        assignee = ""
+        if meal.assigned_guest and meal.assigned_guest.name:
+            assignee = f" — being brought by {meal.assigned_guest.name}"
+        lines.append(f"- [{meal.role}] {meal.recipe_name}{assignee}")
+    return "\n".join(lines) + "\n"
+
+
 def _build_prompt(
     *,
     event: Event,
@@ -127,6 +145,8 @@ def _build_prompt(
     date_line = f"Date: {event.event_date.isoformat()}" if event.event_date else "Date: TBD"
     notes_line = f"\nHost notes: {event.notes.strip()}" if event.notes.strip() else ""
     extra = f"\nUser request: {user_prompt.strip()}" if user_prompt.strip() else ""
+    preassigned = _describe_preassigned_meals(event)
+    preassigned_block = f"\n{preassigned}" if preassigned else ""
     schema = (
         '{\n'
         '  "menu": [\n'
@@ -157,7 +177,8 @@ def _build_prompt(
         f"Total attendees (including host + plus-ones): {event.attendee_count}\n"
         f"Desired dish roles: {role_spec}\n"
         f"{notes_line}"
-        f"{extra}\n\n"
+        f"{extra}\n"
+        f"{preassigned_block}\n"
         "Guests with constraints:\n"
         f"{guest_block}\n\n"
         "Rules:\n"
@@ -256,7 +277,7 @@ def generate_event_menu(
             }
         )
 
-    replace_event_meals(session, event, meal_dicts)
+    replace_event_meals(session, event, meal_dicts, preserve_manual=True)
     session.flush()
 
     return {

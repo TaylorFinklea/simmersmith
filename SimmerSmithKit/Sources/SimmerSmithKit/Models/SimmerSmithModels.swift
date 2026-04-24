@@ -1205,6 +1205,9 @@ public struct EventMeal: Codable, Identifiable, Hashable, Sendable {
     public let sortOrder: Int
     public let aiGenerated: Bool
     public let approved: Bool
+    /// Optional: the guest_id of the person bringing this dish. Null
+    /// means the host is cooking it.
+    public let assignedGuestId: String?
     /// List of guest_ids this dish is compatible with. Empty = safe for
     /// all. Populated by the AI menu generator in Phase 2.
     public let constraintCoverage: [String]

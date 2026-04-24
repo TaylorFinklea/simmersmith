@@ -212,17 +212,35 @@ def replace_event_meals(
     session: Session,
     event: Event,
     meals: list[dict],
+    *,
+    preserve_manual: bool = False,
 ) -> list[EventMeal]:
-    """Wipe the event's current meals and recreate from the provided
-    payload list. Used by the AI menu generation flow and manual edits.
-    Each dict should carry: role, recipe_id?, recipe_name, servings?,
-    notes, constraint_coverage (list[str]), ingredients (list[dict]).
-    """
-    for existing in list(event.meals):
-        session.delete(existing)
-    session.flush()
+    """Recreate the event's meal list from the payload.
 
-    rows: list[EventMeal] = []
+    When `preserve_manual=True`, meals that were manually added (either
+    by the user or pre-assigned to a guest — both flagged by
+    `ai_generated=False`) are kept and the AI-generated dishes are
+    replaced around them. This is how a user can say "Kirsten is
+    bringing salad" and regenerate the rest of the menu without
+    clobbering the assignment.
+    """
+    if preserve_manual:
+        manual = [m for m in event.meals if not m.ai_generated]
+        for existing in list(event.meals):
+            if existing.ai_generated:
+                session.delete(existing)
+        session.flush()
+        # Manual rows keep their original sort_order; AI rows get
+        # appended after them.
+        start_index = max((m.sort_order for m in manual), default=-1) + 1
+    else:
+        manual = []
+        for existing in list(event.meals):
+            session.delete(existing)
+        session.flush()
+        start_index = 0
+
+    rows: list[EventMeal] = list(manual)
     for index, entry in enumerate(meals):
         meal = EventMeal(
             event_id=event.id,
@@ -232,9 +250,10 @@ def replace_event_meals(
             servings=entry.get("servings"),
             scale_multiplier=float(entry.get("scale_multiplier", 1.0) or 1.0),
             notes=str(entry.get("notes", "")),
-            sort_order=int(entry.get("sort_order", index)),
+            sort_order=int(entry.get("sort_order", start_index + index)),
             ai_generated=bool(entry.get("ai_generated", True)),
             approved=bool(entry.get("approved", False)),
+            assigned_guest_id=entry.get("assigned_guest_id"),
             constraint_coverage=json.dumps(entry.get("constraint_coverage", [])),
         )
         session.add(meal)
@@ -257,6 +276,107 @@ def replace_event_meals(
             )
         rows.append(meal)
     return rows
+
+
+def add_event_meal(
+    session: Session,
+    event: Event,
+    *,
+    role: str,
+    recipe_id: str | None,
+    recipe_name: str,
+    servings: float | None,
+    notes: str,
+    assigned_guest_id: str | None,
+    user_id: str,
+) -> EventMeal:
+    """Add a single manually-entered dish to the event. `ai_generated`
+    is set to False so the preserve_manual path of regenerate keeps it.
+    Validates guest + recipe ownership to prevent spoofed IDs."""
+    if assigned_guest_id:
+        guest = session.get(Guest, assigned_guest_id)
+        if guest is None or guest.user_id != user_id:
+            raise ValueError("Assigned guest not owned by user")
+    if recipe_id:
+        # Recipe ownership is validated via the FK existence — Recipe
+        # has a user_id filter on the model query path. We verify
+        # lightly here to avoid attaching someone else's recipe.
+        from app.models import Recipe as _Recipe
+
+        recipe = session.get(_Recipe, recipe_id)
+        if recipe is None or recipe.user_id != user_id:
+            raise ValueError("Recipe not owned by user")
+    next_sort = max((m.sort_order for m in event.meals), default=-1) + 1
+    meal = EventMeal(
+        event_id=event.id,
+        role=role,
+        recipe_id=recipe_id,
+        recipe_name=recipe_name.strip() or "Untitled dish",
+        servings=servings,
+        scale_multiplier=1.0,
+        notes=notes,
+        sort_order=next_sort,
+        ai_generated=False,
+        approved=False,
+        assigned_guest_id=assigned_guest_id,
+        constraint_coverage="[]",
+    )
+    session.add(meal)
+    session.flush()
+    return meal
+
+
+def update_event_meal(
+    session: Session,
+    event: Event,
+    meal_id: str,
+    *,
+    role: str | None = None,
+    recipe_id: str | None = None,
+    recipe_name: str | None = None,
+    servings: float | None = None,
+    notes: str | None = None,
+    assigned_guest_id: str | None = None,
+    clear_assignee: bool = False,
+    user_id: str,
+) -> EventMeal:
+    meal = next((m for m in event.meals if m.id == meal_id), None)
+    if meal is None:
+        raise ValueError("Meal not found on this event")
+    if role is not None:
+        meal.role = role
+    if recipe_name is not None:
+        meal.recipe_name = recipe_name.strip() or meal.recipe_name
+    if recipe_id is not None:
+        if recipe_id:
+            from app.models import Recipe as _Recipe
+
+            recipe = session.get(_Recipe, recipe_id)
+            if recipe is None or recipe.user_id != user_id:
+                raise ValueError("Recipe not owned by user")
+        meal.recipe_id = recipe_id or None
+    if servings is not None:
+        meal.servings = servings
+    if notes is not None:
+        meal.notes = notes
+    if clear_assignee:
+        meal.assigned_guest_id = None
+    elif assigned_guest_id is not None:
+        guest = session.get(Guest, assigned_guest_id)
+        if guest is None or guest.user_id != user_id:
+            raise ValueError("Assigned guest not owned by user")
+        meal.assigned_guest_id = assigned_guest_id
+    session.flush()
+    return meal
+
+
+def delete_event_meal(session: Session, event: Event, meal_id: str) -> bool:
+    meal = next((m for m in event.meals if m.id == meal_id), None)
+    if meal is None:
+        return False
+    session.delete(meal)
+    session.flush()
+    return True
 
 
 def clear_event_grocery(session: Session, event: Event) -> None:

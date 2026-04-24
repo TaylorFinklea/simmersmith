@@ -239,6 +239,126 @@ def test_generate_event_menu_persists_meals_and_coverage(client, monkeypatch) ->
     assert any("egg" in n for n in names)
 
 
+def test_manual_event_meal_crud_with_assignee(client) -> None:
+    """Manually add a dish with an assignee, edit it, delete it."""
+    kirsten = client.post("/api/guests", json={"name": "Kirsten"}).json()
+    event = client.post(
+        "/api/events",
+        json={
+            "name": "Potluck",
+            "attendee_count": 6,
+            "attendees": [{"guest_id": kirsten["guest_id"]}],
+        },
+    ).json()
+    event_id = event["event_id"]
+
+    # Add
+    resp = client.post(
+        f"/api/events/{event_id}/meals",
+        json={
+            "role": "side",
+            "recipe_name": "Kale Caesar salad",
+            "servings": 8,
+            "assigned_guest_id": kirsten["guest_id"],
+            "notes": "Kirsten's signature",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    added = resp.json()
+    assert len(added["meals"]) == 1
+    meal = added["meals"][0]
+    assert meal["recipe_name"] == "Kale Caesar salad"
+    assert meal["assigned_guest_id"] == kirsten["guest_id"]
+    assert meal["ai_generated"] is False
+    meal_id = meal["meal_id"]
+
+    # Edit
+    resp = client.patch(
+        f"/api/events/{event_id}/meals/{meal_id}",
+        json={"servings": 10, "notes": "Kirsten's signature (double batch)"},
+    )
+    assert resp.status_code == 200
+    edited = resp.json()["meals"][0]
+    assert edited["servings"] == 10
+    assert "double batch" in edited["notes"]
+
+    # Clear assignee
+    resp = client.patch(
+        f"/api/events/{event_id}/meals/{meal_id}",
+        json={"clear_assignee": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["meals"][0]["assigned_guest_id"] is None
+
+    # Delete
+    resp = client.delete(f"/api/events/{event_id}/meals/{meal_id}")
+    assert resp.status_code == 200
+    assert resp.json()["meals"] == []
+
+
+def test_ai_menu_regeneration_preserves_manual_dishes(client, monkeypatch) -> None:
+    """Pre-assigned manual dishes stay, AI dishes regenerate around them."""
+    import json as _json
+
+    kirsten = client.post("/api/guests", json={"name": "Kirsten"}).json()
+    event = client.post(
+        "/api/events",
+        json={
+            "name": "Potluck",
+            "attendee_count": 6,
+            "attendees": [{"guest_id": kirsten["guest_id"]}],
+        },
+    ).json()
+    event_id = event["event_id"]
+
+    # Manual dish
+    client.post(
+        f"/api/events/{event_id}/meals",
+        json={
+            "role": "side",
+            "recipe_name": "Kirsten's salad",
+            "assigned_guest_id": kirsten["guest_id"],
+        },
+    )
+
+    def fake_run_direct_provider(*, target, settings, user_settings, prompt):  # noqa: ARG001
+        # Preassigned dish should appear in the prompt.
+        assert "Kirsten's salad" in prompt
+        assert "being brought by Kirsten" in prompt
+        return _json.dumps({
+            "menu": [
+                {"role": "main", "recipe_name": "Roast chicken", "servings": 6, "ingredients": []},
+                {"role": "dessert", "recipe_name": "Pie", "servings": 6, "ingredients": []},
+            ],
+            "coverage_summary": "",
+        })
+
+    def fake_availability(name, *, settings, user_settings):  # noqa: ARG001
+        return (True, "env") if name == "openai" else (False, "unset")
+
+    monkeypatch.setattr("app.services.event_ai.run_direct_provider", fake_run_direct_provider)
+    monkeypatch.setattr("app.services.event_ai.direct_provider_availability", fake_availability)
+    monkeypatch.setattr(
+        "app.services.event_ai.resolve_direct_model",
+        lambda name, *, settings, user_settings: "gpt-test",  # noqa: ARG005
+    )
+
+    resp = client.post(
+        f"/api/events/{event_id}/ai/menu",
+        json={"prompt": ""},
+    )
+    assert resp.status_code == 200, resp.text
+    meals = resp.json()["event"]["meals"]
+    names = {m["recipe_name"] for m in meals}
+    assert "Kirsten's salad" in names  # manual preserved
+    assert "Roast chicken" in names  # AI added
+    assert "Pie" in names
+    # Kirsten's dish still attributed
+    salad = next(m for m in meals if m["recipe_name"] == "Kirsten's salad")
+    assert salad["assigned_guest_id"] == kirsten["guest_id"]
+    assert salad["ai_generated"] is False
+
+
 def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
     """M10 Phase 3: merging event groceries into a week adds quantities
     to the matching weekly row when base_ingredient_id + unit match.

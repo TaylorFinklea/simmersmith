@@ -1105,6 +1105,79 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         let _: EmptyResponse = try await request(path: "/api/events/\(eventID)", method: "DELETE")
     }
 
+    public func addEventMeal(
+        eventID: String,
+        role: String,
+        recipeName: String,
+        recipeID: String? = nil,
+        servings: Double? = nil,
+        notes: String = "",
+        assignedGuestID: String? = nil
+    ) async throws -> Event {
+        struct Body: Encodable {
+            let role: String
+            let recipeId: String?
+            let recipeName: String
+            let servings: Double?
+            let notes: String
+            let assignedGuestId: String?
+        }
+        return try await request(
+            path: "/api/events/\(eventID)/meals",
+            method: "POST",
+            body: Body(
+                role: role,
+                recipeId: recipeID,
+                recipeName: recipeName,
+                servings: servings,
+                notes: notes,
+                assignedGuestId: assignedGuestID
+            )
+        )
+    }
+
+    public func updateEventMeal(
+        eventID: String,
+        mealID: String,
+        role: String? = nil,
+        recipeID: String? = nil,
+        recipeName: String? = nil,
+        servings: Double? = nil,
+        notes: String? = nil,
+        assignedGuestID: String? = nil,
+        clearAssignee: Bool = false
+    ) async throws -> Event {
+        struct Body: Encodable {
+            let role: String?
+            let recipeId: String?
+            let recipeName: String?
+            let servings: Double?
+            let notes: String?
+            let assignedGuestId: String?
+            let clearAssignee: Bool
+        }
+        return try await request(
+            path: "/api/events/\(eventID)/meals/\(mealID)",
+            method: "PATCH",
+            body: Body(
+                role: role,
+                recipeId: recipeID,
+                recipeName: recipeName,
+                servings: servings,
+                notes: notes,
+                assignedGuestId: assignedGuestID,
+                clearAssignee: clearAssignee
+            )
+        )
+    }
+
+    public func deleteEventMeal(eventID: String, mealID: String) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/meals/\(mealID)",
+            method: "DELETE"
+        )
+    }
+
     public func generateEventMenu(
         eventID: String,
         prompt: String = "",

@@ -53,6 +53,7 @@ def event_meal_payload(meal: EventMeal) -> dict[str, Any]:
         "sort_order": meal.sort_order,
         "ai_generated": meal.ai_generated,
         "approved": meal.approved,
+        "assigned_guest_id": meal.assigned_guest_id,
         "constraint_coverage": coverage if isinstance(coverage, list) else [],
         "ingredients": [
             event_meal_ingredient_payload(ing) for ing in meal.inline_ingredients
