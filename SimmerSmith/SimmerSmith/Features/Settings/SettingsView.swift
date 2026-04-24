@@ -5,6 +5,8 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
+    @State private var guestEditor: Guest? = nil
+    @State private var isCreatingGuest: Bool = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -326,6 +328,62 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                if appState.guests.isEmpty {
+                    Text("Add people you regularly host. Save their age group + any allergies so event menu generation just works.")
+                        .foregroundStyle(SMColor.textSecondary)
+                } else {
+                    ForEach(appState.guests) { guest in
+                        Button {
+                            guestEditor = guest
+                        } label: {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: SMSpacing.xs) {
+                                        Text(guest.name)
+                                            .foregroundStyle(SMColor.textPrimary)
+                                        if !guest.active {
+                                            Text("Inactive")
+                                                .font(.caption2.weight(.semibold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(.thinMaterial, in: Capsule())
+                                                .foregroundStyle(SMColor.textSecondary)
+                                        }
+                                    }
+                                    if guest.ageGroup != "adult" {
+                                        Text(guest.ageGroup.capitalized)
+                                            .font(.caption)
+                                            .foregroundStyle(SMColor.primary)
+                                    }
+                                    if !guest.allergies.isEmpty {
+                                        Text("⚠︎ \(guest.allergies)")
+                                            .font(.footnote)
+                                            .foregroundStyle(.red)
+                                    }
+                                    if !guest.dietaryNotes.isEmpty {
+                                        Text(guest.dietaryNotes)
+                                            .font(.footnote)
+                                            .foregroundStyle(SMColor.textSecondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Button {
+                    isCreatingGuest = true
+                } label: {
+                    Label("Add guest", systemImage: "person.badge.plus")
+                }
+            } header: {
+                Text("Guests")
+            } footer: {
+                Text("Your reusable guest list for the Events tab. Age group + allergies shape menu generation.")
+            }
+
             Section("Notifications") {
                 Button("Enable Meal Reminders") {
                     Task {
@@ -379,6 +437,17 @@ struct SettingsView: View {
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
+        }
+        .sheet(item: $guestEditor) { guest in
+            GuestEditorSheet(guest: guest)
+        }
+        .sheet(isPresented: $isCreatingGuest) {
+            GuestEditorSheet(guest: nil)
+        }
+        .task {
+            if appState.guests.isEmpty {
+                await appState.refreshGuests()
+            }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {

@@ -1133,6 +1133,10 @@ public struct Guest: Codable, Identifiable, Hashable, Sendable {
     public var relationshipLabel: String
     public var dietaryNotes: String
     public var allergies: String
+    /// Coarse life stage: "baby", "toddler", "child", "teen", "adult".
+    /// The AI uses this to size portions + pick age-appropriate dishes
+    /// (no whole grapes for toddlers, no raw fish for infants, etc.).
+    public var ageGroup: String
     public var active: Bool
     public let createdAt: Date
     public let updatedAt: Date
@@ -1145,6 +1149,7 @@ public struct Guest: Codable, Identifiable, Hashable, Sendable {
         relationshipLabel: String = "",
         dietaryNotes: String = "",
         allergies: String = "",
+        ageGroup: String = "adult",
         active: Bool = true,
         createdAt: Date = .now,
         updatedAt: Date = .now
@@ -1154,6 +1159,7 @@ public struct Guest: Codable, Identifiable, Hashable, Sendable {
         self.relationshipLabel = relationshipLabel
         self.dietaryNotes = dietaryNotes
         self.allergies = allergies
+        self.ageGroup = ageGroup
         self.active = active
         self.createdAt = createdAt
         self.updatedAt = updatedAt

@@ -14,9 +14,18 @@ struct GuestEditorSheet: View {
     @State private var relationshipLabel: String = ""
     @State private var allergies: String = ""
     @State private var dietaryNotes: String = ""
+    @State private var ageGroup: String = "adult"
     @State private var active: Bool = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+
+    private let ageGroups: [(key: String, label: String)] = [
+        ("baby", "Baby (<1y)"),
+        ("toddler", "Toddler (1-3)"),
+        ("child", "Child (4-12)"),
+        ("teen", "Teen (13-17)"),
+        ("adult", "Adult"),
+    ]
 
     var body: some View {
         NavigationStack {
@@ -26,6 +35,11 @@ struct GuestEditorSheet: View {
                         .textInputAutocapitalization(.words)
                     TextField("Relationship (optional, e.g. \"Aunt\")", text: $relationshipLabel)
                         .textInputAutocapitalization(.words)
+                    Picker("Age group", selection: $ageGroup) {
+                        ForEach(ageGroups, id: \.key) { group in
+                            Text(group.label).tag(group.key)
+                        }
+                    }
                 }
                 Section {
                     TextField("e.g. gluten, shellfish", text: $allergies)
@@ -74,6 +88,7 @@ struct GuestEditorSheet: View {
                     relationshipLabel = guest.relationshipLabel
                     allergies = guest.allergies
                     dietaryNotes = guest.dietaryNotes
+                    ageGroup = guest.ageGroup
                     active = guest.active
                 }
             }
@@ -91,6 +106,7 @@ struct GuestEditorSheet: View {
                 relationshipLabel: relationshipLabel.trimmingCharacters(in: .whitespacesAndNewlines),
                 dietaryNotes: dietaryNotes.trimmingCharacters(in: .whitespacesAndNewlines),
                 allergies: allergies.trimmingCharacters(in: .whitespacesAndNewlines),
+                ageGroup: ageGroup,
                 active: active
             )
             onSaved(updated)

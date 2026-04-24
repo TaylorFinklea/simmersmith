@@ -81,6 +81,15 @@ def _resolve_target(settings: Settings, user_settings: dict[str, str]) -> Assist
     raise RuntimeError("No direct AI provider is configured for event menu generation.")
 
 
+_AGE_GROUP_HINT = {
+    "baby": "baby (<1y — purees / soft foods only, no honey, no whole nuts, no raw fish, small portion)",
+    "toddler": "toddler (1-3y — soft + bite-sized, no whole grapes/nuts, modest portion)",
+    "child": "child (4-12y — milder seasoning preferred, smaller portion than adult)",
+    "teen": "teen (13-17y — adult-sized portion typical)",
+    "adult": "adult",
+}
+
+
 def _describe_guests(attendees: list[tuple[Guest, int]]) -> tuple[str, dict[str, str]]:
     """Returns a prompt block + a name→guest_id lookup for resolving
     constraint_coverage back to guest ids."""
@@ -95,6 +104,9 @@ def _describe_guests(attendees: list[tuple[Guest, int]]) -> tuple[str, dict[str,
             parts.append(f"(+{plus_ones} more in their party)")
         if guest.relationship_label:
             parts.append(f"({guest.relationship_label})")
+        age_hint = _AGE_GROUP_HINT.get(guest.age_group, "")
+        if age_hint and guest.age_group != "adult":
+            parts.append(f"age: {age_hint}")
         if guest.allergies.strip():
             parts.append(f"ALLERGIES: {guest.allergies.strip()}")
         if guest.dietary_notes.strip():

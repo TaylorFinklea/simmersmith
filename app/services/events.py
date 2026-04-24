@@ -38,6 +38,9 @@ def get_guest(session: Session, user_id: str, guest_id: str) -> Guest | None:
     )
 
 
+VALID_AGE_GROUPS = {"baby", "toddler", "child", "teen", "adult"}
+
+
 def upsert_guest(
     session: Session,
     user_id: str,
@@ -47,8 +50,11 @@ def upsert_guest(
     relationship_label: str = "",
     dietary_notes: str = "",
     allergies: str = "",
+    age_group: str = "adult",
     active: bool = True,
 ) -> Guest:
+    if age_group not in VALID_AGE_GROUPS:
+        raise ValueError(f"age_group must be one of: {sorted(VALID_AGE_GROUPS)}")
     guest: Guest | None = None
     if guest_id:
         guest = get_guest(session, user_id, guest_id)
@@ -61,6 +67,7 @@ def upsert_guest(
     guest.relationship_label = relationship_label.strip()
     guest.dietary_notes = dietary_notes.strip()
     guest.allergies = allergies.strip()
+    guest.age_group = age_group
     guest.active = active
     session.flush()
     return guest

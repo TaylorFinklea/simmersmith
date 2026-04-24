@@ -12,6 +12,7 @@ class GuestPayload(BaseModel):
     relationship_label: str = ""
     dietary_notes: str = ""
     allergies: str = ""
+    age_group: str = "adult"
     active: bool = True
 
 

@@ -43,6 +43,11 @@ class Guest(Base):
     )
     dietary_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     allergies: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # Coarse life-stage hint that shapes portion sizing and dish safety
+    # (e.g. avoid whole nuts for toddlers, raw fish for infants). Values:
+    # "baby" (< 1y), "toddler" (1-3), "child" (4-12), "teen" (13-17),
+    # "adult" (default).
+    age_group: Mapped[str] = mapped_column(String(24), default="adult", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

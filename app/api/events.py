@@ -71,10 +71,11 @@ def upsert_guest_route(
             relationship_label=payload.relationship_label,
             dietary_notes=payload.dietary_notes,
             allergies=payload.allergies,
+            age_group=payload.age_group,
             active=payload.active,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.commit()
     session.refresh(guest)
     return guest_payload(guest)

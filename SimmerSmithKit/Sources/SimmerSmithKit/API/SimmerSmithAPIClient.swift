@@ -990,6 +990,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         relationshipLabel: String = "",
         dietaryNotes: String = "",
         allergies: String = "",
+        ageGroup: String = "adult",
         active: Bool = true
     ) async throws -> Guest {
         struct Body: Encodable {
@@ -998,6 +999,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             let relationshipLabel: String
             let dietaryNotes: String
             let allergies: String
+            let ageGroup: String
             let active: Bool
         }
         return try await request(
@@ -1009,6 +1011,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 relationshipLabel: relationshipLabel,
                 dietaryNotes: dietaryNotes,
                 allergies: allergies,
+                ageGroup: ageGroup,
                 active: active
             )
         )

@@ -20,6 +20,7 @@ extension AppState {
         relationshipLabel: String = "",
         dietaryNotes: String = "",
         allergies: String = "",
+        ageGroup: String = "adult",
         active: Bool = true
     ) async throws -> Guest {
         let updated = try await apiClient.upsertGuest(
@@ -28,6 +29,7 @@ extension AppState {
             relationshipLabel: relationshipLabel,
             dietaryNotes: dietaryNotes,
             allergies: allergies,
+            ageGroup: ageGroup,
             active: active
         )
         if let index = guests.firstIndex(where: { $0.guestId == updated.guestId }) {

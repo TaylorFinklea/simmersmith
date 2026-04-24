@@ -15,6 +15,7 @@ def guest_payload(guest: Guest) -> dict[str, Any]:
         "relationship_label": guest.relationship_label,
         "dietary_notes": guest.dietary_notes,
         "allergies": guest.allergies,
+        "age_group": guest.age_group,
         "active": guest.active,
         "created_at": guest.created_at,
         "updated_at": guest.updated_at,
