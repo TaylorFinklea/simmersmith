@@ -10,7 +10,11 @@ struct SubstitutionSheetView: View {
 
     let recipe: RecipeSummary
     let ingredient: RecipeIngredient
+    /// Fired after `.replace` completes so the parent can refresh in place.
     var onApplied: () -> Void = {}
+    /// Fired after `.saveAsVariation` creates a new recipe so the parent
+    /// can optionally navigate to it.
+    var onVariationCreated: (RecipeSummary) -> Void = { _ in }
 
     @State private var hint: String = ""
     @State private var isLoading = false
@@ -18,6 +22,10 @@ struct SubstitutionSheetView: View {
     @State private var errorMessage: String?
     @State private var suggestions: [SubstitutionSuggestion] = []
     @State private var hasFetched = false
+    // Non-nil while the "replace or save as variation?" dialog is visible.
+    // We stash the picked suggestion here so the confirmation handler can
+    // route through applySubstitution with the right mode.
+    @State private var pendingChoice: SubstitutionSuggestion?
 
     var body: some View {
         NavigationStack {
@@ -102,6 +110,27 @@ struct SubstitutionSheetView: View {
                         .foregroundStyle(SMColor.textSecondary)
                 }
             }
+            .confirmationDialog(
+                pendingChoice.map { "Swap with \($0.name)?" } ?? "",
+                isPresented: Binding(
+                    get: { pendingChoice != nil },
+                    set: { if !$0 { pendingChoice = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingChoice
+            ) { picked in
+                Button("Save as variation") {
+                    Task { await apply(picked, mode: .saveAsVariation) }
+                }
+                Button("Replace this recipe", role: .destructive) {
+                    Task { await apply(picked, mode: .replace) }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingChoice = nil
+                }
+            } message: { _ in
+                Text("Saving as a variation keeps the original recipe next to the swapped version in your library.")
+            }
         }
         .presentationDetents([.medium, .large])
         .interactiveDismissDisabled(isApplying)
@@ -149,7 +178,10 @@ struct SubstitutionSheetView: View {
 
     private func suggestionRow(_ suggestion: SubstitutionSuggestion) -> some View {
         Button {
-            Task { await apply(suggestion) }
+            // Don't mutate the recipe yet — ask whether to overwrite the
+            // original or fork a variation first. Tap flows into the
+            // confirmationDialog below.
+            pendingChoice = suggestion
         } label: {
             HStack(alignment: .top, spacing: SMSpacing.md) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -206,17 +238,26 @@ struct SubstitutionSheetView: View {
         }
     }
 
-    private func apply(_ suggestion: SubstitutionSuggestion) async {
+    private func apply(
+        _ suggestion: SubstitutionSuggestion,
+        mode: AppState.SubstitutionMode
+    ) async {
         isApplying = true
         errorMessage = nil
         defer { isApplying = false }
         do {
-            try await appState.applySubstitution(
+            let saved = try await appState.applySubstitution(
                 recipe: recipe,
                 ingredientID: ingredient.id,
-                suggestion: suggestion
+                suggestion: suggestion,
+                mode: mode
             )
-            onApplied()
+            switch mode {
+            case .replace:
+                onApplied()
+            case .saveAsVariation:
+                onVariationCreated(saved)
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

@@ -185,6 +185,12 @@ struct RecipeDetailView: View {
                 ingredient: context.ingredient,
                 onApplied: {
                     Task { await loadRecipe(forceRefresh: true) }
+                },
+                onVariationCreated: { _ in
+                    // Refresh the library so the new variation shows up.
+                    // The user stays on the original recipe — the
+                    // variation is reachable from the Recipes list.
+                    Task { await appState.refreshRecipes() }
                 }
             )
         }

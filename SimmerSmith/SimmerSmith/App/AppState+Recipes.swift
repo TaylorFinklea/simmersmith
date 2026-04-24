@@ -100,17 +100,35 @@ extension AppState {
         return savedRecipe
     }
 
-    /// Replace a single ingredient in a recipe with the picked substitute
-    /// suggestion and persist via the existing upsert flow. The replaced
-    /// row keeps all other fields (prep, category, notes) and only swaps
-    /// `ingredientName`, `quantity`, `unit` — plus clears catalog links
-    /// so the resolver runs fresh against the new name.
+    /// How to apply an AI substitution: mutate the base recipe in place or
+    /// fork a new variation that keeps the original intact.
+    enum SubstitutionMode {
+        case replace
+        case saveAsVariation
+    }
+
+    /// Apply a picked AI substitution. `.replace` overwrites the original
+    /// recipe; `.saveAsVariation` forks a new recipe that links back to
+    /// the original via `baseRecipeId` (same mechanic the existing
+    /// "Create Variation" menu uses) — that way the user can keep the
+    /// original next to the substituted version in the library.
+    @discardableResult
     func applySubstitution(
         recipe: RecipeSummary,
         ingredientID: String,
-        suggestion: SubstitutionSuggestion
-    ) async throws {
-        var draft = recipe.editingDraft()
+        suggestion: SubstitutionSuggestion,
+        mode: SubstitutionMode = .replace
+    ) async throws -> RecipeSummary {
+        var draft: RecipeDraft
+        switch mode {
+        case .replace:
+            draft = recipe.editingDraft()
+        case .saveAsVariation:
+            draft = recipe.variationDraft()
+            // More informative title than the default "Recipe Variation" —
+            // the user knows at a glance which ingredient was swapped.
+            draft.name = "\(recipe.name) w/ \(suggestion.name)"
+        }
         guard let index = draft.ingredients.firstIndex(where: { $0.id == ingredientID }) else {
             throw NSError(
                 domain: "SimmerSmith.SubstitutionError",
@@ -119,12 +137,13 @@ extension AppState {
             )
         }
         let existing = draft.ingredients[index]
-        // Parse the suggested quantity if present; otherwise reuse the
-        // original so recipe scaling still works.
         let newQuantity = Double(suggestion.quantity.trimmingCharacters(in: .whitespaces)) ?? existing.quantity
         let newUnit = suggestion.unit.isEmpty ? existing.unit : suggestion.unit
         draft.ingredients[index] = RecipeIngredient(
-            ingredientId: existing.ingredientId,
+            // For a new variation we must strip the inherited ingredientId
+            // so the server mints a fresh row — otherwise the replaced
+            // ingredient shares an id with the original recipe's row.
+            ingredientId: mode == .saveAsVariation ? nil : existing.ingredientId,
             ingredientName: suggestion.name,
             normalizedName: nil,
             baseIngredientId: nil,
@@ -138,7 +157,7 @@ extension AppState {
             category: existing.category,
             notes: existing.notes
         )
-        _ = try await saveRecipe(draft)
+        return try await saveRecipe(draft)
     }
 
     func archiveRecipe(_ recipe: RecipeSummary) async throws {
