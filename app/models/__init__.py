@@ -10,6 +10,14 @@ from app.models.catalog import (
     NutritionItem,
     RecipeTemplate,
 )
+from app.models.event import (
+    Event,
+    EventAttendee,
+    EventGroceryItem,
+    EventMeal,
+    EventMealIngredient,
+    Guest,
+)
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.user import User
@@ -33,10 +41,16 @@ __all__ = [
     "AssistantThread",
     "BaseIngredient",
     "DietaryGoal",
+    "Event",
+    "EventAttendee",
+    "EventGroceryItem",
+    "EventMeal",
+    "EventMealIngredient",
     "ExportItem",
     "ExportRun",
     "FeedbackEntry",
     "GroceryItem",
+    "Guest",
     "IngredientNutritionMatch",
     "IngredientPreference",
     "IngredientVariation",
