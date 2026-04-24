@@ -164,6 +164,27 @@ picked one via the existing recipe upsert flow.
       substitute — variation mode uses the existing `variationDraft()`
       machinery so the new recipe links back via `baseRecipeId`
 
+## M10: Event Plans (complete)
+
+> Spec: `.docs/ai/phases/event-plans-spec.md`
+
+A parallel planning surface for one-off gatherings (holidays,
+birthdays, dinner parties). Structured reusable guest list with saved
+allergies / dietary notes; AI menu generation that handles mixed
+constraints (design for the majority, ensure each constrained guest
+has at least one compatible dish per role); separate event grocery
+list with merge-into-week support.
+
+- [x] Phase 1 — backend data model + CRUD (5 tables, ownership tests)
+- [x] Phase 2 — AI event menu generation w/ `constraint_coverage`
+      mapped back to guest_ids
+- [x] Phase 3 — event grocery list + merge/unmerge with weekly list
+      (idempotent via `merged_into_week_id`)
+- [x] Phase 4 — iOS Events tab, create flow, detail view
+- [x] Phase 5 — Guest editor sheet (shared from event create; Settings
+      entry point deferred as follow-up polish)
+- [x] Phase 6 — Merge-to-week UI with current-week detection + undo
+
 ## M9: Preference-Aware Planner (complete)
 
 Closes the loop on M8. Rather than reacting to disliked ingredients
