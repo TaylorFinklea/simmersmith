@@ -26,6 +26,7 @@ from app.schemas.event import (
     EventMealOut,
     EventMealPayload,
     EventMenuGenerateRequest,
+    EventMenuGenerateResponse,
     EventOut,
     EventSummaryOut,
     EventUpdateRequest,
@@ -116,6 +117,7 @@ from app.schemas.week import (
 
 # Resolve forward references defined across modules.
 BaseIngredientDetailOut.model_rebuild()
+EventMenuGenerateResponse.model_rebuild()
 RecipeMetadataOut.model_rebuild()
 RecipeStepPayload.model_rebuild()
 
@@ -160,6 +162,7 @@ __all__ = [
     "EventMealOut",
     "EventMealPayload",
     "EventMenuGenerateRequest",
+    "EventMenuGenerateResponse",
     "EventOut",
     "EventSummaryOut",
     "EventUpdateRequest",

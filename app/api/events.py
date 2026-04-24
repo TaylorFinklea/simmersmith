@@ -4,18 +4,24 @@ generation and grocery merge land in Phases 2 + 3 of M10.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
+from app.config import Settings, get_settings
 from app.schemas import (
     EventCreateRequest,
+    EventGroceryMergeRequest,
+    EventMenuGenerateRequest,
+    EventMenuGenerateResponse,
     EventOut,
     EventSummaryOut,
     EventUpdateRequest,
     GuestOut,
     GuestPayload,
 )
+from app.services.ai import profile_settings_map
 from app.services.event_presenters import (
     event_payload,
     event_summary_payload,
@@ -197,3 +203,150 @@ def delete_event_route(
     delete_event(session, event)
     session.commit()
     return Response(status_code=204)
+
+
+@events_router.post("/{event_id}/ai/menu", response_model=EventMenuGenerateResponse)
+def generate_event_menu_route(
+    event_id: str,
+    payload: EventMenuGenerateRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Ask the AI to design a menu for this event. Replaces any existing
+    EventMeals — this is a full regenerate, not an additive operation.
+    Also regenerates the event's grocery list so the response carries
+    both. Returns the hydrated event + a `coverage_summary`.
+    """
+    from app.services.event_ai import generate_event_menu
+    from app.services.event_grocery import regenerate_event_grocery
+
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    user_settings = profile_settings_map(session, current_user.id)
+    try:
+        result = generate_event_menu(
+            session=session,
+            event=event,
+            user_prompt=payload.prompt,
+            roles=payload.roles,
+            settings=settings,
+            user_settings=user_settings,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    # After meals land we eagerly regenerate the grocery list so the
+    # user can see produce/protein/pantry totals alongside the menu.
+    # Expire the cached `meals` relation first — replace_event_meals
+    # deleted + recreated the rows but the Python attribute still holds
+    # the stale list until we flush + expire.
+    session.flush()
+    session.expire(event, ["meals"])
+    regenerate_event_grocery(session, current_user.id, event)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return {
+            "event": event_payload(fresh),
+            "coverage_summary": result.get("coverage_summary", ""),
+        }
+
+
+@events_router.post("/{event_id}/grocery/refresh", response_model=EventOut)
+def refresh_event_grocery_route(
+    event_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Recompute the event's grocery list from its current meals. Useful
+    when the user has edited meals after the initial AI generation."""
+    from app.services.event_grocery import regenerate_event_grocery
+
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    regenerate_event_grocery(session, current_user.id, event)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.post("/{event_id}/grocery/merge", response_model=EventOut)
+def merge_event_grocery_route(
+    event_id: str,
+    payload: EventGroceryMergeRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Fold the event's grocery list into the given week's grocery list.
+    Matching rows combine quantities; rows with no match are added as
+    new GroceryItems attributed to the event. Idempotent.
+    """
+    from app.models import Week
+    from app.services.event_grocery import merge_event_into_week
+
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    week = session.scalar(
+        select(Week).where(Week.id == payload.week_id, Week.user_id == current_user.id)
+    )
+    if week is None:
+        raise HTTPException(status_code=404, detail="Week not found")
+
+    merge_event_into_week(session, user_id=current_user.id, event=event, week=week)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.delete("/{event_id}/grocery/merge", response_model=EventOut)
+def unmerge_event_grocery_route(
+    event_id: str,
+    week_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Reverse a prior merge from the specified week."""
+    from app.models import Week
+    from app.services.event_grocery import unmerge_event_from_week
+
+    event = get_event(session, current_user.id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    week = session.scalar(
+        select(Week).where(Week.id == week_id, Week.user_id == current_user.id)
+    )
+    if week is None:
+        raise HTTPException(status_code=404, detail="Week not found")
+    unmerge_event_from_week(session, event=event, week=week)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)

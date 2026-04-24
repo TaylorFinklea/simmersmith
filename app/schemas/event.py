@@ -129,5 +129,10 @@ class EventMenuGenerateRequest(BaseModel):
     )
 
 
+class EventMenuGenerateResponse(BaseModel):
+    event: "EventOut"
+    coverage_summary: str = ""
+
+
 class EventGroceryMergeRequest(BaseModel):
     week_id: str

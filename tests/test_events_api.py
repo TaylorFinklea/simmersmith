@@ -125,3 +125,205 @@ def test_event_404_for_unknown_id(client) -> None:
     assert client.get("/api/events/does-not-exist").status_code == 404
     assert client.patch("/api/events/does-not-exist", json={}).status_code == 404
     assert client.delete("/api/events/does-not-exist").status_code == 404
+
+
+def test_generate_event_menu_persists_meals_and_coverage(client, monkeypatch) -> None:
+    """M10 Phase 2: POST /api/events/{id}/ai/menu triggers menu generation.
+    We stub run_direct_provider so no network calls happen and we can
+    verify the meal dicts land + coverage is mapped back to guest ids.
+    """
+    import json as _json
+
+    sue = client.post(
+        "/api/guests",
+        json={"name": "Aunt Sue", "allergies": "gluten"},
+    ).json()
+    leo = client.post(
+        "/api/guests",
+        json={"name": "Nephew Leo", "dietary_notes": "no mushrooms"},
+    ).json()
+
+    event = client.post(
+        "/api/events",
+        json={
+            "name": "Easter Dinner",
+            "event_date": "2026-04-26",
+            "occasion": "holiday",
+            "attendee_count": 8,
+            "attendees": [
+                {"guest_id": sue["guest_id"]},
+                {"guest_id": leo["guest_id"]},
+            ],
+        },
+    ).json()
+
+    fake_response = _json.dumps({
+        "menu": [
+            {
+                "role": "starter",
+                "recipe_name": "Deviled eggs",
+                "servings": 8,
+                "notes": "",
+                "compatible_guests": ["Aunt Sue", "Nephew Leo"],
+                "ingredients": [
+                    {"ingredient_name": "eggs", "quantity": 12, "unit": "ea"},
+                ],
+            },
+            {
+                "role": "main",
+                "recipe_name": "Honey-baked ham",
+                "servings": 8,
+                "notes": "Everyone except Sue (wheat glaze)",
+                "compatible_guests": ["Nephew Leo"],
+                "ingredients": [
+                    {"ingredient_name": "ham", "quantity": 6, "unit": "lb"},
+                ],
+            },
+            {
+                "role": "main",
+                "recipe_name": "Roasted salmon (GF)",
+                "servings": 4,
+                "notes": "GF-friendly",
+                "compatible_guests": ["Aunt Sue", "Nephew Leo"],
+                "ingredients": [
+                    {"ingredient_name": "salmon", "quantity": 2, "unit": "lb"},
+                ],
+            },
+        ],
+        "coverage_summary": "Sue has the salmon + deviled eggs; Leo has both mains + eggs."
+    })
+
+    def fake_run_direct_provider(*, target, settings, user_settings, prompt):  # noqa: ARG001
+        # Make sure guest context made it into the prompt.
+        assert "Aunt Sue" in prompt
+        assert "gluten" in prompt
+        return fake_response
+
+    def fake_availability(name, *, settings, user_settings):  # noqa: ARG001
+        return (True, "env") if name == "openai" else (False, "unset")
+
+    monkeypatch.setattr("app.services.event_ai.run_direct_provider", fake_run_direct_provider)
+    monkeypatch.setattr("app.services.event_ai.direct_provider_availability", fake_availability)
+    monkeypatch.setattr(
+        "app.services.event_ai.resolve_direct_model",
+        lambda name, *, settings, user_settings: "gpt-test",  # noqa: ARG005
+    )
+
+    resp = client.post(
+        f"/api/events/{event['event_id']}/ai/menu",
+        json={"prompt": "traditional with a GF option"},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert "Sue" in payload["coverage_summary"]
+    meals = payload["event"]["meals"]
+    assert [m["recipe_name"] for m in meals] == [
+        "Deviled eggs",
+        "Honey-baked ham",
+        "Roasted salmon (GF)",
+    ]
+    salmon = next(m for m in meals if m["recipe_name"] == "Roasted salmon (GF)")
+    assert sue["guest_id"] in salmon["constraint_coverage"]
+    assert leo["guest_id"] in salmon["constraint_coverage"]
+    # Ham is compatible with Leo only (Sue excluded due to gluten glaze).
+    ham = next(m for m in meals if m["recipe_name"] == "Honey-baked ham")
+    assert sue["guest_id"] not in ham["constraint_coverage"]
+    assert leo["guest_id"] in ham["constraint_coverage"]
+    # Grocery was auto-regenerated after menu — should have at least the
+    # three proteins/items we added.
+    grocery = payload["event"]["grocery_items"]
+    assert len(grocery) >= 3
+    names = {g["ingredient_name"].lower() for g in grocery}
+    assert any("ham" in n for n in names)
+    assert any("salmon" in n for n in names)
+    assert any("egg" in n for n in names)
+
+
+def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
+    """M10 Phase 3: merging event groceries into a week adds quantities
+    to the matching weekly row when base_ingredient_id + unit match.
+    """
+    from app.db import session_scope
+    from app.models import Event, EventGroceryItem, GroceryItem, Week
+
+    # Seed a shared catalog ingredient so event + week both link to it.
+    base_resp = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Chicken",
+            "category": "Protein",
+            "default_unit": "lb",
+            "nutrition_reference_amount": 1,
+            "nutrition_reference_unit": "lb",
+            "calories": 500,
+        },
+    )
+    base_id = base_resp.json()["base_ingredient_id"]
+
+    # Create a week with an existing chicken grocery item.
+    wk_resp = client.post("/api/weeks", json={"week_start": "2026-04-27"})
+    assert wk_resp.status_code == 200
+    week_id = wk_resp.json()["week_id"]
+    with session_scope() as session:
+        week = session.get(Week, week_id)
+        session.add(
+            GroceryItem(
+                week_id=week.id,
+                base_ingredient_id=base_id,
+                ingredient_name="Chicken",
+                normalized_name="chicken",
+                total_quantity=1.0,
+                unit="lb",
+                category="Protein",
+            )
+        )
+        session.commit()
+
+    # Create an event with its own chicken grocery row (5 lb).
+    event_resp = client.post(
+        "/api/events",
+        json={"name": "Party", "attendee_count": 5},
+    )
+    event_id = event_resp.json()["event_id"]
+    with session_scope() as session:
+        event = session.get(Event, event_id)
+        session.add(
+            EventGroceryItem(
+                event_id=event.id,
+                base_ingredient_id=base_id,
+                ingredient_name="Chicken",
+                normalized_name="chicken",
+                total_quantity=5.0,
+                unit="lb",
+                category="Protein",
+            )
+        )
+        session.commit()
+
+    # Merge
+    merge_resp = client.post(
+        f"/api/events/{event_id}/grocery/merge",
+        json={"week_id": week_id},
+    )
+    assert merge_resp.status_code == 200, merge_resp.text
+
+    # Verify the weekly row is now 6 lb, and the event row is tagged
+    # with merged_into_week_id.
+    with session_scope() as session:
+        week_rows = list(session.query(GroceryItem).filter_by(week_id=week_id).all())
+        assert len(week_rows) == 1
+        assert week_rows[0].total_quantity == 6.0
+        event_rows = list(session.query(EventGroceryItem).filter_by(event_id=event_id).all())
+        assert event_rows[0].merged_into_week_id == week_id
+        assert event_rows[0].merged_into_grocery_item_id == week_rows[0].id
+
+    # Unmerge — weekly row should drop back to 1 lb.
+    unmerge_resp = client.delete(
+        f"/api/events/{event_id}/grocery/merge?week_id={week_id}"
+    )
+    assert unmerge_resp.status_code == 200
+    with session_scope() as session:
+        week_rows = list(session.query(GroceryItem).filter_by(week_id=week_id).all())
+        assert week_rows[0].total_quantity == 1.0
+        event_rows = list(session.query(EventGroceryItem).filter_by(event_id=event_id).all())
+        assert event_rows[0].merged_into_week_id is None
