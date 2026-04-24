@@ -56,6 +56,27 @@ def test_prompt_includes_hard_avoids() -> None:
     assert "NEVER include ingredients from the MUST AVOID list" in prompt
 
 
+def test_prompt_separates_allergies_from_avoids() -> None:
+    """Allergies should render on their own emphasized line above the
+    generic MUST AVOID list. Prevents the AI from treating a hard allergy
+    as just another dislike."""
+    ctx = PlanningContext(
+        hard_avoids=["peanuts", "cilantro"],
+        allergies=["peanuts"],
+    )
+    prompt = _build_system_prompt(
+        user_settings={},
+        week_start=date(2026, 4, 21),
+        context=ctx,
+    )
+    allergy_idx = prompt.find("HARD ALLERGIES")
+    avoid_idx = prompt.find("MUST AVOID:")
+    assert allergy_idx != -1, "Allergy line should be rendered"
+    assert avoid_idx != -1, "MUST AVOID line should still be present"
+    assert allergy_idx < avoid_idx, "Allergies should come before MUST AVOID"
+    assert "peanuts" in prompt[allergy_idx:avoid_idx]
+
+
 def test_prompt_includes_strong_likes_and_cuisines() -> None:
     ctx = PlanningContext(
         strong_likes=["Chicken Shawarma", "Tacos"],
@@ -223,6 +244,88 @@ def test_gather_planning_context_with_preferences(client) -> None:
     assert "Italian" in ctx.liked_cuisines
     assert "French" in ctx.disliked_cuisines
     assert "Kerrygold" in ctx.brands
+
+
+def test_gather_planning_context_merges_ingredient_preference_avoids(client) -> None:
+    """IngredientPreference rows with choice_mode=avoid/allergy feed into
+    the planner's hard_avoids list. Allergies additionally land in
+    `allergies` so the prompt emphasizes them."""
+    from app.db import session_scope
+    from app.services.week_planner import gather_planning_context
+
+    def _make_base(name: str) -> str:
+        resp = client.post(
+            "/api/ingredients",
+            json={
+                "name": name,
+                "category": "Produce",
+                "default_unit": "bunch",
+                "nutrition_reference_amount": 1,
+                "nutrition_reference_unit": "oz",
+                "calories": 5,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["base_ingredient_id"]
+
+    cilantro_id = _make_base("Cilantro")
+    peanut_id = _make_base("Peanuts")
+
+    r1 = client.post(
+        "/api/ingredient-preferences",
+        json={"base_ingredient_id": cilantro_id, "choice_mode": "avoid"},
+    )
+    assert r1.status_code == 200, r1.text
+    r2 = client.post(
+        "/api/ingredient-preferences",
+        json={"base_ingredient_id": peanut_id, "choice_mode": "allergy"},
+    )
+    assert r2.status_code == 200, r2.text
+
+    with session_scope() as session:
+        ctx = gather_planning_context(session, TEST_USER_ID)
+
+    assert "Cilantro" in ctx.hard_avoids
+    assert "Peanuts" in ctx.hard_avoids  # allergies merged into hard_avoids too
+    assert ctx.allergies == ["Peanuts"]
+
+
+def test_score_meal_candidate_blocks_meals_with_avoid_ingredients(client) -> None:
+    """Post-generation scoring should flip blocked=True for a meal
+    containing an IngredientPreference-flagged avoid ingredient, even
+    without a PreferenceSignal entry."""
+    from app.db import session_scope
+    from app.schemas.preferences import MealScoreRequest
+    from app.services.preferences import score_meal_candidate
+
+    create = client.post(
+        "/api/ingredients",
+        json={
+            "name": "Mushrooms",
+            "category": "Produce",
+            "default_unit": "oz",
+            "nutrition_reference_amount": 1,
+            "nutrition_reference_unit": "oz",
+            "calories": 3,
+        },
+    )
+    mushroom_id = create.json()["base_ingredient_id"]
+    client.post(
+        "/api/ingredient-preferences",
+        json={"base_ingredient_id": mushroom_id, "choice_mode": "avoid"},
+    )
+
+    payload = MealScoreRequest(
+        recipe_name="Mushroom Risotto",
+        cuisine="Italian",
+        ingredient_names=["arborio rice", "mushrooms", "parmesan"],
+        tags=[],
+    )
+    with session_scope() as session:
+        result = score_meal_candidate(session, TEST_USER_ID, payload)
+
+    assert result["blocked"] is True
+    assert any("Mushrooms" in b for b in result["blockers"])
 
 
 def test_gather_planning_context_with_staples(client) -> None:

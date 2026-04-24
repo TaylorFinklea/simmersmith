@@ -55,6 +55,10 @@ class PlanningContext:
     recent_meals: list[str] = field(default_factory=list)
     rules: list[str] = field(default_factory=list)
     dietary_goal: DietaryGoalContext | None = None
+    # Catalog-level ingredient allergies (IngredientPreference.choice_mode
+    # == "allergy"). Surfaced as a separate, more-emphasized line in the
+    # system prompt than regular avoids.
+    allergies: list[str] = field(default_factory=list)
 
 
 def gather_planning_context(
@@ -62,6 +66,7 @@ def gather_planning_context(
 ) -> PlanningContext:
     """Fetch preference signals, staples, recent meal history, and dietary goal."""
     from app.services.grocery import staple_names
+    from app.services.ingredient_catalog.variation import list_ingredient_preferences
     from app.services.preferences import list_preference_signals, preference_summary_payload
     from app.services.profile import get_dietary_goal
     from app.services.weeks import list_weeks
@@ -69,6 +74,26 @@ def gather_planning_context(
     summary = preference_summary_payload(session, user_id)
     signals = list_preference_signals(session, user_id)
     active_signals = [s for s in signals if s.active]
+
+    # Catalog-level avoid / allergy preferences (IngredientPreference).
+    # Today these are the ONLY source of structured per-ingredient avoids —
+    # PreferenceSignal is coarser and score-based. Merge names into
+    # hard_avoids so the existing MUST AVOID block covers them, and pull
+    # allergies into their own list for prompt emphasis.
+    catalog_avoid_names: list[str] = []
+    allergy_names: list[str] = []
+    for pref in list_ingredient_preferences(session, user_id):
+        if not pref.active:
+            continue
+        if pref.choice_mode not in {"avoid", "allergy"}:
+            continue
+        ingredient_name = pref.base_ingredient.name if pref.base_ingredient else ""
+        if not ingredient_name:
+            continue
+        if pref.choice_mode == "allergy":
+            allergy_names.append(ingredient_name)
+        else:
+            catalog_avoid_names.append(ingredient_name)
 
     liked_cuisines = sorted(
         s.name for s in active_signals if s.signal_type == "cuisine" and s.score > 0
@@ -104,8 +129,16 @@ def gather_planning_context(
             notes=goal_row.notes or "",
         )
 
+    # Dedupe against PreferenceSignal-derived hard_avoids. Allergies are
+    # merged into hard_avoids as well so defense-in-depth is preserved even
+    # if the prompt's separate "allergy" line is ignored.
+    merged_avoids = list(dict.fromkeys(
+        [*summary["hard_avoids"], *catalog_avoid_names, *allergy_names]
+    ))
+    deduped_allergies = list(dict.fromkeys(allergy_names))
+
     return PlanningContext(
-        hard_avoids=summary["hard_avoids"],
+        hard_avoids=merged_avoids,
         strong_likes=summary["strong_likes"],
         liked_cuisines=liked_cuisines,
         disliked_cuisines=disliked_cuisines,
@@ -114,6 +147,7 @@ def gather_planning_context(
         recent_meals=recent_meal_names[:60],
         rules=summary["rules"],
         dietary_goal=dietary_goal,
+        allergies=deduped_allergies,
     )
 
 
@@ -144,6 +178,13 @@ def _build_system_prompt(
 
         # Preference signals
         pref_lines: list[str] = []
+        if context.allergies:
+            # Allergies get their own line above the generic hard_avoids so
+            # the AI treats them as hard constraints, not just preferences.
+            pref_lines.append(
+                "- HARD ALLERGIES — NEVER include these or any dish containing them: "
+                + ", ".join(context.allergies)
+            )
         if context.hard_avoids:
             pref_lines.append(f"- MUST AVOID: {', '.join(context.hard_avoids)}")
         if context.strong_likes:

@@ -114,7 +114,18 @@ class IngredientPreferencePayload(BaseModel):
     base_ingredient_id: str
     preferred_variation_id: str | None = None
     preferred_brand: str = ""
-    choice_mode: Literal["preferred", "cheapest", "best_reviewed", "rotate", "no_preference"] = "preferred"
+    # "avoid" / "allergy" are read by the week planner's preference-aware
+    # path (gather_planning_context merges them into hard_avoids) in
+    # addition to the existing product-selection modes.
+    choice_mode: Literal[
+        "preferred",
+        "cheapest",
+        "best_reviewed",
+        "rotate",
+        "no_preference",
+        "avoid",
+        "allergy",
+    ] = "preferred"
     active: bool = True
     notes: str = ""
 

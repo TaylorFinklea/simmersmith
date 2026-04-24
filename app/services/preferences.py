@@ -152,6 +152,8 @@ def contains_phrase(value: str, phrase: str) -> bool:
 
 
 def score_meal_candidate(session: Session, user_id: str, payload: MealScoreRequest) -> dict[str, object]:
+    from app.services.ingredient_catalog.variation import list_ingredient_preferences
+
     signals = [signal for signal in list_preference_signals(session, user_id) if signal.active]
     normalized_name = normalize_name(payload.recipe_name)
     normalized_cuisine = normalize_name(payload.cuisine)
@@ -162,6 +164,32 @@ def score_meal_candidate(session: Session, user_id: str, payload: MealScoreReque
     total_score = 0
     blockers: list[str] = []
     matches: list[dict[str, object]] = []
+
+    # Catalog-level avoid / allergy preferences flip `blocked=True` too.
+    # This is defense-in-depth — the planner prompt already excludes them,
+    # but a slip-through (wrong variant, ambiguous name) still gets caught
+    # in post-generation scoring.
+    for pref in list_ingredient_preferences(session, user_id):
+        if not pref.active:
+            continue
+        if pref.choice_mode not in {"avoid", "allergy"}:
+            continue
+        ingredient_name = pref.base_ingredient.name if pref.base_ingredient else ""
+        if not ingredient_name:
+            continue
+        if normalize_name(ingredient_name) in ingredient_names:
+            label = "Allergy" if pref.choice_mode == "allergy" else "Avoid ingredient"
+            blockers.append(f"{label}: {ingredient_name}")
+            total_score -= 10
+            matches.append(
+                {
+                    "preference_id": pref.id,
+                    "signal_type": pref.choice_mode,
+                    "name": ingredient_name,
+                    "contribution": -10,
+                    "rationale": f"User flagged {ingredient_name} as {pref.choice_mode}.",
+                }
+            )
 
     for signal in signals:
         contribution = 0

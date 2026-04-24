@@ -241,7 +241,15 @@ def upsert_ingredient_preference(
     active: bool = True,
     notes: str = "",
 ) -> IngredientPreference:
-    if choice_mode not in {"preferred", "cheapest", "best_reviewed", "rotate", "no_preference"}:
+    if choice_mode not in {
+        "preferred",
+        "cheapest",
+        "best_reviewed",
+        "rotate",
+        "no_preference",
+        "avoid",
+        "allergy",
+    }:
         raise ValueError("Unsupported choice mode")
     base = get_base_ingredient(session, base_ingredient_id)
     if base is None:
