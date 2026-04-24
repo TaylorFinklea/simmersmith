@@ -279,11 +279,17 @@ struct SettingsView: View {
                                             .foregroundStyle(SMColor.textSecondary)
                                     }
                                     Spacer()
-                                    Text(preference.choiceMode.replacingOccurrences(of: "_", with: " ").capitalized)
-                                        .font(.caption)
-                                        .foregroundStyle(SMColor.textSecondary)
+                                    preferencePill(for: preference.choiceMode)
                                 }
-                                if let variationName = preference.preferredVariationName, !variationName.isEmpty {
+                                if preference.isAvoidance {
+                                    // Brand / variation don't apply when the
+                                    // user just wants to skip the ingredient.
+                                    Text(preference.choiceMode == "allergy"
+                                        ? "Never plan meals with this"
+                                        : "Skip in week planner")
+                                        .font(.footnote)
+                                        .foregroundStyle(SMColor.textSecondary)
+                                } else if let variationName = preference.preferredVariationName, !variationName.isEmpty {
                                     Text(variationName)
                                         .font(.footnote)
                                         .foregroundStyle(SMColor.textSecondary)
@@ -518,6 +524,7 @@ struct IngredientPreferenceEditorSheet: View {
                 }
 
                 if selectedBaseIngredient != nil {
+                    let isAvoidance = IngredientChoiceMode(rawValue: choiceMode)?.isAvoidance ?? false
                     Section("Preference") {
                         Picker("Choice mode", selection: $choiceMode) {
                             ForEach(IngredientChoiceMode.allCases) { mode in
@@ -525,23 +532,31 @@ struct IngredientPreferenceEditorSheet: View {
                             }
                         }
 
-                        if isLoadingVariations {
-                            ProgressView("Loading product variations…")
-                        } else if !variations.isEmpty {
-                            Picker("Preferred variation", selection: $preferredVariationID) {
-                                Text("None").tag("")
-                                ForEach(variations) { variation in
-                                    Text(variationLabel(for: variation)).tag(variation.id)
-                                }
-                            }
-                        } else {
-                            Text("No stored product variations yet for this ingredient.")
+                        if isAvoidance {
+                            Text(choiceMode == "allergy"
+                                ? "The AI will never include this ingredient in any generated meal plan."
+                                : "The AI will skip this ingredient when planning your week. Substitutes will be suggested if a saved recipe requires it.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                        }
+                        } else {
+                            if isLoadingVariations {
+                                ProgressView("Loading product variations…")
+                            } else if !variations.isEmpty {
+                                Picker("Preferred variation", selection: $preferredVariationID) {
+                                    Text("None").tag("")
+                                    ForEach(variations) { variation in
+                                        Text(variationLabel(for: variation)).tag(variation.id)
+                                    }
+                                }
+                            } else {
+                                Text("No stored product variations yet for this ingredient.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
 
-                        TextField("Preferred brand", text: $preferredBrand)
-                            .textInputAutocapitalization(.words)
+                            TextField("Preferred brand", text: $preferredBrand)
+                                .textInputAutocapitalization(.words)
+                        }
 
                         Toggle("Active", isOn: $isActive)
 
@@ -622,11 +637,19 @@ struct IngredientPreferenceEditorSheet: View {
         guard let selectedBaseIngredient else { return }
         do {
             isSaving = true
+            // Avoid/allergy modes don't have brand or variation fields —
+            // blank them on save so stale data from a prior "preferred"
+            // state doesn't linger.
+            let isAvoidance = IngredientChoiceMode(rawValue: choiceMode)?.isAvoidance ?? false
             _ = try await appState.upsertIngredientPreference(
                 preferenceID: context.preference?.preferenceId,
                 baseIngredientID: selectedBaseIngredient.baseIngredientId,
-                preferredVariationID: preferredVariationID.isEmpty ? nil : preferredVariationID,
-                preferredBrand: preferredBrand.trimmingCharacters(in: .whitespacesAndNewlines),
+                preferredVariationID: isAvoidance
+                    ? nil
+                    : (preferredVariationID.isEmpty ? nil : preferredVariationID),
+                preferredBrand: isAvoidance
+                    ? ""
+                    : preferredBrand.trimmingCharacters(in: .whitespacesAndNewlines),
                 choiceMode: choiceMode,
                 active: isActive,
                 notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -751,21 +774,65 @@ private enum IngredientChoiceMode: String, CaseIterable, Identifiable {
     case bestReviewed = "best_reviewed"
     case rotate
     case noPreference = "no_preference"
+    case avoid
+    case allergy
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .preferred:
-            "Preferred"
-        case .cheapest:
-            "Cheapest"
-        case .bestReviewed:
-            "Best Reviewed"
-        case .rotate:
-            "Rotate"
-        case .noPreference:
-            "No Preference"
+        case .preferred: "Preferred"
+        case .cheapest: "Cheapest"
+        case .bestReviewed: "Best Reviewed"
+        case .rotate: "Rotate"
+        case .noPreference: "No Preference"
+        case .avoid: "Avoid"
+        case .allergy: "Allergy"
         }
+    }
+
+    /// True for modes where the planner should never propose the
+    /// ingredient. Controls whether the editor shows brand/variation
+    /// fields — those make no sense for an ingredient the user wants to
+    /// stay away from.
+    var isAvoidance: Bool {
+        switch self {
+        case .avoid, .allergy: true
+        default: false
+        }
+    }
+}
+
+private extension IngredientPreference {
+    /// Convenience so views don't need to compare raw strings.
+    var isAvoidance: Bool {
+        choiceMode == "avoid" || choiceMode == "allergy"
+    }
+}
+
+/// Pill next to the preference row's title. Amber for plain avoids,
+/// red for allergies — user can eyeball the whole list for anything
+/// the planner must never propose.
+@ViewBuilder
+private func preferencePill(for choiceMode: String) -> some View {
+    switch choiceMode {
+    case "allergy":
+        Text("Allergy")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.red.opacity(0.18), in: Capsule())
+            .foregroundStyle(Color.red)
+    case "avoid":
+        Text("Avoid")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.orange.opacity(0.18), in: Capsule())
+            .foregroundStyle(Color.orange)
+    default:
+        Text(choiceMode.replacingOccurrences(of: "_", with: " ").capitalized)
+            .font(.caption)
+            .foregroundStyle(SMColor.textSecondary)
     }
 }
