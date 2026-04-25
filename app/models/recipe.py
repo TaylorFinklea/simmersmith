@@ -46,6 +46,10 @@ class Recipe(Base):
     memories: Mapped[str] = mapped_column(Text, default="", nullable=False)
     override_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     last_used: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # AI-inferred 1-5 difficulty score; NULL until inferred. Backed by a CHECK
+    # constraint in migration 20260425_0021.
+    difficulty_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kid_friendly: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

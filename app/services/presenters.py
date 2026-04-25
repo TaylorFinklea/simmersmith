@@ -102,6 +102,8 @@ def recipe_payload(
         "notes": data["notes"],
         "memories": data["memories"],
         "last_used": recipe_last_used,
+        "difficulty_score": recipe.difficulty_score,
+        "kid_friendly": recipe.kid_friendly,
         "archived_at": recipe.archived_at,
         "updated_at": recipe.updated_at,
         "ingredients": data["ingredients"],

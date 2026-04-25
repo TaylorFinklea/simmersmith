@@ -391,6 +391,20 @@ struct RecipeDetailView: View {
             if !recipe.overrideFields.isEmpty {
                 metadataPill(icon: "slider.horizontal.3", text: recipe.overrideFields.joined(separator: ", "))
             }
+            if let score = recipe.difficultyScore {
+                metadataPill(icon: "chart.bar", text: difficultyLabel(score))
+            }
+            if recipe.kidFriendly {
+                metadataPill(icon: "face.smiling", text: "Kid-friendly")
+            }
+        }
+    }
+
+    private func difficultyLabel(_ score: Int) -> String {
+        switch score {
+        case ...2: return "Easy"
+        case 3: return "Medium"
+        default: return "Hard"
         }
     }
 

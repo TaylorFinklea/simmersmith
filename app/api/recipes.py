@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
@@ -50,6 +52,8 @@ from app.services.substitution_ai import suggest_substitutions
 from app.services.recipe_import import import_recipe_from_text, import_recipe_from_url
 from app.services.recipes import archive_recipe, get_recipe, list_recipes, restore_recipe
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -158,12 +162,31 @@ def recipe_detail_route(
 def save_recipe(
     payload: RecipePayload,
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     try:
         recipe = upsert_recipe(session, payload, user_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Opportunistic difficulty inference. Runs only when the recipe has
+    # no score yet AND has at least one ingredient (without ingredients
+    # the AI has nothing to reason about). Wrapped in try/except so a
+    # provider outage never blocks the save.
+    if recipe.difficulty_score is None and recipe.ingredients:
+        try:
+            from app.services.recipe_difficulty_ai import infer_recipe_difficulty
+
+            user_settings = profile_settings_map(session, current_user.id)
+            assessment = infer_recipe_difficulty(
+                recipe=recipe,
+                settings=settings,
+                user_settings=user_settings,
+            )
+            recipe.difficulty_score = assessment.score
+            recipe.kid_friendly = assessment.kid_friendly
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Difficulty inference skipped: %s", exc)
     session.commit()
     refreshed = get_recipe(session, current_user.id, recipe.id)
     return recipe_payload(session, refreshed) if refreshed else {}

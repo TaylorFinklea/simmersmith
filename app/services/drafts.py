@@ -255,6 +255,9 @@ def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str) -> 
     recipe.notes = payload.notes
     recipe.memories = payload.memories
     recipe.last_used = payload.last_used
+    if payload.difficulty_score is not None:
+        recipe.difficulty_score = payload.difficulty_score
+    recipe.kid_friendly = payload.kid_friendly
     recipe.override_payload_json = (
         json.dumps(variant_override_payload(base_recipe, payload), sort_keys=True)
         if base_recipe is not None

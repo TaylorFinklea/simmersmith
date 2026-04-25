@@ -7,6 +7,7 @@ struct RecipesView: View {
 
     @State private var searchText = ""
     @State private var selectedMealType: String = ""
+    @State private var selectedDifficulty: DifficultyFilter = .any
     @State private var importLaunchMode: RecipeImportLaunchMode?
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var isGeneratingSuggestion = false
@@ -25,6 +26,7 @@ struct RecipesView: View {
                 VStack(spacing: SMSpacing.xl) {
                     searchBar
                     mealTypeFilterPills
+                    difficultyFilterPills
 
                     if isGeneratingSuggestion {
                         aiGeneratingBanner
@@ -201,6 +203,34 @@ struct RecipesView: View {
         ("Dinner", "dinner"),
         ("Snack", "snack"),
     ]
+
+    private var difficultyFilterPills: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                ForEach(DifficultyFilter.allCases, id: \.self) { filter in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedDifficulty = filter
+                        }
+                    } label: {
+                        Text(filter.label)
+                            .font(SMFont.caption)
+                            .foregroundStyle(selectedDifficulty == filter ? SMColor.primary : SMColor.textSecondary)
+                            .padding(.horizontal, SMSpacing.md)
+                            .padding(.vertical, SMSpacing.sm)
+                            .background(SMColor.surfaceCard)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(selectedDifficulty == filter ? SMColor.primary : Color.clear, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, SMSpacing.lg)
+        }
+    }
 
     private var mealTypeFilterPills: some View {
         HStack(spacing: SMSpacing.sm) {
@@ -581,6 +611,7 @@ struct RecipesView: View {
         appState.recipes
             .filter { !$0.archived }
             .filter { matchesMealType($0) }
+            .filter { matchesDifficulty($0) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -591,6 +622,7 @@ struct RecipesView: View {
         return appState.recipes
             .filter { !$0.archived }
             .filter { matchesMealType($0) }
+            .filter { matchesDifficulty($0) }
             .filter { recipe in
                 [
                     recipe.name,
@@ -613,6 +645,23 @@ struct RecipesView: View {
             .localizedCaseInsensitiveCompare(selectedMealType) == .orderedSame
     }
 
+    private func matchesDifficulty(_ recipe: RecipeSummary) -> Bool {
+        switch selectedDifficulty {
+        case .any:
+            return true
+        case .easy:
+            guard let s = recipe.difficultyScore else { return false }
+            return s <= 2
+        case .medium:
+            return recipe.difficultyScore == 3
+        case .hard:
+            guard let s = recipe.difficultyScore else { return false }
+            return s >= 4
+        case .kidFriendly:
+            return recipe.kidFriendly
+        }
+    }
+
     // MARK: - Actions
 
     private func generateSuggestion(_ goal: RecipeSuggestionGoal) async {
@@ -625,6 +674,24 @@ struct RecipesView: View {
             editorContext = RecipeEditorSheetContext(title: "\(goal.title) Suggestion", draft: aiDraft.draft)
         } catch {
             suggestionErrorMessage = error.localizedDescription
+        }
+    }
+}
+
+enum DifficultyFilter: String, CaseIterable {
+    case any
+    case easy
+    case medium
+    case hard
+    case kidFriendly
+
+    var label: String {
+        switch self {
+        case .any: return "Any difficulty"
+        case .easy: return "Easy"
+        case .medium: return "Medium"
+        case .hard: return "Hard"
+        case .kidFriendly: return "Kid-friendly"
         }
     }
 }

@@ -709,6 +709,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
     public var notes: String
     public var memories: String
     public var lastUsed: Date?
+    public var difficultyScore: Int?
+    public var kidFriendly: Bool
     public var ingredients: [RecipeIngredient]
     public var steps: [RecipeStep]
     public var nutritionSummary: NutritionSummary?
@@ -732,6 +734,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         notes: String = "",
         memories: String = "",
         lastUsed: Date? = nil,
+        difficultyScore: Int? = nil,
+        kidFriendly: Bool = false,
         ingredients: [RecipeIngredient] = [],
         steps: [RecipeStep] = [],
         nutritionSummary: NutritionSummary? = nil
@@ -754,6 +758,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         self.notes = notes
         self.memories = memories
         self.lastUsed = lastUsed
+        self.difficultyScore = difficultyScore
+        self.kidFriendly = kidFriendly
         self.ingredients = ingredients
         self.steps = steps
         self.nutritionSummary = nutritionSummary
@@ -778,6 +784,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         case notes
         case memories
         case lastUsed
+        case difficultyScore
+        case kidFriendly
         case ingredients
         case steps
         case nutritionSummary
@@ -803,6 +811,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         memories = try container.decodeIfPresent(String.self, forKey: .memories) ?? ""
         lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
+        difficultyScore = try container.decodeIfPresent(Int.self, forKey: .difficultyScore)
+        kidFriendly = try container.decodeIfPresent(Bool.self, forKey: .kidFriendly) ?? false
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
@@ -1437,6 +1447,8 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let sourceRecipeCount: Int
     public let archivedAt: Date?
     public let updatedAt: Date
+    public let difficultyScore: Int?
+    public let kidFriendly: Bool
     public let ingredients: [RecipeIngredient]
     public let steps: [RecipeStep]
     public let nutritionSummary: NutritionSummary?
@@ -1472,6 +1484,8 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         case sourceRecipeCount
         case archivedAt
         case updatedAt
+        case difficultyScore
+        case kidFriendly
         case ingredients
         case steps
         case nutritionSummary
@@ -1507,6 +1521,8 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         sourceRecipeCount = try container.decodeIfPresent(Int.self, forKey: .sourceRecipeCount) ?? 1
         archivedAt = try container.decodeIfPresent(Date.self, forKey: .archivedAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        difficultyScore = try container.decodeIfPresent(Int.self, forKey: .difficultyScore)
+        kidFriendly = try container.decodeIfPresent(Bool.self, forKey: .kidFriendly) ?? false
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
