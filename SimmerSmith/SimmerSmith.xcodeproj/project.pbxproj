@@ -76,6 +76,7 @@
 		BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10345947B6DFB4A0CF0527E0 /* TimeBadge.swift */; };
 		C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ED1C25DB773F9DBF319A2F /* AppState.swift */; };
 		C7B1ED4CA5FD1D8EE5EC238F /* WrappingHStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */; };
+		D5F78BDD8F28302565886C23 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */; };
 		D6D665599BB2121248AC3271 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF738967CD3644971E26635 /* SignInView.swift */; };
 		DF7731457AC9E508DD586A96 /* AppState+Vision.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */; };
 		E0378532886B9D2564206062 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 41A88D3F5C64A7005794412A /* GoogleSignInSwift */; };
@@ -176,6 +177,7 @@
 		A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSupport.swift; sourceTree = "<group>"; };
 		A8178AFC294B4845F8D0AFF3 /* SimmerSmithKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithKit; path = ../SimmerSmithKit; sourceTree = SOURCE_ROOT; };
 		AA12D8F99F863C413A31A02F /* SimmerSmithUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		B3AE2B7D371803789AF07846 /* RecipeListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeListRow.swift; sourceTree = "<group>"; };
 		B7332396128AF5CD988A1821 /* CompactRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactRecipeCard.swift; sourceTree = "<group>"; };
 		BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorStepsEditor.swift; sourceTree = "<group>"; };
@@ -257,6 +259,7 @@
 		21EBD5C0DBC902F0BD90AF13 /* Vision */ = {
 			isa = PBXGroup;
 			children = (
+				B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */,
 				7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */,
 			);
 			path = Vision;
@@ -660,6 +663,7 @@
 				C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */,
 				5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */,
 				923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */,
+				D5F78BDD8F28302565886C23 /* BarcodeScannerView.swift in Sources */,
 				27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */,
 				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */,

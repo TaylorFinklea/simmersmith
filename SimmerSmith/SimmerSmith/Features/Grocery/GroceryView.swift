@@ -9,6 +9,7 @@ struct GroceryView: View {
     @State private var selectedItem: GroceryItem?
     @State private var showingReviewQueue = false
     @State private var isFetchingPrices = false
+    @State private var showingBarcodeScanner = false
 
     var body: some View {
         Group {
@@ -159,6 +160,16 @@ struct GroceryView: View {
                         : "Ingredient review queue, \(groceryReviewCount) items need review"
                 )
             }
+            if !krogerLocationId.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingBarcodeScanner = true
+                    } label: {
+                        Image(systemName: "barcode.viewfinder")
+                    }
+                    .accessibilityLabel("Scan barcode for product info")
+                }
+            }
         }
         .sheet(item: $selectedItem) { item in
             FeedbackComposerView(title: item.ingredientName) { sentiment, notes in
@@ -167,6 +178,9 @@ struct GroceryView: View {
         }
         .sheet(isPresented: $showingReviewQueue) {
             IngredientReviewQueueView()
+        }
+        .sheet(isPresented: $showingBarcodeScanner) {
+            BarcodeLookupSheet()
         }
     }
 

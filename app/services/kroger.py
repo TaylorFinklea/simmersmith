@@ -137,6 +137,49 @@ def search_product_price(
     return results
 
 
+def search_product_by_upc(
+    settings: Settings, *, upc: str, location_id: str
+) -> dict | None:
+    """Look up a single product by UPC at a specific store.
+
+    The Kroger v1 products API doesn't expose a `filter.upc` parameter, but
+    passing the UPC as `filter.term` matches reliably for codes Kroger
+    catalogs. We then filter the returned products to those whose `upc`
+    field matches exactly so we don't accidentally return a near-match.
+    """
+    headers = _auth_headers(settings)
+    params: dict[str, str | int] = {
+        "filter.term": upc,
+        "filter.locationId": location_id,
+        "filter.limit": 5,
+    }
+    with httpx.Client(timeout=15) as client:
+        resp = client.get(PRODUCTS_URL, headers=headers, params=params)
+    resp.raise_for_status()
+
+    for product in resp.json().get("data", []):
+        if product.get("upc") != upc:
+            continue
+        items = product.get("items", [])
+        price_info = items[0].get("price", {}) if items else {}
+        size_info = items[0].get("size", "") if items else ""
+        fulfillment = items[0].get("fulfillment", {}) if items else {}
+        regular_price = price_info.get("regular")
+        promo_price = price_info.get("promo")
+        return {
+            "product_id": product.get("productId", ""),
+            "upc": product.get("upc", ""),
+            "brand": product.get("brand", ""),
+            "description": product.get("description", ""),
+            "package_size": str(size_info) if size_info else "",
+            "regular_price": float(regular_price) if regular_price else None,
+            "promo_price": float(promo_price) if promo_price else None,
+            "product_url": f"https://www.kroger.com/p/{product.get('productId', '')}",
+            "in_stock": fulfillment.get("inStore", False),
+        }
+    return None
+
+
 def pick_best_match(candidates: list[dict], query_term: str) -> dict | None:
     """Pick the best product match from search results.
 

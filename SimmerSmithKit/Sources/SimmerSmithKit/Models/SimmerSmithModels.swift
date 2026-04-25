@@ -1174,6 +1174,40 @@ public struct CookCheckResult: Codable, Hashable, Sendable {
     }
 }
 
+public struct ProductLookup: Codable, Hashable, Sendable {
+    public let productId: String
+    public let upc: String
+    public let brand: String
+    public let description: String
+    public let packageSize: String
+    public let regularPrice: Double?
+    public let promoPrice: Double?
+    public let productUrl: String
+    public let inStock: Bool
+
+    public init(
+        productId: String,
+        upc: String,
+        brand: String,
+        description: String,
+        packageSize: String,
+        regularPrice: Double?,
+        promoPrice: Double?,
+        productUrl: String,
+        inStock: Bool
+    ) {
+        self.productId = productId
+        self.upc = upc
+        self.brand = brand
+        self.description = description
+        self.packageSize = packageSize
+        self.regularPrice = regularPrice
+        self.promoPrice = promoPrice
+        self.productUrl = productUrl
+        self.inStock = inStock
+    }
+}
+
 // MARK: - Event Plans (M10)
 
 public struct Guest: Codable, Identifiable, Hashable, Sendable {

@@ -6,6 +6,8 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>SimmerSmith</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SimmerSmith uses the camera to scan barcodes and ingredients to help you plan and shop.</string>
 	<key>GIDClientID</key>
 	<string>463593575959-6u86n3qeqq6kf0717medmej9gne3jurg.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>

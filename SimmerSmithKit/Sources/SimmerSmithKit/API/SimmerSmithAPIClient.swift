@@ -997,6 +997,21 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func lookupProductByUPC(
+        upc: String,
+        locationID: String
+    ) async throws -> ProductLookup {
+        struct Body: Encodable {
+            let upc: String
+            let locationId: String
+        }
+        return try await request(
+            path: "/api/products/lookup-upc",
+            method: "POST",
+            body: Body(upc: upc, locationId: locationID)
+        )
+    }
+
     // MARK: - Event Plans (M10)
 
     public func fetchGuests(includeInactive: Bool = false) async throws -> [Guest] {
