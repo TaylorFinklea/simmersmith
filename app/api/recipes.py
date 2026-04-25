@@ -10,7 +10,9 @@ from app.models import AIRun
 from app.schemas import (
     CookCheckOut,
     CookCheckRequest,
+    PairingOptionOut,
     RecipeAIDraftOptionOut,
+    RecipePairingsResponse,
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
     IngredientSubstituteRequest,
@@ -407,6 +409,39 @@ def recipe_ingredient_substitute_route(
     )
     session.commit()
     return response.model_dump()
+
+
+@router.post("/{recipe_id}/pairings", response_model=RecipePairingsResponse)
+def recipe_pairings_route(
+    recipe_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Return up to 3 AI-generated dish pairings for a recipe."""
+    from app.services.pairing_ai import suggest_pairings
+
+    recipe = get_recipe(session, current_user.id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    user_settings = profile_settings_map(session, current_user.id)
+    try:
+        suggestions = suggest_pairings(
+            recipe=recipe,
+            settings=settings,
+            user_settings=user_settings,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return RecipePairingsResponse(
+        recipe_id=recipe_id,
+        suggestions=[
+            PairingOptionOut(name=s.name, role=s.role, reason=s.reason)
+            for s in suggestions
+        ],
+    ).model_dump()
 
 
 @router.post("/{recipe_id}/cook-check", response_model=CookCheckOut)

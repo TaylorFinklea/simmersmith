@@ -216,3 +216,14 @@ class IngredientSubstituteResponse(BaseModel):
     ingredient_id: str
     original_name: str
     suggestions: list[SubstitutionSuggestion] = Field(default_factory=list)
+
+
+class PairingOptionOut(BaseModel):
+    name: str
+    role: str
+    reason: str = ""
+
+
+class RecipePairingsResponse(BaseModel):
+    recipe_id: str
+    suggestions: list[PairingOptionOut] = Field(default_factory=list)

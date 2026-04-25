@@ -1125,6 +1125,32 @@ public struct IngredientSubstituteResponse: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Pairings (M12)
+
+public struct PairingOption: Codable, Identifiable, Hashable, Sendable {
+    public let name: String
+    public let role: String
+    public let reason: String
+
+    public var id: String { name }
+
+    public init(name: String, role: String, reason: String = "") {
+        self.name = name
+        self.role = role
+        self.reason = reason
+    }
+}
+
+public struct RecipePairings: Codable, Hashable, Sendable {
+    public let recipeId: String
+    public let suggestions: [PairingOption]
+
+    public init(recipeId: String, suggestions: [PairingOption]) {
+        self.recipeId = recipeId
+        self.suggestions = suggestions
+    }
+}
+
 // MARK: - Vision (M11)
 
 public struct CuisineUse: Codable, Hashable, Sendable {

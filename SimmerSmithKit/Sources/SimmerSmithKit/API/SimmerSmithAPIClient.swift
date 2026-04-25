@@ -997,6 +997,13 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func suggestPairings(recipeID: String) async throws -> RecipePairings {
+        try await request(
+            path: "/api/recipes/\(recipeID)/pairings",
+            method: "POST"
+        )
+    }
+
     public func cookCheck(
         recipeID: String,
         stepNumber: Int,

@@ -337,6 +337,9 @@ struct RecipeDetailView: View {
                 }
             }
 
+            // Pairings (M12)
+            RecipePairingsCard(recipeID: recipe.recipeId)
+
             // Notes
             if !recipe.notes.isEmpty {
                 notesSection(title: "Notes", text: recipe.notes, icon: "note.text")

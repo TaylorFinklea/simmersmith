@@ -80,6 +80,12 @@ extension AppState {
         try await apiClient.generateRecipeVariationDraft(recipeID: recipeID, goal: goal)
     }
 
+    /// Ask the backend for AI-generated pairing suggestions (M12 Phase 1).
+    func suggestRecipePairings(recipeID: String) async throws -> [PairingOption] {
+        let response = try await apiClient.suggestPairings(recipeID: recipeID)
+        return response.suggestions
+    }
+
     func generateRecipeSuggestionDraft(goal: String) async throws -> RecipeAIDraft {
         try await apiClient.generateRecipeSuggestionDraft(goal: goal)
     }
