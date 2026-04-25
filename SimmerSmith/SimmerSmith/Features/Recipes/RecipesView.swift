@@ -13,6 +13,7 @@ struct RecipesView: View {
     @State private var suggestionErrorMessage: String?
     @State private var showingAISuggestionSheet = false
     @State private var showGalleryView = false
+    @State private var showingIngredientScanner = false
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -96,6 +97,12 @@ struct RecipesView: View {
                     } label: {
                         Label("Import from PDF", systemImage: "doc.richtext")
                     }
+                    Divider()
+                    Button {
+                        showingIngredientScanner = true
+                    } label: {
+                        Label("Identify ingredient", systemImage: "viewfinder.circle")
+                    }
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .foregroundStyle(SMColor.primary)
@@ -112,6 +119,12 @@ struct RecipesView: View {
         }
         .sheet(isPresented: $showingAISuggestionSheet) {
             aiSuggestionSheet
+        }
+        .sheet(isPresented: $showingIngredientScanner) {
+            IngredientScannerView { searchTerm in
+                searchText = searchTerm
+                isSearchFocused = false
+            }
         }
         .alert("AI Suggestion Failed", isPresented: Binding(
             get: { suggestionErrorMessage != nil },

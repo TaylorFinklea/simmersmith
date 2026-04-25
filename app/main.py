@@ -17,6 +17,7 @@ from app.api.profile import router as profile_router
 from app.api.recipes import router as recipes_router
 from app.api.stores import router as stores_router
 from app.api.subscriptions import router as subscriptions_router
+from app.api.vision import router as vision_router
 from app.api.weeks import router as weeks_router
 from app.auth import get_current_user
 from app.config import get_settings
@@ -56,6 +57,7 @@ app.include_router(ingredients_router, dependencies=protected_dependencies)
 app.include_router(ingredient_preferences_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
 app.include_router(recipes_router, dependencies=protected_dependencies)
+app.include_router(vision_router, dependencies=protected_dependencies)
 app.include_router(weeks_router, dependencies=protected_dependencies)
 app.include_router(stores_router, dependencies=protected_dependencies)
 # Subscriptions: /verify requires auth (registered as protected below);

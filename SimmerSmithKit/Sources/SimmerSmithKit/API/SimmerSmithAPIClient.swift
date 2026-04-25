@@ -977,6 +977,26 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    // MARK: - Vision (M11)
+
+    public func identifyIngredient(
+        imageData: Data,
+        mimeType: String = "image/jpeg"
+    ) async throws -> IngredientIdentification {
+        struct Body: Encodable {
+            let imageBase64: String
+            let mimeType: String
+        }
+        return try await request(
+            path: "/api/vision/identify-ingredient",
+            method: "POST",
+            body: Body(
+                imageBase64: imageData.base64EncodedString(),
+                mimeType: mimeType
+            )
+        )
+    }
+
     // MARK: - Event Plans (M10)
 
     public func fetchGuests(includeInactive: Bool = false) async throws -> [Guest] {

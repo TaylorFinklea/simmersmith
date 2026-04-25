@@ -92,6 +92,13 @@ from app.schemas.recipe import (
     RecipeVariationDraftRequest,
     SubstitutionSuggestion,
 )
+from app.schemas.vision import (
+    CookCheckOut,
+    CookCheckRequest,
+    CuisineUseOut,
+    IngredientIdentificationOut,
+    VisionImageRequest,
+)
 from app.schemas.week import (
     DraftFromAIRequest,
     ExportCompleteRequest,
@@ -139,6 +146,9 @@ __all__ = [
     "BaseIngredientDetailOut",
     "BaseIngredientOut",
     "BaseIngredientPayload",
+    "CookCheckOut",
+    "CookCheckRequest",
+    "CuisineUseOut",
     "DietaryGoalOut",
     "DietaryGoalPayload",
     "DraftFromAIRequest",
@@ -150,6 +160,7 @@ __all__ = [
     "FeedbackEntryPayload",
     "GroceryItemOut",
     "HealthResponse",
+    "IngredientIdentificationOut",
     "IngredientMergeRequest",
     "IngredientNutritionMatchOut",
     "IngredientNutritionMatchRequest",
@@ -216,6 +227,7 @@ __all__ = [
     "StaplePayload",
     "SubstitutionSuggestion",
     "UsageSummaryOut",
+    "VisionImageRequest",
     "WeekChangeBatchOut",
     "WeekChangeEventOut",
     "WeekCreateRequest",

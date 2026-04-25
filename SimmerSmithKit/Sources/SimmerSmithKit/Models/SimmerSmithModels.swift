@@ -1125,6 +1125,55 @@ public struct IngredientSubstituteResponse: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Vision (M11)
+
+public struct CuisineUse: Codable, Hashable, Sendable {
+    public let country: String
+    public let dish: String
+
+    public init(country: String, dish: String) {
+        self.country = country
+        self.dish = dish
+    }
+}
+
+public struct IngredientIdentification: Codable, Hashable, Sendable {
+    public let name: String
+    public let confidence: String
+    public let commonNames: [String]
+    public let cuisineUses: [CuisineUse]
+    public let recipeMatchTerms: [String]
+    public let notes: String
+
+    public init(
+        name: String,
+        confidence: String,
+        commonNames: [String] = [],
+        cuisineUses: [CuisineUse] = [],
+        recipeMatchTerms: [String] = [],
+        notes: String = ""
+    ) {
+        self.name = name
+        self.confidence = confidence
+        self.commonNames = commonNames
+        self.cuisineUses = cuisineUses
+        self.recipeMatchTerms = recipeMatchTerms
+        self.notes = notes
+    }
+}
+
+public struct CookCheckResult: Codable, Hashable, Sendable {
+    public let verdict: String
+    public let tip: String
+    public let suggestedMinutesRemaining: Int
+
+    public init(verdict: String, tip: String, suggestedMinutesRemaining: Int = 0) {
+        self.verdict = verdict
+        self.tip = tip
+        self.suggestedMinutesRemaining = suggestedMinutesRemaining
+    }
+}
+
 // MARK: - Event Plans (M10)
 
 public struct Guest: Codable, Identifiable, Hashable, Sendable {
