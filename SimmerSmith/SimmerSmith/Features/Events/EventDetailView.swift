@@ -24,6 +24,7 @@ struct EventDetailView: View {
                     attendeesSection(for: event)
                     generateSection
                     menuSection(for: event)
+                    guestsBringingSection(for: event)
                     if !event.groceryItems.isEmpty {
                         grocerySection(for: event)
                     }
@@ -168,6 +169,40 @@ struct EventDetailView: View {
                 }
                 .padding(SMSpacing.sm)
                 .background(SMColor.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: SMRadius.sm))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func guestsBringingSection(for event: Event) -> some View {
+        // "Guests bringing" — reassures the host that assigned dishes
+        // are intentionally missing from their grocery list.
+        let assigned = event.meals.filter { $0.assignedGuestId != nil }
+        if !assigned.isEmpty {
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                Text("Guests bringing")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+                ForEach(assigned) { meal in
+                    HStack {
+                        Image(systemName: "gift")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(meal.recipeName)
+                                .font(SMFont.body.weight(.semibold))
+                                .foregroundStyle(SMColor.textPrimary)
+                            if let name = event.attendees
+                                .first(where: { $0.guestId == meal.assignedGuestId })?.guest.name {
+                                Text("\(name) is bringing it — not on your shopping list")
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textSecondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(SMSpacing.sm)
+                    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: SMRadius.sm))
+                }
             }
         }
     }

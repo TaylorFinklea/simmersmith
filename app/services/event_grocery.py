@@ -68,6 +68,12 @@ def _aggregate_event_rows(
     aggregations: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     for meal in meals:
+        # Dishes assigned to a guest are being *brought* by that guest,
+        # so their ingredients are not on the host's shopping list.
+        # The meal itself stays visible on the event (with an assignee
+        # chip) — just no grocery contribution.
+        if meal.assigned_guest_id:
+            continue
         recipe = recipes.get(meal.recipe_id or "")
         if recipe:
             base_servings = recipe.servings or 1.0

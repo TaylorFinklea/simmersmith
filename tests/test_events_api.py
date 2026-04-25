@@ -359,6 +359,87 @@ def test_ai_menu_regeneration_preserves_manual_dishes(client, monkeypatch) -> No
     assert salad["ai_generated"] is False
 
 
+def test_assigned_meals_excluded_from_event_grocery(client) -> None:
+    """M10.1 Phase 1: dishes assigned to a guest don't appear on the
+    host's grocery list. The host is not shopping for ingredients the
+    guest is bringing.
+    """
+    from app.db import session_scope
+    from app.models import Event, EventMeal, EventMealIngredient, Guest
+
+    # Seed a guest + an event with two manual dishes, one assigned.
+    kirsten = client.post("/api/guests", json={"name": "Kirsten"}).json()
+    event_resp = client.post(
+        "/api/events",
+        json={
+            "name": "Potluck",
+            "attendee_count": 6,
+            "attendees": [{"guest_id": kirsten["guest_id"]}],
+        },
+    ).json()
+    event_id = event_resp["event_id"]
+
+    # Host is making mashed potatoes (no assignee)
+    host_meal = client.post(
+        f"/api/events/{event_id}/meals",
+        json={
+            "role": "side",
+            "recipe_name": "Mashed potatoes",
+            "servings": 6,
+        },
+    ).json()["meals"][0]
+
+    # Kirsten is bringing kale salad (assigned) — so kale should NOT
+    # show up on the grocery list.
+    guest_meal = client.post(
+        f"/api/events/{event_id}/meals",
+        json={
+            "role": "side",
+            "recipe_name": "Kale salad",
+            "servings": 6,
+            "assigned_guest_id": kirsten["guest_id"],
+        },
+    ).json()["meals"][-1]
+
+    # Add inline ingredients directly via DB — free-text dishes don't
+    # have an ingredient capture UI yet, but the backend DOES store
+    # EventMealIngredient rows via AI generation. We simulate that
+    # scaffolding here to validate the filter.
+    with session_scope() as session:
+        session.add(
+            EventMealIngredient(
+                id=f"{host_meal['meal_id']}:0001",
+                event_meal_id=host_meal["meal_id"],
+                ingredient_name="Potatoes",
+                normalized_name="potatoes",
+                quantity=3.0,
+                unit="lb",
+                category="Produce",
+            )
+        )
+        session.add(
+            EventMealIngredient(
+                id=f"{guest_meal['meal_id']}:0001",
+                event_meal_id=guest_meal["meal_id"],
+                ingredient_name="Kale",
+                normalized_name="kale",
+                quantity=2.0,
+                unit="bunch",
+                category="Produce",
+            )
+        )
+        session.commit()
+
+    # Trigger grocery regeneration
+    resp = client.post(f"/api/events/{event_id}/grocery/refresh")
+    assert resp.status_code == 200, resp.text
+
+    grocery = resp.json()["grocery_items"]
+    names = {g["ingredient_name"].lower() for g in grocery}
+    assert any("potato" in n for n in names), "Host's dish ingredients should be on grocery"
+    assert not any("kale" in n for n in names), "Guest-assigned dish should NOT be on grocery"
+
+
 def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
     """M10 Phase 3: merging event groceries into a week adds quantities
     to the matching weekly row when base_ingredient_id + unit match.
