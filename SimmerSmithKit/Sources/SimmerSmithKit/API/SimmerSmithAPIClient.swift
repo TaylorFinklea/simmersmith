@@ -1043,7 +1043,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         }
         struct Body: Encodable {
             let name: String
-            let eventDate: Date?
+            // String, not Date — Pydantic's `date` field rejects ISO
+            // datetimes that carry a non-zero time component, which is
+            // what the shared encoder produces. We send "YYYY-MM-DD".
+            let eventDate: String?
             let occasion: String
             let attendeeCount: Int
             let notes: String
@@ -1054,13 +1057,26 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             method: "POST",
             body: Body(
                 name: name,
-                eventDate: eventDate,
+                eventDate: Self.dateOnlyString(eventDate),
                 occasion: occasion,
                 attendeeCount: attendeeCount,
                 notes: notes,
                 attendees: attendees.map { AttendeeBody(guestId: $0.guestID, plusOnes: $0.plusOnes) }
             )
         )
+    }
+
+    /// Formats a Swift Date as the calendar-day string "YYYY-MM-DD" using
+    /// the user's local calendar — matches the Pydantic `date` type the
+    /// backend uses for event_date and similar fields. Returns nil for
+    /// nil input so the JSON payload sends `null` instead of an empty
+    /// string.
+    static func dateOnlyString(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = .current
+        return formatter.string(from: date)
     }
 
     public func updateEvent(
@@ -1079,7 +1095,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         }
         struct Body: Encodable {
             let name: String
-            let eventDate: Date?
+            let eventDate: String?
             let occasion: String
             let attendeeCount: Int
             let notes: String
@@ -1091,7 +1107,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             method: "PATCH",
             body: Body(
                 name: name,
-                eventDate: eventDate,
+                eventDate: Self.dateOnlyString(eventDate),
                 occasion: occasion,
                 attendeeCount: attendeeCount,
                 notes: notes,
