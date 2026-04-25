@@ -6,6 +6,7 @@ import SimmerSmithKit
 /// "Merge into this week" (Phase 6 — shown when a linkable week exists).
 struct EventDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     let eventID: String
 
     @State private var isGenerating = false
@@ -13,6 +14,8 @@ struct EventDetailView: View {
     @State private var errorMessage: String?
     @State private var showingGuestPicker = false
     @State private var mealEditorContext: EventMealEditorContext?
+    @State private var showingEventEditor: Bool = false
+    @State private var pendingDelete: Bool = false
 
     private var event: Event? { appState.eventDetails[eventID] }
 
@@ -48,10 +51,72 @@ struct EventDetailView: View {
         .navigationTitle(event?.name ?? "Event")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(SMColor.surface, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if event != nil {
+                    Menu {
+                        Button {
+                            showingEventEditor = true
+                        } label: {
+                            Label("Edit event info", systemImage: "pencil")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            pendingDelete = true
+                        } label: {
+                            Label("Delete event", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                }
+            }
+        }
         .task { await loadIfNeeded() }
         .refreshable { await load() }
         .sheet(item: $mealEditorContext) { context in
             EventMealEditorSheet(event: context.event, meal: context.meal)
+        }
+        .sheet(isPresented: $showingEventEditor) {
+            if let event {
+                EventEditSheet(event: event)
+            }
+        }
+        .confirmationDialog(
+            "Delete this event?",
+            isPresented: $pendingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                Task { await deleteEvent() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the event, its menu, and its grocery list. Merged items stay on the week until you unmerge them separately.")
+        }
+    }
+
+    private func deleteEvent() async {
+        guard let event else { return }
+        let summary = appState.eventSummaries.first { $0.eventId == event.eventId }
+            ?? EventSummary(
+                eventId: event.eventId,
+                name: event.name,
+                eventDate: event.eventDate,
+                occasion: event.occasion,
+                attendeeCount: event.attendeeCount,
+                status: event.status,
+                linkedWeekId: event.linkedWeekId,
+                mealCount: event.meals.count,
+                createdAt: event.createdAt,
+                updatedAt: event.updatedAt
+            )
+        do {
+            try await appState.deleteEvent(summary)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

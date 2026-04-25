@@ -37,6 +37,7 @@
 		4E9D70ECD621F2F9FA5CDC5D /* EventCreateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */; };
 		53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */; };
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
+		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
 		5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DB39B05047967856041B5 /* AssistantToolCallCard.swift */; };
 		60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */; };
@@ -185,6 +186,7 @@
 		E8ED641FC0046AD669A36898 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Assistant.swift"; sourceTree = "<group>"; };
 		F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackComposerView.swift; sourceTree = "<group>"; };
+		F222A33C201808AF925C11C1 /* EventEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEditSheet.swift; sourceTree = "<group>"; };
 		F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealNoteEditor.swift; sourceTree = "<group>"; };
 		F4DA130CC3CF01AC162AF455 /* SimmerSmithTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuisinePill.swift; sourceTree = "<group>"; };
@@ -239,6 +241,7 @@
 			children = (
 				25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */,
 				1A89423CDD042C3BCD0974BF /* EventDetailView.swift */,
+				F222A33C201808AF925C11C1 /* EventEditSheet.swift */,
 				50B987531CD5D3613D68015F /* EventMealEditorSheet.swift */,
 				6127E6D290A5B49CE1F51554 /* EventsView.swift */,
 				5CBD6C6A76089A9D8F674887 /* GuestEditorSheet.swift */,
@@ -654,6 +657,7 @@
 				9E3665F6FC31C34056805154 /* DietaryGoalView.swift in Sources */,
 				4E9D70ECD621F2F9FA5CDC5D /* EventCreateSheet.swift in Sources */,
 				ACB12AD6000C6CDA19B0A15F /* EventDetailView.swift in Sources */,
+				5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */,
 				7DF18617E71614C94B47D16F /* EventMealEditorSheet.swift in Sources */,
 				B04E2D4442A2F39C64D588A8 /* EventsView.swift in Sources */,
 				7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */,
