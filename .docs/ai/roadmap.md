@@ -213,6 +213,39 @@ via Settings → Ingredient Preferences.
       "Never use this in my plans", and "I'm allergic to this"
       — catalog-resolved ingredients only
 
+## M11: Photo-First AI (complete on dev; awaiting deploy + TestFlight 15)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+A product audit revealed that photo / multimodal AI was mentioned three
+times in the original product notes and was entirely absent. M11 adds
+all four flows in a single milestone, and lays the foundation
+(`vision_ai`) for the future cooking-coach work.
+
+- [x] Phase 1 — already shipped. Recipe scan via VisionKit /
+      `RecipeImportView`'s existing scaffolding (audit blind spot).
+- [x] Phase 2 — `app/services/vision_ai.py` foundation. Strict-JSON
+      `identify_ingredient` + `check_cooking_progress` with image
+      content blocks for OpenAI + Anthropic. 7 tests.
+- [x] Phase 3 — Scan ingredient → identify + uses. Backend route +
+      iOS `IngredientScannerView` w/ result card + Find Recipes action.
+- [x] Phase 4 — Barcode scan → product lookup. Kroger UPC reverse
+      lookup + iOS `BarcodeScannerView` (DataScannerViewController) +
+      product card. Entry point in GroceryView.
+- [x] Phase 5 — Cooking-progress check. Per-step "Check it" camera
+      chip in RecipeDetailView opens `CookCheckSheet` → vision call →
+      verdict + tip inline.
+
+## M12: Quick AI Wins (planned)
+
+Lightweight follow-on to M11. Each item is a single AI call.
+
+- [ ] Pairings on recipe detail ("things that go well with this")
+- [ ] In-season produce snapshot on the Week tab (location + month)
+- [ ] AI recipe web search ("find me the best whole wheat waffle recipe")
+- [ ] Beginner / kid-friendly recipe paths (curated + difficulty
+      scoring)
+
 ## Backlog
 
 <!-- tier3_owner: claude -->

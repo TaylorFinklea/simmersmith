@@ -10,83 +10,120 @@
 
 **Date**: 2026-04-25
 
-Closed out M10.1 Event Polish v2 and uploaded **TestFlight build 14**.
-Hands the dogfooding loop back to the user (his wife is the live tester
-on the freshly-baked Easter / event-planning surface). No production
-backend deploys are pending — the M10.1 grocery-exclusion fix landed
-on Fly in commit `2ff4d9a`.
+Shipped **M11 Photo-First AI** Phases 2–5 on dev. Phase 1 (recipe
+scan via VisionKit) was discovered to already be live. The build is
+queued at `CURRENT_PROJECT_VERSION 15` but **NOT yet deployed to Fly
+or uploaded to TestFlight** — those are the next user-driven actions.
 
-Since the last current-state snapshot (2026-04-20, M7 phases 1-4) the
-following milestones shipped:
+Origin: a product audit comparing Taylor's wife's original product
+notes against the live app surfaced photo / multimodal AI as the
+biggest gap (mentioned 3× in her notes, entirely absent from the
+app). The user confirmed all four photo flows + Quick AI Wins as
+the next two milestones; cooking-mode + Memories slotted as later.
 
-- **M6** rollout deployed to Fly
-- **M7 phases 1-4** (streaming + cancel + hallucination guardrail) deployed
-- **M8 Smart Substitutions** with replace-vs-variation choice
-- **M9 Preference-Aware Planner** (avoid/allergy fed into planner prompt)
-- **M10 Event Plans** (Events tab, AI menu, grocery merge, manual dishes,
-  per-dish assignees, age-group-aware AI)
-- **M10.1 Event Polish v2** — assignee dishes excluded from host's
-  grocery, edit + delete from event detail, "Guests bringing" subsection
+### What landed this session (M11)
 
-### What landed this session (M10.1)
+**Phase 1 — Recipe scan (already shipped)**
+Discovered `RecipeImportView` already wires `VNDocumentCameraViewController`
++ `VNRecognizeTextRequest` + `pendingTextReview` end-to-end. The
+backend `import-from-text` route accepts the OCR'd output. No work
+needed — the audit just missed it.
 
-**Phase 1 — Backend grocery fix (commit `2ff4d9a`, deployed)**
+**Phase 2 — Vision provider foundation (commit `ce0b7f8`)**
+- `app/services/vision_ai.py`: strict-JSON `identify_ingredient` +
+  `check_cooking_progress` with image content blocks for OpenAI
+  (`image_url` data URL) and Anthropic (`image` source). HEIC →
+  JPEG fallback for OpenAI compatibility.
+- `tests/test_vision_ai.py`: 7 tests covering happy path, oversize
+  rejection, MIME validation, bad-JSON failure, HEIC fallback,
+  Anthropic routing.
 
-- `app/services/event_grocery.py:70` — `_aggregate_event_rows` now
-  skips meals with `assigned_guest_id` so the host's grocery list
-  excludes guest-brought dishes.
-- `tests/test_events_api.py` — added
-  `test_assigned_meals_excluded_from_event_grocery` (148/148 pytest).
-- iOS `EventDetailView` gained a "Guests bringing" section listing
-  assigned dishes by assignee name.
+**Phase 3 — Scan ingredient → identify (commit `0ba9caa`)**
+- `app/api/vision.py` + `app/schemas/vision.py`: `POST
+  /api/vision/identify-ingredient` w/ `IngredientIdentificationOut`
+  (name, confidence, common_names, cuisine_uses, recipe_match_terms).
+- iOS: `IngredientScannerView` (PhotosPicker → result card with
+  cuisine uses + Find Recipes action) wired into Recipes view's
+  plus menu. New SimmerSmithKit models: `CuisineUse`,
+  `IngredientIdentification`, `CookCheckResult`.
+- 4 route integration tests.
 
-**Phases 2 + 3 — iOS edit + delete (commit `740bd59`)**
+**Phase 4 — Barcode scan → product (commit `9f7f858`)**
+- `app/services/kroger.py::search_product_by_upc` (passes UPC as
+  `filter.term` + filters returned products to exact-UPC matches).
+- `app/api/products.py`: `POST /api/products/lookup-upc` w/
+  `ProductLookupRequest/Response`.
+- iOS: `BarcodeScannerView` wraps `DataScannerViewController(
+  recognizedDataTypes: [.barcode()])`; `BarcodeLookupSheet` shows
+  brand + price + in-stock. Toolbar entry in `GroceryView` (only
+  when a Kroger store is configured).
+- `Info.plist` gains `NSCameraUsageDescription`.
+- 4 route tests.
 
-- New `EventEditSheet.swift` mirrors `EventCreateSheet` for
-  name/date/occasion/attendeeCount/status/notes. Attendee curation
-  stays in `AttendeePickerSheet` (passed through unchanged on save).
-- `EventDetailView` toolbar gains an ellipsis menu with "Edit event
-  info" and a destructive "Delete event" guarded by a
-  `confirmationDialog`. On delete the detail view dismisses back to
-  the Events list.
+**Phase 5 — Cook check (commit `eadca4d`)**
+- `app/api/recipes.py::recipe_cook_check_route`: `POST
+  /api/recipes/{id}/cook-check`. Looks up the recipe + step text
+  server-side and calls `check_cooking_progress`.
+- iOS: per-step "Check it" camera chip on each step in
+  `RecipeDetailView` opens `CookCheckSheet` → photo → inline verdict
+  (on_track / needs_more_time / concerning) + tip + suggested mins
+  remaining.
+- 2 route tests.
 
-**TestFlight cut**
-
-- `SimmerSmith/project.yml` `CURRENT_PROJECT_VERSION` 13 → 14
-  (commit `e966cd4`).
-- Archived + exported via `ExportOptions.plist`, uploaded to App
-  Store Connect successfully. Build 14 is the current TestFlight.
+**TestFlight prep**
+- `SimmerSmith/project.yml` `CURRENT_PROJECT_VERSION` 14 → 15.
+- `xcodegen generate` re-run — project is ready to archive.
+- Backend deploy + archive/upload are pending user confirmation.
 
 ### Production state
 
-- **URL**: https://simmersmith.fly.dev (healthy; current = M10.1 Phase 1)
-- **Model**: `gpt-5.4-mini`
-- **Privacy Policy**: https://simmersmith.fly.dev/privacy
-- **TestFlight**: v1.0.0 build 14 (M10.1 + everything before)
+- **URL**: https://simmersmith.fly.dev (healthy; current = M10.1.
+  M11 backend NOT yet deployed.)
+- **Model**: `gpt-5.4-mini` (vision-capable; should work for
+  identify-ingredient + cook-check without changes)
+- **TestFlight**: build 14 (pre-M11)
 
 ### Build status
 
-- Backend: ruff clean, pytest 148/148 pass
+- Backend: ruff clean (vision module + tests), pytest 165/165 pass
 - Swift tests: 26/26 pass
-- iOS build: green; archive + export uploaded
-- Fly production: healthy, current
+- iOS build: green on `generic/platform=iOS Simulator`
+- Fly production: healthy; STALE wrt M11 backend
+- TestFlight: STALE wrt M11
 
 ## Files Changed (this session)
 
-Backend:
-- `app/services/event_grocery.py` — assignee exclusion in
-  `_aggregate_event_rows`
-- `tests/test_events_api.py` — assignee-exclusion regression test
+Backend (new):
+- `app/services/vision_ai.py`
+- `app/api/vision.py`
+- `app/api/products.py`
+- `app/schemas/vision.py`
+- `tests/test_vision_ai.py`
+- `tests/test_vision_api.py`
+- `tests/test_products_api.py`
 
-iOS:
-- `SimmerSmith/.../Features/Events/EventDetailView.swift` — Guests
-  bringing section, ellipsis menu, edit/delete flows, confirmation
-  dialog
-- `SimmerSmith/.../Features/Events/EventEditSheet.swift` — new
-- `SimmerSmith/project.yml` — build 14 bump
+Backend (extended):
+- `app/api/recipes.py` (cook-check route)
+- `app/main.py` (router registration)
+- `app/schemas/__init__.py` (vision exports)
+- `app/services/kroger.py` (UPC lookup)
+
+iOS (new):
+- `SimmerSmith/SimmerSmith/App/AppState+Vision.swift`
+- `SimmerSmith/SimmerSmith/Features/Vision/IngredientScannerView.swift`
+- `SimmerSmith/SimmerSmith/Features/Vision/BarcodeScannerView.swift`
+- `SimmerSmith/SimmerSmith/Features/Vision/CookCheckView.swift`
+
+iOS (extended):
+- `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+- `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
+- `SimmerSmith/SimmerSmith/Features/Grocery/GroceryView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift`
+- `SimmerSmith/SimmerSmith/Info.plist`
+- `SimmerSmith/project.yml` (build 15 bump)
 
 Docs:
-- `.docs/ai/roadmap.md` — M10 marked complete (prior session); this
-  session adds M10.1 polish items
+- `.docs/ai/roadmap.md` — M11 marked complete, M12 stub
 - `.docs/ai/current-state.md` — this file
-- `.docs/ai/next-steps.md` — refreshed after stale M7 entries
+- `.docs/ai/next-steps.md` — refreshed with deploy + TestFlight cut
