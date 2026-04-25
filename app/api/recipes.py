@@ -8,6 +8,8 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import AIRun
 from app.schemas import (
+    CookCheckOut,
+    CookCheckRequest,
     RecipeAIDraftOptionOut,
     IngredientNutritionMatchOut,
     IngredientNutritionMatchRequest,
@@ -405,6 +407,62 @@ def recipe_ingredient_substitute_route(
     )
     session.commit()
     return response.model_dump()
+
+
+@router.post("/{recipe_id}/cook-check", response_model=CookCheckOut)
+def recipe_cook_check_route(
+    recipe_id: str,
+    payload: CookCheckRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Vision-AI cooking-progress check for a single recipe step.
+
+    Sends a base64-encoded photo plus the recipe name and the chosen step
+    text to the vision model, returns a verdict + short tip. Lives on
+    /api/recipes/{id} so the recipe context lookup happens server-side
+    instead of having the iOS client send the title/step strings.
+    """
+    import base64
+
+    from app.services.vision_ai import check_cooking_progress
+
+    recipe = get_recipe(session, current_user.id, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    steps = recipe.steps if recipe.steps else []
+    step_text = ""
+    if 0 <= payload.step_number < len(steps):
+        step_text = steps[payload.step_number].instruction or ""
+
+    try:
+        image_bytes = base64.b64decode(payload.image_base64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 image: {exc}") from exc
+
+    user_settings = profile_settings_map(session, current_user.id)
+    try:
+        result = check_cooking_progress(
+            image_bytes=image_bytes,
+            mime_type=payload.mime_type,
+            recipe_title=recipe.name or "",
+            step_text=step_text,
+            recipe_context=(recipe.cuisine or "") if recipe.cuisine else "",
+            settings=settings,
+            user_settings=user_settings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return CookCheckOut(
+        verdict=result.verdict,
+        tip=result.tip,
+        suggested_minutes_remaining=result.suggested_minutes_remaining,
+    ).model_dump()
 
 
 @router.post("/nutrition/estimate", response_model=NutritionSummaryOut)

@@ -997,6 +997,28 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func cookCheck(
+        recipeID: String,
+        stepNumber: Int,
+        imageData: Data,
+        mimeType: String = "image/jpeg"
+    ) async throws -> CookCheckResult {
+        struct Body: Encodable {
+            let imageBase64: String
+            let mimeType: String
+            let stepNumber: Int
+        }
+        return try await request(
+            path: "/api/recipes/\(recipeID)/cook-check",
+            method: "POST",
+            body: Body(
+                imageBase64: imageData.base64EncodedString(),
+                mimeType: mimeType,
+                stepNumber: stepNumber
+            )
+        )
+    }
+
     public func lookupProductByUPC(
         upc: String,
         locationID: String

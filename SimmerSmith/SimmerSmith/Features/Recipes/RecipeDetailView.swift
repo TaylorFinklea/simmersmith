@@ -15,6 +15,7 @@ struct RecipeDetailView: View {
     @State private var companionContext: RecipeCompanionSheetContext?
     @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var substitutionContext: SubstitutionSheetContext?
+    @State private var cookCheckContext: CookCheckSheetContext?
     // Transient toast shown after marking an ingredient avoid/allergy —
     // clears itself after ~2s via a Task.sleep.
     @State private var preferenceToast: String?
@@ -210,6 +211,9 @@ struct RecipeDetailView: View {
                     Task { await appState.refreshRecipes() }
                 }
             )
+        }
+        .sheet(item: $cookCheckContext) { context in
+            CookCheckSheet(context: context)
         }
         .confirmationDialog(
             "Delete this recipe?",
@@ -702,9 +706,25 @@ struct RecipeDetailView: View {
             ForEach(recipe.steps.sorted(by: { $0.sortOrder < $1.sortOrder })) { step in
                 SMCard {
                     VStack(alignment: .leading, spacing: SMSpacing.sm) {
-                        Text("\(step.sortOrder)")
-                            .font(SMFont.headline)
-                            .foregroundStyle(SMColor.primary)
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("\(step.sortOrder)")
+                                .font(SMFont.headline)
+                                .foregroundStyle(SMColor.primary)
+                            Spacer()
+                            Button {
+                                cookCheckContext = CookCheckSheetContext(
+                                    recipeID: recipe.recipeId,
+                                    stepNumber: max(step.sortOrder - 1, 0),
+                                    stepText: step.instruction
+                                )
+                            } label: {
+                                Label("Check it", systemImage: "viewfinder.circle")
+                                    .labelStyle(.iconOnly)
+                                    .font(.title3)
+                                    .foregroundStyle(SMColor.primary)
+                            }
+                            .accessibilityLabel("Take a photo to check this step")
+                        }
 
                         Text(step.instruction)
                             .font(SMFont.body)

@@ -81,3 +81,54 @@ def test_identify_ingredient_surfaces_validation_error_as_400(client) -> None:
         )
     assert response.status_code == 400
     assert "Image is too large" in response.json()["detail"]
+
+
+def _seed_recipe(client) -> str:
+    response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Roast chicken",
+            "cuisine": "American",
+            "meal_type": "dinner",
+            "servings": 4.0,
+            "ingredients": [],
+            "steps": [
+                {"step_number": 0, "instruction": "Preheat oven to 425°F."},
+                {"step_number": 1, "instruction": "Roast chicken for 1 hour."},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["recipe_id"]
+
+
+def test_cook_check_route_returns_verdict(client) -> None:
+    from app.services.vision_ai import CookCheckTip
+
+    recipe_id = _seed_recipe(client)
+    fake = CookCheckTip(verdict="on_track", tip="Looks great.", suggested_minutes_remaining=0)
+    with patch("app.services.vision_ai.check_cooking_progress", return_value=fake):
+        response = client.post(
+            f"/api/recipes/{recipe_id}/cook-check",
+            json={
+                "image_base64": base64.b64encode(_png_bytes()).decode("ascii"),
+                "mime_type": "image/png",
+                "step_number": 1,
+            },
+        )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["verdict"] == "on_track"
+    assert payload["tip"] == "Looks great."
+
+
+def test_cook_check_404_when_recipe_missing(client) -> None:
+    response = client.post(
+        "/api/recipes/does-not-exist/cook-check",
+        json={
+            "image_base64": base64.b64encode(_png_bytes()).decode("ascii"),
+            "mime_type": "image/png",
+            "step_number": 0,
+        },
+    )
+    assert response.status_code == 404

@@ -15,6 +15,21 @@ extension AppState {
     /// "no store selected" state — the route 503s without a configured
     /// location, but we want a friendlier error before the request leaves
     /// the device.
+    /// Check whether a mid-cook photo looks on track for a given recipe step.
+    /// `stepNumber` is the index into `recipe.steps`.
+    func cookCheck(
+        recipeID: String,
+        stepNumber: Int,
+        imageData: Data
+    ) async throws -> CookCheckResult {
+        try await apiClient.cookCheck(
+            recipeID: recipeID,
+            stepNumber: stepNumber,
+            imageData: imageData,
+            mimeType: "image/jpeg"
+        )
+    }
+
     func lookupProductByUPC(_ upc: String) async throws -> ProductLookup {
         let locationID = profile?.settings["kroger_location_id"] ?? ""
         guard !locationID.isEmpty else {
