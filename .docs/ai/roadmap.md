@@ -185,6 +185,16 @@ list with merge-into-week support.
       entry point deferred as follow-up polish)
 - [x] Phase 6 — Merge-to-week UI with current-week detection + undo
 
+## M10.1: Event Polish v2 (complete)
+
+Dogfooding fixes after first real Easter use:
+
+- [x] Backend: `_aggregate_event_rows` skips assignee-brought meals so
+      the host's grocery list reflects only what they're shopping for
+- [x] iOS: "Guests bringing" subsection on event detail
+- [x] iOS: `EventEditSheet` for editing event metadata after creation
+- [x] iOS: ellipsis menu on event detail with Edit + Delete + dialog
+
 ## M9: Preference-Aware Planner (complete)
 
 Closes the loop on M8. Rather than reacting to disliked ingredients

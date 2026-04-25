@@ -2,51 +2,59 @@
 
 > Short checklist of exact next actions. Updated at end of every session.
 
-## Requires Your Action
+## Awaiting User / External
 
-- [ ] Deploy M7 Phases 1–4 to fly.io: `fly deploy`
-- [ ] Cut a new TestFlight build (v1.0.0 build 4+) with M6 + M7 Phases 1–4
-- [ ] End-to-end test on a real device (simulator can't fully reproduce
-      the URLSession cancel surface):
-  - Open assistant sheet, send "Swap Tuesday dinner for something lighter"
-  - While streaming, pull-to-refresh on Week → stream must NOT error (Phase 1)
-  - Start a turn, dismiss the sheet immediately → backend logs should
-    show abort fired, DB row should have `status="cancelled"` (Phase 3)
-  - Ask "did you swap it?" when nothing changed → amber "Nothing
-    changed" affordance appears (Phase 4)
-- [ ] Register at developer.kroger.com — get client_id/secret
-- [ ] `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=... SIMMERSMITH_KROGER_CLIENT_SECRET=...`
-- [ ] Configure Google Cloud Console: add iOS client ID for `app.simmersmith.ios` bundle
-- [ ] Add internal testers to TestFlight
+- [ ] TestFlight build 14 dogfooding feedback (wife is live tester on
+      the Event Plans surface — Easter use case)
+- [ ] Add internal testers to TestFlight (if not done)
+- [ ] Register at developer.kroger.com — `client_id` + `client_secret`
+- [ ] `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`
+- [ ] Configure Google Cloud Console iOS client ID for `app.simmersmith.ios`
 
-## Immediate (M7 Phases 5 + 6 — deferred this session)
+## Recommended Next Milestone
 
-- [ ] Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop`
-      into a provider-agnostic `_run_tool_loop(adapter, ...)` with
-      OpenAI + Anthropic stream adapters. Plan doc:
-      `/Users/tfinklea/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+The product is feature-complete for an MVP launch. The two most
+impactful directions:
+
+1. **M3 App Store submission push** — write metadata, take screenshots,
+   submit for review. Unblocks public launch. Roughly:
+   - App Store description, keywords, category
+   - Screenshot generation (Week, Recipes, Assistant, Events)
+   - Submit binary 14 for review
+2. **M11 Recipe Images** (post-launch growth, listed in M7) — visual
+   polish that materially changes how the app *feels*. AI-generated
+   thumbnail per recipe via Gemini 3.1 Flash Image Preview through
+   Vercel AI Gateway (`google/gemini-3.1-flash-image-preview` —
+   faster + cheaper than DALL·E), cached on Fly volume. Recipes
+   gallery and Week meal cards become instantly more compelling.
+
+Either is a clean next milestone. Defaulting to **M3** unless the
+user wants the visual polish first.
+
+## Deferred (M7 Phases 5 + 6)
+
+- [ ] Phase 5: Anthropic tool-use support — refactor
+      `_run_openai_tool_loop` into a provider-agnostic
+      `_run_tool_loop(adapter, …)`. `anthropic_tools_schema()` already
+      exists at `assistant_ai.py:758–766`.
 - [ ] Phase 6: True per-day `generate_week_plan` — one AI call per day
-      with prior days in context. 7× tokens on a full week; flag cost
-      impact before shipping since freemium gating is postponed.
+      with prior days in context. 7× tokens; flag cost before shipping
+      since freemium gating is postponed.
 
 ## Soon
 
-- [ ] Instacart "shop now" affiliate integration
-- [ ] Spoonacular estimated pricing fallback
-- [ ] App Store metadata (description, keywords, category, screenshots)
-- [ ] Submit for App Store review
+- [ ] Instacart "shop now" affiliate integration (M2 secondary)
+- [ ] Spoonacular estimated pricing fallback (M2 secondary)
 
 ## Future
 
+- [ ] Recipe images (AI-generated or fetched) — see M11 above
 - [ ] Household sharing tied to a Pro seat
-- [ ] Recipe images (AI-generated or fetched)
-- [ ] Smart substitutions powered by ingredient preferences
-- [ ] Remote push notifications from backend (APNs integration)
+- [ ] Remote push notifications (APNs)
 - [ ] Proactive intelligence (leftover tracking, weekly theme,
       calendar-aware planning)
 
-## Deferred
+## Deferred (do not restart without authorization)
 
-- **M5 Freemium + Subscription**: postponed at user's request on
-  2026-04-20. Do not restart without explicit re-authorization. Saved
-  to memory (`project_m5_freemium_deferred.md`).
+- **M5 Freemium + Subscription**: postponed 2026-04-20. Saved to
+  memory (`project_m5_freemium_deferred.md`).
