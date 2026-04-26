@@ -1135,6 +1135,22 @@ public struct IngredientSubstituteResponse: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Seasonal produce (M12)
+
+public struct InSeasonItem: Codable, Identifiable, Hashable, Sendable {
+    public let name: String
+    public let whyNow: String
+    public let peakScore: Int
+
+    public var id: String { name }
+
+    public init(name: String, whyNow: String = "", peakScore: Int = 3) {
+        self.name = name
+        self.whyNow = whyNow
+        self.peakScore = peakScore
+    }
+}
+
 // MARK: - Pairings (M12)
 
 public struct PairingOption: Codable, Identifiable, Hashable, Sendable {

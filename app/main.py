@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI
 from app.api.ai import router as ai_router
 from app.api.assistant import router as assistant_router
 from app.api.auth import router as auth_router
+from app.api.discovery import router as discovery_router
 from app.api.events import events_router, guests_router
 from app.api.exports import router as exports_router
 from app.api.ingredients import preferences_router as ingredient_preferences_router
@@ -50,6 +51,7 @@ app.include_router(auth_router)  # Public — handles its own auth
 protected_dependencies = [Depends(get_current_user)]
 app.include_router(ai_router, dependencies=protected_dependencies)
 app.include_router(assistant_router, dependencies=protected_dependencies)
+app.include_router(discovery_router, dependencies=protected_dependencies)
 app.include_router(events_router, dependencies=protected_dependencies)
 app.include_router(guests_router, dependencies=protected_dependencies)
 app.include_router(preferences_router, dependencies=protected_dependencies)

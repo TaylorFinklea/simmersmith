@@ -148,6 +148,16 @@ struct RecipesView: View {
             } else if appState.recipeMetadata == nil {
                 await appState.refreshRecipeMetadata()
             }
+            if let prefill = appState.recipesPrefilledSearch, !prefill.isEmpty {
+                searchText = prefill
+                appState.recipesPrefilledSearch = nil
+            }
+        }
+        .onChange(of: appState.recipesPrefilledSearch) { _, newValue in
+            if let prefill = newValue, !prefill.isEmpty {
+                searchText = prefill
+                appState.recipesPrefilledSearch = nil
+            }
         }
     }
 

@@ -6,6 +6,7 @@ struct WeekView: View {
     @Environment(AIAssistantCoordinator.self) private var aiCoordinator
 
     @State private var selectedMealForAction: WeekMeal?
+    @State private var pickedSeasonalItem: InSeasonItem?
     @State private var editingMeal: WeekMeal?
     @State private var navigatingToRecipeID: String?
     @State private var showingActivity = false
@@ -64,6 +65,8 @@ struct WeekView: View {
                 VStack(spacing: SMSpacing.lg) {
                     weekPicker
 
+                    InSeasonStrip(pickedItem: $pickedSeasonalItem)
+
                     if let week = displayedWeek {
                         approveAllBar(week)
                         todayHero(week)
@@ -80,7 +83,14 @@ struct WeekView: View {
             .refreshable {
                 await appState.refreshWeek()
                 await loadAvailableWeeks()
+                await appState.forceRefreshSeasonalProduce()
             }
+        }
+        .task {
+            await appState.refreshSeasonalProduceIfStale()
+        }
+        .sheet(item: $pickedSeasonalItem) { item in
+            InSeasonDetailSheet(item: item)
         }
         .overlay(alignment: .top) {
             if isPlanningChatActive {

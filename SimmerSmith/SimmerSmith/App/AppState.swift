@@ -68,6 +68,9 @@ final class AppState {
     var serverURLDraft: String
     var authTokenDraft: String
     var aiProviderModeDraft: String = "auto"
+    /// User-typed region used for in-season produce (M12 Phase 3).
+    /// Free text — the AI infers state/country. Empty = generic US.
+    var userRegionDraft: String = ""
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
@@ -86,6 +89,12 @@ final class AppState {
     var eventSummaries: [EventSummary] = []
     var eventDetails: [String: Event] = [:]
     var checkedGroceryItemIDs: Set<String> = []
+    var seasonalProduce: [InSeasonItem] = []
+    var seasonalProduceFetchedAt: Date?
+    /// One-shot search term that other tabs can plant when they want to
+    /// hand off to the Recipes view. Consumed (cleared) by RecipesView in
+    /// onChange/onAppear so it never re-applies on a back-navigation.
+    var recipesPrefilledSearch: String?
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]
 
@@ -203,6 +212,7 @@ final class AppState {
         profile = cacheStore.loadProfile()
         if let profile {
             syncAIDrafts(from: profile)
+            syncRegionDraft(from: profile)
         }
         currentWeek = cacheStore.loadCurrentWeek()
         recipes = cacheStore.loadRecipes()
@@ -287,6 +297,7 @@ final class AppState {
 
             profile = fetchedProfile
             syncAIDrafts(from: fetchedProfile)
+            syncRegionDraft(from: fetchedProfile)
             currentWeek = fetchedWeek
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])

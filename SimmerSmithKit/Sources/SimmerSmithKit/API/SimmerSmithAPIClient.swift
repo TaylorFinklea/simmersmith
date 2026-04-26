@@ -997,6 +997,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    public func fetchSeasonalProduce() async throws -> [InSeasonItem] {
+        try await request(path: "/api/seasonal/produce")
+    }
+
     public func suggestPairings(recipeID: String) async throws -> RecipePairings {
         try await request(
             path: "/api/recipes/\(recipeID)/pairings",

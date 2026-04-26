@@ -173,6 +173,27 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                @Bindable var bindable = appState
+                TextField("Region (e.g., Kansas, USA)", text: $bindable.userRegionDraft)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                Button {
+                    Task { await appState.saveUserRegion(appState.userRegionDraft) }
+                } label: {
+                    Text("Save region")
+                }
+                .disabled(
+                    appState.userRegionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == (appState.profile?.settings["user_region"] ?? "")
+                )
+            } header: {
+                Text("Location")
+            } footer: {
+                Text("Used for the in-season produce snapshot on the Week tab. Free-form — try \"Kansas, USA\" or \"Northern California\".")
+                    .font(.footnote)
+            }
+
             Section("Nutrition") {
                 NavigationLink {
                     DietaryGoalView()
