@@ -1242,25 +1242,28 @@ struct WeekView: View {
     private func navigateToNextWeek() { navigateRelative(weeks: 1) }
 
     /// Calendar-app navigation: jump ±7 days from the displayed week and
-    /// fetch (or lazily create) the week record for that date. The pill
-    /// row only shows weeks that already exist server-side; this lets
-    /// the user step into a future week and immediately stage meals,
-    /// even on a fresh account with one week of data.
+    /// ensure-or-create the target week's server record. Server-side
+    /// `POST /api/weeks` is idempotent (`create_or_get_week`), so a
+    /// single call covers both "browse an existing week" and "stage a
+    /// future week we haven't touched yet".
+    ///
+    /// All date math uses a UTC-anchored calendar to match the server's
+    /// `week_start: date` field, which the iOS decoder lands on as
+    /// UTC-midnight. A local-timezone calendar's `startOfDay` would
+    /// shift the day boundary by the UTC offset and drift the lookup.
     private func navigateRelative(weeks: Int) {
         guard let anchor = navigationAnchor else { return }
-        let calendar = Calendar.current
-        guard let target = calendar.date(byAdding: .day, value: weeks * 7, to: anchor) else { return }
-        let normalized = calendar.startOfDay(for: target)
+        guard let target = Self.weekCalendar.date(byAdding: .day, value: weeks * 7, to: anchor) else { return }
 
         if let currentStart = appState.currentWeek?.weekStart,
-           calendar.isDate(normalized, inSameDayAs: currentStart) {
+           Self.weekCalendar.isDate(target, inSameDayAs: currentStart) {
             snapToCurrentWeek()
             return
         }
 
-        displayedWeekStart = normalized
+        displayedWeekStart = target
         browsedWeek = nil
-        Task { await ensureWeek(at: normalized) }
+        Task { await ensureWeek(at: target) }
     }
 
     /// Anchor for calendar arithmetic — the week we're currently looking
@@ -1271,33 +1274,42 @@ struct WeekView: View {
 
     private func ensureWeek(at start: Date) async {
         do {
-            if let week = try await appState.fetchWeekByStart(start) {
-                browsedWeek = week
-                return
-            }
-            let created = try await appState.createWeek(weekStart: start)
-            browsedWeek = created
+            let week = try await appState.createWeek(weekStart: start)
+            browsedWeek = week
             await loadAvailableWeeks()
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
     }
 
-    private func weekPillLabel(for date: Date) -> String {
+    /// Server stores `week_start` as a UTC date; matching here keeps
+    /// formatters and arithmetic from drifting across day boundaries.
+    private static let weekCalendar: Calendar = {
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        return cal
+    }()
+
+    private static let weekDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.calendar = weekCalendar
+        formatter.timeZone = weekCalendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func weekPillLabel(for date: Date) -> String {
+        Self.weekDateFormatter.string(from: date)
     }
 
     private func displayedWeekRangeLabel() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
         if let week = displayedWeek {
-            return "\(formatter.string(from: week.weekStart)) – \(formatter.string(from: week.weekEnd))"
+            return "\(Self.weekDateFormatter.string(from: week.weekStart)) – \(Self.weekDateFormatter.string(from: week.weekEnd))"
         }
         if let start = displayedWeekStart {
-            let end = Calendar.current.date(byAdding: .day, value: 6, to: start) ?? start
-            return "\(formatter.string(from: start)) – \(formatter.string(from: end))"
+            let end = Self.weekCalendar.date(byAdding: .day, value: 6, to: start) ?? start
+            return "\(Self.weekDateFormatter.string(from: start)) – \(Self.weekDateFormatter.string(from: end))"
         }
         return "No week yet"
     }
@@ -1305,8 +1317,7 @@ struct WeekView: View {
     private func displayedWeekRelativeLabel() -> String? {
         guard let currentStart = appState.currentWeek?.weekStart else { return nil }
         let anchor = displayedWeekStart ?? currentStart
-        let calendar = Calendar.current
-        let diffDays = calendar.dateComponents([.day], from: currentStart, to: anchor).day ?? 0
+        let diffDays = Self.weekCalendar.dateComponents([.day], from: currentStart, to: anchor).day ?? 0
         let weeks = diffDays / 7
         switch weeks {
         case 0: return "This week"
