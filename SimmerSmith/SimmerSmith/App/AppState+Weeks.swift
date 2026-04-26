@@ -7,7 +7,7 @@ extension AppState {
         syncPhase = .loading
         do {
             let fetched = try await apiClient.fetchCurrentWeek()
-            currentWeek = try await advanceCurrentWeekToTodayIfStale(fetched)
+            currentWeek = try await advanceCurrentWeekToTodayIfStaleOrNil(fetched)
             if let currentWeek {
                 try? cacheStore.saveCurrentWeek(currentWeek)
                 exports = try await apiClient.fetchWeekExports(weekID: currentWeek.weekId)
@@ -54,7 +54,7 @@ extension AppState {
     /// timezone west of UTC whose local clock is past UTC midnight
     /// (e.g. CDT evening), because that absolute instant lands on the
     /// next UTC day even though it's still "today" to the user.
-    private func advanceCurrentWeekToTodayIfStale(_ week: WeekSnapshot?) async throws -> WeekSnapshot? {
+    func advanceCurrentWeekToTodayIfStaleOrNil(_ week: WeekSnapshot?) async throws -> WeekSnapshot? {
         guard hasSavedConnection, let week else { return week }
         var utcCalendar = Calendar(identifier: .iso8601)
         utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!

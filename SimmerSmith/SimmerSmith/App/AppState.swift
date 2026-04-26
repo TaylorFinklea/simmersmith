@@ -293,7 +293,12 @@ final class AppState {
             aiCapabilities = health.aiCapabilities
 
             let fetchedProfile = try await apiClient.fetchProfile()
-            let fetchedWeek = try await apiClient.fetchCurrentWeek()
+            let serverWeek = try await apiClient.fetchCurrentWeek()
+            // Route through the same auto-advance helper used by
+            // `refreshWeek` so cold launch shows today's week even
+            // when the server's most-recently-started record is
+            // ahead of or behind today's calendar week.
+            let fetchedWeek = try await advanceCurrentWeekToTodayIfStaleOrNil(serverWeek)
 
             profile = fetchedProfile
             syncAIDrafts(from: fetchedProfile)
