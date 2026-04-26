@@ -6,7 +6,8 @@ extension AppState {
         guard hasSavedConnection else { return }
         syncPhase = .loading
         do {
-            currentWeek = try await apiClient.fetchCurrentWeek()
+            let fetched = try await apiClient.fetchCurrentWeek()
+            currentWeek = try await advanceCurrentWeekToTodayIfStale(fetched)
             if let currentWeek {
                 try? cacheStore.saveCurrentWeek(currentWeek)
                 exports = try await apiClient.fetchWeekExports(weekID: currentWeek.weekId)
@@ -35,6 +36,34 @@ extension AppState {
 
     func fetchWeeks(limit: Int = 12) async throws -> [WeekSummary] {
         try await apiClient.fetchWeeks(limit: limit)
+    }
+
+    /// Server-side `get_current_week` returns the most recently-started
+    /// week record, which goes stale if the user hasn't generated a plan
+    /// past a week boundary — they'd open the Week tab and see last
+    /// week's data labeled "this week". Calendar apps default to
+    /// "today's view" on open; we match that by lazily creating a week
+    /// for today when the server's current week ends before today.
+    /// Uses the existing record's day-of-week convention so a Monday-
+    /// start user keeps Monday-start, Sunday-start keeps Sunday-start.
+    private func advanceCurrentWeekToTodayIfStale(_ week: WeekSnapshot?) async throws -> WeekSnapshot? {
+        guard hasSavedConnection, let week else { return week }
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = Date()
+        guard let weekEndExclusive = calendar.date(byAdding: .day, value: 7, to: week.weekStart) else {
+            return week
+        }
+        if today < weekEndExclusive { return week }
+
+        var target = week.weekStart
+        for _ in 0..<260 {
+            guard let next = calendar.date(byAdding: .day, value: 7, to: target) else { break }
+            if today < next { break }
+            target = next
+        }
+        guard !calendar.isDate(target, inSameDayAs: week.weekStart) else { return week }
+        return try await apiClient.createWeek(weekStart: target, notes: "")
     }
 
     func fetchWeekByStart(_ weekStart: Date) async throws -> WeekSnapshot? {
