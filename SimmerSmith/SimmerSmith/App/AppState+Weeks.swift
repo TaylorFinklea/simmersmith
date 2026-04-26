@@ -46,23 +46,42 @@ extension AppState {
     /// for today when the server's current week ends before today.
     /// Uses the existing record's day-of-week convention so a Monday-
     /// start user keeps Monday-start, Sunday-start keeps Sunday-start.
+    ///
+    /// "Today" is the user's local calendar date, projected onto UTC
+    /// midnight for comparison with `week_start` (which the server
+    /// stores as a date-only and ships as UTC-midnight). Using
+    /// `Date()` directly here would falsely advance for any user in a
+    /// timezone west of UTC whose local clock is past UTC midnight
+    /// (e.g. CDT evening), because that absolute instant lands on the
+    /// next UTC day even though it's still "today" to the user.
     private func advanceCurrentWeekToTodayIfStale(_ week: WeekSnapshot?) async throws -> WeekSnapshot? {
         guard hasSavedConnection, let week else { return week }
-        var calendar = Calendar(identifier: .iso8601)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let today = Date()
-        guard let weekEndExclusive = calendar.date(byAdding: .day, value: 7, to: week.weekStart) else {
-            return week
-        }
-        if today < weekEndExclusive { return week }
+        var utcCalendar = Calendar(identifier: .iso8601)
+        utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let localComponents = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        guard let todayUTC = utcCalendar.date(from: localComponents) else { return week }
 
         var target = week.weekStart
-        for _ in 0..<260 {
-            guard let next = calendar.date(byAdding: .day, value: 7, to: target) else { break }
-            if today < next { break }
-            target = next
+        if let weekEndExclusive = utcCalendar.date(byAdding: .day, value: 7, to: target),
+           todayUTC >= weekEndExclusive {
+            // Server's current week ends before today — step forward.
+            for _ in 0..<260 {
+                guard let next = utcCalendar.date(byAdding: .day, value: 7, to: target) else { break }
+                if todayUTC < next { break }
+                target = next
+            }
+        } else if todayUTC < target {
+            // Server's current week starts after today — step backward.
+            // Recovers from any drift that left the user on a future
+            // week record.
+            for _ in 0..<260 {
+                guard let prev = utcCalendar.date(byAdding: .day, value: -7, to: target) else { break }
+                target = prev
+                if todayUTC >= target { break }
+            }
         }
-        guard !calendar.isDate(target, inSameDayAs: week.weekStart) else { return week }
+
+        guard !utcCalendar.isDate(target, inSameDayAs: week.weekStart) else { return week }
         return try await apiClient.createWeek(weekStart: target, notes: "")
     }
 
