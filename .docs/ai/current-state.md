@@ -8,122 +8,137 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-25
+**Date**: 2026-04-25 (continued)
 
-Shipped **M11 Photo-First AI** Phases 2–5 on dev. Phase 1 (recipe
-scan via VisionKit) was discovered to already be live. The build is
-queued at `CURRENT_PROJECT_VERSION 15` but **NOT yet deployed to Fly
-or uploaded to TestFlight** — those are the next user-driven actions.
+Shipped **M12 Quick AI Wins** in four phases on dev. Build is queued
+at `CURRENT_PROJECT_VERSION 16` but **NOT yet deployed to Fly or
+uploaded to TestFlight** — those are the next user-driven actions.
 
-Origin: a product audit comparing Taylor's wife's original product
-notes against the live app surfaced photo / multimodal AI as the
-biggest gap (mentioned 3× in her notes, entirely absent from the
-app). The user confirmed all four photo flows + Quick AI Wins as
-the next two milestones; cooking-mode + Memories slotted as later.
+M11 (Photo-First AI) shipped earlier this session and was deployed
+to Fly + TestFlight build 15. M12 builds on top with four
+lightweight features.
 
-### What landed this session (M11)
+### What landed this session (M12)
 
-**Phase 1 — Recipe scan (already shipped)**
-Discovered `RecipeImportView` already wires `VNDocumentCameraViewController`
-+ `VNRecognizeTextRequest` + `pendingTextReview` end-to-end. The
-backend `import-from-text` route accepts the OCR'd output. No work
-needed — the audit just missed it.
+**Phase 1 — Pairings on recipe detail (commit `52dfcd8`)**
+- `app/services/pairing_ai.py`: strict-JSON `suggest_pairings(recipe)`
+  returning 3 dishes with `role: side|appetizer|dessert|drink` and
+  one-sentence reasons.
+- `POST /api/recipes/{id}/pairings` route + 3 tests.
+- iOS `RecipePairingsCard` lives just above Notes in recipe detail.
+  Collapsed by default — single "Suggest pairings" button so we
+  don't burn an AI call on every detail open.
 
-**Phase 2 — Vision provider foundation (commit `ce0b7f8`)**
-- `app/services/vision_ai.py`: strict-JSON `identify_ingredient` +
-  `check_cooking_progress` with image content blocks for OpenAI
-  (`image_url` data URL) and Anthropic (`image` source). HEIC →
-  JPEG fallback for OpenAI compatibility.
-- `tests/test_vision_ai.py`: 7 tests covering happy path, oversize
-  rejection, MIME validation, bad-JSON failure, HEIC fallback,
-  Anthropic routing.
+**Phase 2 — Difficulty + kid-friendly (commit `b15a1d6`)**
+- Alembic migration `20260425_0021_recipe_difficulty.py` adds
+  `difficulty_score INT NULL CHECK (BETWEEN 1 AND 5)` +
+  `kid_friendly BOOL DEFAULT false` to `recipes`.
+- `app/services/recipe_difficulty_ai.py` infers both on first save
+  via OpenAI/Anthropic. Wrapped in try/except — never blocks save.
+- 4 tests confirm inference fires, skips when score already set,
+  skips when no ingredients, and a provider error doesn't 500.
+- iOS: `DifficultyFilter` enum + `difficultyFilterPills` strip in
+  RecipesView (Any / Easy / Medium / Hard / Kid-friendly), plus
+  Easy/Medium/Hard + Kid-friendly pills in the recipe detail header.
 
-**Phase 3 — Scan ingredient → identify (commit `0ba9caa`)**
-- `app/api/vision.py` + `app/schemas/vision.py`: `POST
-  /api/vision/identify-ingredient` w/ `IngredientIdentificationOut`
-  (name, confidence, common_names, cuisine_uses, recipe_match_terms).
-- iOS: `IngredientScannerView` (PhotosPicker → result card with
-  cuisine uses + Find Recipes action) wired into Recipes view's
-  plus menu. New SimmerSmithKit models: `CuisineUse`,
-  `IngredientIdentification`, `CookCheckResult`.
-- 4 route integration tests.
+**Phase 3 — User region + in-season produce (commit `fccdaa6`)**
+- `app/services/seasonal_ai.py`: strict-JSON `seasonal_produce`
+  returning 5–8 produce items with `why_now` + `peak_score`.
+  Module-level dict cache keyed by `(region, year, month)`,
+  thread-safe via `threading.Lock`.
+- `GET /api/seasonal/produce` (in new `app/api/discovery.py` router)
+  reads `user_region` from ProfileSetting — fallback "United States".
+- iOS: `InSeasonStrip` horizontal chip strip above Week day cards.
+  Tap a chip → `InSeasonDetailSheet` with "why now" + Find recipes
+  hand-off (uses new `recipesPrefilledSearch` AppState shuttle).
+- Settings gains a new "Location" section with a free-text region
+  field + Save button.
+- 4 tests cover route happy path, cache hits, region fallback.
 
-**Phase 4 — Barcode scan → product (commit `9f7f858`)**
-- `app/services/kroger.py::search_product_by_upc` (passes UPC as
-  `filter.term` + filters returned products to exact-UPC matches).
-- `app/api/products.py`: `POST /api/products/lookup-upc` w/
-  `ProductLookupRequest/Response`.
-- iOS: `BarcodeScannerView` wraps `DataScannerViewController(
-  recognizedDataTypes: [.barcode()])`; `BarcodeLookupSheet` shows
-  brand + price + in-stock. Toolbar entry in `GroceryView` (only
-  when a Kroger store is configured).
-- `Info.plist` gains `NSCameraUsageDescription`.
-- 4 route tests.
+**Phase 4 — AI recipe web search (commit `db0c9f4`)**
+- `app/services/recipe_search_ai.py` calls **OpenAI Responses API**
+  with the `web_search` tool. The `_AIRecipe` strict-JSON shape maps
+  to a `RecipePayload`; `source_url` + `source_label` from the cited
+  page propagate to the recipe.
+- `POST /api/recipes/ai/web-search` route + 4 tests.
+- iOS `RecipeWebSearchSheet`: query input → preview card with source
+  URL + ingredient count → "Open in editor" → opens
+  `RecipeEditorView` with the draft. Nothing persists until the user
+  saves — same flow URL/photo imports use.
+- Anthropic web search is a future follow-up — feature gates on
+  OpenAI for now and 502s if only Anthropic is configured.
 
-**Phase 5 — Cook check (commit `eadca4d`)**
-- `app/api/recipes.py::recipe_cook_check_route`: `POST
-  /api/recipes/{id}/cook-check`. Looks up the recipe + step text
-  server-side and calls `check_cooking_progress`.
-- iOS: per-step "Check it" camera chip on each step in
-  `RecipeDetailView` opens `CookCheckSheet` → photo → inline verdict
-  (on_track / needs_more_time / concerning) + tip + suggested mins
-  remaining.
-- 2 route tests.
-
-**TestFlight prep**
-- `SimmerSmith/project.yml` `CURRENT_PROJECT_VERSION` 14 → 15.
-- `xcodegen generate` re-run — project is ready to archive.
-- Backend deploy + archive/upload are pending user confirmation.
+**TestFlight prep (commit `?` pending)**
+- `SimmerSmith/project.yml` `CURRENT_PROJECT_VERSION` 15 → 16.
+- `xcodegen generate` re-run.
+- Backend deploy + archive/upload pending user confirmation.
 
 ### Production state
 
-- **URL**: https://simmersmith.fly.dev (healthy; current = M10.1.
-  M11 backend NOT yet deployed.)
-- **Model**: `gpt-5.4-mini` (vision-capable; should work for
-  identify-ingredient + cook-check without changes)
-- **TestFlight**: build 14 (pre-M11)
+- **URL**: https://simmersmith.fly.dev (healthy; current = M11.
+  M12 backend NOT yet deployed.)
+- **Model**: `gpt-5.4-mini` for general AI. Web-search route uses
+  whatever OpenAI model is configured (Responses API supports
+  gpt-4o, gpt-4o-mini, etc.).
+- **TestFlight**: build 15 (M11). Build 16 archived locally, pending
+  user-confirmed upload.
 
 ### Build status
 
-- Backend: ruff clean (vision module + tests), pytest 165/165 pass
+- Backend: ruff clean, pytest 180/180 pass
 - Swift tests: 26/26 pass
 - iOS build: green on `generic/platform=iOS Simulator`
-- Fly production: healthy; STALE wrt M11 backend
-- TestFlight: STALE wrt M11
+- Fly production: healthy; STALE wrt M12 backend
+- TestFlight: STALE wrt M12
 
 ## Files Changed (this session)
 
 Backend (new):
-- `app/services/vision_ai.py`
-- `app/api/vision.py`
-- `app/api/products.py`
-- `app/schemas/vision.py`
-- `tests/test_vision_ai.py`
-- `tests/test_vision_api.py`
-- `tests/test_products_api.py`
+- `app/services/pairing_ai.py`
+- `app/services/recipe_difficulty_ai.py`
+- `app/services/seasonal_ai.py`
+- `app/services/recipe_search_ai.py`
+- `app/api/discovery.py`
+- `alembic/versions/20260425_0021_recipe_difficulty.py`
+- `tests/test_pairings_api.py`
+- `tests/test_recipe_difficulty.py`
+- `tests/test_seasonal_api.py`
+- `tests/test_recipe_search_api.py`
 
 Backend (extended):
-- `app/api/recipes.py` (cook-check route)
-- `app/main.py` (router registration)
-- `app/schemas/__init__.py` (vision exports)
-- `app/services/kroger.py` (UPC lookup)
+- `app/api/recipes.py` (pairings + cook-check routes; opportunistic
+  difficulty inference; module logger)
+- `app/main.py` (registers discovery_router)
+- `app/models/recipe.py` (difficulty_score + kid_friendly columns)
+- `app/schemas/recipe.py` (PairingOptionOut, RecipePairingsResponse;
+  RecipePayload gains the two new fields)
+- `app/schemas/__init__.py` (exports)
+- `app/services/drafts.py` (upsert persists the new fields)
+- `app/services/presenters.py` (recipe_payload exposes them)
 
 iOS (new):
-- `SimmerSmith/SimmerSmith/App/AppState+Vision.swift`
-- `SimmerSmith/SimmerSmith/Features/Vision/IngredientScannerView.swift`
-- `SimmerSmith/SimmerSmith/Features/Vision/BarcodeScannerView.swift`
-- `SimmerSmith/SimmerSmith/Features/Vision/CookCheckView.swift`
+- `SimmerSmith/SimmerSmith/App/AppState+Seasonal.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipePairingsCard.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeWebSearchSheet.swift`
+- `SimmerSmith/SimmerSmith/Features/Week/InSeasonStrip.swift`
 
 iOS (extended):
 - `SimmerSmithKit/Sources/SimmerSmithKit/Models/SimmerSmithModels.swift`
+  (PairingOption, RecipePairings, InSeasonItem; RecipeSummary +
+  RecipeDraft gain difficultyScore + kidFriendly)
 - `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift`
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
-- `SimmerSmith/SimmerSmith/Features/Grocery/GroceryView.swift`
+- `SimmerSmith/SimmerSmith/App/AppState.swift`
+  (seasonalProduce + seasonalProduceFetchedAt + recipesPrefilledSearch
+  + userRegionDraft state; sync hooks)
+- `SimmerSmith/SimmerSmith/App/AppState+Recipes.swift` (suggestRecipePairings, searchRecipeOnWeb)
 - `SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift`
+- `SimmerSmith/SimmerSmith/Features/Recipes/RecipesView.swift`
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift`
+- `SimmerSmith/SimmerSmith/Features/Week/WeekView.swift`
 - `SimmerSmith/SimmerSmith/Info.plist`
-- `SimmerSmith/project.yml` (build 15 bump)
+- `SimmerSmith/project.yml` (build 16 bump)
 
 Docs:
-- `.docs/ai/roadmap.md` — M11 marked complete, M12 stub
+- `.docs/ai/roadmap.md` — M12 marked complete
 - `.docs/ai/current-state.md` — this file
-- `.docs/ai/next-steps.md` — refreshed with deploy + TestFlight cut
+- `.docs/ai/next-steps.md` — refreshed for deploy + TestFlight cut

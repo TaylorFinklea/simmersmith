@@ -236,15 +236,26 @@ all four flows in a single milestone, and lays the foundation
       chip in RecipeDetailView opens `CookCheckSheet` → vision call →
       verdict + tip inline.
 
-## M12: Quick AI Wins (planned)
+## M12: Quick AI Wins (complete on dev; awaiting deploy + TestFlight 16)
 
-Lightweight follow-on to M11. Each item is a single AI call.
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
 
-- [ ] Pairings on recipe detail ("things that go well with this")
-- [ ] In-season produce snapshot on the Week tab (location + month)
-- [ ] AI recipe web search ("find me the best whole wheat waffle recipe")
-- [ ] Beginner / kid-friendly recipe paths (curated + difficulty
-      scoring)
+Lightweight follow-on to M11. Each phase ships independently.
+
+- [x] Phase 1 — Pairings on recipe detail. `pairing_ai.py` + iOS
+      `RecipePairingsCard` (collapsed by default, lazy-loaded on tap).
+- [x] Phase 2 — Difficulty + kid-friendly. Alembic migration adds
+      `difficulty_score: int? CHECK 1..5` + `kid_friendly: bool`.
+      Opportunistic AI inference on save (best-effort). iOS gets
+      filter chips and detail-header pills.
+- [x] Phase 3 — User region + in-season produce. `seasonal_ai.py`
+      with module-level dict cache keyed by `(region, year, month)`.
+      iOS adds `InSeasonStrip` above Week day cards + a Settings
+      free-text region field.
+- [x] Phase 4 — AI recipe web search. OpenAI Responses API +
+      `web_search` tool extracts a real recipe with citation. iOS
+      `RecipeWebSearchSheet` previews and hands off to the existing
+      recipe editor.
 
 ## Backlog
 
