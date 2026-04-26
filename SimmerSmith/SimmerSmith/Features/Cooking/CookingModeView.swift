@@ -18,6 +18,8 @@ struct CookingModeView: View {
     @State private var cookCheckContext: CookCheckSheetContext?
     @State private var errorMessage: String?
     @State private var spokenService = SpokenStepService.shared
+    @State private var voiceService = VoiceCommandService.shared
+    @State private var isVoiceStopAlertPresented = false
 
     var body: some View {
         let recipe = appState.recipes.first { $0.recipeId == recipeID }
@@ -43,9 +45,21 @@ struct CookingModeView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             spokenService.stop()
+            voiceService.stop()
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
+        }
+        .task {
+            for await command in voiceService.commands {
+                handleVoiceCommand(command, steps: steps)
+            }
+        }
+        .alert("Stop cooking?", isPresented: $isVoiceStopAlertPresented) {
+            Button("Stay", role: .cancel) {}
+            Button("Stop", role: .destructive) { dismiss() }
+        } message: {
+            Text("Heard \"stop\". Exit cooking mode?")
         }
     }
 
@@ -77,6 +91,15 @@ struct CookingModeView: View {
                     .foregroundStyle(SMColor.textPrimary)
             }
             Spacer()
+            Button {
+                Task { await toggleVoiceCommands() }
+            } label: {
+                Image(systemName: voiceService.isListening ? "mic.fill" : "mic.slash.fill")
+                    .font(.title2)
+                    .foregroundStyle(voiceService.isListening ? SMColor.success : SMColor.textTertiary)
+            }
+            .accessibilityLabel(voiceService.isListening ? "Stop voice commands" : "Start voice commands")
+
             Button {
                 spokenService.isMuted.toggle()
             } label: {
@@ -143,6 +166,17 @@ struct CookingModeView: View {
                         }
                     }
                     .padding(.top, SMSpacing.sm)
+                }
+
+                if voiceService.isListening, let heard = voiceService.lastHeard, !heard.isEmpty {
+                    Label(heard, systemImage: "waveform")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
+                        .lineLimit(2)
+                        .padding(.horizontal, SMSpacing.md)
+                        .padding(.vertical, SMSpacing.sm)
+                        .background(SMColor.surfaceCard)
+                        .clipShape(Capsule())
                 }
 
                 if let errorMessage {
@@ -270,5 +304,36 @@ struct CookingModeView: View {
         guard !steps.isEmpty else { return }
         let step = steps[min(stepIndex, steps.count - 1)]
         spokenService.speak(step.instruction)
+    }
+
+    private func toggleVoiceCommands() async {
+        if voiceService.isListening {
+            voiceService.stop()
+            return
+        }
+        let granted = await voiceService.requestAuthorization()
+        guard granted else {
+            errorMessage = "Voice commands need microphone and speech-recognition permission. You can enable them in Settings."
+            return
+        }
+        do {
+            try voiceService.start()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleVoiceCommand(_ command: VoiceCommand, steps: [RecipeStep]) {
+        switch command {
+        case .next:
+            advance(total: steps.count)
+        case .previous:
+            retreat()
+        case .repeat:
+            speakCurrentStep(steps: steps)
+        case .stop:
+            isVoiceStopAlertPresented = true
+        }
     }
 }

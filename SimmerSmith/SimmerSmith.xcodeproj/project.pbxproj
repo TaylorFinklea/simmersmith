@@ -25,6 +25,7 @@
 		2DA9EBFE63A7FC470500DAE7 /* AIAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66465170F1619913CD28CBBB /* AIAssistantSheetView.swift */; };
 		2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */; };
 		3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */; };
+		30DBAAAB74B4D75C4D147B1E /* VoiceCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52086E84A5714DECD4E1229F /* VoiceCommandService.swift */; };
 		364F923A2908430AB4FB39D5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF982BE7185D4506E4BAC7C6 /* RootView.swift */; };
 		3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */; };
 		3B27C1AB3BF4F270416007B8 /* SimmerSmithUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */; };
@@ -147,6 +148,7 @@
 		4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrappingHStack.swift; sourceTree = "<group>"; };
 		5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstitutionSheetView.swift; sourceTree = "<group>"; };
 		50B987531CD5D3613D68015F /* EventMealEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMealEditorSheet.swift; sourceTree = "<group>"; };
+		52086E84A5714DECD4E1229F /* VoiceCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandService.swift; sourceTree = "<group>"; };
 		577414F6ADB8299D9172472F /* SimmerSmith.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimmerSmith.entitlements; sourceTree = "<group>"; };
 		5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingInterviewView.swift; sourceTree = "<group>"; };
 		5CBD6C6A76089A9D8F674887 /* GuestEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestEditorSheet.swift; sourceTree = "<group>"; };
@@ -381,6 +383,7 @@
 			children = (
 				01056E5288DEF5FEC88D885F /* NotificationManager.swift */,
 				73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */,
+				52086E84A5714DECD4E1229F /* VoiceCommandService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -757,6 +760,7 @@
 				F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */,
 				BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */,
 				0D17009AD5B6DBF392246D57 /* TodayMealCard.swift in Sources */,
+				30DBAAAB74B4D75C4D147B1E /* VoiceCommandService.swift in Sources */,
 				0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */,
 				C7B1ED4CA5FD1D8EE5EC238F /* WrappingHStack.swift in Sources */,
 			);
