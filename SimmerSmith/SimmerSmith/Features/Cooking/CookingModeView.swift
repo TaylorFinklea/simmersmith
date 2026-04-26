@@ -17,6 +17,7 @@ struct CookingModeView: View {
     @State private var stepIndex = 0
     @State private var cookCheckContext: CookCheckSheetContext?
     @State private var errorMessage: String?
+    @State private var spokenService = SpokenStepService.shared
 
     var body: some View {
         let recipe = appState.recipes.first { $0.recipeId == recipeID }
@@ -33,9 +34,15 @@ struct CookingModeView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            spokenService.activatePlaybackSession()
+            speakCurrentStep(steps: steps)
+        }
+        .onChange(of: stepIndex) { _, _ in
+            speakCurrentStep(steps: steps)
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            spokenService.stop()
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
@@ -70,6 +77,15 @@ struct CookingModeView: View {
                     .foregroundStyle(SMColor.textPrimary)
             }
             Spacer()
+            Button {
+                spokenService.isMuted.toggle()
+            } label: {
+                Image(systemName: spokenService.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.title2)
+                    .foregroundStyle(spokenService.isMuted ? SMColor.textTertiary : SMColor.primary)
+            }
+            .accessibilityLabel(spokenService.isMuted ? "Unmute step readout" : "Mute step readout")
+
             Button {
                 dismiss()
             } label: {
@@ -248,5 +264,11 @@ struct CookingModeView: View {
 
     private func orderedSteps(for recipe: RecipeSummary?) -> [RecipeStep] {
         recipe?.steps.sorted(by: { $0.sortOrder < $1.sortOrder }) ?? []
+    }
+
+    private func speakCurrentStep(steps: [RecipeStep]) {
+        guard !steps.isEmpty else { return }
+        let step = steps[min(stepIndex, steps.count - 1)]
+        spokenService.speak(step.instruction)
     }
 }

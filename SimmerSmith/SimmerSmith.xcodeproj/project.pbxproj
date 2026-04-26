@@ -95,6 +95,7 @@
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
 		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
 		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
+		FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
 		FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
@@ -164,6 +165,7 @@
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
 		726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSelectionView.swift; sourceTree = "<group>"; };
 		7387FA57FB78ACD7148F204D /* AppState+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Events.swift"; sourceTree = "<group>"; };
+		73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenStepService.swift; sourceTree = "<group>"; };
 		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
 		75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealQuickAddSheet.swift; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -378,6 +380,7 @@
 			isa = PBXGroup;
 			children = (
 				01056E5288DEF5FEC88D885F /* NotificationManager.swift */,
+				73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -747,6 +750,7 @@
 				6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */,
 				D6D665599BB2121248AC3271 /* SignInView.swift in Sources */,
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
+				FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */,
 				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
 				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
 				FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */,
