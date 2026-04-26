@@ -15,6 +15,7 @@ struct RecipesView: View {
     @State private var showingAISuggestionSheet = false
     @State private var showGalleryView = false
     @State private var showingIngredientScanner = false
+    @State private var showingWebRecipeSearch = false
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
@@ -101,6 +102,11 @@ struct RecipesView: View {
                     }
                     Divider()
                     Button {
+                        showingWebRecipeSearch = true
+                    } label: {
+                        Label("Find recipe online", systemImage: "magnifyingglass.circle")
+                    }
+                    Button {
                         showingIngredientScanner = true
                     } label: {
                         Label("Identify ingredient", systemImage: "viewfinder.circle")
@@ -126,6 +132,14 @@ struct RecipesView: View {
             IngredientScannerView { searchTerm in
                 searchText = searchTerm
                 isSearchFocused = false
+            }
+        }
+        .sheet(isPresented: $showingWebRecipeSearch) {
+            RecipeWebSearchSheet { draft in
+                editorContext = RecipeEditorSheetContext(
+                    title: "Imported from web",
+                    draft: draft
+                )
             }
         }
         .alert("AI Suggestion Failed", isPresented: Binding(

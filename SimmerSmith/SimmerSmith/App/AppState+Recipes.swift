@@ -86,6 +86,13 @@ extension AppState {
         return response.suggestions
     }
 
+    /// AI recipe web search (M12 Phase 4). Returns a draft for the user
+    /// to review in the editor before saving — same flow URL/photo
+    /// imports take.
+    func searchRecipeOnWeb(query: String) async throws -> RecipeDraft {
+        try await apiClient.searchRecipeOnWeb(query: query)
+    }
+
     func generateRecipeSuggestionDraft(goal: String) async throws -> RecipeAIDraft {
         try await apiClient.generateRecipeSuggestionDraft(goal: goal)
     }

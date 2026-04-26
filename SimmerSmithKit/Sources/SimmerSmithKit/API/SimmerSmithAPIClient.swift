@@ -816,6 +816,17 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/recipes/import-from-url", method: "POST", body: RecipeImportBody(url: url))
     }
 
+    public func searchRecipeOnWeb(query: String) async throws -> RecipeDraft {
+        struct Body: Encodable {
+            let query: String
+        }
+        return try await request(
+            path: "/api/recipes/ai/web-search",
+            method: "POST",
+            body: Body(query: query)
+        )
+    }
+
     public func importRecipe(
         fromText text: String,
         title: String = "",
