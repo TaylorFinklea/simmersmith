@@ -313,91 +313,108 @@ struct WeekView: View {
 
     @ViewBuilder
     private var weekPicker: some View {
-        if !availableWeeks.isEmpty {
-            VStack(spacing: SMSpacing.sm) {
-                HStack(spacing: SMSpacing.sm) {
-                    Button {
-                        navigateToPreviousWeek()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(SMFont.subheadline)
-                            .foregroundStyle(SMColor.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .background(SMColor.surfaceElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
+        VStack(spacing: SMSpacing.sm) {
+            HStack(spacing: SMSpacing.sm) {
+                Button {
+                    navigateToPreviousWeek()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                        .frame(width: 32, height: 32)
+                        .background(SMColor.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(navigationAnchor == nil)
+                .accessibilityLabel("Previous week")
 
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: SMSpacing.sm) {
-                                ForEach(availableWeeks) { week in
-                                    let isSelected = isWeekSelected(week)
-                                    Button {
-                                        selectWeek(week)
-                                    } label: {
-                                        Text(weekPillLabel(for: week.weekStart))
-                                            .font(SMFont.label)
-                                            .foregroundStyle(isSelected ? SMColor.surface : SMColor.textSecondary)
-                                            .padding(.horizontal, SMSpacing.md)
-                                            .padding(.vertical, SMSpacing.sm)
-                                            .background(isSelected ? SMColor.primary : SMColor.surfaceElevated)
-                                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .id(week.weekId)
+                VStack(spacing: 2) {
+                    Text(displayedWeekRangeLabel())
+                        .font(SMFont.subheadline.weight(.semibold))
+                        .foregroundStyle(SMColor.textPrimary)
+                    if let relative = displayedWeekRelativeLabel() {
+                        Text(relative)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, SMSpacing.xs)
+
+                Button {
+                    navigateToNextWeek()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                        .frame(width: 32, height: 32)
+                        .background(SMColor.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(navigationAnchor == nil)
+                .accessibilityLabel("Next week")
+            }
+
+            if !availableWeeks.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: SMSpacing.sm) {
+                            ForEach(availableWeeks) { week in
+                                let isSelected = isWeekSelected(week)
+                                Button {
+                                    selectWeek(week)
+                                } label: {
+                                    Text(weekPillLabel(for: week.weekStart))
+                                        .font(SMFont.label)
+                                        .foregroundStyle(isSelected ? SMColor.surface : SMColor.textSecondary)
+                                        .padding(.horizontal, SMSpacing.md)
+                                        .padding(.vertical, SMSpacing.sm)
+                                        .background(isSelected ? SMColor.primary : SMColor.surfaceElevated)
+                                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
                                 }
-                            }
-                            .padding(.horizontal, SMSpacing.xs)
-                        }
-                        .onChange(of: displayedWeekStart) {
-                            if let selectedID = selectedWeekID {
-                                withAnimation {
-                                    proxy.scrollTo(selectedID, anchor: .center)
-                                }
+                                .buttonStyle(.plain)
+                                .id(week.weekId)
                             }
                         }
-                        .onAppear {
-                            if let selectedID = selectedWeekID {
+                        .padding(.horizontal, SMSpacing.xs)
+                    }
+                    .onChange(of: displayedWeekStart) {
+                        if let selectedID = selectedWeekID {
+                            withAnimation {
                                 proxy.scrollTo(selectedID, anchor: .center)
                             }
                         }
                     }
-
-                    Button {
-                        navigateToNextWeek()
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(SMFont.subheadline)
-                            .foregroundStyle(SMColor.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .background(SMColor.surfaceElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !isViewingCurrentWeek {
-                    Button {
-                        snapToCurrentWeek()
-                    } label: {
-                        HStack(spacing: SMSpacing.xs) {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.caption2)
-                            Text("This Week")
-                                .font(SMFont.label)
+                    .onAppear {
+                        if let selectedID = selectedWeekID {
+                            proxy.scrollTo(selectedID, anchor: .center)
                         }
-                        .foregroundStyle(SMColor.primary)
-                        .padding(.horizontal, SMSpacing.md)
-                        .padding(.vertical, SMSpacing.xs)
-                        .background(SMColor.primary.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            .padding(.top, SMSpacing.sm)
+
+            if !isViewingCurrentWeek {
+                Button {
+                    snapToCurrentWeek()
+                } label: {
+                    HStack(spacing: SMSpacing.xs) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.caption2)
+                        Text("This Week")
+                            .font(SMFont.label)
+                    }
+                    .foregroundStyle(SMColor.primary)
+                    .padding(.horizontal, SMSpacing.md)
+                    .padding(.vertical, SMSpacing.xs)
+                    .background(SMColor.primary.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(.top, SMSpacing.sm)
     }
 
     // MARK: - Day helpers (see `DayKey` for the shared implementation)
@@ -1220,35 +1237,85 @@ struct WeekView: View {
         browsedWeek = nil
     }
 
-    private func navigateToPreviousWeek() {
-        let sortedWeeks = availableWeeks.sorted { $0.weekStart < $1.weekStart }
-        guard !sortedWeeks.isEmpty else { return }
+    private func navigateToPreviousWeek() { navigateRelative(weeks: -1) }
 
-        if let currentIdx = currentSelectedIndex(in: sortedWeeks), currentIdx > 0 {
-            selectWeek(sortedWeeks[currentIdx - 1])
+    private func navigateToNextWeek() { navigateRelative(weeks: 1) }
+
+    /// Calendar-app navigation: jump ±7 days from the displayed week and
+    /// fetch (or lazily create) the week record for that date. The pill
+    /// row only shows weeks that already exist server-side; this lets
+    /// the user step into a future week and immediately stage meals,
+    /// even on a fresh account with one week of data.
+    private func navigateRelative(weeks: Int) {
+        guard let anchor = navigationAnchor else { return }
+        let calendar = Calendar.current
+        guard let target = calendar.date(byAdding: .day, value: weeks * 7, to: anchor) else { return }
+        let normalized = calendar.startOfDay(for: target)
+
+        if let currentStart = appState.currentWeek?.weekStart,
+           calendar.isDate(normalized, inSameDayAs: currentStart) {
+            snapToCurrentWeek()
+            return
         }
+
+        displayedWeekStart = normalized
+        browsedWeek = nil
+        Task { await ensureWeek(at: normalized) }
     }
 
-    private func navigateToNextWeek() {
-        let sortedWeeks = availableWeeks.sorted { $0.weekStart < $1.weekStart }
-        guard !sortedWeeks.isEmpty else { return }
-
-        if let currentIdx = currentSelectedIndex(in: sortedWeeks), currentIdx < sortedWeeks.count - 1 {
-            selectWeek(sortedWeeks[currentIdx + 1])
-        }
+    /// Anchor for calendar arithmetic — the week we're currently looking
+    /// at, falling back to the user's "current" server-side week.
+    private var navigationAnchor: Date? {
+        displayedWeekStart ?? appState.currentWeek?.weekStart
     }
 
-    private func currentSelectedIndex(in sortedWeeks: [WeekSummary]) -> Int? {
-        if let start = displayedWeekStart {
-            return sortedWeeks.firstIndex { Calendar.current.isDate($0.weekStart, inSameDayAs: start) }
+    private func ensureWeek(at start: Date) async {
+        do {
+            if let week = try await appState.fetchWeekByStart(start) {
+                browsedWeek = week
+                return
+            }
+            let created = try await appState.createWeek(weekStart: start)
+            browsedWeek = created
+            await loadAvailableWeeks()
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
         }
-        return sortedWeeks.firstIndex { isCurrentWeek($0) }
     }
 
     private func weekPillLabel(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         return formatter.string(from: date)
+    }
+
+    private func displayedWeekRangeLabel() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        if let week = displayedWeek {
+            return "\(formatter.string(from: week.weekStart)) – \(formatter.string(from: week.weekEnd))"
+        }
+        if let start = displayedWeekStart {
+            let end = Calendar.current.date(byAdding: .day, value: 6, to: start) ?? start
+            return "\(formatter.string(from: start)) – \(formatter.string(from: end))"
+        }
+        return "No week yet"
+    }
+
+    private func displayedWeekRelativeLabel() -> String? {
+        guard let currentStart = appState.currentWeek?.weekStart else { return nil }
+        let anchor = displayedWeekStart ?? currentStart
+        let calendar = Calendar.current
+        let diffDays = calendar.dateComponents([.day], from: currentStart, to: anchor).day ?? 0
+        let weeks = diffDays / 7
+        switch weeks {
+        case 0: return "This week"
+        case 1: return "Next week"
+        case -1: return "Last week"
+        case 2...: return "In \(weeks) weeks"
+        case ...(-2): return "\(-weeks) weeks ago"
+        default: return nil
+        }
     }
 
     // MARK: - Helpers
