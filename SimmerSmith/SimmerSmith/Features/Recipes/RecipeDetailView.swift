@@ -24,6 +24,7 @@ struct RecipeDetailView: View {
     @State private var isGeneratingVariation = false
     @State private var isGeneratingCompanions = false
     @State private var showingSteps: Bool = false
+    @State private var isCookingModePresented: Bool = false
 
     var body: some View {
         Group {
@@ -91,6 +92,15 @@ struct RecipeDetailView: View {
                             Image(systemName: recipe.favorite ? "heart.fill" : "heart")
                                 .foregroundStyle(recipe.favorite ? SMColor.favoritePink : SMColor.textSecondary)
                         }
+
+                        Button {
+                            isCookingModePresented = true
+                        } label: {
+                            Image(systemName: "frying.pan")
+                                .foregroundStyle(SMColor.primary)
+                        }
+                        .accessibilityLabel("Start cooking mode")
+                        .disabled(recipe.steps.isEmpty)
 
                         Menu {
                             Button {
@@ -214,6 +224,9 @@ struct RecipeDetailView: View {
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
+        }
+        .fullScreenCover(isPresented: $isCookingModePresented) {
+            CookingModeView(recipeID: recipeID)
         }
         .confirmationDialog(
             "Delete this recipe?",
@@ -763,6 +776,20 @@ struct RecipeDetailView: View {
                     }
                 }
             }
+
+            Button {
+                isCookingModePresented = true
+            } label: {
+                Label("Start cooking", systemImage: "frying.pan")
+                    .font(SMFont.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, SMSpacing.lg)
+                    .background(SMColor.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, SMSpacing.sm)
         }
     }
 

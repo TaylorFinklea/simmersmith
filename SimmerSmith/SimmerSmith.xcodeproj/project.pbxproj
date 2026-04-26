@@ -59,6 +59,7 @@
 		822CEF7F346BD614AEB07A6F /* RecipeListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AE2B7D371803789AF07846 /* RecipeListRow.swift */; };
 		84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */; };
 		88F239CDAD71F97C9D630E3D /* RecipeWebSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E83DD73B6FB0A71D95C5302 /* RecipeWebSearchSheet.swift */; };
+		8C5A3E64B3886FD23E783B87 /* CookingModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */; };
 		8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */; };
 		8EEF1CCB637311D888CF62B3 /* GuestEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBD6C6A76089A9D8F674887 /* GuestEditorSheet.swift */; };
 		923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E77574E1813D8C368CBAFF27 /* AssistantView.swift */; };
@@ -193,6 +194,7 @@
 		BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorStepsEditor.swift; sourceTree = "<group>"; };
 		C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeNutritionMatchView.swift; sourceTree = "<group>"; };
 		C97F2A8FAD850D02995516AE /* GroceryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryView.swift; sourceTree = "<group>"; };
+		D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookingModeView.swift; sourceTree = "<group>"; };
 		D518A1171D63ABFD56E8F391 /* AIAssistantCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantCoordinator.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSetupView.swift; sourceTree = "<group>"; };
@@ -239,6 +241,7 @@
 				EF70B408F3FB8C89C77B6CEA /* Activity */,
 				F1CCFAEFFA22DA98E78462EB /* AIAssistant */,
 				74A8AF778162C4E19A484E4E /* Assistant */,
+				44865708CCD5DC268F5AC6FA /* Cooking */,
 				1EA0CBEF0F1B5F21DDF8D7DF /* Events */,
 				C7B4A917F0710310FDFAE525 /* Grocery */,
 				3A248CC4192B34E04AB0DA95 /* Ingredients */,
@@ -324,6 +327,14 @@
 				6ECB22E673210C0A5DD08ADF /* DayKey.swift */,
 			);
 			path = Utilities;
+			sourceTree = "<group>";
+		};
+		44865708CCD5DC268F5AC6FA /* Cooking */ = {
+			isa = PBXGroup;
+			children = (
+				D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */,
+			);
+			path = Cooking;
 			sourceTree = "<group>";
 		};
 		4B4A178409352DE229F50741 /* App */ = {
@@ -686,6 +697,7 @@
 				B8EB31CE2056E70EA6A9EAF3 /* CompactRecipeCard.swift in Sources */,
 				40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */,
 				522B9BEAE951752A879A8851 /* CookCheckView.swift in Sources */,
+				8C5A3E64B3886FD23E783B87 /* CookingModeView.swift in Sources */,
 				43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */,
 				2CCF1384167B1CB2D5AF3A82 /* DayCard.swift in Sources */,
 				0DA9EFF5EBDAE3B665FB010B /* DayKey.swift in Sources */,
