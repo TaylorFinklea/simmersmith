@@ -236,7 +236,7 @@ all four flows in a single milestone, and lays the foundation
       chip in RecipeDetailView opens `CookCheckSheet` → vision call →
       verdict + tip inline.
 
-## M12: Quick AI Wins (complete on dev; awaiting deploy + TestFlight 16)
+## M12: Quick AI Wins (complete; shipped to Fly + TestFlight build 16)
 
 > Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
 
@@ -256,6 +256,34 @@ Lightweight follow-on to M11. Each phase ships independently.
       `web_search` tool extracts a real recipe with citation. iOS
       `RecipeWebSearchSheet` previews and hands off to the existing
       recipe editor.
+
+## M13: Cooking Mode (complete on dev; awaiting TestFlight 17)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Hands-free, big-text cook flow. Composes the M11 `cook_check` photo
+chip and the existing assistant launch context into a focused
+full-screen experience. iOS-only — no backend changes.
+
+- [x] Phase 1 — `CookingModeView` skeleton. Big-text steps,
+      progress bar, prev/next/ask-assistant/exit buttons, wake-lock,
+      long-press step → existing `CookCheckSheet`. Toolbar pan icon
+      + "Start cooking" button at the bottom of the steps section
+      on `RecipeDetailView`.
+- [x] Phase 2 — TTS step readout. `SpokenStepService`
+      (`AVSpeechSynthesizer`) speaks each step on entry; mute toggle
+      in the top bar persists via UserDefaults; AVAudioSession
+      ducks background music during speech.
+- [x] Phase 3 — Voice commands. `VoiceCommandService`
+      (on-device `SFSpeechRecognizer` + `AVAudioEngine`) recognizes
+      next / back / repeat / stop. Auto-restarts every ~50s to dodge
+      the ~1-min buffer limit. Live-caption pill, mic toggle,
+      confirmation alert before exiting on a heard "stop".
+- [x] Phase 4 — Manual quick timers + per-step polish.
+      `CookingTimerChip` row (5/10/15/20/Custom), concurrent
+      countdowns, haptic + TTS "Timer done." chime. Visible
+      "Check it" button per step. "Done" on the last step shows a
+      "Nicely done." toast on the recipe detail view.
 
 ## Backlog
 

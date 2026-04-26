@@ -226,7 +226,7 @@ struct RecipeDetailView: View {
             CookCheckSheet(context: context)
         }
         .fullScreenCover(isPresented: $isCookingModePresented) {
-            CookingModeView(recipeID: recipeID)
+            CookingModeView(recipeID: recipeID, onCompleted: showCookingCompletionToast)
         }
         .confirmationDialog(
             "Delete this recipe?",
@@ -962,6 +962,17 @@ struct RecipeDetailView: View {
     /// flash a toast. Next time the planner runs, the AI won't propose
     /// meals with this ingredient. Existing recipes in the library are
     /// unaffected — those are data, not plans.
+    private func showCookingCompletionToast() {
+        preferenceToast = "Nicely done."
+        let snapshot = preferenceToast
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if preferenceToast == snapshot {
+                preferenceToast = nil
+            }
+        }
+    }
+
     private func markPreference(ingredient: RecipeIngredient, mode: String) async {
         guard let baseID = ingredient.baseIngredientId, !baseID.isEmpty else { return }
         do {

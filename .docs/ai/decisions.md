@@ -370,3 +370,17 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 **Context**: The M6 tool loop is permissive — if the model narrates "I swapped Tuesday's dinner" without firing `swap_meal`, the UI previously showed the text as if the swap happened. Users reasonably assumed the change was applied.
 
 **Decision**: Detection is iOS-only for now. `AssistantMessageInlineBubble` flags completed assistant messages with mutation-verb prose and an empty `toolCalls` list, rendering an amber "Nothing changed in your plan — run it now?" affordance. The pattern list is inline and deliberately permissive (false positives over false negatives). Backend persistence of the flag would require a migration (`assistant_messages.flags_json`); we'll add that later if we want the warning to survive app restarts. For a shakedown fix this is enough.
+
+## 2026-04-26 - M13 Cooking Mode is iOS-only with on-device voice and manual timers
+
+**Context**: M13 wraps M11's `cook_check` chip and the existing assistant launch context into a hands-free, big-text, screen-awake cook flow. Three real product choices were locked in via AskUserQuestion before the plan: voice scope, timer behavior, and entry placement.
+
+**Decision**:
+- **Voice is on-device only.** `VoiceCommandService` sets `requiresOnDeviceRecognition = true` so audio never leaves the phone. No backend speech route. We accept the slight accuracy hit because cooking happens in noisy kitchens with confidential context.
+- **Audio buffer auto-restart.** `SFSpeechRecognizer` audio buffers cap around 60 seconds. The service restarts the recognition request every ~50s and right after every recognized keyword (which both clears the buffer and prevents a stale partial result re-firing the same command).
+- **Manual timers, not AI-suggested.** `CookingTimerChip` uses fixed quick chips (5/10/15/20/Custom). No `step_timer_ai` service, no extra latency on entering cook mode. AI-suggested timers can be revisited if user data shows manual feels redundant.
+- **No bundled chime asset.** Timer-done feedback is a warning haptic plus a TTS "Timer done." utterance through the existing `SpokenStepService`. Adds zero MB to the app bundle and matches the in-flight TTS audio session cleanly.
+- **"Stop" command shows a confirmation alert.** A misheard "stop" or someone in the next room saying "stop" should not yank the user out mid-cook. The alert is the cheap insurance.
+- **No backend changes.** M13 is iOS-only. The existing `POST /api/recipes/{id}/cook-check` route and `beginAssistantLaunch(...)` cover everything cook mode needs.
+
+This keeps the milestone shippable in a single iOS-side push and avoids a Fly deploy in the same release as TestFlight build 17.

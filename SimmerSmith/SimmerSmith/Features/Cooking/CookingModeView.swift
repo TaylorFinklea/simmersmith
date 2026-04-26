@@ -13,6 +13,7 @@ struct CookingModeView: View {
     @Environment(\.dismiss) private var dismiss
 
     let recipeID: String
+    var onCompleted: (() -> Void)?
 
     @State private var stepIndex = 0
     @State private var cookCheckContext: CookCheckSheetContext?
@@ -179,6 +180,27 @@ struct CookingModeView: View {
                         .clipShape(Capsule())
                 }
 
+                CookingTimerChip()
+                    .padding(.top, SMSpacing.sm)
+
+                Button {
+                    cookCheckContext = CookCheckSheetContext(
+                        recipeID: recipe.recipeId,
+                        stepNumber: stepIndex,
+                        stepText: step.instruction
+                    )
+                } label: {
+                    Label("Check it", systemImage: "viewfinder.circle")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.primary)
+                        .padding(.horizontal, SMSpacing.md)
+                        .padding(.vertical, SMSpacing.sm)
+                        .background(SMColor.primary.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Take a photo to check this step")
+
                 if let errorMessage {
                     Text(errorMessage)
                         .font(SMFont.caption)
@@ -226,6 +248,7 @@ struct CookingModeView: View {
 
                 Button {
                     if isLastStep {
+                        onCompleted?()
                         dismiss()
                     } else {
                         advance(total: steps.count)

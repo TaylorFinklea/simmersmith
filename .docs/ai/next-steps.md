@@ -2,15 +2,11 @@
 
 > Short checklist of exact next actions. Updated at end of every session.
 
-## Immediate (M12 ship)
+## Immediate (M13 ship)
 
-- [ ] **Deploy backend to Fly** — pairings, difficulty inference,
-      seasonal produce, and web-search routes are not live yet:
-      ```
-      fly deploy
-      ```
-- [ ] **Cut TestFlight build 16** — version bumped + project
-      regenerated; needs archive + upload:
+- [ ] **Cut TestFlight build 17** — `CURRENT_PROJECT_VERSION` is
+      already 17 and the project is regenerated; needs archive +
+      upload:
       ```
       xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj \
         -scheme SimmerSmith -configuration Release \
@@ -22,35 +18,40 @@
         -exportPath /tmp/SimmerSmith-export \
         -exportOptionsPlist SimmerSmith/ExportOptions.plist
       ```
-- [ ] End-to-end smoke test on a real device (build 16):
-  - Recipe detail → "Suggest pairings" → 3 cards render with role
-    chips + reasons.
-  - Recipes → see Easy/Medium/Hard pills on recently-added recipes;
-    filter chips work; Kid-friendly chip filters correctly.
-  - Settings → enter "Kansas, USA" as region → save.
-  - Week → "In season now" chip strip appears above the day cards;
-    tap a chip → modal with "why now" + Find recipes hand-off works.
-  - Recipes plus menu → "Find recipe online" → query "best whole
-    wheat waffle recipe" → preview card with source URL → "Open in
-    editor" → save → recipe lands in the library with citation.
+- [ ] End-to-end smoke test on a real device (build 17):
+  - Recipe detail → tap pan icon → cook mode opens. Cook mode
+    reads the first step aloud.
+  - Tap mic → grant mic + speech permissions → say "next" / "back"
+    / "repeat" → cook view advances/retreats/re-reads. Say "stop"
+    → confirmation alert → confirm → returns to detail view.
+  - Tap a 10-min timer chip → countdown starts → wait → haptic +
+    TTS "Timer done." fires.
+  - Tap "Check it" on a step → photo → verdict + tip card (M11
+    cook-check still works inside cook mode).
+  - Tap "Ask assistant" mid-cook → cook mode dismisses → assistant
+    tab opens with the prefilled "I'm cooking X and on step Y…"
+    message.
+  - Reach final step → tap Done → returns to recipe detail with
+    "Nicely done." toast.
+  - Confirm screen does not auto-lock during a 30-second idle in
+    cook mode.
 
 ## Awaiting User / External
 
-- [ ] TestFlight build 15 + 16 dogfooding feedback (wife's iPhone)
+- [ ] TestFlight build 16 + 17 dogfooding feedback (wife's iPhone)
 - [ ] Add internal testers to TestFlight if not done
 - [ ] Register at developer.kroger.com — `client_id` + `client_secret`
 - [ ] `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`
 
 ## Recommended Next Milestone
 
-**M13 — Cooking Mode**, the natural follow-up to M11's `cook_check`
-seed and the user's earlier choice of "dedicated cook mode +
-assistant nested" as the cooking-guidance shape.
+**Recipe memories** — inline notes + photos saved per recipe across
+cooks. Smaller scope than M13. Adds a per-recipe memory model
+(text + optional photo) and a sub-view in `RecipeDetailView`.
 
-- Big-text step view, voice-friendly, hands-free.
-- Per-step "Ask the assistant" button pre-loaded with that step's
-  context.
-- Preserves the M11 photo cook-check chip per step.
+After memories, the next product candidates from `## Future` are:
+**household sharing** (Pro seat) and **recipe images via image-gen**
+(Gemini 3.1 Flash Image Preview via Vercel AI Gateway).
 
 ## Deferred (M7 Phases 5 + 6)
 
