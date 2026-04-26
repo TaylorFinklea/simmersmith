@@ -577,7 +577,30 @@ struct WeekView: View {
 
             renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
 
+            addSnackAffordance(for: date, dayName: dayName, meals: meals)
+
             rebalanceBanner(for: date, dayName: dayName, totals: totals)
+        }
+    }
+
+    @ViewBuilder
+    private func addSnackAffordance(for date: Date, dayName: String, meals: [WeekMeal]) -> some View {
+        let hasSnack = meals.contains { $0.slot.lowercased() == "snack" || $0.slot.lowercased() == "snacks" }
+        if !hasSnack {
+            Button {
+                quickAddSlot = (dayName: dayName, mealDate: date, slot: "snack")
+            } label: {
+                HStack(spacing: SMSpacing.xs) {
+                    Image(systemName: "plus.circle")
+                    Text("Add snack")
+                }
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textTertiary)
+                .padding(.horizontal, SMSpacing.sm)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add snack to \(dayName)")
         }
     }
 
