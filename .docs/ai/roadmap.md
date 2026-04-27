@@ -323,6 +323,27 @@ backfill.
       own dish in place of the AI-generated header.
 - [ ] Regenerate-this-image button on the detail view.
 
+## M15: Recipe memories log (in flight)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Replace the static `recipes.memories` text blob with a per-cook
+log of time-stamped entries plus optional photo attachments, so a
+recipe accrues family history across cooks.
+
+- [x] Phase 1 — Text memories. New `recipe_memories` table with an
+      Alembic data-migration that copies any non-empty legacy blob
+      into a single seed row per recipe. GET/POST/DELETE routes.
+      `RecipeMemoriesSection` replaces the static memories block on
+      `RecipeDetailView`; `MemoryComposeSheet` wraps a TextField +
+      Save with empty-body validation.
+- [x] Phase 2 — Photo attachments. `image_bytes` + `mime_type`
+      columns + `GET …/photo` route mirroring the M14
+      ETag/immutable-cache pattern. `MemoryComposeSheet` adds a
+      `PhotosPicker` row with the same 2048px / JPEG 0.8 ceiling
+      `CookCheckSheet` uses; rows render a 60×60 thumbnail when a
+      photo exists; tap → full-screen viewer.
+
 ## Backlog
 
 <!-- tier3_owner: claude -->

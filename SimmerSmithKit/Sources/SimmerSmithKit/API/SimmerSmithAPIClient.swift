@@ -844,15 +844,52 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/recipes/\(recipeID)/memories")
     }
 
-    public func createRecipeMemory(recipeID: String, body: String) async throws -> RecipeMemory {
+    public func createRecipeMemory(
+        recipeID: String,
+        body: String,
+        imageData: Data? = nil,
+        mimeType: String? = nil
+    ) async throws -> RecipeMemory {
         struct Body: Encodable {
             let body: String
+            let imageBase64: String?
+            let mimeType: String?
         }
         return try await request(
             path: "/api/recipes/\(recipeID)/memories",
             method: "POST",
-            body: Body(body: body)
+            body: Body(
+                body: body,
+                imageBase64: imageData?.base64EncodedString(),
+                mimeType: imageData == nil ? nil : (mimeType ?? "image/jpeg")
+            )
         )
+    }
+
+    /// Fetch the raw bytes of a memory's photo via the authenticated
+    /// session. The route requires bearer auth so AsyncImage can't
+    /// hit it directly. 404 maps to `notFound`.
+    public func fetchRecipeMemoryPhotoBytes(
+        recipeID: String,
+        memoryID: String
+    ) async throws -> Data {
+        let request = try buildRequest(
+            path: "/api/recipes/\(recipeID)/memories/\(memoryID)/photo",
+            method: "GET",
+            requiresAuth: true,
+            bodyData: nil
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        if http.statusCode == 404 {
+            throw SimmerSmithAPIError.notFound
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        return data
     }
 
     public func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {

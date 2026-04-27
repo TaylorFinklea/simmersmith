@@ -13,6 +13,7 @@ struct RecipeMemoriesSection: View {
     @State private var isComposing = false
     @State private var loadError: String?
     @State private var pendingDelete: RecipeMemory?
+    @State private var viewingPhoto: RecipeMemory?
 
     private var memories: [RecipeMemory] {
         appState.recipeMemoriesCached(recipeID: recipeID) ?? []
@@ -63,6 +64,13 @@ struct RecipeMemoriesSection: View {
         .sheet(isPresented: $isComposing) {
             MemoryComposeSheet(recipeID: recipeID)
         }
+        .fullScreenCover(item: $viewingPhoto) { memory in
+            MemoryPhotoViewer(
+                recipeID: recipeID,
+                memoryID: memory.id,
+                cacheBuster: memory.photoURL
+            )
+        }
         .confirmationDialog(
             "Delete this memory?",
             isPresented: Binding(
@@ -81,24 +89,42 @@ struct RecipeMemoriesSection: View {
 
     @ViewBuilder
     private func memoryRow(_ memory: RecipeMemory) -> some View {
-        VStack(alignment: .leading, spacing: SMSpacing.xs) {
-            Text(memory.body)
-                .font(SMFont.body)
-                .foregroundStyle(SMColor.textPrimary)
-            HStack {
-                Text(memory.createdAt.formatted(.relative(presentation: .named)))
-                    .font(SMFont.caption)
-                    .foregroundStyle(SMColor.textTertiary)
-                Spacer()
+        HStack(alignment: .top, spacing: SMSpacing.md) {
+            if memory.photoURL != nil {
                 Button {
-                    pendingDelete = memory
+                    viewingPhoto = memory
                 } label: {
-                    Image(systemName: "trash")
-                        .font(.caption)
-                        .foregroundStyle(SMColor.textTertiary)
+                    MemoryPhotoView(
+                        recipeID: recipeID,
+                        memoryID: memory.id,
+                        cacheBuster: memory.photoURL
+                    )
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Delete memory")
+                .accessibilityLabel("View memory photo")
+            }
+
+            VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                Text(memory.body)
+                    .font(SMFont.body)
+                    .foregroundStyle(SMColor.textPrimary)
+                HStack {
+                    Text(memory.createdAt.formatted(.relative(presentation: .named)))
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                    Spacer()
+                    Button {
+                        pendingDelete = memory
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundStyle(SMColor.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete memory")
+                }
             }
         }
         .padding(.vertical, SMSpacing.xs)

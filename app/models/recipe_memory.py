@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -23,3 +23,5 @@ class RecipeMemory(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+    image_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)

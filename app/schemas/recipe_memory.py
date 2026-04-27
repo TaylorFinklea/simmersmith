@@ -14,3 +14,5 @@ class RecipeMemoryOut(BaseModel):
 
 class RecipeMemoryCreateRequest(BaseModel):
     body: str
+    image_base64: str | None = None
+    mime_type: str | None = None

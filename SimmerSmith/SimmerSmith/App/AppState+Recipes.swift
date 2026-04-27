@@ -62,12 +62,32 @@ extension AppState {
         recipeMemories[recipeID]
     }
 
-    func createRecipeMemory(recipeID: String, body: String) async throws -> RecipeMemory {
-        let memory = try await apiClient.createRecipeMemory(recipeID: recipeID, body: body)
+    func createRecipeMemory(
+        recipeID: String,
+        body: String,
+        imageData: Data? = nil,
+        mimeType: String? = nil
+    ) async throws -> RecipeMemory {
+        let memory = try await apiClient.createRecipeMemory(
+            recipeID: recipeID,
+            body: body,
+            imageData: imageData,
+            mimeType: mimeType
+        )
         var current = recipeMemories[recipeID] ?? []
         current.insert(memory, at: 0)
         recipeMemories[recipeID] = current
         return memory
+    }
+
+    func fetchRecipeMemoryPhotoBytes(
+        recipeID: String,
+        memoryID: String
+    ) async throws -> Data {
+        try await apiClient.fetchRecipeMemoryPhotoBytes(
+            recipeID: recipeID,
+            memoryID: memoryID
+        )
     }
 
     func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {
