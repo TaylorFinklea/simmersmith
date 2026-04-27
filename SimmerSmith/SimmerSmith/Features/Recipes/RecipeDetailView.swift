@@ -350,10 +350,8 @@ struct RecipeDetailView: View {
                 notesSection(title: "Notes", text: recipe.notes, icon: "note.text")
             }
 
-            // Memories
-            if !recipe.memories.isEmpty {
-                notesSection(title: "Memories", text: recipe.memories, icon: "brain")
-            }
+            // Memories — live log of cooks (M15)
+            RecipeMemoriesSection(recipeID: recipe.recipeId)
 
             // Source
             if !recipe.sourceLabel.isEmpty || !recipe.sourceUrl.isEmpty || recipe.sourceRecipeCount > 0 {

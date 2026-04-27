@@ -1156,6 +1156,27 @@ public struct InSeasonItem: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Recipe memories log (M15)
+
+/// One time-stamped memory entry on a recipe — body text plus an
+/// optional photo. The server returns `photoURL` already pointing
+/// at `/api/recipes/{recipeId}/memories/{id}/photo?v=...` when a
+/// photo exists; the iOS view layer fetches bytes through the
+/// authenticated session (mirrors the M14 RecipeHeaderImage flow).
+public struct RecipeMemory: Codable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let body: String
+    public let createdAt: Date
+    public let photoURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case body
+        case createdAt
+        case photoURL = "photoUrl"
+    }
+}
+
 // MARK: - Pairings (M12)
 
 public struct PairingOption: Codable, Identifiable, Hashable, Sendable {

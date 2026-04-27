@@ -17,6 +17,7 @@ from app.api.preferences import router as preferences_router
 from app.api.products import router as products_router
 from app.api.profile import router as profile_router
 from app.api.recipe_images import router as recipe_images_router
+from app.api.recipe_memories import router as recipe_memories_router
 from app.api.recipes import router as recipes_router
 from app.api.stores import router as stores_router
 from app.api.subscriptions import router as subscriptions_router
@@ -62,6 +63,7 @@ app.include_router(ingredient_preferences_router, dependencies=protected_depende
 app.include_router(products_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
 app.include_router(recipe_images_router, dependencies=protected_dependencies)
+app.include_router(recipe_memories_router, dependencies=protected_dependencies)
 app.include_router(recipes_router, dependencies=protected_dependencies)
 app.include_router(vision_router, dependencies=protected_dependencies)
 app.include_router(weeks_router, dependencies=protected_dependencies)

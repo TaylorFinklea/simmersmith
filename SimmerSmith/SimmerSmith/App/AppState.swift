@@ -80,6 +80,9 @@ final class AppState {
     var currentWeek: WeekSnapshot?
     var recipes: [RecipeSummary] = []
     var recipeMetadata: RecipeMetadata?
+    /// Memory-log entries keyed by recipeID. Refreshed lazily when
+    /// the recipe-detail view appears; survives detail dismissal.
+    var recipeMemories: [String: [RecipeMemory]] = [:]
     var aiCapabilities: AICapabilities?
     var exports: [ExportRun] = []
     var assistantThreads: [AssistantThreadSummary] = []

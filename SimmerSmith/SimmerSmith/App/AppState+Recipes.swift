@@ -47,6 +47,34 @@ extension AppState {
         return result
     }
 
+    // MARK: - Recipe memories log (M15)
+
+    /// Refresh + cache the memory log for one recipe. Returns the
+    /// fresh list so callers can use it directly. Caches by recipeID
+    /// so navigating away/back doesn't refetch immediately.
+    func refreshRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
+        let memories = try await apiClient.fetchRecipeMemories(recipeID: recipeID)
+        recipeMemories[recipeID] = memories
+        return memories
+    }
+
+    func recipeMemoriesCached(recipeID: String) -> [RecipeMemory]? {
+        recipeMemories[recipeID]
+    }
+
+    func createRecipeMemory(recipeID: String, body: String) async throws -> RecipeMemory {
+        let memory = try await apiClient.createRecipeMemory(recipeID: recipeID, body: body)
+        var current = recipeMemories[recipeID] ?? []
+        current.insert(memory, at: 0)
+        recipeMemories[recipeID] = current
+        return memory
+    }
+
+    func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {
+        try await apiClient.deleteRecipeMemory(recipeID: recipeID, memoryID: memoryID)
+        recipeMemories[recipeID] = (recipeMemories[recipeID] ?? []).filter { $0.id != memoryID }
+    }
+
     func refreshRecipeMetadata() async {
         guard hasSavedConnection else { return }
         do {

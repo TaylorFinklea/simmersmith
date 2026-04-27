@@ -340,10 +340,11 @@ struct RecipeEditorView: View {
                             .multilineTextAlignment(.trailing)
                     }
 
-                    LabeledContent("Memories") {
-                        TextField("Why this recipe matters to your family", text: $draft.memories, axis: .vertical)
-                            .multilineTextAlignment(.trailing)
-                    }
+                    // Memories live in their own log on the recipe
+                    // detail view (M15) — the editor no longer
+                    // exposes them. The legacy `draft.memories`
+                    // string is still round-tripped through the
+                    // payload for back-compat with older clients.
 
                     LabeledContent("Source label") {
                         TextField("Serious Eats", text: $draft.sourceLabel)

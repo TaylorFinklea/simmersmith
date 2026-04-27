@@ -838,6 +838,42 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    // MARK: - Recipe memories (M15)
+
+    public func fetchRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
+        try await request(path: "/api/recipes/\(recipeID)/memories")
+    }
+
+    public func createRecipeMemory(recipeID: String, body: String) async throws -> RecipeMemory {
+        struct Body: Encodable {
+            let body: String
+        }
+        return try await request(
+            path: "/api/recipes/\(recipeID)/memories",
+            method: "POST",
+            body: Body(body: body)
+        )
+    }
+
+    public func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {
+        let request = try buildRequest(
+            path: "/api/recipes/\(recipeID)/memories/\(memoryID)",
+            method: "DELETE",
+            requiresAuth: true,
+            bodyData: nil
+        )
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        if http.statusCode == 404 {
+            throw SimmerSmithAPIError.notFound
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+    }
+
     public func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
         let request = try buildRequest(
             path: "/api/recipes/\(recipeID)/image",

@@ -64,6 +64,7 @@
 		8C5A3E64B3886FD23E783B87 /* CookingModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */; };
 		8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */; };
 		8EEF1CCB637311D888CF62B3 /* GuestEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBD6C6A76089A9D8F674887 /* GuestEditorSheet.swift */; };
+		9029A70CD594DE5D545A3537 /* RecipeMemoriesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74BEFEA67BE67E9376250739 /* RecipeMemoriesSection.swift */; };
 		923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E77574E1813D8C368CBAFF27 /* AssistantView.swift */; };
 		925114D0E678B77DE951E987 /* RecipeEditorIngredientResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14092FA88319FB68CC7C86E4 /* RecipeEditorIngredientResolution.swift */; };
 		9726A5E160270D61C79C1AFF /* MealMoveSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D99BDCE7DF25F031B23486 /* MealMoveSheet.swift */; };
@@ -96,6 +97,7 @@
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
 		F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */; };
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
+		F5FF1BF67031E17F18887227 /* MemoryComposeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14EE7553DFC9652AB1EED953 /* MemoryComposeSheet.swift */; };
 		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
 		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
 		FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */; };
@@ -130,6 +132,7 @@
 		10345947B6DFB4A0CF0527E0 /* TimeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeBadge.swift; sourceTree = "<group>"; };
 		110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandToolbarBadge.swift; sourceTree = "<group>"; };
 		14092FA88319FB68CC7C86E4 /* RecipeEditorIngredientResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorIngredientResolution.swift; sourceTree = "<group>"; };
+		14EE7553DFC9652AB1EED953 /* MemoryComposeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryComposeSheet.swift; sourceTree = "<group>"; };
 		16263AD59B5D2F17D3561E4A /* AppState+AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+AI.swift"; sourceTree = "<group>"; };
 		16DDB372886E2372FDFD715E /* RecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeCard.swift; sourceTree = "<group>"; };
 		1972D947D654B2B38603C14E /* SimmerSmith.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SimmerSmith.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -170,6 +173,7 @@
 		726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSelectionView.swift; sourceTree = "<group>"; };
 		7387FA57FB78ACD7148F204D /* AppState+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Events.swift"; sourceTree = "<group>"; };
 		73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenStepService.swift; sourceTree = "<group>"; };
+		74BEFEA67BE67E9376250739 /* RecipeMemoriesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeMemoriesSection.swift; sourceTree = "<group>"; };
 		751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientVariationManagementSection.swift; sourceTree = "<group>"; };
 		75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealQuickAddSheet.swift; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -396,6 +400,7 @@
 		7EBADF07E0E6DB08A57494D0 /* Recipes */ = {
 			isa = PBXGroup;
 			children = (
+				14EE7553DFC9652AB1EED953 /* MemoryComposeSheet.swift */,
 				708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */,
 				14092FA88319FB68CC7C86E4 /* RecipeEditorIngredientResolution.swift */,
 				61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */,
@@ -403,6 +408,7 @@
 				62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */,
 				8C8E0D9915D41D95540C426F /* RecipeHeaderImage.swift */,
 				DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */,
+				74BEFEA67BE67E9376250739 /* RecipeMemoriesSection.swift */,
 				C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */,
 				0C7199A2250CBA7830AFF57E /* RecipePairingsCard.swift */,
 				A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */,
@@ -736,6 +742,7 @@
 				EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */,
 				FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */,
 				A50492A8C75536C4828C7951 /* MealSlotRow.swift in Sources */,
+				F5FF1BF67031E17F18887227 /* MemoryComposeSheet.swift in Sources */,
 				F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */,
 				3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */,
 				FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */,
@@ -748,6 +755,7 @@
 				3493179252A664BAA6BB3704 /* RecipeHeaderImage.swift in Sources */,
 				9FEF5423BB6FCDEEAA8574C2 /* RecipeImportView.swift in Sources */,
 				822CEF7F346BD614AEB07A6F /* RecipeListRow.swift in Sources */,
+				9029A70CD594DE5D545A3537 /* RecipeMemoriesSection.swift in Sources */,
 				E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */,
 				6DEB6FB3394993D202D2A101 /* RecipePairingsCard.swift in Sources */,
 				F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */,
