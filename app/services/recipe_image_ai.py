@@ -1,17 +1,15 @@
 """AI-generated recipe header images (M14 Phase 2).
 
-Calls Gemini 2.5 Flash Image Preview ("Nano Banana") through the
-Vercel AI Gateway's OpenAI-compatible chat-completions endpoint.
-Returns the raw image bytes + mime type. Failure raises
-`RecipeImageError` so the caller can decide whether to swallow it
-(opportunistic best-effort path on recipe save) or surface it
-(explicit backfill flow).
+Calls OpenAI's `/v1/images/generations` endpoint with `gpt-image-1`
+using the existing `SIMMERSMITH_AI_OPENAI_API_KEY`. Reusing the key
+the rest of the AI stack already depends on keeps the surface area
+small — no Vercel AI Gateway proxy, no separate Gemini key. The
+service signature is provider-agnostic so a future milestone can
+swap in Gemini's native API without touching the call site in
+`app/api/recipes.py`.
 
-Reference shape from Vercel AI Gateway docs:
-  POST {ai_gateway_url}/chat/completions
-  body: {model, messages, modalities: ["image"]}
-  response: choices[0].message.images[0].image_url.url
-            data URI: "data:image/png;base64,...."
+OpenAI image-gen response shape (https://platform.openai.com/docs/api-reference/images/create):
+  {"data": [{"b64_json": "<base64 payload>"}]}
 """
 from __future__ import annotations
 
@@ -29,17 +27,22 @@ from app.services.recipes import effective_recipe_data
 logger = logging.getLogger(__name__)
 
 
+# OpenAI's gpt-image-1 always returns PNG. If we ever switch model,
+# this is the canonical fallback before we read the response shape.
+_DEFAULT_MIME = "image/png"
+
+
 class RecipeImageError(RuntimeError):
-    """Recipe image generation failed (gateway not configured, HTTP
-    error, malformed response, etc.). Carry a human-readable detail
-    for logging."""
+    """Recipe image generation failed (provider key not configured,
+    HTTP error, malformed response, etc.). Carries a human-readable
+    detail for logging."""
 
 
 def is_image_gen_configured(settings: Settings) -> bool:
-    """True when the Vercel AI Gateway is reachable. Used to short-
-    circuit the opportunistic on-create call so we don't spam logs
-    when the secret simply hasn't been set yet (e.g. local dev)."""
-    return bool(settings.ai_gateway_api_key.strip() and settings.ai_gateway_url.strip())
+    """True when an OpenAI key is configured. Used to short-circuit
+    the opportunistic on-create call so we don't spam logs when the
+    key simply hasn't been set yet (e.g. local dev)."""
+    return bool(settings.ai_openai_api_key.strip())
 
 
 def generate_recipe_image(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str]:
@@ -49,34 +52,37 @@ def generate_recipe_image(recipe: Recipe, *, settings: Settings) -> tuple[bytes,
     whether to swallow (best-effort) or surface (backfill).
     """
     if not is_image_gen_configured(settings):
-        raise RecipeImageError("Vercel AI Gateway not configured")
+        raise RecipeImageError("OpenAI API key not configured")
 
     prompt = _build_prompt(recipe)
-    base_url = settings.ai_gateway_url.rstrip("/")
-    url = f"{base_url}/chat/completions"
     payload = {
-        "model": settings.ai_gateway_image_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "modalities": ["image"],
+        "model": settings.ai_image_model,
+        "prompt": prompt,
+        "n": 1,
+        "size": "1024x1024",
     }
     headers = {
-        "Authorization": f"Bearer {settings.ai_gateway_api_key}",
+        "Authorization": f"Bearer {settings.ai_openai_api_key}",
         "Content-Type": "application/json",
     }
 
     try:
         with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
-            response = client.post(url, json=payload, headers=headers)
+            response = client.post(
+                "https://api.openai.com/v1/images/generations",
+                json=payload,
+                headers=headers,
+            )
     except httpx.HTTPError as exc:
-        raise RecipeImageError(f"Gateway request failed: {exc}") from exc
+        raise RecipeImageError(f"Image request failed: {exc}") from exc
 
     if response.status_code >= 400:
-        raise RecipeImageError(f"Gateway returned {response.status_code}: {response.text[:200]}")
+        raise RecipeImageError(f"OpenAI returned {response.status_code}: {response.text[:200]}")
 
     try:
         body: dict[str, Any] = response.json()
     except ValueError as exc:
-        raise RecipeImageError(f"Gateway response was not JSON: {exc}") from exc
+        raise RecipeImageError(f"Image response was not JSON: {exc}") from exc
 
     image_bytes, mime = _extract_image(body)
     return image_bytes, mime, prompt
@@ -112,37 +118,27 @@ def _build_prompt(recipe: Recipe) -> str:
 
 
 def _extract_image(body: dict[str, Any]) -> tuple[bytes, str]:
-    """Pull the first image attachment out of an OpenAI-compatible
-    chat-completions response. Vercel AI Gateway puts image
-    attachments under `choices[0].message.images[].image_url.url`
-    as a base64 data URI."""
-    choices = body.get("choices") or []
-    if not choices:
-        raise RecipeImageError("Gateway response had no choices")
-    message = (choices[0] or {}).get("message") or {}
-    images = message.get("images") or []
-    for image in images:
-        url = ((image or {}).get("image_url") or {}).get("url") or ""
-        if isinstance(url, str) and url.startswith("data:"):
-            return _decode_data_uri(url)
-    # Fallback: some providers stuff the image in `content` blocks.
-    for block in message.get("content") or []:
-        if isinstance(block, dict):
-            url = (block.get("image_url") or {}).get("url") or ""
-            if isinstance(url, str) and url.startswith("data:"):
-                return _decode_data_uri(url)
-    raise RecipeImageError("Gateway response did not contain an image")
-
-
-def _decode_data_uri(uri: str) -> tuple[bytes, str]:
-    """`data:image/png;base64,<payload>` → (bytes, mime)."""
-    header, _, payload = uri.partition(",")
-    if not payload:
-        raise RecipeImageError("Image data URI was empty")
-    mime = "image/png"
-    if header.startswith("data:") and ";" in header:
-        mime = header[len("data:"):].split(";", 1)[0] or mime
-    try:
-        return base64.b64decode(payload), mime
-    except (ValueError, TypeError) as exc:
-        raise RecipeImageError(f"Image base64 decode failed: {exc}") from exc
+    """Pull the first base64 image payload out of an OpenAI
+    images-generations response. `gpt-image-1` always returns
+    `b64_json`. Older `dall-e-*` models can return `url` instead;
+    we support that as a fallback by fetching the URL."""
+    items = body.get("data") or []
+    if not items:
+        raise RecipeImageError("Image response had no data array")
+    first = items[0] or {}
+    if isinstance(first.get("b64_json"), str) and first["b64_json"]:
+        try:
+            return base64.b64decode(first["b64_json"]), _DEFAULT_MIME
+        except (ValueError, TypeError) as exc:
+            raise RecipeImageError(f"Image base64 decode failed: {exc}") from exc
+    url = first.get("url")
+    if isinstance(url, str) and url.startswith("http"):
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RecipeImageError(f"Could not fetch image URL: {exc}") from exc
+        mime = resp.headers.get("content-type", _DEFAULT_MIME).split(";", 1)[0].strip() or _DEFAULT_MIME
+        return resp.content, mime
+    raise RecipeImageError("Image response did not contain a base64 payload or URL")

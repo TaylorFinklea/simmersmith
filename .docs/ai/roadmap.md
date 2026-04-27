@@ -285,6 +285,42 @@ full-screen experience. iOS-only — no backend changes.
       "Check it" button per step. "Done" on the last step shows a
       "Nicely done." toast on the recipe detail view.
 
+## M14: AI-generated recipe images (in flight)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Replace the gradient-only header placeholder with one AI-generated
+photo per recipe. Phase 1 ships invisible plumbing; Phase 2 wires
+generation on save; Phase 3 spreads to list cards + Settings
+backfill.
+
+- [x] Phase 1 — Plumbing. `recipe_images` table + serve route +
+      iOS `imageURL` field + `RecipeHeaderImage` view replacing the
+      gradient block in `RecipeDetailView`.
+- [x] Phase 2 — Generation on save. `recipe_image_ai.py` calls
+      OpenAI's `/v1/images/generations` (`gpt-image-1`) using the
+      existing `SIMMERSMITH_AI_OPENAI_API_KEY`. Best-effort: a
+      provider outage never blocks the save.
+- [ ] Phase 3 — List cards + Settings backfill. `HeroRecipeCard`,
+      `CompactRecipeCard`, `RecipeCard`, `RecipeListRow` render
+      AsyncImage when `imageURL` is set. New `POST /api/recipes/ai/
+      backfill-images` + Settings button to fill in pre-M14 recipes.
+
+## M15+ Future image-gen work
+
+- [ ] **Gemini-direct image-gen path**, alongside the current
+      OpenAI path. Native call to
+      `https://generativelanguage.googleapis.com/v1beta/models/
+      gemini-2.5-flash-image-preview:generateContent`. New
+      `SIMMERSMITH_AI_GEMINI_API_KEY` secret. Provider router on
+      a new `ai_image_provider` setting (`"openai" | "gemini"`).
+      Reason to add: cheaper per-image at scale, and lets users
+      pick a different look. Skipped at M14 because OpenAI alone
+      reuses an existing key and avoids a third-party gateway.
+- [ ] Manual image upload — let the user pick a photo of their
+      own dish in place of the AI-generated header.
+- [ ] Regenerate-this-image button on the detail view.
+
 ## Backlog
 
 <!-- tier3_owner: claude -->
