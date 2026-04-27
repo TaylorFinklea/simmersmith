@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     usda_api_key: str = ""
     ai_timeout_seconds: int = 120
 
+    # Vercel AI Gateway — used for image generation (Gemini Flash
+    # Image Preview / Nano Banana). Empty to disable image gen
+    # entirely; recipe save still works, header keeps the gradient.
+    ai_gateway_url: str = "https://ai-gateway.vercel.sh/v1"
+    ai_gateway_api_key: str = ""
+    ai_gateway_image_model: str = "google/gemini-2.5-flash-image-preview"
+
     # Kroger API (grocery pricing)
     kroger_client_id: str = ""
     kroger_client_secret: str = ""

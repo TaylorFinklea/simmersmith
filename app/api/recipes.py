@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
@@ -187,9 +188,66 @@ def save_recipe(
             recipe.kid_friendly = assessment.kid_friendly
         except Exception as exc:  # noqa: BLE001
             logger.info("Difficulty inference skipped: %s", exc)
+
+    # Opportunistic header-image generation. Same best-effort pattern
+    # as difficulty inference — a provider outage or unconfigured
+    # gateway must never block the save. Skips if the recipe already
+    # has an image (re-upserts shouldn't burn a new generation).
+    if not _recipe_has_image(session, recipe.id):
+        try:
+            from app.services.recipe_image_ai import (
+                RecipeImageError,
+                generate_recipe_image,
+                is_image_gen_configured,
+            )
+
+            if is_image_gen_configured(settings):
+                bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
+                _persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+        except RecipeImageError as exc:
+            logger.info("Recipe image generation skipped: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Recipe image generation failed: %s", exc)
     session.commit()
     refreshed = get_recipe(session, current_user.id, recipe.id)
     return recipe_payload(session, refreshed) if refreshed else {}
+
+
+def _recipe_has_image(session: Session, recipe_id: str) -> bool:
+    from app.models import RecipeImage
+
+    return session.scalar(
+        select(RecipeImage.recipe_id).where(RecipeImage.recipe_id == recipe_id)
+    ) is not None
+
+
+def _persist_recipe_image(
+    session: Session,
+    recipe_id: str,
+    image_bytes: bytes,
+    mime_type: str,
+    prompt: str,
+) -> None:
+    from app.models import RecipeImage
+    from app.models._base import utcnow
+
+    existing = session.scalar(
+        select(RecipeImage).where(RecipeImage.recipe_id == recipe_id)
+    )
+    if existing is not None:
+        existing.image_bytes = image_bytes
+        existing.mime_type = mime_type
+        existing.prompt = prompt
+        existing.generated_at = utcnow()
+        return
+    session.add(
+        RecipeImage(
+            recipe_id=recipe_id,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            prompt=prompt,
+        )
+    )
 
 
 @router.post("/import-from-url", response_model=RecipePayload)
