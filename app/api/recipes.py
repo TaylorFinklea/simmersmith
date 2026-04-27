@@ -250,6 +250,66 @@ def _persist_recipe_image(
     )
 
 
+@router.post("/ai/backfill-images")
+def backfill_recipe_images(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, int]:
+    """Generate header images for every recipe of the current user
+    that doesn't already have one. Synchronous — fine for a personal
+    dogfooding scale (≤100 recipes). The route returns counts so the
+    iOS Settings UI can show a confirmation toast."""
+    from app.models import Recipe, RecipeImage
+    from app.services.recipe_image_ai import (
+        RecipeImageError,
+        generate_recipe_image,
+        is_image_gen_configured,
+    )
+
+    if not is_image_gen_configured(settings):
+        raise HTTPException(status_code=503, detail="Image generation is not configured.")
+
+    rows = session.scalars(
+        select(Recipe)
+        .where(Recipe.user_id == current_user.id, Recipe.archived.is_(False))
+        .order_by(Recipe.created_at)
+    ).all()
+
+    has_image_ids = set(
+        session.scalars(
+            select(RecipeImage.recipe_id).where(
+                RecipeImage.recipe_id.in_([recipe.id for recipe in rows])
+            )
+        ).all()
+    )
+
+    generated = 0
+    failed = 0
+    for recipe in rows:
+        if recipe.id in has_image_ids:
+            continue
+        try:
+            bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
+        except RecipeImageError as exc:
+            logger.warning("Backfill skipped %s: %s", recipe.id, exc)
+            failed += 1
+            continue
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Backfill error on %s: %s", recipe.id, exc)
+            failed += 1
+            continue
+        _persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+        session.commit()
+        generated += 1
+
+    return {
+        "generated": generated,
+        "failed": failed,
+        "skipped": len(rows) - generated - failed,
+    }
+
+
 @router.post("/import-from-url", response_model=RecipePayload)
 def import_recipe_route(
     payload: RecipeImportRequest,

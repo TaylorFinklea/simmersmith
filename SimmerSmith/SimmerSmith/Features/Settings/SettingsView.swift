@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
     @State private var guestEditor: Guest? = nil
     @State private var isCreatingGuest: Bool = false
+    @State private var isBackfillingImages = false
+    @State private var imageBackfillToast: String?
 
     var body: some View {
         @Bindable var appState = appState
@@ -134,6 +136,30 @@ struct SettingsView: View {
                     Task { await appState.saveAISettings(clearStoredAPIKey: true) }
                 }
                 .disabled(!appState.aiDirectAPIKeyConfigured)
+            }
+
+            Section("Recipe images") {
+                Text("New recipes get an AI-generated header image automatically. Use this to backfill recipes you saved before the feature shipped.")
+                    .font(.footnote)
+                    .foregroundStyle(SMColor.textSecondary)
+
+                Button {
+                    Task { await runImageBackfill() }
+                } label: {
+                    HStack {
+                        if isBackfillingImages {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(isBackfillingImages ? "Generating…" : "Generate missing images")
+                    }
+                }
+                .disabled(isBackfillingImages)
+
+                if let imageBackfillToast {
+                    Text(imageBackfillToast)
+                        .font(.footnote)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
             }
 
             Section("Templates") {
@@ -491,6 +517,17 @@ struct SettingsView: View {
             return "A \(appState.aiDirectProviderDraft.capitalized) API key is stored on the server. It cannot be read back in the app."
         }
         return "No \(appState.aiDirectProviderDraft.capitalized) API key is currently stored on the server."
+    }
+
+    private func runImageBackfill() async {
+        isBackfillingImages = true
+        defer { isBackfillingImages = false }
+        do {
+            let result = try await appState.backfillRecipeImages()
+            imageBackfillToast = "Generated \(result.generated) image\(result.generated == 1 ? "" : "s"). Skipped \(result.skipped), failed \(result.failed)."
+        } catch {
+            imageBackfillToast = "Backfill failed: \(error.localizedDescription)"
+        }
     }
 }
 

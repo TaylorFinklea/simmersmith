@@ -35,6 +35,18 @@ extension AppState {
         try await apiClient.fetchRecipeImageBytes(recipeID: recipeID)
     }
 
+    /// Run the server-side backfill that generates header images for
+    /// every recipe missing one. Refreshes the local recipe cache on
+    /// success so the new `imageURL` fields show up in lists/detail
+    /// without a manual sync.
+    func backfillRecipeImages() async throws -> SimmerSmithAPIClient.RecipeImageBackfillResult {
+        let result = try await apiClient.backfillRecipeImages()
+        if result.generated > 0 {
+            await refreshRecipes()
+        }
+        return result
+    }
+
     func refreshRecipeMetadata() async {
         guard hasSavedConnection else { return }
         do {

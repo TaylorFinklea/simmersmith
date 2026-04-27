@@ -819,6 +819,25 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
     /// Returns the response body verbatim — caller is responsible for
     /// decoding via `UIImage(data:)`. Throws `notFound` when no image
     /// exists for the recipe (the route 404s in that case).
+    public struct RecipeImageBackfillResult: Codable, Sendable {
+        public let generated: Int
+        public let failed: Int
+        public let skipped: Int
+    }
+
+    /// Generate header images for every recipe missing one. Reuses
+    /// the same OpenAI image-gen path as the on-create flow. Synchronous
+    /// at the dogfooding scale we ship at — caller spins a progress
+    /// indicator.
+    public func backfillRecipeImages() async throws -> RecipeImageBackfillResult {
+        struct EmptyBody: Encodable {}
+        return try await request(
+            path: "/api/recipes/ai/backfill-images",
+            method: "POST",
+            body: EmptyBody()
+        )
+    }
+
     public func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
         let request = try buildRequest(
             path: "/api/recipes/\(recipeID)/image",

@@ -7,16 +7,9 @@ struct RecipeListRow: View {
 
     var body: some View {
         HStack(spacing: SMSpacing.md) {
-            // TODO: When RecipeSummary gains an imageURL field, replace this gradient
-            // placeholder with AsyncImage:
-            //   if let imageURL = recipe.imageURL, let url = URL(string: imageURL) {
-            //       AsyncImage(url: url) { image in
-            //           image.resizable().aspectRatio(contentMode: .fill)
-            //       } placeholder: { gradient }
-            //   }
-            RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous)
-                .fill(SMColor.recipeGradients[gradientIndex % SMColor.recipeGradients.count])
+            RecipeHeaderImage(recipe: recipe)
                 .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(recipe.name)

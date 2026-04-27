@@ -301,10 +301,12 @@ backfill.
       OpenAI's `/v1/images/generations` (`gpt-image-1`) using the
       existing `SIMMERSMITH_AI_OPENAI_API_KEY`. Best-effort: a
       provider outage never blocks the save.
-- [ ] Phase 3 — List cards + Settings backfill. `HeroRecipeCard`,
-      `CompactRecipeCard`, `RecipeCard`, `RecipeListRow` render
-      AsyncImage when `imageURL` is set. New `POST /api/recipes/ai/
-      backfill-images` + Settings button to fill in pre-M14 recipes.
+- [x] Phase 3 — List cards + Settings backfill. `HeroRecipeCard`,
+      `CompactRecipeCard`, `RecipeCard`, `RecipeListRow` route through
+      a shared `RecipeHeaderImage` view that renders `AsyncImage`
+      bytes when present and falls back to the recipe-id-hash
+      gradient. `POST /api/recipes/ai/backfill-images` + Settings
+      "Generate missing images" button fill in pre-M14 recipes.
 
 ## M15+ Future image-gen work
 
