@@ -22,6 +22,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # `sa.text("false")` is portable across Postgres + SQLite 3.23+.
+    # The earlier `sa.text("0")` worked on SQLite but Postgres won't
+    # auto-cast int → boolean and rejects the column-add at deploy time.
     with op.batch_alter_table("recipes") as batch:
         batch.add_column(sa.Column("difficulty_score", sa.Integer(), nullable=True))
         batch.add_column(
@@ -29,7 +32,7 @@ def upgrade() -> None:
                 "kid_friendly",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("0"),
+                server_default=sa.text("false"),
             )
         )
         batch.create_check_constraint(
