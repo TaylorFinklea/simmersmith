@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import AssistantMessage, AssistantThread, DietaryGoal, ProfileSetting, Recipe, Staple, Week
+from app.models import AssistantMessage, AssistantThread, DietaryGoal, ProfileSetting, Recipe, RecipeImage, Staple, Week
 from app.schemas import RecipePayload
 from app.services.ai import secret_profile_flags, visible_profile_settings
 from app.services.entitlements import all_usage_summaries, is_pro, is_trial_pro
@@ -69,12 +69,24 @@ def recipe_payload(
     recipe: Recipe,
     *,
     all_source_counts: dict[str, int] | None = None,
+    image_meta_by_recipe_id: dict[str, int] | None = None,
 ) -> dict[str, object]:
     data = effective_recipe_data(recipe)
     source_key = str(data.get("source_label") or data.get("source") or "manual").strip().lower()
     recipe_last_used = data.get("last_used")
     family_used = family_last_used(recipe)
     nutrition_summary = calculate_recipe_nutrition(session, data["ingredients"], data.get("servings"))
+    # `image_url` is set when a `recipe_images` row exists. Bytes
+    # are NOT inlined — the client follows the URL. The `?v={ts}`
+    # query string busts caches when an image is regenerated.
+    if image_meta_by_recipe_id is None:
+        version_ts = session.scalar(
+            select(RecipeImage.generated_at).where(RecipeImage.recipe_id == recipe.id)
+        )
+        version_ts = int(version_ts.timestamp()) if version_ts else None
+    else:
+        version_ts = image_meta_by_recipe_id.get(recipe.id)
+    image_url = f"/api/recipes/{recipe.id}/image?v={version_ts}" if version_ts else None
     return {
         "recipe_id": recipe.id,
         "recipe_template_id": recipe.recipe_template_id,
@@ -109,6 +121,7 @@ def recipe_payload(
         "ingredients": data["ingredients"],
         "steps": data["steps"],
         "nutrition_summary": nutrition_summary.as_payload(),
+        "image_url": image_url,
     }
 
 
@@ -150,7 +163,29 @@ def recipes_payload(
             filtered_recipes.append(recipe)
         recipes = filtered_recipes
     counts = source_counts(recipes)
-    return [recipe_payload(session, recipe, all_source_counts=counts) for recipe in recipes]
+    image_meta = _image_meta_map(session, [recipe.id for recipe in recipes])
+    return [
+        recipe_payload(
+            session,
+            recipe,
+            all_source_counts=counts,
+            image_meta_by_recipe_id=image_meta,
+        )
+        for recipe in recipes
+    ]
+
+
+def _image_meta_map(session: Session, recipe_ids: list[str]) -> dict[str, int]:
+    """Batch-fetch `generated_at` epochs for a set of recipes so the
+    list presenter doesn't N+1 the recipe_images table."""
+    if not recipe_ids:
+        return {}
+    rows = session.execute(
+        select(RecipeImage.recipe_id, RecipeImage.generated_at).where(
+            RecipeImage.recipe_id.in_(recipe_ids)
+        )
+    ).all()
+    return {row.recipe_id: int(row.generated_at.timestamp()) for row in rows}
 
 
 def week_payload(week: Week | None, *, session: Session | None = None) -> dict[str, object] | None:

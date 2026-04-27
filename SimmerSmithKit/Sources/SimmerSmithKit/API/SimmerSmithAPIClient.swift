@@ -4,6 +4,7 @@ public enum SimmerSmithAPIError: LocalizedError {
     case missingServerURL
     case invalidResponse
     case unauthorized
+    case notFound
     case server(String)
     /// HTTP 402 from the freemium gate. `action` tells the client which
     /// flow hit the limit (e.g. "ai_generate") so the paywall copy can
@@ -18,6 +19,8 @@ public enum SimmerSmithAPIError: LocalizedError {
             return "The server returned an invalid response."
         case .unauthorized:
             return "The server rejected the current bearer token."
+        case .notFound:
+            return "Not found."
         case .server(let message):
             return message
         case .usageLimitReached(_, _, _, let message):
@@ -810,6 +813,30 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func fetchRecipe(recipeID: String) async throws -> RecipeSummary {
         try await request(path: "/api/recipes/\(recipeID)")
+    }
+
+    /// Fetch the raw bytes of a recipe's AI-generated header image.
+    /// Returns the response body verbatim — caller is responsible for
+    /// decoding via `UIImage(data:)`. Throws `notFound` when no image
+    /// exists for the recipe (the route 404s in that case).
+    public func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
+        let request = try buildRequest(
+            path: "/api/recipes/\(recipeID)/image",
+            method: "GET",
+            requiresAuth: true,
+            bodyData: nil
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        if http.statusCode == 404 {
+            throw SimmerSmithAPIError.notFound
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        return data
     }
 
     public func importRecipe(fromURL url: String) async throws -> RecipeDraft {

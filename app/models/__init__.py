@@ -20,6 +20,7 @@ from app.models.event import (
 )
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
+from app.models.recipe_image import RecipeImage
 from app.models.user import User
 from app.models.week import (
     ExportItem,
@@ -60,6 +61,7 @@ __all__ = [
     "PricingRun",
     "ProfileSetting",
     "Recipe",
+    "RecipeImage",
     "RecipeIngredient",
     "RecipeStep",
     "RecipeTemplate",

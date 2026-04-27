@@ -27,6 +27,14 @@ extension AppState {
         return recipe
     }
 
+    /// Fetch the raw bytes of an AI-generated recipe header image. The
+    /// image route requires bearer auth, so the iOS view layer can't
+    /// just hand the URL to `AsyncImage` — this wrapper goes through
+    /// the authenticated session and returns the body for `UIImage`.
+    func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
+        try await apiClient.fetchRecipeImageBytes(recipeID: recipeID)
+    }
+
     func refreshRecipeMetadata() async {
         guard hasSavedConnection else { return }
         do {

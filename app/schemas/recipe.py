@@ -120,6 +120,7 @@ class RecipePayload(BaseModel):
     ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
     steps: list[RecipeStepPayload] = Field(default_factory=list)
     nutrition_summary: NutritionSummaryOut | None = None
+    image_url: str | None = None
 
 
 class RecipeOut(RecipePayload):
