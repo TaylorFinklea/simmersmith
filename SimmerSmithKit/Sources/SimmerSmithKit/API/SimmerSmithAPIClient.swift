@@ -911,6 +911,63 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         }
     }
 
+    /// Re-roll the AI-generated header image for a recipe. Returns
+    /// the updated `RecipeSummary` so the caller can replace the
+    /// local copy and let `RecipeHeaderImage`'s `.task(id:)` reload
+    /// against the new cache-busted `imageURL`.
+    public func regenerateRecipeImage(recipeID: String) async throws -> RecipeSummary {
+        struct EmptyBody: Encodable {}
+        return try await request(
+            path: "/api/recipes/\(recipeID)/image/regenerate",
+            method: "POST",
+            body: EmptyBody()
+        )
+    }
+
+    /// Replace the recipe's header image with user-supplied bytes
+    /// (typically a compressed photo from PhotosPicker). Returns
+    /// the updated recipe with a fresh cache-buster.
+    public func uploadRecipeImage(
+        recipeID: String,
+        imageData: Data,
+        mimeType: String = "image/jpeg"
+    ) async throws -> RecipeSummary {
+        struct Body: Encodable {
+            let imageBase64: String
+            let mimeType: String
+        }
+        return try await request(
+            path: "/api/recipes/\(recipeID)/image",
+            method: "PUT",
+            body: Body(
+                imageBase64: imageData.base64EncodedString(),
+                mimeType: mimeType
+            )
+        )
+    }
+
+    /// Remove the recipe's header image. Returns the updated recipe
+    /// (with `imageURL` now nil so the gradient fallback shows).
+    public func deleteRecipeImage(recipeID: String) async throws -> RecipeSummary {
+        let request = try buildRequest(
+            path: "/api/recipes/\(recipeID)/image",
+            method: "DELETE",
+            requiresAuth: true,
+            bodyData: nil
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        if http.statusCode == 404 {
+            throw SimmerSmithAPIError.notFound
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SimmerSmithAPIError.invalidResponse
+        }
+        return try decoder.decode(RecipeSummary.self, from: data)
+    }
+
     public func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
         let request = try buildRequest(
             path: "/api/recipes/\(recipeID)/image",

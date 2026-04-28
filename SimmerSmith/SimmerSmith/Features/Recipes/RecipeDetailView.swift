@@ -25,6 +25,10 @@ struct RecipeDetailView: View {
     @State private var isGeneratingCompanions = false
     @State private var showingSteps: Bool = false
     @State private var isCookingModePresented: Bool = false
+    @State private var isRegeneratingImage = false
+    @State private var isOverridingImage = false
+    @State private var imageRemovalPending = false
+    @State private var imageActionToast: String?
 
     var body: some View {
         Group {
@@ -156,6 +160,25 @@ struct RecipeDetailView: View {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
                             Divider()
+                            Button {
+                                Task { await regenerateImage(recipe) }
+                            } label: {
+                                Label("Regenerate image", systemImage: "sparkles")
+                            }
+                            .disabled(isRegeneratingImage)
+                            Button {
+                                isOverridingImage = true
+                            } label: {
+                                Label("Use my own photo", systemImage: "photo.on.rectangle.angled")
+                            }
+                            if recipe.imageURL != nil {
+                                Button(role: .destructive) {
+                                    imageRemovalPending = true
+                                } label: {
+                                    Label("Remove image", systemImage: "trash")
+                                }
+                            }
+                            Divider()
                             if recipe.archived {
                                 Button {
                                     Task { await restore(recipe) }
@@ -242,13 +265,36 @@ struct RecipeDetailView: View {
         } message: {
             Text("This removes the recipe from the library. Existing week meals keep their copied names and ingredients.")
         }
+        .sheet(isPresented: $isOverridingImage) {
+            RecipeImageOverrideSheet(recipeID: recipeID)
+        }
+        .confirmationDialog(
+            "Remove this recipe's image?",
+            isPresented: $imageRemovalPending,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                Task { await removeImage() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The recipe will fall back to a gradient placeholder until you regenerate or upload a new photo.")
+        }
+        .alert("Image", isPresented: Binding(
+            get: { imageActionToast != nil },
+            set: { if !$0 { imageActionToast = nil } }
+        ), presenting: imageActionToast) { _ in
+            Button("OK", role: .cancel) { imageActionToast = nil }
+        } message: { toast in
+            Text(toast)
+        }
     }
 
     // MARK: - Header Section
 
     private func headerSection(_ recipe: RecipeSummary) -> some View {
         ZStack(alignment: .bottomLeading) {
-            RecipeHeaderImage(recipe: recipe)
+            RecipeHeaderImage(recipe: recipe, isLoading: isRegeneratingImage)
                 .frame(height: 200)
                 .clipped()
 
@@ -1039,6 +1085,25 @@ struct RecipeDetailView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func regenerateImage(_ recipe: RecipeSummary) async {
+        guard !isRegeneratingImage else { return }
+        isRegeneratingImage = true
+        defer { isRegeneratingImage = false }
+        do {
+            try await appState.regenerateRecipeImage(recipeID: recipe.recipeId)
+        } catch {
+            imageActionToast = "Couldn't regenerate image: \(error.localizedDescription)"
+        }
+    }
+
+    private func removeImage() async {
+        do {
+            try await appState.deleteRecipeImage(recipeID: recipeID)
+        } catch {
+            imageActionToast = "Couldn't remove image: \(error.localizedDescription)"
         }
     }
 

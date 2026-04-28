@@ -156,7 +156,7 @@ struct CookCheckSheet: View {
                   let image = UIImage(data: data) else {
                 throw CookCheckError.unreadablePhoto
             }
-            let jpeg = try compressForUpload(image)
+            let jpeg = try compressPhotoForUpload(image)
             let result = try await appState.cookCheck(
                 recipeID: context.recipeID,
                 stepNumber: context.stepNumber,
@@ -168,34 +168,14 @@ struct CookCheckSheet: View {
         }
     }
 
-    private func compressForUpload(_ image: UIImage) throws -> Data {
-        let maxSide: CGFloat = 2048
-        let resized: UIImage = {
-            let longest = max(image.size.width, image.size.height)
-            guard longest > maxSide else { return image }
-            let scale = maxSide / longest
-            let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let format = UIGraphicsImageRendererFormat()
-            format.scale = 1
-            return UIGraphicsImageRenderer(size: target, format: format).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: target))
-            }
-        }()
-        guard let data = resized.jpegData(compressionQuality: 0.8) else {
-            throw CookCheckError.compressionFailed
-        }
-        return data
-    }
 }
 
 private enum CookCheckError: LocalizedError {
     case unreadablePhoto
-    case compressionFailed
 
     var errorDescription: String? {
         switch self {
         case .unreadablePhoto: return "The selected photo could not be read."
-        case .compressionFailed: return "Could not compress the photo for upload."
         }
     }
 }

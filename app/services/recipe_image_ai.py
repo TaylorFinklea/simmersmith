@@ -18,9 +18,12 @@ import logging
 from typing import Any
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Recipe
+from app.models import Recipe, RecipeImage
+from app.models._base import utcnow
 from app.services.recipes import effective_recipe_data
 
 
@@ -36,6 +39,41 @@ class RecipeImageError(RuntimeError):
     """Recipe image generation failed (provider key not configured,
     HTTP error, malformed response, etc.). Carries a human-readable
     detail for logging."""
+
+
+def recipe_has_image(session: Session, recipe_id: str) -> bool:
+    """True when a `recipe_images` row already exists for this recipe."""
+    return session.scalar(
+        select(RecipeImage.recipe_id).where(RecipeImage.recipe_id == recipe_id)
+    ) is not None
+
+
+def persist_recipe_image(
+    session: Session,
+    recipe_id: str,
+    image_bytes: bytes,
+    mime_type: str,
+    prompt: str,
+) -> None:
+    """Upsert a recipe image row. Caller is responsible for the
+    surrounding `session.commit()` / 503 handling."""
+    existing = session.scalar(
+        select(RecipeImage).where(RecipeImage.recipe_id == recipe_id)
+    )
+    if existing is not None:
+        existing.image_bytes = image_bytes
+        existing.mime_type = mime_type
+        existing.prompt = prompt
+        existing.generated_at = utcnow()
+        return
+    session.add(
+        RecipeImage(
+            recipe_id=recipe_id,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            prompt=prompt,
+        )
+    )
 
 
 def is_image_gen_configured(settings: Settings) -> bool:

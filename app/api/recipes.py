@@ -10,6 +10,13 @@ from app.auth import CurrentUser, get_current_user
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import AIRun
+from app.services.recipe_image_ai import (
+    RecipeImageError,
+    generate_recipe_image,
+    is_image_gen_configured,
+    persist_recipe_image,
+    recipe_has_image,
+)
 from app.schemas import (
     CookCheckOut,
     CookCheckRequest,
@@ -193,17 +200,11 @@ def save_recipe(
     # as difficulty inference — a provider outage or unconfigured
     # gateway must never block the save. Skips if the recipe already
     # has an image (re-upserts shouldn't burn a new generation).
-    if not _recipe_has_image(session, recipe.id):
+    if not recipe_has_image(session, recipe.id):
         try:
-            from app.services.recipe_image_ai import (
-                RecipeImageError,
-                generate_recipe_image,
-                is_image_gen_configured,
-            )
-
             if is_image_gen_configured(settings):
                 bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
-                _persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+                persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
         except RecipeImageError as exc:
             logger.info("Recipe image generation skipped: %s", exc)
         except Exception as exc:  # noqa: BLE001
@@ -211,43 +212,6 @@ def save_recipe(
     session.commit()
     refreshed = get_recipe(session, current_user.id, recipe.id)
     return recipe_payload(session, refreshed) if refreshed else {}
-
-
-def _recipe_has_image(session: Session, recipe_id: str) -> bool:
-    from app.models import RecipeImage
-
-    return session.scalar(
-        select(RecipeImage.recipe_id).where(RecipeImage.recipe_id == recipe_id)
-    ) is not None
-
-
-def _persist_recipe_image(
-    session: Session,
-    recipe_id: str,
-    image_bytes: bytes,
-    mime_type: str,
-    prompt: str,
-) -> None:
-    from app.models import RecipeImage
-    from app.models._base import utcnow
-
-    existing = session.scalar(
-        select(RecipeImage).where(RecipeImage.recipe_id == recipe_id)
-    )
-    if existing is not None:
-        existing.image_bytes = image_bytes
-        existing.mime_type = mime_type
-        existing.prompt = prompt
-        existing.generated_at = utcnow()
-        return
-    session.add(
-        RecipeImage(
-            recipe_id=recipe_id,
-            image_bytes=image_bytes,
-            mime_type=mime_type,
-            prompt=prompt,
-        )
-    )
 
 
 @router.post("/ai/backfill-images")
@@ -261,11 +225,6 @@ def backfill_recipe_images(
     dogfooding scale (≤100 recipes). The route returns counts so the
     iOS Settings UI can show a confirmation toast."""
     from app.models import Recipe, RecipeImage
-    from app.services.recipe_image_ai import (
-        RecipeImageError,
-        generate_recipe_image,
-        is_image_gen_configured,
-    )
 
     if not is_image_gen_configured(settings):
         raise HTTPException(status_code=503, detail="Image generation is not configured.")
@@ -299,7 +258,7 @@ def backfill_recipe_images(
             logger.warning("Backfill error on %s: %s", recipe.id, exc)
             failed += 1
             continue
-        _persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+        persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
         session.commit()
         generated += 1
 

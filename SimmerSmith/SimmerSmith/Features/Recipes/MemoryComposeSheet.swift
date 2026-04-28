@@ -129,7 +129,7 @@ struct MemoryComposeSheet: View {
                   let image = UIImage(data: data) else {
                 throw MemoryPhotoError.unreadable
             }
-            attachedJPEG = try compressForUpload(image)
+            attachedJPEG = try compressPhotoForUpload(image)
             attachedImage = image
         } catch {
             errorMessage = error.localizedDescription
@@ -137,35 +137,14 @@ struct MemoryComposeSheet: View {
             attachedJPEG = nil
         }
     }
-
-    private func compressForUpload(_ image: UIImage) throws -> Data {
-        let maxSide: CGFloat = 2048
-        let resized: UIImage = {
-            let longest = max(image.size.width, image.size.height)
-            guard longest > maxSide else { return image }
-            let scale = maxSide / longest
-            let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let format = UIGraphicsImageRendererFormat()
-            format.scale = 1
-            return UIGraphicsImageRenderer(size: target, format: format).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: target))
-            }
-        }()
-        guard let data = resized.jpegData(compressionQuality: 0.8) else {
-            throw MemoryPhotoError.compressionFailed
-        }
-        return data
-    }
 }
 
 private enum MemoryPhotoError: LocalizedError {
     case unreadable
-    case compressionFailed
 
     var errorDescription: String? {
         switch self {
         case .unreadable: return "The selected photo could not be read."
-        case .compressionFailed: return "Could not compress the photo for upload."
         }
     }
 }

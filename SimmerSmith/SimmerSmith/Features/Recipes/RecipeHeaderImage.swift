@@ -10,6 +10,7 @@ import SwiftUI
 struct RecipeHeaderImage: View {
     let recipe: RecipeSummary
     var contentMode: ContentMode = .fill
+    var isLoading: Bool = false
 
     @Environment(AppState.self) private var appState
     @State private var imageData: Data?
@@ -21,6 +22,14 @@ struct RecipeHeaderImage: View {
                 Image(uiImage: uiImage)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+            }
+            if isLoading {
+                Rectangle()
+                    .fill(Color.black.opacity(0.35))
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .scaleEffect(1.4)
             }
         }
         .task(id: recipe.imageURL ?? "") {

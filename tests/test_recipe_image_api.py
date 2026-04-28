@@ -59,13 +59,13 @@ def _post_recipe(client, *, with_difficulty: bool = True, with_image: bool = Tru
     if with_image:
         patches.append(
             patch(
-                "app.services.recipe_image_ai.is_image_gen_configured",
+                "app.api.recipes.is_image_gen_configured",
                 return_value=True,
             )
         )
         patches.append(
             patch(
-                "app.services.recipe_image_ai.generate_recipe_image",
+                "app.api.recipes.generate_recipe_image",
                 return_value=(_png_bytes(), "image/png", "test prompt"),
             )
         )
@@ -134,6 +134,84 @@ def test_image_gen_called_once_on_save(client) -> None:
     assert generate_mock.call_count == 1
 
 
+def test_regenerate_replaces_bytes_and_busts_cache(client) -> None:
+    """Regenerate produces fresh bytes + a fresh `?v=` cache-buster
+    on the recipe payload's image_url."""
+    import time
+
+    response, _ = _post_recipe(client)
+    body = response.json()
+    recipe_id = body["recipe_id"]
+    original_url = body["image_url"]
+
+    # Make sure the regenerate run produces a different ETag —
+    # sleep a beat so the generated_at timestamp moves.
+    time.sleep(1.1)
+
+    new_bytes = b"\x89PNG\r\n\x1a\n REGEN " + b"x" * 32
+    with patch(
+        "app.api.recipe_images.is_image_gen_configured",
+        return_value=True,
+    ), patch(
+        "app.api.recipe_images.generate_recipe_image",
+        return_value=(new_bytes, "image/png", "regen prompt"),
+    ):
+        regen_resp = client.post(f"/api/recipes/{recipe_id}/image/regenerate")
+
+    assert regen_resp.status_code == 200, regen_resp.text
+    regen_body = regen_resp.json()
+    assert regen_body["image_url"] is not None
+    assert regen_body["image_url"] != original_url
+
+    # The streamed bytes match what the regen returned.
+    image_resp = client.get(f"/api/recipes/{recipe_id}/image")
+    assert image_resp.status_code == 200
+    assert image_resp.content == new_bytes
+
+
+def test_upload_replaces_with_user_bytes(client) -> None:
+    """PUT /api/recipes/{id}/image overwrites the row with the
+    given base64 bytes."""
+    import base64
+
+    response, _ = _post_recipe(client)
+    recipe_id = response.json()["recipe_id"]
+
+    user_bytes = b"\xff\xd8\xff\xe0 USER PHOTO " + b"x" * 32  # JPEG-ish header
+    upload_resp = client.put(
+        f"/api/recipes/{recipe_id}/image",
+        json={
+            "image_base64": base64.b64encode(user_bytes).decode("ascii"),
+            "mime_type": "image/jpeg",
+        },
+    )
+    assert upload_resp.status_code == 200, upload_resp.text
+    assert upload_resp.json()["image_url"] is not None
+
+    image_resp = client.get(f"/api/recipes/{recipe_id}/image")
+    assert image_resp.status_code == 200
+    assert image_resp.content == user_bytes
+    assert image_resp.headers["content-type"].startswith("image/jpeg")
+
+
+def test_delete_removes_row_and_clears_image_url(client) -> None:
+    """DELETE drops the row → recipe payload has no image_url and
+    GET .../image 404s."""
+    response, _ = _post_recipe(client)
+    recipe_id = response.json()["recipe_id"]
+
+    delete_resp = client.delete(f"/api/recipes/{recipe_id}/image")
+    assert delete_resp.status_code == 200, delete_resp.text
+    assert delete_resp.json()["image_url"] is None
+
+    image_resp = client.get(f"/api/recipes/{recipe_id}/image")
+    assert image_resp.status_code == 404
+
+    # Idempotent — calling delete on a recipe with no image is fine.
+    second = client.delete(f"/api/recipes/{recipe_id}/image")
+    assert second.status_code == 200
+
+
 def test_image_gen_failure_does_not_block_save(client) -> None:
     """If the gateway throws, the save still succeeds and the
     recipe just lacks an image (gradient fallback on the client)."""
@@ -144,10 +222,10 @@ def test_image_gen_failure_does_not_block_save(client) -> None:
         "app.services.recipe_difficulty_ai.infer_recipe_difficulty",
         return_value=DifficultyAssessment(score=2, kid_friendly=False, reason=""),
     ), patch(
-        "app.services.recipe_image_ai.is_image_gen_configured",
+        "app.api.recipes.is_image_gen_configured",
         return_value=True,
     ), patch(
-        "app.services.recipe_image_ai.generate_recipe_image",
+        "app.api.recipes.generate_recipe_image",
         side_effect=RecipeImageError("provider down"),
     ):
         response = client.post("/api/recipes", json=_payload())

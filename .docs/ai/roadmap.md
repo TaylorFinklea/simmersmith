@@ -308,7 +308,23 @@ backfill.
       gradient. `POST /api/recipes/ai/backfill-images` + Settings
       "Generate missing images" button fill in pre-M14 recipes.
 
-## M15+ Future image-gen work
+## M16: M14 polish — regenerate, manual upload, remove (in flight)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Three small affordances on the recipe detail toolbar so the user
+isn't stuck with whatever the AI initially generated.
+
+- [x] Single phase. Three new routes
+      (`POST /image/regenerate`, `PUT /image`, `DELETE /image`),
+      one shared utility (`PhotoCompression.swift`,
+      consolidating the cook-check + memory-photo + image-
+      override compression paths), one new sheet
+      (`RecipeImageOverrideSheet`), and a Menu integration on
+      `RecipeDetailView`. `RecipeHeaderImage` gains an
+      `isLoading` overlay so regen shows a spinner.
+
+## M17+ Future image-gen work
 
 - [ ] **Gemini-direct image-gen path**, alongside the current
       OpenAI path. Native call to
@@ -319,9 +335,6 @@ backfill.
       Reason to add: cheaper per-image at scale, and lets users
       pick a different look. Skipped at M14 because OpenAI alone
       reuses an existing key and avoids a third-party gateway.
-- [ ] Manual image upload — let the user pick a photo of their
-      own dish in place of the AI-generated header.
-- [ ] Regenerate-this-image button on the detail view.
 
 ## M15: Recipe memories log (in flight)
 

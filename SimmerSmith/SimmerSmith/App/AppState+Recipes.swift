@@ -35,6 +35,33 @@ extension AppState {
         try await apiClient.fetchRecipeImageBytes(recipeID: recipeID)
     }
 
+    /// Re-roll the AI-generated header image for one recipe. The
+    /// returned recipe replaces the local copy so observers fetch
+    /// the new cache-busted `imageURL` automatically.
+    func regenerateRecipeImage(recipeID: String) async throws {
+        let updated = try await apiClient.regenerateRecipeImage(recipeID: recipeID)
+        upsertRecipe(updated)
+        try? cacheStore.saveRecipes(recipes)
+    }
+
+    /// Replace the AI image with a user-uploaded photo.
+    func uploadRecipeImage(recipeID: String, imageData: Data, mimeType: String = "image/jpeg") async throws {
+        let updated = try await apiClient.uploadRecipeImage(
+            recipeID: recipeID,
+            imageData: imageData,
+            mimeType: mimeType
+        )
+        upsertRecipe(updated)
+        try? cacheStore.saveRecipes(recipes)
+    }
+
+    /// Drop the recipe's image entirely (back to the gradient).
+    func deleteRecipeImage(recipeID: String) async throws {
+        let updated = try await apiClient.deleteRecipeImage(recipeID: recipeID)
+        upsertRecipe(updated)
+        try? cacheStore.saveRecipes(recipes)
+    }
+
     /// Run the server-side backfill that generates header images for
     /// every recipe missing one. Refreshes the local recipe cache on
     /// success so the new `imageURL` fields show up in lists/detail
