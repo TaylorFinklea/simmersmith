@@ -71,6 +71,9 @@ final class AppState {
     /// User-typed region used for in-season produce (M12 Phase 3).
     /// Free text — the AI infers state/country. Empty = generic US.
     var userRegionDraft: String = ""
+    /// Per-user image-gen provider (M17). `"openai"` (default) or
+    /// `"gemini"`. Hydrated from `profile.settings["image_provider"]`.
+    var imageProviderDraft: String = "openai"
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
@@ -216,6 +219,7 @@ final class AppState {
         if let profile {
             syncAIDrafts(from: profile)
             syncRegionDraft(from: profile)
+            syncImageProviderDraft(from: profile)
         }
         currentWeek = cacheStore.loadCurrentWeek()
         recipes = cacheStore.loadRecipes()
@@ -306,6 +310,7 @@ final class AppState {
             profile = fetchedProfile
             syncAIDrafts(from: fetchedProfile)
             syncRegionDraft(from: fetchedProfile)
+            syncImageProviderDraft(from: fetchedProfile)
             currentWeek = fetchedWeek
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])

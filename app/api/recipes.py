@@ -202,8 +202,11 @@ def save_recipe(
     # has an image (re-upserts shouldn't burn a new generation).
     if not recipe_has_image(session, recipe.id):
         try:
-            if is_image_gen_configured(settings):
-                bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
+            user_settings = profile_settings_map(session, current_user.id)
+            if is_image_gen_configured(settings, user_settings=user_settings):
+                bytes_, mime, prompt = generate_recipe_image(
+                    recipe, settings=settings, user_settings=user_settings
+                )
                 persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
         except RecipeImageError as exc:
             logger.info("Recipe image generation skipped: %s", exc)
@@ -226,7 +229,8 @@ def backfill_recipe_images(
     iOS Settings UI can show a confirmation toast."""
     from app.models import Recipe, RecipeImage
 
-    if not is_image_gen_configured(settings):
+    user_settings = profile_settings_map(session, current_user.id)
+    if not is_image_gen_configured(settings, user_settings=user_settings):
         raise HTTPException(status_code=503, detail="Image generation is not configured.")
 
     rows = session.scalars(
@@ -249,7 +253,9 @@ def backfill_recipe_images(
         if recipe.id in has_image_ids:
             continue
         try:
-            bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
+            bytes_, mime, prompt = generate_recipe_image(
+                recipe, settings=settings, user_settings=user_settings
+            )
         except RecipeImageError as exc:
             logger.warning("Backfill skipped %s: %s", recipe.id, exc)
             failed += 1

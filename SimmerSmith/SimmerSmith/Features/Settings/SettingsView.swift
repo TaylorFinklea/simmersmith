@@ -139,7 +139,20 @@ struct SettingsView: View {
             }
 
             Section("Recipe images") {
-                Text("New recipes get an AI-generated header image automatically. Use this to backfill recipes you saved before the feature shipped.")
+                Text("New recipes get an AI-generated header image automatically. Pick the model that draws them — you can switch any time.")
+                    .font(.footnote)
+                    .foregroundStyle(SMColor.textSecondary)
+
+                @Bindable var imageBindable = appState
+                Picker("Image style", selection: $imageBindable.imageProviderDraft) {
+                    Text("OpenAI").tag("openai")
+                    Text("Gemini").tag("gemini")
+                }
+                .onChange(of: appState.imageProviderDraft) { _, newValue in
+                    Task { await appState.saveImageProvider(newValue) }
+                }
+
+                Text("Affects new recipes, regenerations, and the backfill below. Existing images stay unchanged until you regenerate them.")
                     .font(.footnote)
                     .foregroundStyle(SMColor.textSecondary)
 

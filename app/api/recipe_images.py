@@ -14,6 +14,7 @@ from app.db import get_session
 from app.models import Recipe, RecipeImage
 from app.schemas import RecipeOut
 from app.services.presenters import recipe_payload
+from app.services.ai import profile_settings_map
 from app.services.recipe_image_ai import (
     RecipeImageError,
     generate_recipe_image,
@@ -87,12 +88,17 @@ def regenerate_recipe_image_route(
 ) -> dict[str, object]:
     """Re-roll the AI-generated header image. Uses the same auto-built
     prompt as the on-create flow — variety comes from the model's
-    stochastic sampling. 503 when the OpenAI key isn't configured."""
+    stochastic sampling. Provider is the user's `image_provider`
+    profile setting (or the global default). 503 when the resolved
+    provider's key isn't configured."""
     recipe = _ensure_recipe(session, recipe_id, current_user.id)
-    if not is_image_gen_configured(settings):
+    user_settings = profile_settings_map(session, current_user.id)
+    if not is_image_gen_configured(settings, user_settings=user_settings):
         raise HTTPException(status_code=503, detail="Image generation is not configured.")
     try:
-        bytes_, mime, prompt = generate_recipe_image(recipe, settings=settings)
+        bytes_, mime, prompt = generate_recipe_image(
+            recipe, settings=settings, user_settings=user_settings
+        )
     except RecipeImageError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     persist_recipe_image(session, recipe.id, bytes_, mime, prompt)

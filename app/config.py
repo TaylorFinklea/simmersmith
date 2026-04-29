@@ -52,11 +52,17 @@ class Settings(BaseSettings):
     usda_api_key: str = ""
     ai_timeout_seconds: int = 120
 
-    # Recipe header image generation. Reuses `ai_openai_api_key`
-    # — empty to disable image gen entirely; recipe save still
-    # works, header keeps the gradient. A future milestone will
-    # add a Gemini-direct path with its own key.
+    # Recipe header image generation. The OpenAI path reuses
+    # `ai_openai_api_key`; the Gemini path uses
+    # `ai_gemini_api_key`. `ai_image_provider` is the global
+    # default — each user can override via the `image_provider`
+    # row in their `profile_settings`. Empty key for the chosen
+    # provider disables image gen for that user (recipe save still
+    # works, header keeps the gradient).
+    ai_image_provider: str = "openai"
     ai_image_model: str = "gpt-image-1"
+    ai_gemini_api_key: str = ""
+    ai_gemini_image_model: str = "gemini-2.5-flash-image-preview"
 
     # Kroger API (grocery pricing)
     kroger_client_id: str = ""

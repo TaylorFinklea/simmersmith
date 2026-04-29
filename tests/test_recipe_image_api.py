@@ -212,6 +212,84 @@ def test_delete_removes_row_and_clears_image_url(client) -> None:
     assert second.status_code == 200
 
 
+def test_save_recipe_uses_user_image_provider(client) -> None:
+    """When the user's `image_provider` profile row is `gemini`, the
+    on-create hook routes to `_generate_via_gemini` and skips OpenAI."""
+    from app.services.recipe_difficulty_ai import DifficultyAssessment
+
+    profile_resp = client.put(
+        "/api/profile",
+        json={"settings": {"image_provider": "gemini"}},
+    )
+    assert profile_resp.status_code == 200, profile_resp.text
+
+    with patch(
+        "app.services.recipe_difficulty_ai.infer_recipe_difficulty",
+        return_value=DifficultyAssessment(score=2, kid_friendly=False, reason=""),
+    ), patch(
+        "app.api.recipes.is_image_gen_configured", return_value=True,
+    ), patch(
+        "app.services.recipe_image_ai._generate_via_gemini",
+        return_value=(_png_bytes(), "image/png", "gemini prompt"),
+    ) as gemini_mock, patch(
+        "app.services.recipe_image_ai._generate_via_openai",
+        return_value=(_png_bytes(), "image/png", "openai prompt"),
+    ) as openai_mock:
+        response = client.post("/api/recipes", json=_payload())
+
+    assert response.status_code == 200, response.text
+    assert gemini_mock.call_count == 1
+    assert openai_mock.call_count == 0
+    assert response.json()["image_url"] is not None
+
+
+def test_regenerate_503s_when_user_provider_unconfigured(client) -> None:
+    """User picks `gemini` but `ai_gemini_api_key` is empty (default).
+    The regenerate route returns 503."""
+    from app.services.recipe_difficulty_ai import DifficultyAssessment
+
+    with patch(
+        "app.services.recipe_difficulty_ai.infer_recipe_difficulty",
+        return_value=DifficultyAssessment(score=2, kid_friendly=False, reason=""),
+    ):
+        save_resp = client.post("/api/recipes", json=_payload())
+    assert save_resp.status_code == 200, save_resp.text
+    recipe_id = save_resp.json()["recipe_id"]
+
+    profile_resp = client.put(
+        "/api/profile",
+        json={"settings": {"image_provider": "gemini"}},
+    )
+    assert profile_resp.status_code == 200
+
+    regen_resp = client.post(f"/api/recipes/{recipe_id}/image/regenerate")
+    assert regen_resp.status_code == 503
+
+
+def test_default_provider_remains_openai(client) -> None:
+    """No `image_provider` row + default global setting → existing
+    OpenAI behavior is preserved."""
+    from app.services.recipe_difficulty_ai import DifficultyAssessment
+
+    with patch(
+        "app.services.recipe_difficulty_ai.infer_recipe_difficulty",
+        return_value=DifficultyAssessment(score=2, kid_friendly=False, reason=""),
+    ), patch(
+        "app.api.recipes.is_image_gen_configured", return_value=True,
+    ), patch(
+        "app.services.recipe_image_ai._generate_via_openai",
+        return_value=(_png_bytes(), "image/png", "openai prompt"),
+    ) as openai_mock, patch(
+        "app.services.recipe_image_ai._generate_via_gemini",
+        return_value=(_png_bytes(), "image/png", "gemini prompt"),
+    ) as gemini_mock:
+        response = client.post("/api/recipes", json=_payload())
+
+    assert response.status_code == 200, response.text
+    assert openai_mock.call_count == 1
+    assert gemini_mock.call_count == 0
+
+
 def test_image_gen_failure_does_not_block_save(client) -> None:
     """If the gateway throws, the save still succeeds and the
     recipe just lacks an image (gradient fallback on the client)."""
