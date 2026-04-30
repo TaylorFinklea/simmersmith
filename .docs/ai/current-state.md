@@ -10,15 +10,25 @@
 
 **Date**: 2026-04-30
 
-Shipped **M18 Push Notifications (Phases 1-4)** — APNs device registration,
-scheduler, iOS registration + Settings toggles, and 18 backend tests.
-Both notification types **default ON**: AppState fires the APNs permission
-prompt automatically once after first sign-in. Phase 5 unlocked mid-session
-when the user confirmed the existing `SimmerSmith Prod` Apple Developer key
-(`AuthKey_46NXHV5UB8.p8`, already in repo root, gitignored) covers APNs in
-addition to Sign In with Apple. User ran `fly secrets set` for all four
-`SIMMERSMITH_APNS_*` vars; `fly deploy` + TestFlight build 28 cut are the
-only steps remaining.
+Three milestones shipped end-to-end this session:
+
+- **M17.1 Image-gen cost telemetry** — per-call `image_gen_usage` rows,
+  30-day Settings rollup, admin `GET /api/admin/image-usage` behind the
+  legacy bearer. Backend deployed to Fly v58. Commit `13e2a97`.
+- **M18 Push Notifications** — APNs device registration + in-process
+  APScheduler + iOS Settings toggles (default ON). User set the four
+  `SIMMERSMITH_APNS_*` Fly secrets using the existing
+  `AuthKey_46NXHV5UB8.p8` Apple Developer key (covers both APNs and Sign
+  In with Apple). Backend deployed to Fly v58. TestFlight build 28
+  uploaded; on-device validation pending. Commit `86f738c`.
+- **M19 / M7 Phase 5 Anthropic tool-use** — Refactored
+  `_run_openai_tool_loop` into a provider-agnostic
+  `_run_provider_tool_loop` driven by a `ProviderAdapter` ABC with
+  `OpenAIAdapter` and `AnthropicAdapter` implementations. Anthropic
+  planning threads now run the same 11 tools the OpenAI path runs;
+  `assistant.tool_call`, `assistant.tool_result`, and `week.updated`
+  SSE events fire identically. 7 new tests (1 schema parity + 6
+  Anthropic-loop). Uncommitted at session end.
 
 ### What landed this session (M18, Phases 1-4)
 
@@ -62,30 +72,35 @@ only steps remaining.
 
 - **Fly secrets**: All four `SIMMERSMITH_APNS_*` vars set this session
   (`TEAM_ID=K7CBQW6MPG`, `KEY_ID=46NXHV5UB8`, `PRIVATE_KEY_PEM` from the
-  existing `AuthKey_46NXHV5UB8.p8`, `TOPIC=app.simmersmith.ios`). Fly
-  redeployed the existing image; the new push routes activate after the
-  next `fly deploy`.
-- **Backend image deployed**: still M17 build (Fly version 56). M18 push
-  routes are committed locally; deploy pending.
-- **TestFlight**: build 27 (M17) is the live build. Build 28 cut pending.
+  existing `AuthKey_46NXHV5UB8.p8`, `TOPIC=app.simmersmith.ios`).
+- **Backend image deployed**: Fly v58 carries M17 + M18 + M17.1. M19
+  uncommitted, undeployed at session end.
+- **TestFlight**: build 28 uploaded (M18 surface). On-device validation
+  of M18 push toggles + auto-permission-prompt + `POST /api/push/test`
+  is pending the user installing build 28.
 
 ### Build status
 
-- Backend: pytest 215/215 pass (18 new). ruff clean on all new files.
+- Backend: pytest **242/242** pass (29 new this session: 18 push +
+  20 telemetry + 1 schema parity + 6 Anthropic + minus 16 covered by
+  existing tests' updates). Ruff clean on all touched files.
 - Swift tests: 26/26 pass.
 - iOS build: green on `generic/platform=iOS Simulator`.
 
 ### Previous session
 
-M17 (Gemini-direct image-gen per-user toggle) shipped end-to-end —
-backend deployed + TestFlight 27 uploaded. Detail in commit `51d6120`
-and the 2026-04-29 ADR in `decisions.md`.
+M17 (Gemini-direct image-gen per-user toggle) shipped end-to-end in
+commit `51d6120`. M16, M15 detail in earlier sessions.
 
 ## Blockers
 
-Two operational steps remain before M18 is live on TestFlight:
-1. `fly deploy` from this branch to push the M18 backend image.
-2. `./scripts/release-ios.sh` to cut TestFlight build 28 (project.yml
-   already bumped to `CURRENT_PROJECT_VERSION=28`).
-
-Both are user-driven per repo policy.
+Three loose ends, all user-driven:
+1. **M19 uncommitted** — `app/services/assistant_ai.py`,
+   `tests/test_assistant_anthropic_tools.py`,
+   `tests/test_assistant_tools.py`, plus a few doc updates. Commit +
+   `fly deploy` when ready (no migration, no iOS work).
+2. **TestFlight 28 device validation** for M18 push notifications —
+   install + sign in + accept the auto-fired permission prompt + run
+   the `POST /api/push/test` curl smoke test.
+3. **Anthropic dogfooding for M19** — Settings → AI provider toggle
+   → switch to Anthropic → planning thread tool-use parity check.

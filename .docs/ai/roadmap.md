@@ -12,14 +12,20 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 
 Active items. Trim as completed.
 
-### Now (M18 ship)
+### Now (validation + commit)
 
-M18 Phases 1–4 are complete (backend + iOS + 18 new tests). Fly secrets for APNs are set (`AuthKey_46NXHV5UB8.p8` from the existing Apple Developer "SimmerSmith Prod" key, which has both APNs and Sign In with Apple enabled). Two operational steps remain:
+Three milestones shipped this session — M18 push notifications, M17.1
+image-gen cost telemetry, and M19/M7 Phase 5 Anthropic tool-use. Fly is
+on v58 (carries M17, M18, M17.1). M19 is uncommitted at session end.
 
-- `fly deploy` — push the M18 backend image (currently Fly is still running M17 / version 56).
-- `./scripts/release-ios.sh` — cut TestFlight build 28 (project.yml already at 28).
-
-Then on-device validation: install build 28 → sign in → permission prompt fires automatically (default-on) → accept → `POST /push/test` smoke test from laptop → wait for the 17:00 local "tonight's meal" tick.
+Open follow-ups:
+- Commit M19 + `fly deploy` to ship Anthropic tool-use server-side.
+- Install TestFlight build 28 → sign in → accept the auto-fired APNs
+  permission prompt → run the `POST /api/push/test` curl smoke test →
+  wait for the 17:00 local "tonight's meal" tick.
+- Dogfood M19: Settings → AI provider → Anthropic → planning thread →
+  "add salmon to Tuesday dinner" → confirm tool fires + week refreshes
+  + iOS shows the same `assistant.tool_call` card OpenAI shows.
 
 ### Awaiting User / External
 - TestFlight build 26 dogfooding feedback (wife's iPhone).
@@ -27,10 +33,10 @@ Then on-device validation: install build 28 → sign in → permission prompt fi
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Next (M19 candidates)
-- **Image-gen cost telemetry** (M17.1) — per-call usage rows + Settings rollup. Spec at `.docs/ai/phases/image-cost-telemetry-spec.md`. Haiku-tier implementation.
+### Next (M20 candidates)
 - **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
 - **Household sharing** tied to a Pro seat.
+- **Cook-mode timer-end push** + **AI-finished-thinking push** — M18 follow-ups using the just-shipped APNs path.
 
 ### Soon
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
@@ -180,7 +186,7 @@ After M6 is shipped.
 - [x] Hallucination guardrail — amber "Nothing changed" affordance when the AI narrates an action without firing a tool
 - [x] Persist streamed deltas server-side as they arrive (throttled to 500ms)
 - [x] Cancel the SSE stream + abort the assistant turn when the user dismisses the sheet mid-stream
-- [ ] Anthropic tool-use support (OpenAI-direct only today; Anthropic falls back to envelope JSON) — deferred
+- [x] Phase 5 — Anthropic tool-use parity (shipped 2026-04-30 as M19; provider-agnostic adapter)
 - [ ] True per-day AI generation (one AI call per day of `generate_week_plan`) — deferred, 7× token cost
 
 ### Post-launch growth
@@ -419,6 +425,27 @@ recipe accrues family history across cooks.
       `CookCheckSheet` uses; rows render a 60×60 thumbnail when a
       photo exists; tap → full-screen viewer.
 
+## M19: Anthropic tool-use parity (M7 Phase 5) (complete on dev; awaiting commit + deploy)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Closes the long-standing M6 deferred item: Anthropic users now run the
+same 11 tools the OpenAI path runs, instead of falling back to
+envelope-JSON parsing. Backend-only milestone — iOS was already
+provider-agnostic.
+
+- [x] Single phase. `app/services/assistant_ai.py` gains a
+      `ProviderAdapter` ABC + `OpenAIAdapter` + `AnthropicAdapter`.
+      `_run_openai_tool_loop` is replaced by `_run_provider_tool_loop`
+      driven by an adapter. Dispatch table picks the adapter by
+      `target.provider_name`. Anthropic adapter handles the Messages API
+      SSE shape (`content_block_start` / `input_json_delta` accumulation
+      / `content_block_stop` / `message_delta`/`stop_reason`).
+- [x] Tests: 7 new (1 schema parity + 3 Anthropic-loop scenarios + 2
+      dispatch routing + 1 import sanity). Existing OpenAI abort test
+      updated for the new adapter API. Full suite **242/242**.
+- [ ] Commit + `fly deploy` to ship server-side.
+
 ## M18: Push notifications (APNs) (Phases 1-4 complete; awaiting deploy + TestFlight 28)
 
 > Spec: `.docs/ai/phases/push-notifications-spec.md`
@@ -444,8 +471,9 @@ APNs permission prompt fires automatically once after first sign-in.
 - [x] Phase 4 — Tests + verification. 18 new tests in `tests/test_push.py`
       including default-on semantics, quiet-hours, toggle-off,
       Saturday-skip-when-confirmed.
-- [ ] Phase 5 — Production cutover. `fly secrets set` (done) →
-      `fly deploy` → `./scripts/release-ios.sh` → on-device validation.
+- [x] Phase 5 — Production cutover. `fly secrets set` + `fly deploy`
+      (Fly v58) + `./scripts/release-ios.sh` cut TestFlight 28. On-device
+      validation pending the user installing the build.
 
 ## Backlog
 

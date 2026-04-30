@@ -11,7 +11,12 @@ from app.services.assistant_ai import (
     AssistantProviderEnvelope,
     AssistantTurnResult,
 )
-from app.services.assistant_tools import REGISTRY, run_tool
+from app.services.assistant_tools import (
+    REGISTRY,
+    anthropic_tools_schema,
+    openai_tools_schema,
+    run_tool,
+)
 
 
 def _seed_week(client) -> str:
@@ -58,6 +63,23 @@ def test_registry_exposes_expected_tools() -> None:
     # Every mutating tool has a JSON schema
     for tool in REGISTRY.values():
         assert tool.parameters_schema["type"] == "object"
+
+
+def test_provider_schemas_share_registry() -> None:
+    openai_schema = openai_tools_schema()
+    anthropic_schema = anthropic_tools_schema()
+    assert len(openai_schema) == len(REGISTRY) == len(anthropic_schema)
+
+    openai_names = {entry["function"]["name"] for entry in openai_schema}
+    anthropic_names = {entry["name"] for entry in anthropic_schema}
+    assert openai_names == anthropic_names == set(REGISTRY.keys())
+
+    # Anthropic uses `input_schema`, OpenAI nests under `function.parameters`.
+    by_name = {entry["name"]: entry for entry in anthropic_schema}
+    for tool_name, tool in REGISTRY.items():
+        anthropic_entry = by_name[tool_name]
+        assert anthropic_entry["description"] == tool.description
+        assert anthropic_entry["input_schema"] is tool.parameters_schema
 
 
 def test_tool_get_current_week_with_no_week_returns_not_ok(client) -> None:
@@ -341,7 +363,8 @@ def test_abort_event_cancels_tool_loop_mid_stream(client, monkeypatch) -> None:
 
     from app.services.assistant_ai import (
         AssistantExecutionTarget,
-        _run_openai_tool_loop,
+        OpenAIAdapter,
+        _run_provider_tool_loop,
     )
 
     abort_event = _threading.Event()
@@ -402,23 +425,24 @@ def test_abort_event_cancels_tool_loop_mid_stream(client, monkeypatch) -> None:
     def never_called_tool_runner(name, args):  # noqa: ARG001
         raise AssertionError("tool_runner should not fire on a pure-text abort test")
 
-    from app.schemas import AssistantRespondRequest
-
     target = AssistantExecutionTarget(
         provider_kind="direct",
         source="test",
         provider_name="openai",
         model="test-model",
     )
-    result = _run_openai_tool_loop(
+    adapter = OpenAIAdapter(
         target=target,
         settings=get_settings(),
         user_settings={},
-        thread_title="t",
+        system_prompt="system",
         conversation=[],
-        request=AssistantRespondRequest(text="say hi"),
-        attached_recipe=None,
-        planning_context="",
+        user_text="say hi",
+    )
+    result = _run_provider_tool_loop(
+        adapter=adapter,
+        target=target,
+        settings=get_settings(),
         tool_runner=never_called_tool_runner,
         on_event=on_event,
         abort_event=abort_event,

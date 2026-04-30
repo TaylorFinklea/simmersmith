@@ -5,9 +5,10 @@ import json
 import logging
 import threading
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Literal
 
 import httpx
 from fastapi.encoders import jsonable_encoder
@@ -19,6 +20,7 @@ from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availabi
 from app.services.assistant_tools import (
     MAX_TOOL_ITERATIONS,
     AssistantToolResult,
+    anthropic_tools_schema,
     openai_tools_schema,
 )
 from app.services.mcp_client import run_codex_mcp
@@ -27,6 +29,45 @@ logger = logging.getLogger(__name__)
 
 ToolRunner = Callable[[str, dict], AssistantToolResult]
 EventCallback = Callable[[str, dict], None]
+
+
+@dataclass(frozen=True)
+class StreamToolCall:
+    """A complete tool call surfaced by a provider's streaming parser.
+
+    `id` is provider-assigned (OpenAI's `call_*` or Anthropic's `toolu_*`).
+    `args` is the parsed JSON arguments object.
+    """
+    id: str
+    name: str
+    args: dict[str, object]
+
+
+@dataclass(frozen=True)
+class ToolResultPayload:
+    """A tool result fed back into the next turn's request body."""
+    call_id: str
+    result: AssistantToolResult
+
+
+@dataclass
+class NormalizedStreamEvent:
+    """Provider-agnostic stream event yielded by `ProviderAdapter.parse_stream_line`.
+
+    `kind`:
+      - `text_delta`: incremental assistant text. `text` is the chunk.
+      - `tool_call_complete`: a tool call's arguments are fully accumulated.
+        `tool_call` is the parsed call. The loop runs the tool and feeds
+        the result back via `record_tool_results`.
+      - `turn_done`: the model finished this turn. `is_terminal` is True
+        when the turn ended without pending tool calls (OpenAI `stop`,
+        Anthropic `end_turn`); False when the model paused for tool use
+        (OpenAI `tool_calls`, Anthropic `tool_use`).
+    """
+    kind: Literal["text_delta", "tool_call_complete", "turn_done"]
+    text: str = ""
+    tool_call: StreamToolCall | None = None
+    is_terminal: bool = False
 
 
 class AssistantProviderEnvelope(BaseModel):
@@ -162,17 +203,32 @@ def run_assistant_turn(
     if (
         tool_runner is not None
         and target.provider_kind == "direct"
-        and target.provider_name == "openai"
+        and target.provider_name in _PROVIDER_ADAPTERS
     ):
-        return _run_openai_tool_loop(
+        adapter_factory = _PROVIDER_ADAPTERS[target.provider_name]
+        system_prompt = build_planning_system_prompt(
+            thread_title=thread_title,
+            planning_context=planning_context or "",
+        )
+        attached_note = ""
+        if attached_recipe is not None:
+            attached_note = (
+                "\nAttached recipe context:\n"
+                f"{json.dumps(attached_recipe.model_dump(mode='json'), indent=2)}\n"
+            )
+        user_text = (request.text.strip() or "(empty message)") + attached_note
+        adapter = adapter_factory(
             target=target,
             settings=settings,
             user_settings=user_settings,
-            thread_title=thread_title,
+            system_prompt=system_prompt,
             conversation=conversation,
-            request=request,
-            attached_recipe=attached_recipe,
-            planning_context=planning_context or "",
+            user_text=user_text,
+        )
+        return _run_provider_tool_loop(
+            adapter=adapter,
+            target=target,
+            settings=settings,
             tool_runner=tool_runner,
             on_event=on_event,
             abort_event=abort_event,
@@ -208,44 +264,450 @@ def run_assistant_turn(
     )
 
 
-def _run_openai_tool_loop(
+class ProviderAdapter(ABC):
+    """Per-turn glue around the provider-agnostic tool loop.
+
+    One instance per assistant turn. Owns the `messages` list and any
+    per-stream accumulator state (e.g. partial tool-call arg JSON). The
+    outer loop calls these in order:
+
+      1. `request_url()`, `request_headers()`, `request_body()` to build
+         the streaming POST.
+      2. `parse_stream_line(line)` for each SSE line received. The adapter
+         updates internal accumulators and yields normalized events.
+      3. `record_assistant_turn(turn_text, tool_calls)` once a turn closes,
+         to push the assistant's response onto the messages history.
+      4. `record_tool_results(results)` after tools run, to push tool
+         results onto the messages history for the next request.
+    """
+
+    def __init__(
+        self,
+        *,
+        target: AssistantExecutionTarget,
+        settings: Settings,
+        user_settings: dict[str, str],
+        system_prompt: str,
+        conversation: list[dict[str, object]],
+        user_text: str,
+    ) -> None:
+        self.target = target
+        self.settings = settings
+        self.user_settings = user_settings
+        self.system_prompt = system_prompt
+        self.messages: list[dict[str, object]] = []
+        self._init_messages(conversation, user_text)
+
+    @abstractmethod
+    def _init_messages(self, conversation: list[dict[str, object]], user_text: str) -> None:
+        """Seed `self.messages` with prior conversation + the new user turn."""
+
+    @abstractmethod
+    def request_url(self) -> str: ...
+
+    @abstractmethod
+    def request_headers(self) -> dict[str, str]: ...
+
+    @abstractmethod
+    def request_body(self) -> dict[str, object]: ...
+
+    @abstractmethod
+    def reset_stream_state(self) -> None:
+        """Clear any per-stream accumulators before a new POST."""
+
+    @abstractmethod
+    def parse_stream_line(self, line: str) -> list[NormalizedStreamEvent]:
+        """Translate one SSE line into 0+ normalized events."""
+
+    @abstractmethod
+    def record_assistant_turn(
+        self, turn_text: str, tool_calls: list[StreamToolCall]
+    ) -> None:
+        """Append the just-finished assistant turn to `self.messages`."""
+
+    @abstractmethod
+    def record_tool_results(self, results: list[ToolResultPayload]) -> None:
+        """Append tool results to `self.messages` for the next request."""
+
+
+class OpenAIAdapter(ProviderAdapter):
+    """OpenAI Chat Completions API tool-use over SSE.
+
+    Streams `choices[0].delta.content` text chunks and incremental
+    `delta.tool_calls[i].function.arguments` JSON fragments. Tool calls
+    are emitted as `tool_call_complete` events when the chunk's
+    `finish_reason` arrives — at that point the accumulated arguments
+    are parsed.
+    """
+
+    def _init_messages(self, conversation: list[dict[str, object]], user_text: str) -> None:
+        self.messages.append({"role": "system", "content": self.system_prompt})
+        for message in conversation[-20:]:
+            role = str(message.get("role", "user"))
+            content = str(message.get("content_markdown", "")).strip()
+            if not content:
+                continue
+            self.messages.append(
+                {"role": "assistant" if role == "assistant" else "user", "content": content}
+            )
+        self.messages.append({"role": "user", "content": user_text})
+        self._tool_calls_acc: dict[int, dict[str, str]] = {}
+
+    def request_url(self) -> str:
+        return "https://api.openai.com/v1/chat/completions"
+
+    def request_headers(self) -> dict[str, str]:
+        api_key = resolve_direct_api_key(
+            "openai", settings=self.settings, user_settings=self.user_settings
+        )
+        return {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+    def request_body(self) -> dict[str, object]:
+        return {
+            "model": self.target.model,
+            "messages": self.messages,
+            "tools": openai_tools_schema(),
+            "tool_choice": "auto",
+            "temperature": 0.3,
+            "stream": True,
+        }
+
+    def reset_stream_state(self) -> None:
+        self._tool_calls_acc = {}
+
+    def parse_stream_line(self, line: str) -> list[NormalizedStreamEvent]:
+        if not line or not line.startswith("data: "):
+            return []
+        data_str = line[6:]
+        if data_str == "[DONE]":
+            # OpenAI's terminal sentinel — emit a non-terminal turn_done so
+            # the loop falls through to the post-stream tool-call check.
+            # Whether the turn is *actually* terminal depends on whether any
+            # tool calls accumulated; the loop decides.
+            return []
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+        choices = chunk.get("choices") or []
+        if not choices:
+            return []
+        choice = choices[0]
+        delta = choice.get("delta") or {}
+        events: list[NormalizedStreamEvent] = []
+        content_piece = delta.get("content")
+        if content_piece:
+            events.append(NormalizedStreamEvent(kind="text_delta", text=content_piece))
+        for tc_delta in delta.get("tool_calls") or []:
+            idx = tc_delta.get("index")
+            if idx is None:
+                continue
+            acc = self._tool_calls_acc.setdefault(
+                int(idx), {"id": "", "name": "", "arguments": ""}
+            )
+            if tc_delta.get("id"):
+                acc["id"] = str(tc_delta["id"])
+            fn_delta = tc_delta.get("function") or {}
+            if fn_delta.get("name"):
+                acc["name"] += str(fn_delta["name"])
+            if fn_delta.get("arguments"):
+                acc["arguments"] += str(fn_delta["arguments"])
+        finish_reason = choice.get("finish_reason")
+        if finish_reason:
+            # finish_reason="tool_calls" → tools to run; "stop" → terminal.
+            for idx in sorted(self._tool_calls_acc.keys()):
+                acc = self._tool_calls_acc[idx]
+                call_id = acc["id"] or f"call_{idx}"
+                name = acc["name"]
+                raw_args = acc["arguments"] or "{}"
+                try:
+                    args = json.loads(raw_args)
+                    if not isinstance(args, dict):
+                        args = {}
+                except json.JSONDecodeError:
+                    args = {}
+                events.append(
+                    NormalizedStreamEvent(
+                        kind="tool_call_complete",
+                        tool_call=StreamToolCall(id=call_id, name=name, args=args),
+                    )
+                )
+            events.append(
+                NormalizedStreamEvent(
+                    kind="turn_done",
+                    is_terminal=(str(finish_reason) == "stop"),
+                )
+            )
+        return events
+
+    def record_assistant_turn(
+        self, turn_text: str, tool_calls: list[StreamToolCall]
+    ) -> None:
+        if not tool_calls:
+            return
+        # Preserve OpenAI's expected assistant message shape for the next turn.
+        assistant_msg_tool_calls = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": json.dumps(call.args),
+                },
+            }
+            for call in tool_calls
+        ]
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": turn_text or None,
+                "tool_calls": assistant_msg_tool_calls,
+            }
+        )
+
+    def record_tool_results(self, results: list[ToolResultPayload]) -> None:
+        for payload in results:
+            self.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": payload.call_id,
+                    # `result.to_model_reply()` can contain `date` / `datetime`
+                    # objects (week_start, meal_date) from the week payload.
+                    # Plain `json.dumps` can't serialize those — route through
+                    # FastAPI's jsonable_encoder first.
+                    "content": json.dumps(jsonable_encoder(payload.result.to_model_reply())),
+                }
+            )
+
+
+class AnthropicAdapter(ProviderAdapter):
+    """Anthropic Messages API tool-use over SSE.
+
+    Anthropic streams events of distinct types (`message_start`,
+    `content_block_start`, `content_block_delta`, `content_block_stop`,
+    `message_delta`, `message_stop`). Tool calls arrive as `tool_use`
+    content blocks whose JSON arguments stream incrementally via
+    `input_json_delta` events; the adapter accumulates `input_json_acc`
+    per block and emits `tool_call_complete` on `content_block_stop`.
+    Turn termination arrives via `message_delta` with a `stop_reason`
+    of `end_turn` (terminal) or `tool_use` (tools pending).
+    """
+
+    def _init_messages(self, conversation: list[dict[str, object]], user_text: str) -> None:
+        # Anthropic carries the system prompt as a top-level request field,
+        # not as a message in the array. Skip seeding it into messages.
+        for message in conversation[-20:]:
+            role = str(message.get("role", "user"))
+            content = str(message.get("content_markdown", "")).strip()
+            if not content:
+                continue
+            self.messages.append(
+                {"role": "assistant" if role == "assistant" else "user", "content": content}
+            )
+        self.messages.append({"role": "user", "content": user_text})
+        self._active_blocks: dict[int, dict[str, object]] = {}
+        self._pending_event: str | None = None
+        self._pending_data_lines: list[str] = []
+
+    def request_url(self) -> str:
+        return "https://api.anthropic.com/v1/messages"
+
+    def request_headers(self) -> dict[str, str]:
+        api_key = resolve_direct_api_key(
+            "anthropic", settings=self.settings, user_settings=self.user_settings
+        )
+        return {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+    def request_body(self) -> dict[str, object]:
+        return {
+            "model": self.target.model,
+            "max_tokens": 1800,
+            "system": self.system_prompt,
+            "messages": self.messages,
+            "tools": anthropic_tools_schema(),
+            "stream": True,
+        }
+
+    def reset_stream_state(self) -> None:
+        self._active_blocks = {}
+        self._pending_event = None
+        self._pending_data_lines = []
+
+    def parse_stream_line(self, line: str) -> list[NormalizedStreamEvent]:
+        # Anthropic SSE: alternating `event: <name>` and `data: <json>` lines
+        # separated by blank lines. Accumulate until we have an event+data
+        # pair, then dispatch.
+        if line == "":
+            return self._dispatch_pending_event()
+        if line.startswith("event: "):
+            self._pending_event = line[7:].strip()
+            return []
+        if line.startswith("data: "):
+            self._pending_data_lines.append(line[6:])
+            return []
+        return []
+
+    def _dispatch_pending_event(self) -> list[NormalizedStreamEvent]:
+        event_name = self._pending_event
+        data_lines = self._pending_data_lines
+        self._pending_event = None
+        self._pending_data_lines = []
+        if event_name is None or not data_lines:
+            return []
+        data_str = "".join(data_lines)
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            return []
+
+        if event_name == "content_block_start":
+            block = data.get("content_block") or {}
+            index = data.get("index")
+            if isinstance(index, int) and isinstance(block, dict):
+                if block.get("type") == "tool_use":
+                    self._active_blocks[index] = {
+                        "type": "tool_use",
+                        "id": str(block.get("id") or ""),
+                        "name": str(block.get("name") or ""),
+                        "input_json_acc": "",
+                    }
+                elif block.get("type") == "text":
+                    self._active_blocks[index] = {"type": "text"}
+            return []
+
+        if event_name == "content_block_delta":
+            delta = data.get("delta") or {}
+            delta_type = delta.get("type")
+            index = data.get("index")
+            if delta_type == "text_delta":
+                text = str(delta.get("text") or "")
+                if text:
+                    return [NormalizedStreamEvent(kind="text_delta", text=text)]
+            elif delta_type == "input_json_delta" and isinstance(index, int):
+                block = self._active_blocks.get(index)
+                if block is not None and block.get("type") == "tool_use":
+                    block["input_json_acc"] = (
+                        str(block.get("input_json_acc") or "")
+                        + str(delta.get("partial_json") or "")
+                    )
+            return []
+
+        if event_name == "content_block_stop":
+            index = data.get("index")
+            if not isinstance(index, int):
+                return []
+            block = self._active_blocks.pop(index, None)
+            if block is None or block.get("type") != "tool_use":
+                return []
+            raw_args = str(block.get("input_json_acc") or "")
+            if not raw_args.strip():
+                args: dict[str, object] = {}
+            else:
+                try:
+                    parsed = json.loads(raw_args)
+                    args = parsed if isinstance(parsed, dict) else {}
+                except json.JSONDecodeError:
+                    args = {}
+            return [
+                NormalizedStreamEvent(
+                    kind="tool_call_complete",
+                    tool_call=StreamToolCall(
+                        id=str(block.get("id") or f"toolu_{index}"),
+                        name=str(block.get("name") or ""),
+                        args=args,
+                    ),
+                )
+            ]
+
+        if event_name == "message_delta":
+            delta = data.get("delta") or {}
+            stop_reason = str(delta.get("stop_reason") or "")
+            if stop_reason:
+                return [
+                    NormalizedStreamEvent(
+                        kind="turn_done",
+                        is_terminal=(stop_reason == "end_turn"),
+                    )
+                ]
+            return []
+
+        # message_start, message_stop, ping → no normalized event
+        return []
+
+    def record_assistant_turn(
+        self, turn_text: str, tool_calls: list[StreamToolCall]
+    ) -> None:
+        if not tool_calls and not turn_text:
+            return
+        content: list[dict[str, object]] = []
+        if turn_text:
+            content.append({"type": "text", "text": turn_text})
+        for call in tool_calls:
+            content.append(
+                {
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": call.args,
+                }
+            )
+        self.messages.append({"role": "assistant", "content": content})
+
+    def record_tool_results(self, results: list[ToolResultPayload]) -> None:
+        if not results:
+            return
+        # Anthropic packs all tool results into a single user-role message.
+        self.messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": payload.call_id,
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    jsonable_encoder(payload.result.to_model_reply())
+                                ),
+                            }
+                        ],
+                    }
+                    for payload in results
+                ],
+            }
+        )
+
+
+_PROVIDER_ADAPTERS: dict[str, type[ProviderAdapter]] = {
+    "openai": OpenAIAdapter,
+    "anthropic": AnthropicAdapter,
+}
+
+
+def _run_provider_tool_loop(
     *,
+    adapter: ProviderAdapter,
     target: AssistantExecutionTarget,
     settings: Settings,
-    user_settings: dict[str, str],
-    thread_title: str,
-    conversation: list[dict[str, object]],
-    request: AssistantRespondRequest,
-    attached_recipe: RecipePayload | None,
-    planning_context: str,
     tool_runner: ToolRunner,
     on_event: EventCallback | None,
     abort_event: threading.Event | None = None,
 ) -> AssistantTurnResult:
-    system_prompt = build_planning_system_prompt(
-        thread_title=thread_title, planning_context=planning_context
-    )
-    attached_note = ""
-    if attached_recipe is not None:
-        attached_note = (
-            "\nAttached recipe context:\n"
-            f"{json.dumps(attached_recipe.model_dump(mode='json'), indent=2)}\n"
-        )
-
-    messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
-    for message in conversation[-20:]:
-        role = str(message.get("role", "user"))
-        content = str(message.get("content_markdown", "")).strip()
-        if not content:
-            continue
-        messages.append({"role": "assistant" if role == "assistant" else "user", "content": content})
-    user_text = (request.text.strip() or "(empty message)") + attached_note
-    messages.append({"role": "user", "content": user_text})
-
     tool_transcript: list[dict[str, object]] = []
-    api_key = resolve_direct_api_key("openai", settings=settings, user_settings=user_settings)
     final_text: str | None = None
     raw_final = ""
+    accumulated_text = ""
+    cancelled = False
 
     def _emit(event: str, payload: dict[str, object]) -> None:
         if on_event is not None:
@@ -254,9 +716,6 @@ def _run_openai_tool_loop(
             except Exception:
                 logger.exception("Assistant event callback raised")
 
-    accumulated_text = ""
-    cancelled = False
-
     def _is_aborted() -> bool:
         return abort_event is not None and abort_event.is_set()
 
@@ -264,73 +723,33 @@ def _run_openai_tool_loop(
         if _is_aborted():
             cancelled = True
             break
-        # Stream tokens + tool_call deltas so the iOS client renders text as
-        # it arrives instead of waiting for the whole response to buffer.
+        adapter.reset_stream_state()
+        # Per-turn state captured into the loop body so abort+cleanup work.
         turn_text = ""
-        tool_calls_acc: dict[int, dict[str, str]] = {}
-        finish_reason = ""
+        completed_calls: list[StreamToolCall] = []
+        terminal = False
 
         with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
             with client.stream(
                 "POST",
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream",
-                },
-                json={
-                    "model": target.model,
-                    "messages": messages,
-                    "tools": openai_tools_schema(),
-                    "tool_choice": "auto",
-                    "temperature": 0.3,
-                    "stream": True,
-                },
+                adapter.request_url(),
+                headers=adapter.request_headers(),
+                json=adapter.request_body(),
             ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if _is_aborted():
                         cancelled = True
                         break
-                    if not line:
-                        continue
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
-                    content_piece = delta.get("content")
-                    if content_piece:
-                        turn_text += content_piece
-                        accumulated_text += content_piece
-                        _emit("assistant.delta", {"delta": content_piece})
-                    for tc_delta in delta.get("tool_calls") or []:
-                        idx = tc_delta.get("index")
-                        if idx is None:
-                            continue
-                        acc = tool_calls_acc.setdefault(
-                            int(idx),
-                            {"id": "", "name": "", "arguments": ""},
-                        )
-                        if tc_delta.get("id"):
-                            acc["id"] = str(tc_delta["id"])
-                        fn_delta = tc_delta.get("function") or {}
-                        if fn_delta.get("name"):
-                            acc["name"] += str(fn_delta["name"])
-                        if fn_delta.get("arguments"):
-                            acc["arguments"] += str(fn_delta["arguments"])
-                    if choice.get("finish_reason"):
-                        finish_reason = str(choice["finish_reason"])
+                    for ev in adapter.parse_stream_line(line):
+                        if ev.kind == "text_delta":
+                            turn_text += ev.text
+                            accumulated_text += ev.text
+                            _emit("assistant.delta", {"delta": ev.text})
+                        elif ev.kind == "tool_call_complete" and ev.tool_call is not None:
+                            completed_calls.append(ev.tool_call)
+                        elif ev.kind == "turn_done":
+                            terminal = ev.is_terminal
         if cancelled:
             break
 
@@ -338,78 +757,46 @@ def _run_openai_tool_loop(
         # approximated as the accumulated text + tool calls).
         raw_final = json.dumps(
             {
-                "finish_reason": finish_reason,
+                "terminal": terminal,
                 "content": turn_text,
                 "tool_calls": [
-                    {
-                        "index": idx,
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    }
-                    for idx, tc in sorted(tool_calls_acc.items())
+                    {"id": c.id, "name": c.name, "arguments": c.args}
+                    for c in completed_calls
                 ],
             }
         )
 
-        if not tool_calls_acc:
+        if not completed_calls:
             final_text = turn_text.strip()
             break
 
-        # Preserve OpenAI's expected assistant message shape for the next turn.
-        assistant_msg_tool_calls = [
-            {
-                "id": tool_calls_acc[idx]["id"] or f"call_{idx}",
-                "type": "function",
-                "function": {
-                    "name": tool_calls_acc[idx]["name"],
-                    "arguments": tool_calls_acc[idx]["arguments"] or "{}",
-                },
-            }
-            for idx in sorted(tool_calls_acc.keys())
-        ]
-        messages.append(
-            {
-                "role": "assistant",
-                "content": turn_text or None,
-                "tool_calls": assistant_msg_tool_calls,
-            }
-        )
+        adapter.record_assistant_turn(turn_text, completed_calls)
 
-        for idx in sorted(tool_calls_acc.keys()):
+        tool_results: list[ToolResultPayload] = []
+        for call in completed_calls:
             if _is_aborted():
                 cancelled = True
                 break
-            acc = tool_calls_acc[idx]
-            call_id = acc["id"] or str(uuid.uuid4())
-            name = acc["name"]
-            raw_args = acc["arguments"] or "{}"
-            try:
-                args = json.loads(raw_args)
-                if not isinstance(args, dict):
-                    args = {}
-            except json.JSONDecodeError:
-                args = {}
-
+            call_id = call.id or str(uuid.uuid4())
             started_at = datetime.now(timezone.utc).isoformat()
             _emit(
                 "assistant.tool_call",
                 {
                     "call_id": call_id,
-                    "name": name,
-                    "arguments": args,
+                    "name": call.name,
+                    "arguments": call.args,
                     "status": "running",
                     "started_at": started_at,
                 },
             )
 
-            result = tool_runner(name, args)
+            result = tool_runner(call.name, call.args)
 
             completed_at = datetime.now(timezone.utc).isoformat()
             tool_entry: dict[str, object] = {
                 "call_id": call_id,
-                "name": name,
-                "arguments": args,
+                "name": call.name,
+                "arguments": call.args,
                 "ok": result.ok,
                 "detail": result.detail,
                 "status": "completed" if result.ok else "failed",
@@ -422,21 +809,12 @@ def _run_openai_tool_loop(
             if result.week is not None:
                 _emit("week.updated", {"week": result.week})
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    # `result.to_model_reply()` can contain `date` / `datetime`
-                    # objects (week_start, meal_date) from the week payload.
-                    # Plain `json.dumps` can't serialize those — route through
-                    # FastAPI's jsonable_encoder first.
-                    "content": json.dumps(jsonable_encoder(result.to_model_reply())),
-                }
-            )
+            tool_results.append(ToolResultPayload(call_id=call_id, result=result))
 
         if cancelled:
             break
-        if finish_reason == "stop":
+        adapter.record_tool_results(tool_results)
+        if terminal:
             final_text = turn_text.strip()
             break
     else:
@@ -452,10 +830,12 @@ def _run_openai_tool_loop(
             else "I hit a tool-call limit before I could finish. Can you try again?"
         )
 
-    envelope = AssistantProviderEnvelope(assistant_markdown=final_text or ("Cancelled." if cancelled else "Done."))
+    envelope = AssistantProviderEnvelope(
+        assistant_markdown=final_text or ("Cancelled." if cancelled else "Done.")
+    )
     return AssistantTurnResult(
         target=target,
-        prompt=system_prompt,
+        prompt=adapter.system_prompt,
         raw_output=raw_final,
         envelope=envelope,
         provider_thread_id=None,

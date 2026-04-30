@@ -430,3 +430,22 @@ worker process/dyno, (3) in-process `AsyncIOScheduler`.
 - **In-memory de-duplication.** `_sent_today` dict keyed by `(kind, user_id, date_key)` prevents double-delivery
   during a single app run. A server restart within the same notification minute could re-fire once; acceptable at
   v1 volume. APNs `collapse-id` is the backstop on the device side.
+
+## 2026-04-30 - M19 assistant tool loop is provider-agnostic via a small adapter ABC
+
+**Context**: M6 shipped the assistant tool loop as `_run_openai_tool_loop`, hard-wired to OpenAI's Chat Completions API. Anthropic-direct planning threads silently fell back to envelope-JSON parsing — the same 11 tools never ran for Anthropic users, and `assistant.tool_call` / `week.updated` SSE events never fired. iOS was already provider-agnostic. The gap was purely backend.
+
+**Decision**:
+- **Abstract via a per-turn `ProviderAdapter` ABC**, not a Protocol. The adapter owns its `messages` list and per-stream accumulator state for one turn. Five abstract methods cover request shaping (`request_url`, `request_headers`, `request_body`), stream parsing (`parse_stream_line` returning normalized events + `reset_stream_state`), and message mutation (`record_assistant_turn`, `record_tool_results`). Two concrete adapters: `OpenAIAdapter` and `AnthropicAdapter`.
+- **`_run_provider_tool_loop` replaces `_run_openai_tool_loop`.** Outer control flow (max iterations, `abort_event`, throttled persistence, `on_event` emission, `tool_transcript`) is unchanged — only per-chunk parse + per-message shape calls flip to `adapter.*`.
+- **`NormalizedStreamEvent`** carries one of three kinds: `text_delta`, `tool_call_complete`, `turn_done` (with `is_terminal`). Both adapters emit the same vocabulary so the loop never sees provider-specific shapes. Critically, `tool_call_complete` is emitted only after the full args JSON is accumulated — the loop never deals with partial tool calls.
+- **OpenAI accumulates incrementally**; Anthropic streams `input_json_delta` chunks per `tool_use` block and assembles on `content_block_stop`. The adapter handles both internally.
+- **Dispatch lookup table** at `run_assistant_turn`: `_PROVIDER_ADAPTERS = {"openai": OpenAIAdapter, "anthropic": AnthropicAdapter}`. New providers (e.g. Mistral, Gemini text models) just add an adapter — no loop changes required.
+- **Anthropic API version stays at `2023-06-01`.** Tool-use is supported on this header value; no migration needed. The same version was already used by the existing envelope path.
+- **Envelope-JSON path kept** for non-planning threads (`use_tools=False`). Cooking-help and general chat still parse a JSON envelope; only planning threads with tool-runner enabled go through the adapter loop.
+- **Tests parallel the OpenAI path.** Six new Anthropic tests: tool invocation, multi-turn tool result loop-back, text-only delta cadence, two dispatch routing tests (Anthropic + OpenAI regression guard), and an import sanity check. `test_abort_event_cancels_tool_loop_mid_stream` was updated to construct an `OpenAIAdapter` and call `_run_provider_tool_loop` directly.
+
+**Trade-offs accepted**:
+- One adapter instance per turn. Cheap (no I/O on construction) and avoids state sharing bugs across concurrent turns.
+- The adapter doesn't expose tool deltas to iOS — only completed tool calls. iOS today renders only completed cards, so no UX loss. If we ever want to show "Tool building..." with streaming args, that's a future event-type addition, not an architectural change.
+- No `anthropic` SDK dependency. Raw httpx mirrors the existing OpenAI path's style and keeps the adapter visible. The SDK would shave ~30 lines but adds a dep for marginal value.
