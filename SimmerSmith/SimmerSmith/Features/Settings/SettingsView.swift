@@ -175,6 +175,8 @@ struct SettingsView: View {
                 }
             }
 
+            NotificationsSection()
+
             Section("Templates") {
                 LabeledContent("Recipe templates") {
                     Text("\(appState.recipeTemplateCount)")
@@ -541,6 +543,70 @@ struct SettingsView: View {
         } catch {
             imageBackfillToast = "Backfill failed: \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - Notifications Section (M18)
+
+private struct NotificationsSection: View {
+    @Environment(AppState.self) private var appState
+
+    // Local date state mirrors the profile string. Initialised lazily.
+    @State private var tonightsMealDate: Date = NotificationsSection.dateFromTimeString("17:00")
+    @State private var saturdayPlanDate: Date = NotificationsSection.dateFromTimeString("18:00")
+    @State private var didInitDates = false
+
+    var body: some View {
+        Section {
+            Toggle("Tonight's meal", isOn: Binding(
+                get: { appState.pushTonightsMealEnabled },
+                set: { newValue in
+                    Task { await appState.savePushPreference("push_tonights_meal", enabled: newValue) }
+                }
+            ))
+
+            if appState.pushTonightsMealEnabled {
+                DatePicker("Delivery time", selection: $tonightsMealDate, displayedComponents: .hourAndMinute)
+                    .onChange(of: tonightsMealDate) { _, newDate in
+                        Task { await appState.savePushTime("push_tonights_meal_time", date: newDate) }
+                    }
+            }
+
+            Toggle("Saturday plan reminder", isOn: Binding(
+                get: { appState.pushSaturdayPlanEnabled },
+                set: { newValue in
+                    Task { await appState.savePushPreference("push_saturday_plan", enabled: newValue) }
+                }
+            ))
+
+            if appState.pushSaturdayPlanEnabled {
+                DatePicker("Delivery time", selection: $saturdayPlanDate, displayedComponents: .hourAndMinute)
+                    .onChange(of: saturdayPlanDate) { _, newDate in
+                        Task { await appState.savePushTime("push_saturday_plan_time", date: newDate) }
+                    }
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("On by default — toggle off to silence. We send push only at the times you set. Quiet hours: never between 22:00–07:00 local. If you previously denied notifications, enable them in iOS Settings \u{2192} Notifications \u{2192} SimmerSmith.")
+                .font(.footnote)
+        }
+        .onAppear {
+            guard !didInitDates else { return }
+            didInitDates = true
+            tonightsMealDate = NotificationsSection.dateFromTimeString(appState.pushTonightsMealTime)
+            saturdayPlanDate = NotificationsSection.dateFromTimeString(appState.pushSaturdayPlanTime)
+        }
+    }
+
+    /// Parse "HH:mm" into a `Date` using today's calendar (only HH:mm components matter for DatePicker).
+    static func dateFromTimeString(_ s: String) -> Date {
+        let parts = s.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return Date() }
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        comps.hour = parts[0]
+        comps.minute = parts[1]
+        return Calendar.current.date(from: comps) ?? Date()
     }
 }
 

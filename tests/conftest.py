@@ -16,6 +16,8 @@ TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="simmersmith-tests-"))
 TEST_DB_PATH = TEST_DATA_DIR / "meals.db"
 os.environ["SIMMERSMITH_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 os.environ["SIMMERSMITH_STORAGE_SECRET"] = "test-secret"
+# Disable the push scheduler so APScheduler does not spawn during pytest
+os.environ["SIMMERSMITH_PUSH_SCHEDULER_ENABLED"] = "false"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))

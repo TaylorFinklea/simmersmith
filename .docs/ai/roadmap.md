@@ -12,11 +12,14 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 
 Active items. Trim as completed.
 
-### Now (M17 dogfooding)
+### Now (M18 ship)
 
-M17 is shipped end-to-end: Fly deploy is live and TestFlight build 27 is uploaded. Remaining items are on-device validation.
+M18 Phases 1–4 are complete (backend + iOS + 18 new tests). Fly secrets for APNs are set (`AuthKey_46NXHV5UB8.p8` from the existing Apple Developer "SimmerSmith Prod" key, which has both APNs and Sign In with Apple enabled). Two operational steps remain:
 
-- End-to-end smoke test on a real device (build 27): Settings → Recipe images → Picker shows "OpenAI" on fresh install; save new recipe → AI image renders in OpenAI's photographic style. Switch to "Gemini" → save another → image renders in Gemini's style. Open an existing OpenAI-rendered recipe → toolbar `…` → Regenerate → flips to Gemini. Switch back to "OpenAI" → regenerate → flips back. "Generate missing images" backfill uses the selected provider. "Use my own photo" still works on either provider. Sign out/in on a fresh account → Picker defaults to "OpenAI".
+- `fly deploy` — push the M18 backend image (currently Fly is still running M17 / version 56).
+- `./scripts/release-ios.sh` — cut TestFlight build 28 (project.yml already at 28).
+
+Then on-device validation: install build 28 → sign in → permission prompt fires automatically (default-on) → accept → `POST /push/test` smoke test from laptop → wait for the 17:00 local "tonight's meal" tick.
 
 ### Awaiting User / External
 - TestFlight build 26 dogfooding feedback (wife's iPhone).
@@ -24,23 +27,23 @@ M17 is shipped end-to-end: Fly deploy is live and TestFlight build 27 is uploade
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Recommended Next Milestone (pick one for M18)
+### Next (M19 candidates)
+- **Image-gen cost telemetry** (M17.1) — per-call usage rows + Settings rollup. Spec at `.docs/ai/phases/image-cost-telemetry-spec.md`. Haiku-tier implementation.
 - **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
-- **Push notifications (APNs)** — backend → device for "Tonight's meal is X", "You have a Saturday plan to confirm", etc.
 - **Household sharing** tied to a Pro seat.
 
 ### Soon
-- Anthropic web search support for the recipe finder (Messages API `web_search_20250305` tool — currently OpenAI-only).
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
 - Instacart "shop now" affiliate integration (M2 secondary).
 - Spoonacular estimated pricing fallback (M2 secondary).
 
 ### Later
-- Household sharing tied to a Pro seat.
-- Remote push notifications (APNs).
-- Cost telemetry: per-provider image-gen counts (M17 follow-up — only if dogfooding shows we need it).
+- Cost telemetry: per-provider image-gen counts (M17 follow-up — spec written; Haiku-tier when we want it).
 - Provider-aware prompt tuning if Gemini benefits from a different prompt shape (M17 follow-up).
 - Image-gen failover (OpenAI 5xx → retry once via Gemini) — saved for if dogfooding demands it.
+- Cook-mode timer-end push, AI-finished-thinking push (M18 follow-ups).
+- Per-user push quiet-hours customization (M18 ships a hard 22:00–07:00 window).
+- Multi-machine push scheduler safety (Postgres advisory lock) — only if we scale past one Fly machine.
 
 ### Deferred (M7 Phases 5 + 6)
 - Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop` into a provider-agnostic adapter.
@@ -415,6 +418,34 @@ recipe accrues family history across cooks.
       `PhotosPicker` row with the same 2048px / JPEG 0.8 ceiling
       `CookCheckSheet` uses; rows render a 60×60 thumbnail when a
       photo exists; tap → full-screen viewer.
+
+## M18: Push notifications (APNs) (Phases 1-4 complete; awaiting deploy + TestFlight 28)
+
+> Spec: `.docs/ai/phases/push-notifications-spec.md`
+
+Backend → device pushes for "tonight's meal is X" (daily, 17:00 local
+default) and "you have a Saturday plan to confirm" (Friday 18:00 local
+default, only when next week is still draft). Both default ON; the
+APNs permission prompt fires automatically once after first sign-in.
+
+- [x] Phase 1 — Backend device registration + APNs sender. `aioapns`
+      dep, `push_devices` table (Alembic 0025), `app/services/push_apns.py`,
+      `POST/DELETE /api/push/devices`, admin `POST /api/push/test`.
+      Token-based APNs auth (`.p8` key shared with Sign In with Apple).
+- [x] Phase 2 — Backend scheduler. `apscheduler` dep, in-process
+      `AsyncIOScheduler` boots in lifespan when configured. Two interval
+      jobs at 5-min cadence: `_tick_tonights_meal` and
+      `_tick_saturday_plan`. ZoneInfo-driven local-time matching, hard
+      22:00–07:00 quiet-hours skip, in-memory `_sent_today` de-dup.
+- [x] Phase 3 — iOS registration + Settings toggles. `PushService`,
+      `SimmerSmithAppDelegate`, `AppState+Push.swift`, `NotificationsSection`
+      in Settings. `ensurePushBootstrap()` auto-prompts after first
+      profile hydration when toggles read enabled.
+- [x] Phase 4 — Tests + verification. 18 new tests in `tests/test_push.py`
+      including default-on semantics, quiet-hours, toggle-off,
+      Saturday-skip-when-confirmed.
+- [ ] Phase 5 — Production cutover. `fly secrets set` (done) →
+      `fly deploy` → `./scripts/release-ios.sh` → on-device validation.
 
 ## Backlog
 

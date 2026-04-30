@@ -435,6 +435,30 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         let _: EmptyResponse = try await request(path: "/api/profile/dietary-goal", method: "DELETE")
     }
 
+    // MARK: - Push Notifications (M18)
+
+    /// Register or refresh a device token for push notifications.
+    public func registerPushDevice(token: String, environment: String, bundleID: String) async throws {
+        struct Body: Encodable {
+            let deviceToken: String
+            let environment: String
+            let bundleId: String
+        }
+        let _: EmptyResponse = try await request(
+            path: "/api/push/devices",
+            method: "POST",
+            body: Body(deviceToken: token, environment: environment, bundleId: bundleID)
+        )
+    }
+
+    /// Soft-disable a device token (call on sign-out).
+    public func unregisterPushDevice(token: String) async throws {
+        let _: EmptyResponse = try await request(
+            path: "/api/push/devices/\(token)",
+            method: "DELETE"
+        )
+    }
+
     // MARK: - Subscriptions (StoreKit 2)
 
     public func verifySubscriptionTransaction(signedJWS: String) async throws -> SubscriptionStatus {

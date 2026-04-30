@@ -8,98 +8,84 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-26
+**Date**: 2026-04-30
 
-Shipped **M13 Cooking Mode** in four phases on dev. Build is queued
-at `CURRENT_PROJECT_VERSION 17` but **NOT yet uploaded to TestFlight**.
-M13 is iOS-only — no backend changes — so no Fly deploy is needed.
+Shipped **M18 Push Notifications (Phases 1-4)** — APNs device registration,
+scheduler, iOS registration + Settings toggles, and 18 backend tests.
+Both notification types **default ON**: AppState fires the APNs permission
+prompt automatically once after first sign-in. Phase 5 unlocked mid-session
+when the user confirmed the existing `SimmerSmith Prod` Apple Developer key
+(`AuthKey_46NXHV5UB8.p8`, already in repo root, gitignored) covers APNs in
+addition to Sign In with Apple. User ran `fly secrets set` for all four
+`SIMMERSMITH_APNS_*` vars; `fly deploy` + TestFlight build 28 cut are the
+only steps remaining.
 
-M11 (Photo-First AI) and M12 (Quick AI Wins) shipped in earlier
-sessions. M13 builds on top of M11's `cook_check` chip and the
-existing assistant launch context to give the user a hands-free,
-big-text, screen-awake cook flow.
+### What landed this session (M18, Phases 1-4)
 
-### What landed this session (M13)
+**Backend**
+- `pyproject.toml` — added `aioapns>=3.2`, `apscheduler>=3.10`
+- `app/config.py` — added 6 APNs/scheduler settings
+- `app/models/push.py` (new) — `PushDevice` SQLAlchemy model
+- `app/models/__init__.py` — exported `PushDevice`
+- `alembic/versions/20260430_0025_push_devices.py` (new) — `push_devices` table
+- `app/services/push_apns.py` (new) — `APNsSender`, `send_push`, `is_apns_configured`
+- `app/services/push_scheduler.py` (new) — `start_scheduler`, `_tick_tonights_meal`,
+  `_tick_saturday_plan` with injected `now_local` callable for tests
+- `app/services/bootstrap.py` — added 4 push default rows to `DEFAULT_PROFILE_SETTINGS`
+- `app/services/ai.py` — added `apns_device_token` to `AI_SECRET_KEYS`
+- `app/api/push.py` (new) — `POST /push/devices`, `DELETE /push/devices/{token}`,
+  `POST /push/test`
+- `app/main.py` — wired push router + scheduler lifespan
 
-**Phase 1 — Cooking Mode skeleton (commit `303482c`)**
-- New `Features/Cooking/CookingModeView.swift` — full-screen
-  `.fullScreenCover`, big-text serif step text, top progress bar,
-  prev / next / ask-assistant / exit buttons, wake-lock via
-  `UIApplication.isIdleTimerDisabled`. Long-press step text →
-  existing M11 `CookCheckSheet`.
-- `RecipeDetailView` gains a frying-pan toolbar button + a prominent
-  "Start cooking" button at the bottom of the steps section. Both
-  present `CookingModeView(recipeID:)`.
+**Tests** (`tests/test_push.py`, +18)
+- Device register/upsert/unregister round-trips
+- `send_push` honours `disabled_at`, marks 410 Unregistered
+- Scheduler fires at matching time, skips outside window, respects quiet hours
+- Toggle-off (`value=='0'`) suppresses push
+- Default-on semantics (no rows = enabled)
+- Saturday tick skips approved week, fires for draft/no-week
 
-**Phase 2 — TTS step readout (commit `4c5c3d0`)**
-- New `Services/SpokenStepService.swift` — `@Observable`,
-  `AVSpeechSynthesizer` wrapper. Mute pref persists via UserDefaults
-  (`cooking.tts.muted`). Activates AVAudioSession with `.playback`
-  / `.spokenAudio` / `.duckOthers` so background music ducks during
-  speech.
-- `CookingModeView` reads the current step on entry and on every
-  `stepIndex` change. Mute toggle in the top bar (`speaker.wave.2.fill`
-  / `speaker.slash.fill`).
+**iOS**
+- `SimmerSmith/SimmerSmith/Services/PushService.swift` (new) — APNs registration + notification dispatch
+- `SimmerSmith/SimmerSmith/App/SimmerSmithAppDelegate.swift` (new) — UIApplicationDelegate adapter
+- `SimmerSmith/SimmerSmith/App/SimmerSmithApp.swift` — `@UIApplicationDelegateAdaptor`
+- `SimmerSmith/SimmerSmith/App/AppState+Push.swift` (new) — push drafts + `savePushPreference` + `ensurePushBootstrap`
+- `SimmerSmith/SimmerSmith/App/AppState.swift` — wired `ensurePushBootstrap()` after `syncImageProviderDraft`
+- `SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift` — `NotificationsSection` added
+- `SimmerSmith/project.yml` — `CURRENT_PROJECT_VERSION` 27 → 28
+- `SimmerSmithKit/.../API/SimmerSmithAPIClient.swift` — `registerPushDevice` + `unregisterPushDevice`
 
-**Phase 3 — Voice commands (commit `c8fd246`)**
-- New `Services/VoiceCommandService.swift` — `@Observable`, on-device
-  `SFSpeechRecognizer` + `AVAudioEngine` continuous tap. Recognizes
-  next / next step / previous / back / go back / repeat / again /
-  stop / pause / exit. Auto-restarts the recognition request every
-  ~50 seconds (and after every keyword) to dodge the ~1-minute audio
-  buffer limit. Exposes `AsyncStream<VoiceCommand>`.
-- Permission helpers for `SFSpeechRecognizer` + `AVAudioApplication`.
-- `CookingModeView` mic toggle, live-caption pill showing the running
-  transcript, `.task` consumer for the command stream, "Stop cooking?"
-  confirmation alert when "stop" is heard.
-- `Info.plist` adds `NSMicrophoneUsageDescription` and
-  `NSSpeechRecognitionUsageDescription`.
+**Infra**
+- `tests/conftest.py` — `SIMMERSMITH_PUSH_SCHEDULER_ENABLED=false` so APScheduler never spawns in pytest
 
-**Phase 4 — Manual quick timers + per-step polish (commit pending)**
-- New `Features/Cooking/CookingTimerChip.swift` — 5/10/15/20/Custom
-  pill row with concurrent countdowns. At 0:00: warning haptic +
-  TTS announces "Timer done." (no audio asset needed). 5-second
-  "Timer done" pill before auto-clearing.
-- "Check it" button promoted to a visible chip beside the timer row.
-- Final-step "Done" calls `onCompleted` on dismiss; `RecipeDetailView`
-  shows a "Nicely done." toast via the existing `preferenceToast`
-  overlay.
-- `project.yml` `CURRENT_PROJECT_VERSION` 16 → 17.
+### Production state (mid-session)
 
-### Production state
-
-- **URL**: https://simmersmith.fly.dev (healthy; current = M12 — no
-  M13 backend work, so still aligned).
-- **TestFlight**: build 16 (M12). Build 17 archived locally is
-  **NOT** yet uploaded — pending user-confirmed action.
+- **Fly secrets**: All four `SIMMERSMITH_APNS_*` vars set this session
+  (`TEAM_ID=K7CBQW6MPG`, `KEY_ID=46NXHV5UB8`, `PRIVATE_KEY_PEM` from the
+  existing `AuthKey_46NXHV5UB8.p8`, `TOPIC=app.simmersmith.ios`). Fly
+  redeployed the existing image; the new push routes activate after the
+  next `fly deploy`.
+- **Backend image deployed**: still M17 build (Fly version 56). M18 push
+  routes are committed locally; deploy pending.
+- **TestFlight**: build 27 (M17) is the live build. Build 28 cut pending.
 
 ### Build status
 
-- Backend: pytest 180/180 pass (no changes; reconfirmed)
-- Swift tests: 26/26 pass
-- iOS build: green on `generic/platform=iOS Simulator`
-- Fly production: healthy (M12, unchanged)
-- TestFlight: STALE wrt M13 (build 17 not yet uploaded)
+- Backend: pytest 215/215 pass (18 new). ruff clean on all new files.
+- Swift tests: 26/26 pass.
+- iOS build: green on `generic/platform=iOS Simulator`.
 
-## Files Changed (this session)
+### Previous session
 
-iOS (new):
-- `SimmerSmith/SimmerSmith/Features/Cooking/CookingModeView.swift`
-- `SimmerSmith/SimmerSmith/Features/Cooking/CookingTimerChip.swift`
-- `SimmerSmith/SimmerSmith/Services/SpokenStepService.swift`
-- `SimmerSmith/SimmerSmith/Services/VoiceCommandService.swift`
+M17 (Gemini-direct image-gen per-user toggle) shipped end-to-end —
+backend deployed + TestFlight 27 uploaded. Detail in commit `51d6120`
+and the 2026-04-29 ADR in `decisions.md`.
 
-iOS (extended):
-- `SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift`
-  (toolbar pan-icon button, "Start cooking" bottom button,
-  `.fullScreenCover`, completion-toast helper)
-- `SimmerSmith/SimmerSmith/Info.plist`
-  (mic + speech-recognition usage descriptions)
-- `SimmerSmith/project.yml`
-  (`CURRENT_PROJECT_VERSION` 16 → 17)
+## Blockers
 
-Docs:
-- `.docs/ai/roadmap.md` — M12 marked shipped; M13 added + marked complete on dev
-- `.docs/ai/current-state.md` — this file
-- `.docs/ai/next-steps.md` — refreshed for build 17 upload
-- `.docs/ai/decisions.md` — appended ADR on on-device-only voice + manual timers
+Two operational steps remain before M18 is live on TestFlight:
+1. `fly deploy` from this branch to push the M18 backend image.
+2. `./scripts/release-ios.sh` to cut TestFlight build 28 (project.yml
+   already bumped to `CURRENT_PROJECT_VERSION=28`).
+
+Both are user-driven per repo policy.

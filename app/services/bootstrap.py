@@ -44,6 +44,11 @@ DEFAULT_PROFILE_SETTINGS = {
     "walmart_store_id": "",
     "ai_provider_mode": "auto",
     "ai_direct_provider": "",
+    # Push notification defaults (M18). Both on by default.
+    "push_tonights_meal": "1",
+    "push_saturday_plan": "1",
+    "push_tonights_meal_time": "17:00",
+    "push_saturday_plan_time": "18:00",
 }
 
 DEFAULT_STAPLES = [

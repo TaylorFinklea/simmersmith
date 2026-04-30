@@ -220,6 +220,8 @@ final class AppState {
             syncAIDrafts(from: profile)
             syncRegionDraft(from: profile)
             syncImageProviderDraft(from: profile)
+            // Push drafts are derived from profile.settings — no extra sync needed;
+            // ensurePushBootstrap() is called in refreshAll() after network hydration.
         }
         currentWeek = cacheStore.loadCurrentWeek()
         recipes = cacheStore.loadRecipes()
@@ -312,6 +314,9 @@ final class AppState {
             syncRegionDraft(from: fetchedProfile)
             syncImageProviderDraft(from: fetchedProfile)
             currentWeek = fetchedWeek
+            // Best-effort: fire the APNs permission prompt once on first launch after sign-in.
+            // A failure here must never crash bootstrap.
+            await ensurePushBootstrap()
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
                     .filter { cacheStore.isChecked(groceryItemID: $0.groceryItemId) }

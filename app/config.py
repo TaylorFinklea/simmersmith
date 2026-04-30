@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     apple_iap_issuer_id: str = ""
     apple_iap_private_key_pem: str = ""
 
+    # APNs push notifications (M18)
+    # Set these via `fly secrets set` for production delivery.
+    # Leave empty locally — the scheduler and sender skip gracefully.
+    apns_team_id: str = ""
+    apns_key_id: str = ""
+    apns_private_key_pem: str = ""   # multi-line .p8 contents
+    apns_topic: str = ""             # bundle_id; defaults to apple_bundle_id when empty
+    apns_default_environment: str = "sandbox"  # "sandbox" | "production"
+    push_scheduler_enabled: bool = True
+    push_scheduler_tick_seconds: int = 300  # 5 min resolution
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

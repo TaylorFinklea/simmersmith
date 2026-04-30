@@ -384,3 +384,49 @@ This is a concise running ADR log. Add a new entry when a decision changes imple
 - **No backend changes.** M13 is iOS-only. The existing `POST /api/recipes/{id}/cook-check` route and `beginAssistantLaunch(...)` cover everything cook mode needs.
 
 This keeps the milestone shippable in a single iOS-side push and avoids a Fly deploy in the same release as TestFlight build 17.
+
+## 2026-04-29 - M17 image-gen provider toggle is per-user and stored in profile_settings
+
+**Context**: M14/M16 ship recipe images via OpenAI's `gpt-image-1`. Adding the planned Gemini-direct alternative needed a way to pick between providers. Three options were on the table: a single global setting flipped via Fly secret, per-user choice, or auto-failover. The user picked per-user toggle.
+
+**Decision**:
+- **Per-user via `profile_settings`.** `image_provider` is a row in the existing key/value `profile_settings` table — same pattern `user_region` (M12 Phase 3) uses. No Alembic migration. The cost is loose typing (any string can land in there); `_resolve_provider` whitelists `openai|gemini` and falls back to the global default for anything else, so a stale or malformed value is safe.
+- **Global default stays OpenAI.** `settings.ai_image_provider = "openai"` so existing users see no behavior change on upgrade. Each user opts into Gemini via Settings → Recipe images → Picker.
+- **Shared prompt across providers.** `_build_prompt` is reused by both `_generate_via_openai` and `_generate_via_gemini`. Variety is provider-driven (different model, different aesthetic), not prompt-driven. If dogfooding shows Gemini benefits from a different shape, we'll split.
+- **Backward-compatible service signatures.** `is_image_gen_configured` and `generate_recipe_image` gained a keyword-only `user_settings: dict[str, str] | None = None` param. Existing tests that patch `app.api.recipes.generate_recipe_image` keep working unchanged because dispatch happens *inside* that function — the mocks intercept before `_resolve_provider` ever runs. New tests target `_generate_via_openai` / `_generate_via_gemini` directly.
+- **Lossy provenance.** `recipe_images.prompt` stores the same auto-built prompt regardless of provider. We don't track which provider rendered which image. Adding a `provider` column would buy debug clarity at the cost of a migration; deferred until cost telemetry actually wants it.
+- **No auto-failover.** If a provider 5xxs, the existing best-effort try/except just skips image gen for that save (gradient fallback) or 502s the regenerate route. Auto-failover (OpenAI fail → retry on Gemini) is on the M17+ list but introduces non-obvious behavior — when an image looks "off", you can no longer assume which provider drew it. Saved for if dogfooding demands it.
+
+## 2026-04-29 - TestFlight uploads use the App Store Connect API key, not Xcode-account auth
+
+**Context**: Build 26 uploaded fine via `xcodebuild -exportArchive` against `ExportOptions.plist`. A few hours later the same command failed for build 27 with "Failed to find an account with App Store Connect access." Diagnosis: `ExportOptions.plist` has no `authenticationKey*` entries, so `xcodebuild` falls through to the Xcode GUI account flow — which is not durable across non-interactive shell sessions and silently expires. The 2026-04-03 ADR ("upload depends on separate ASC credentials") flagged this risk but never produced a path forward; meanwhile three `AuthKey_*.p8` API keys had been dropped in the repo root and gitignored, but were never wired into the upload command.
+
+**Decision**:
+- **Always use the API key.** New `scripts/release-ios.sh` runs the canonical archive → export → upload flow with `-authenticationKeyPath`, `-authenticationKeyID`, and `-authenticationKeyIssuerID` flags. No more reliance on the Xcode-account session.
+- **Credentials live in `.release-ios.env`** (gitignored, repo root). Two values: `IOS_RELEASE_KEY_ID` (matches the `AuthKey_<ID>.p8` filename) and `IOS_RELEASE_ISSUER_ID` (UUID from App Store Connect → Users and Access → Integrations). The script sources the file; required vars cause a fail-fast exit if missing. We pair the issuer ID with the .p8 in the same gitignored bucket because either one alone is useless — keeping them adjacent matches the operational reality.
+- **Build number flows from `project.yml`.** The script reads `CURRENT_PROJECT_VERSION` so `/tmp/SimmerSmith-build${BUILD}.xcarchive` is automatic. Bumping the build is still a manual `project.yml` edit (matches existing milestone cadence), but the script picks it up.
+- **Why a script instead of fixing `ExportOptions.plist`.** The plist *can* embed `authenticationKeyPath` etc., but those values are then committed to git. A wrapper script keeps the credentials out of the plist and gives one place to add future steps (e.g. a release-notes CHANGELOG bump, a Slack ping, etc.).
+
+This closes out the open ADR from 2026-04-03 and unblocks future TestFlight cuts from any shell.
+
+## 2026-04-30 - M18 push scheduler runs in-process on the FastAPI app (APScheduler)
+
+**Context**: M18 needs a background job that fires every 5 minutes to check whether any user's
+notification window has arrived. Three options: (1) Fly cron + `fly machines run`, (2) a separate
+worker process/dyno, (3) in-process `AsyncIOScheduler`.
+
+**Decision**:
+- **APScheduler in-process.** Single Fly machine (`shared-cpu-1x`), single scheduler. The scheduler boots in
+  the FastAPI lifespan context alongside the existing migrations/seed hooks and shuts down cleanly on app stop.
+- **Disabled by default in tests.** `SIMMERSMITH_PUSH_SCHEDULER_ENABLED=false` in `tests/conftest.py` ensures
+  pytest never spawns an APScheduler thread. The config field defaults to `true` so production needs no
+  explicit opt-in.
+- **Disabled when APNs is unconfigured.** `start_scheduler` returns `None` when any of the three required
+  APNs secrets is empty. Dev + CI environments without the key never run the scheduler.
+- **Scale-out caveat.** If the app ever scales to 2+ Fly machines, both schedulers would fire for the same users,
+  potentially double-delivering (collapse-id handles the APNs side, but server-side duplicate delivery is possible).
+  The right fix is a Postgres advisory lock or `fly machines run` cron. Documented here as a known v1 limit;
+  record in `next-steps.md` to revisit if we scale beyond one machine.
+- **In-memory de-duplication.** `_sent_today` dict keyed by `(kind, user_id, date_key)` prevents double-delivery
+  during a single app run. A server restart within the same notification minute could re-fire once; acceptable at
+  v1 volume. APNs `collapse-id` is the backstop on the device side.

@@ -6,6 +6,8 @@ import SimmerSmithKit
 
 @main
 struct SimmerSmithApp: App {
+    @UIApplicationDelegateAdaptor(SimmerSmithAppDelegate.self) private var appDelegate
+
     let modelContainer: ModelContainer
 
     @State private var appState: AppState
@@ -32,6 +34,8 @@ struct SimmerSmithApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     appState.loadCachedData()
+                    // Wire delegate so it can route tap-on-notification to the right tab.
+                    appDelegate.appState = appState
                     // Silently restore any previous Google Sign-In session so
                     // subsequent API calls made through GIDSignIn (profile
                     // info, token refresh) pick up without requiring the user

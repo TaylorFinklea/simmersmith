@@ -16,7 +16,9 @@ PROVIDER_PROFILE_API_KEY_KEYS = {
     "openai": "ai_openai_api_key",
     "anthropic": "ai_anthropic_api_key",
 }
-AI_SECRET_KEYS = {LEGACY_DIRECT_API_KEY, *PROVIDER_PROFILE_API_KEY_KEYS.values()}
+# apns_device_token is stored in push_devices, not profile_settings, but defense-
+# in-depth: if someone ever writes a key here it shouldn't leak through GET /api/profile.
+AI_SECRET_KEYS = {LEGACY_DIRECT_API_KEY, "apns_device_token", *PROVIDER_PROFILE_API_KEY_KEYS.values()}
 SUPPORTED_DIRECT_PROVIDERS = ("openai", "anthropic")
 
 

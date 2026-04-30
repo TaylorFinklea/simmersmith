@@ -19,6 +19,7 @@ from app.models.event import (
     Guest,
 )
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
+from app.models.push import PushDevice
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.recipe_image import RecipeImage
 from app.models.recipe_memory import RecipeMemory
@@ -61,6 +62,7 @@ __all__ = [
     "PreferenceSignal",
     "PricingRun",
     "ProfileSetting",
+    "PushDevice",
     "Recipe",
     "RecipeImage",
     "RecipeIngredient",

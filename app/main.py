@@ -16,6 +16,7 @@ from app.api.ingredients import router as ingredients_router
 from app.api.preferences import router as preferences_router
 from app.api.products import router as products_router
 from app.api.profile import router as profile_router
+from app.api.push import router as push_router
 from app.api.recipe_images import router as recipe_images_router
 from app.api.recipe_memories import router as recipe_memories_router
 from app.api.recipes import router as recipes_router
@@ -28,6 +29,7 @@ from app.config import get_settings
 from app.db import session_scope
 from app.schemas import HealthResponse
 from app.services.bootstrap import run_migrations, seed_defaults
+from app.services.push_scheduler import start_scheduler
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,10 @@ async def lifespan(_: FastAPI):
             "No authentication configured — API is open. Set SIMMERSMITH_JWT_SECRET "
             "(production) or SIMMERSMITH_API_TOKEN (dev) before exposing to a network."
         )
+    scheduler = start_scheduler(settings) if settings.push_scheduler_enabled else None
     yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
@@ -62,6 +67,7 @@ app.include_router(ingredients_router, dependencies=protected_dependencies)
 app.include_router(ingredient_preferences_router, dependencies=protected_dependencies)
 app.include_router(products_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
+app.include_router(push_router, dependencies=protected_dependencies)
 app.include_router(recipe_images_router, dependencies=protected_dependencies)
 app.include_router(recipe_memories_router, dependencies=protected_dependencies)
 app.include_router(recipes_router, dependencies=protected_dependencies)
