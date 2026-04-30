@@ -8,6 +8,47 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 
 **Design direction**: Rich & dark editorial aesthetic with AI as a prominent floating action. Week, Recipes, and Assistant are the three core tabs.
 
+## Now / Next / Later
+
+Active items. Trim as completed.
+
+### Now (M17 dogfooding)
+
+M17 is shipped end-to-end: Fly deploy is live and TestFlight build 27 is uploaded. Remaining items are on-device validation.
+
+- End-to-end smoke test on a real device (build 27): Settings → Recipe images → Picker shows "OpenAI" on fresh install; save new recipe → AI image renders in OpenAI's photographic style. Switch to "Gemini" → save another → image renders in Gemini's style. Open an existing OpenAI-rendered recipe → toolbar `…` → Regenerate → flips to Gemini. Switch back to "OpenAI" → regenerate → flips back. "Generate missing images" backfill uses the selected provider. "Use my own photo" still works on either provider. Sign out/in on a fresh account → Picker defaults to "OpenAI".
+
+### Awaiting User / External
+- TestFlight build 26 dogfooding feedback (wife's iPhone).
+- Add internal testers to TestFlight if not done.
+- Register at developer.kroger.com — `client_id` + `client_secret`.
+- `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
+
+### Recommended Next Milestone (pick one for M18)
+- **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
+- **Push notifications (APNs)** — backend → device for "Tonight's meal is X", "You have a Saturday plan to confirm", etc.
+- **Household sharing** tied to a Pro seat.
+
+### Soon
+- Anthropic web search support for the recipe finder (Messages API `web_search_20250305` tool — currently OpenAI-only).
+- Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
+- Instacart "shop now" affiliate integration (M2 secondary).
+- Spoonacular estimated pricing fallback (M2 secondary).
+
+### Later
+- Household sharing tied to a Pro seat.
+- Remote push notifications (APNs).
+- Cost telemetry: per-provider image-gen counts (M17 follow-up — only if dogfooding shows we need it).
+- Provider-aware prompt tuning if Gemini benefits from a different prompt shape (M17 follow-up).
+- Image-gen failover (OpenAI 5xx → retry once via Gemini) — saved for if dogfooding demands it.
+
+### Deferred (M7 Phases 5 + 6)
+- Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop` into a provider-agnostic adapter.
+- Phase 6: True per-day `generate_week_plan` (7× tokens; flag cost before shipping).
+
+### Deferred (do not restart without authorization)
+- **M5 Freemium + Subscription**: postponed 2026-04-20. Saved to memory (`project_m5_freemium_deferred.md`).
+
 ## Infrastructure (complete)
 
 - [x] Backend deployed on Fly.io + Fly Postgres
@@ -324,17 +365,35 @@ isn't stuck with whatever the AI initially generated.
       `RecipeDetailView`. `RecipeHeaderImage` gains an
       `isLoading` overlay so regen shows a spinner.
 
+## M17: Gemini-direct image-gen (complete on dev; awaiting deploy + TestFlight 27)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+The OpenAI image-gen path from M14/M16 gets a sibling Gemini
+(`gemini-2.5-flash-image-preview`) path, picked per user via a
+Settings toggle stored as a `profile_settings` row. No Alembic
+migration. Default stays OpenAI so existing behavior is preserved.
+
+- [x] Single phase. `app/services/recipe_image_ai.py` split into
+      `_generate_via_openai` + `_generate_via_gemini` with
+      `_resolve_provider(settings, user_settings)` dispatching
+      per-call. `is_image_gen_configured` and
+      `generate_recipe_image` gain a keyword-only `user_settings`
+      param. Three call sites
+      (save / backfill / regenerate) load `profile_settings_map`
+      and pass it through. iOS Settings adds an OpenAI/Gemini
+      Picker; `AppState+Profile.swift` mirrors the existing
+      region-save flow.
+
 ## M17+ Future image-gen work
 
-- [ ] **Gemini-direct image-gen path**, alongside the current
-      OpenAI path. Native call to
-      `https://generativelanguage.googleapis.com/v1beta/models/
-      gemini-2.5-flash-image-preview:generateContent`. New
-      `SIMMERSMITH_AI_GEMINI_API_KEY` secret. Provider router on
-      a new `ai_image_provider` setting (`"openai" | "gemini"`).
-      Reason to add: cheaper per-image at scale, and lets users
-      pick a different look. Skipped at M14 because OpenAI alone
-      reuses an existing key and avoids a third-party gateway.
+- [ ] **Cost telemetry.** Per-provider image-gen counts so we
+      can confirm Gemini's cheaper-per-image claim.
+- [ ] **Provider-aware prompt tuning.** Both providers currently
+      share `_build_prompt`. If Gemini benefits from a different
+      shape, split.
+- [ ] **Auto-failover.** OpenAI 5xx/timeout → retry once via
+      Gemini. Saved for if dogfooding demands it.
 
 ## M15: Recipe memories log (in flight)
 
@@ -359,11 +418,10 @@ recipe accrues family history across cooks.
 
 ## Backlog
 
-<!-- tier3_owner: claude -->
+> Self-contained items any agent can pick up. Tier hints are advice, not gating.
 
-### Opus (design + cross-cutting)
-- [ ] Design the AI preference interview conversation flow
-- [ ] Design the freemium gate architecture
+- [ ] Design the AI preference interview conversation flow. **Tier hint**: needs Opus to scope.
+- [ ] Design the freemium gate architecture. **Tier hint**: needs Opus to scope.
 
 ## Constraints
 
