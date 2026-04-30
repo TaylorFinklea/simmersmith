@@ -33,10 +33,9 @@ Open follow-ups:
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Next (M20 candidates)
+### Next (M21 candidates)
+- **Household sharing** tied to a Pro seat. (User-picked next.)
 - **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
-- **Household sharing** tied to a Pro seat.
-- **Cook-mode timer-end push** + **AI-finished-thinking push** — M18 follow-ups using the just-shipped APNs path.
 
 ### Soon
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
@@ -44,11 +43,10 @@ Open follow-ups:
 - Spoonacular estimated pricing fallback (M2 secondary).
 
 ### Later
-- Cost telemetry: per-provider image-gen counts (M17 follow-up — spec written; Haiku-tier when we want it).
 - Provider-aware prompt tuning if Gemini benefits from a different prompt shape (M17 follow-up).
 - Image-gen failover (OpenAI 5xx → retry once via Gemini) — saved for if dogfooding demands it.
-- Cook-mode timer-end push, AI-finished-thinking push (M18 follow-ups).
 - Per-user push quiet-hours customization (M18 ships a hard 22:00–07:00 window).
+- Thread-deep-link routing for the AI-finished push (today's deep link parses `?thread_id=` but only routes to the assistant tab; opening the specific thread is a follow-up).
 - Multi-machine push scheduler safety (Postgres advisory lock) — only if we scale past one Fly machine.
 
 ### Deferred (M7 Phases 5 + 6)
@@ -424,6 +422,22 @@ recipe accrues family history across cooks.
       `PhotosPicker` row with the same 2048px / JPEG 0.8 ceiling
       `CookCheckSheet` uses; rows render a 60×60 thumbnail when a
       photo exists; tap → full-screen viewer.
+
+## M20: M18 follow-up pushes (complete on dev; awaiting commit + deploy + TestFlight 31)
+
+Two missing pieces from M18 push notifications, both small.
+
+- [x] **Cook-mode timer-end local notification.** When the user starts a
+      cook-mode timer, schedule a `UNNotificationRequest` so a backgrounded
+      timer still fires a banner. Cancel on dismiss or natural fire so
+      foreground users don't get a duplicate banner. iOS-only; no backend.
+- [x] **AI-finished-thinking push.** Fires after a planning turn that ran
+      tools (`generate_week_plan`, etc.). Best-effort `asyncio.create_task`
+      from inside the SSE generator after `assistant.completed` is yielded.
+      New `push_assistant_done` profile_settings row (default on); third
+      Settings toggle. iOS suppresses banners while foregrounded so this
+      only surfaces when the user has the app backgrounded mid-turn.
+      6 new tests covering the summarizer + per-user gate.
 
 ## M19: Anthropic tool-use parity (M7 Phase 5) (complete on dev; awaiting commit + deploy)
 

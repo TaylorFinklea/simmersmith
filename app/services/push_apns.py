@@ -60,6 +60,40 @@ def _apns_topic(settings: Settings, bundle_id: str) -> str:
     return settings.apple_bundle_id
 
 
+def summarize_assistant_completion(
+    *, tool_calls: list[dict[str, Any]], assistant_markdown: str
+) -> str:
+    """Build a one-line push body for the AI-finished-thinking notification (M20).
+
+    Strategy: pick the first sentence of the assistant's reply (capped at
+    140 chars), or fall back to a tool-count summary when the markdown is
+    empty. The full message is always available in the thread when the
+    user opens the deep link.
+    """
+    text = (assistant_markdown or "").strip()
+    if text:
+        # Trim at the first sentence boundary so the banner reads naturally.
+        sentence_end = -1
+        for char in (".", "!", "?"):
+            idx = text.find(char)
+            if idx != -1 and (sentence_end == -1 or idx < sentence_end):
+                sentence_end = idx
+        if 10 < sentence_end < 140:
+            text = text[: sentence_end + 1]
+        elif len(text) > 140:
+            text = text[:137].rstrip() + "..."
+        return text
+    successful = [tc for tc in tool_calls if tc.get("ok")]
+    if not successful:
+        return "Your assistant turn finished."
+    if len(successful) == 1:
+        name = str(successful[0].get("name") or "")
+        if name == "generate_week_plan":
+            return "Your week plan is ready."
+        return "Your assistant finished an update."
+    return f"Your assistant made {len(successful)} updates."
+
+
 async def send_push(
     session: Session,
     *,

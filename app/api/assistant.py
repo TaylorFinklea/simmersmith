@@ -24,6 +24,11 @@ from app.schemas import (
 )
 from app.services.ai import profile_settings_map
 from app.services.assistant_ai import AssistantTurnResult, run_assistant_turn
+from app.services.push_apns import (
+    is_apns_configured,
+    send_push,
+    summarize_assistant_completion,
+)
 from app.services.assistant_threads import (
     archive_thread,
     create_message,
@@ -140,6 +145,45 @@ def delete_thread_route(
     archive_thread(session, thread)
     session.commit()
     return Response(status_code=204)
+
+
+async def _send_assistant_done_push(
+    *,
+    settings: Settings,
+    user_id: str,
+    thread_id: str,
+    assistant_message_id: str,
+    body: str,
+) -> None:
+    """Fire the AI-finished-thinking push (M20) on the event loop after the
+    SSE response closes. Best-effort — never raises; never blocks.
+
+    Skips silently when the user has set `push_assistant_done` to "0" in
+    `profile_settings`. The collapse-id pins one push per assistant message
+    so iOS dedupes if the user retries an in-flight turn.
+    """
+    try:
+        with session_scope() as push_session:
+            user_settings = profile_settings_map(push_session, user_id)
+            if user_settings.get("push_assistant_done", "1") == "0":
+                return
+            await send_push(
+                push_session,
+                settings=settings,
+                user_id=user_id,
+                title="SimmerSmith",
+                body=body,
+                payload={
+                    "deep_link": f"simmersmith://assistant?thread_id={thread_id}",
+                },
+                collapse_id=f"assistant-{assistant_message_id}",
+            )
+    except Exception:
+        logger.exception(
+            "Failed to send assistant-done push for thread=%s message=%s",
+            thread_id,
+            assistant_message_id,
+        )
 
 
 @router.post("/threads/{thread_id}/respond")
@@ -405,6 +449,25 @@ async def respond_route(
                     )
                 yield encode_sse("thread.updated", thread_payload)
                 yield encode_sse("assistant.completed", message_payload)
+                # M20: AI-finished-thinking push. Fire-and-forget on the
+                # event loop so it runs after the response closes; never
+                # blocks the SSE stream. iOS suppresses banners while
+                # foregrounded by default, so this only surfaces when the
+                # user has backgrounded mid-turn.
+                if use_tools and result.tool_calls and is_apns_configured(settings):
+                    push_body = summarize_assistant_completion(
+                        tool_calls=result.tool_calls,
+                        assistant_markdown=result.envelope.assistant_markdown,
+                    )
+                    asyncio.create_task(
+                        _send_assistant_done_push(
+                            settings=settings,
+                            user_id=user_id,
+                            thread_id=thread_id,
+                            assistant_message_id=assistant_message_id,
+                            body=push_body,
+                        )
+                    )
         except Exception as exc:
             detail = str(exc) or "Assistant response failed."
             logger.exception("Assistant turn failed for thread %s", thread_id)

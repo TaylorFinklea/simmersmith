@@ -590,10 +590,17 @@ private struct NotificationsSection: View {
                         Task { await appState.savePushTime("push_saturday_plan_time", date: newDate) }
                     }
             }
+
+            Toggle("AI-finished thinking", isOn: Binding(
+                get: { appState.pushAssistantDoneEnabled },
+                set: { newValue in
+                    Task { await appState.savePushPreference("push_assistant_done", enabled: newValue) }
+                }
+            ))
         } header: {
             Text("Notifications")
         } footer: {
-            Text("On by default — toggle off to silence. We send push only at the times you set. Quiet hours: never between 22:00–07:00 local.")
+            Text("On by default — toggle off to silence. We send push only at the times you set. Quiet hours: never between 22:00–07:00 local. The AI-finished push only fires when the app is backgrounded mid-turn.")
                 .font(.footnote)
         }
         .onAppear {

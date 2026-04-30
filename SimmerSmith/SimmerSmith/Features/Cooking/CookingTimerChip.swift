@@ -141,15 +141,25 @@ struct CookingTimerChip: View {
     // MARK: - Actions
 
     private func startTimer(minutes: Int) {
+        let label = "\(minutes) min"
+        let deadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        // Schedule a local notification so a backgrounded timer still fires
+        // a banner. iOS suppresses banners while foregrounded, so the haptic
+        // + TTS in `checkForFire` remains the foreground UX.
+        let notifID = LocalNotificationService.scheduleTimerDone(deadline: deadline, label: label)
         let timer = RunningTimer(
             id: UUID(),
-            label: "\(minutes) min",
-            deadline: Date().addingTimeInterval(TimeInterval(minutes * 60))
+            label: label,
+            deadline: deadline,
+            notificationID: notifID
         )
         timers.append(timer)
     }
 
     private func cancelTimer(_ id: UUID) {
+        if let timer = timers.first(where: { $0.id == id }) {
+            LocalNotificationService.cancel(timer.notificationID)
+        }
         timers.removeAll { $0.id == id }
         firedTimerIDs.remove(id)
     }
@@ -158,6 +168,10 @@ struct CookingTimerChip: View {
         guard !firedTimerIDs.contains(timer.id) else { return }
         guard now >= timer.deadline else { return }
         firedTimerIDs.insert(timer.id)
+        // Cancel the iOS-scheduled banner — we already handle the chime in
+        // foreground via haptic + TTS, and we don't want a duplicate banner
+        // if the user backgrounds within the 5-second cleanup window.
+        LocalNotificationService.cancel(timer.notificationID)
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         SpokenStepService.shared.speak("Timer done.")
         Task {
@@ -183,4 +197,8 @@ private struct RunningTimer: Identifiable, Hashable {
     let id: UUID
     let label: String
     let deadline: Date
+    /// Identifier of the local-notification request scheduled in
+    /// `startTimer`, so the timer row can cancel it on dismiss or
+    /// foreground fire.
+    let notificationID: String
 }

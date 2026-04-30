@@ -44,11 +44,16 @@ DEFAULT_PROFILE_SETTINGS = {
     "walmart_store_id": "",
     "ai_provider_mode": "auto",
     "ai_direct_provider": "",
-    # Push notification defaults (M18). Both on by default.
+    # Push notification defaults (M18). All on by default.
     "push_tonights_meal": "1",
     "push_saturday_plan": "1",
     "push_tonights_meal_time": "17:00",
     "push_saturday_plan_time": "18:00",
+    # M20: AI-finished-thinking push fires after a planning turn that
+    # ran tools (typically `generate_week_plan`). iOS suppresses
+    # foreground banners automatically, so this is only visible when
+    # the user has the app backgrounded.
+    "push_assistant_done": "1",
 }
 
 DEFAULT_STAPLES = [

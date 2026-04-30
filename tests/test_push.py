@@ -647,3 +647,149 @@ def test_saturday_tick_fires_when_no_week_exists() -> None:
             _run(_process_saturday_plan(session, settings, user_id, now_fn))
 
         assert mock_client.send_notification.call_count == 1
+
+
+# ── M20: AI-finished-thinking push (assistant turn complete) ───────
+
+
+def test_summarize_assistant_completion_uses_first_sentence() -> None:
+    from app.services.push_apns import summarize_assistant_completion
+
+    body = summarize_assistant_completion(
+        tool_calls=[{"name": "add_meal", "ok": True}],
+        assistant_markdown="Added salmon to Wednesday dinner. Anything else?",
+    )
+    assert body == "Added salmon to Wednesday dinner."
+
+
+def test_summarize_assistant_completion_truncates_long_text() -> None:
+    from app.services.push_apns import summarize_assistant_completion
+
+    long_text = "x" * 200
+    body = summarize_assistant_completion(
+        tool_calls=[{"name": "swap_meal", "ok": True}],
+        assistant_markdown=long_text,
+    )
+    assert body.endswith("...")
+    assert len(body) == 140
+
+
+def test_summarize_assistant_completion_falls_back_for_empty_text() -> None:
+    from app.services.push_apns import summarize_assistant_completion
+
+    # generate_week_plan gets a custom string
+    body = summarize_assistant_completion(
+        tool_calls=[{"name": "generate_week_plan", "ok": True}],
+        assistant_markdown="",
+    )
+    assert body == "Your week plan is ready."
+
+    # Multiple successful tools → count summary
+    body = summarize_assistant_completion(
+        tool_calls=[
+            {"name": "add_meal", "ok": True},
+            {"name": "swap_meal", "ok": True},
+            {"name": "rebalance_day", "ok": True},
+        ],
+        assistant_markdown="",
+    )
+    assert body == "Your assistant made 3 updates."
+
+
+def test_summarize_assistant_completion_skips_failed_tools() -> None:
+    from app.services.push_apns import summarize_assistant_completion
+
+    # Failed tools shouldn't count toward the summary
+    body = summarize_assistant_completion(
+        tool_calls=[
+            {"name": "add_meal", "ok": False},
+            {"name": "swap_meal", "ok": False},
+        ],
+        assistant_markdown="",
+    )
+    assert body == "Your assistant turn finished."
+
+
+def test_assistant_done_push_helper_skips_when_user_disabled(client: TestClient, monkeypatch) -> None:
+    """The push fires unless the user has set push_assistant_done=0.
+    Verifies the gate is per-user, not global.
+    """
+    from app.api.assistant import _send_assistant_done_push
+    from app.services.bootstrap import seed_defaults
+
+    settings = get_settings()
+    user_id = settings.local_user_id
+
+    with session_scope() as session:
+        seed_defaults(session)
+        # Disable for this user
+        row = (
+            session.query(ProfileSetting)
+            .filter(ProfileSetting.user_id == user_id, ProfileSetting.key == "push_assistant_done")
+            .first()
+        )
+        if row is None:
+            row = ProfileSetting(
+                id=new_id(),
+                user_id=user_id,
+                key="push_assistant_done",
+                value="0",
+            )
+            session.add(row)
+        else:
+            row.value = "0"
+        session.commit()
+
+    send_push_calls: list[dict[str, Any]] = []
+
+    async def fake_send_push(*args: Any, **kwargs: Any) -> int:
+        send_push_calls.append(kwargs)
+        return 1
+
+    monkeypatch.setattr("app.api.assistant.send_push", fake_send_push)
+
+    asyncio.run(
+        _send_assistant_done_push(
+            settings=settings,
+            user_id=user_id,
+            thread_id="t-1",
+            assistant_message_id="m-1",
+            body="Updated your week.",
+        )
+    )
+
+    assert send_push_calls == []
+
+
+def test_assistant_done_push_helper_fires_when_user_enabled(client: TestClient, monkeypatch) -> None:
+    """When the user keeps push_assistant_done='1' (default), the helper
+    routes through send_push with the right body + deep_link payload.
+    """
+    from app.api.assistant import _send_assistant_done_push
+
+    settings = get_settings()
+    user_id = settings.local_user_id
+
+    # Default profile should have push_assistant_done='1' from DEFAULT_PROFILE_SETTINGS.
+    captured: dict[str, Any] = {}
+
+    async def fake_send_push(*args: Any, **kwargs: Any) -> int:
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr("app.api.assistant.send_push", fake_send_push)
+
+    asyncio.run(
+        _send_assistant_done_push(
+            settings=settings,
+            user_id=user_id,
+            thread_id="thread-abc",
+            assistant_message_id="msg-xyz",
+            body="Updated your week.",
+        )
+    )
+
+    assert captured["title"] == "SimmerSmith"
+    assert captured["body"] == "Updated your week."
+    assert captured["payload"]["deep_link"] == "simmersmith://assistant?thread_id=thread-abc"
+    assert captured["collapse_id"] == "assistant-msg-xyz"

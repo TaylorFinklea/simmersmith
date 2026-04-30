@@ -25,6 +25,14 @@ extension AppState {
         get { profile?.settings["push_saturday_plan_time"] ?? "18:00" }
     }
 
+    /// Whether the AI-finished-thinking push fires after a planning turn
+    /// that ran tools (e.g. `generate_week_plan`). Default: on. iOS
+    /// suppresses banners while foregrounded automatically, so this is
+    /// only visible when the user has the app backgrounded mid-turn.
+    var pushAssistantDoneEnabled: Bool {
+        get { (profile?.settings["push_assistant_done"] ?? "1") != "0" }
+    }
+
     /// True iff iOS has the user's notifications-denied state on record. The
     /// Settings UI surfaces an "Open iOS Settings" affordance when this is
     /// true so the user can recover from a prior denial (toggling the in-app
