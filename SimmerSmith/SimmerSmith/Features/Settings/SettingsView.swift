@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import SimmerSmithKit
 
 struct SettingsView: View {
@@ -558,6 +559,10 @@ private struct NotificationsSection: View {
 
     var body: some View {
         Section {
+            if appState.pushAuthorizationDenied {
+                deniedBanner
+            }
+
             Toggle("Tonight's meal", isOn: Binding(
                 get: { appState.pushTonightsMealEnabled },
                 set: { newValue in
@@ -588,7 +593,7 @@ private struct NotificationsSection: View {
         } header: {
             Text("Notifications")
         } footer: {
-            Text("On by default — toggle off to silence. We send push only at the times you set. Quiet hours: never between 22:00–07:00 local. If you previously denied notifications, enable them in iOS Settings \u{2192} Notifications \u{2192} SimmerSmith.")
+            Text("On by default — toggle off to silence. We send push only at the times you set. Quiet hours: never between 22:00–07:00 local.")
                 .font(.footnote)
         }
         .onAppear {
@@ -596,7 +601,31 @@ private struct NotificationsSection: View {
             didInitDates = true
             tonightsMealDate = NotificationsSection.dateFromTimeString(appState.pushTonightsMealTime)
             saturdayPlanDate = NotificationsSection.dateFromTimeString(appState.pushSaturdayPlanTime)
+            Task { await appState.refreshPushAuthorizationStatus() }
         }
+    }
+
+    /// Shown when iOS has the user's notifications-denied state on record.
+    /// `requestAuthorization` cannot re-prompt after a denial — only the
+    /// system Settings deep-link recovers.
+    @ViewBuilder
+    private var deniedBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Notifications are off in iOS Settings", systemImage: "bell.slash")
+                .font(.subheadline.weight(.semibold))
+            Text("Open iOS Settings → Notifications → SimmerSmith and turn on Allow Notifications. Toggling the switches here can't override an iOS-level denial.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Open iOS Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .padding(.vertical, 4)
     }
 
     /// Parse "HH:mm" into a `Date` using today's calendar (only HH:mm components matter for DatePicker).

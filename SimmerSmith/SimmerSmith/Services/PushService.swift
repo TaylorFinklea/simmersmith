@@ -18,18 +18,43 @@ final class PushService {
 
     // MARK: - Registration
 
+    /// Read the current iOS authorization status.
+    /// `.notDetermined` means we have never prompted (or the prompt was
+    /// dismissed without a choice); calling `requestAuthorization` will
+    /// surface the system alert. Any other state means iOS already made
+    /// a decision and `requestAuthorization` will silently no-op.
+    func currentAuthorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
     /// Request UNUserNotificationCenter permission and register for remote notifications.
-    /// Safe to call multiple times — iOS will not re-prompt after a decision is made.
+    ///
+    /// Behavior by current authorization status:
+    ///   - `.notDetermined` → show the system prompt; if granted, register.
+    ///   - `.authorized` / `.provisional` / `.ephemeral` → re-register
+    ///     (idempotent; recovers a lost device token after restore).
+    ///   - `.denied` → no-op. Caller is responsible for surfacing an
+    ///     "open iOS Settings" affordance.
     func requestAuthorizationAndRegister() async {
         let center = UNUserNotificationCenter.current()
-        do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-            if granted {
-                UIApplication.shared.registerForRemoteNotifications()
+        let status = await currentAuthorizationStatus()
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+        case .notDetermined:
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            } catch {
+                print("[PushService] Authorization request failed: \(error)")
             }
-        } catch {
-            // Permission request failed — log and continue; never crash.
-            print("[PushService] Authorization request failed: \(error)")
+        case .denied:
+            // iOS has the user's denial on record; can't re-prompt.
+            break
+        @unknown default:
+            break
         }
     }
 

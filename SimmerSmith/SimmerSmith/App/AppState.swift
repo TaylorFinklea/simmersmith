@@ -2,6 +2,7 @@ import Foundation
 import GoogleSignIn
 import Observation
 import SwiftData
+import UserNotifications
 import SimmerSmithKit
 
 @MainActor
@@ -74,6 +75,11 @@ final class AppState {
     /// Per-user image-gen provider (M17). `"openai"` (default) or
     /// `"gemini"`. Hydrated from `profile.settings["image_provider"]`.
     var imageProviderDraft: String = "openai"
+    /// Current iOS notification authorization status (M18). Hydrated by
+    /// `ensurePushBootstrap()` on `refreshAll()` and refreshed after the
+    /// user toggles a push preference. Drives the "Open iOS Settings"
+    /// hint in `SettingsView` when iOS has a denial on record.
+    var pushAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""

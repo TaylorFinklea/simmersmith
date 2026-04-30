@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 import SimmerSmithKit
 
 extension AppState {
@@ -24,17 +25,27 @@ extension AppState {
         get { profile?.settings["push_saturday_plan_time"] ?? "18:00" }
     }
 
+    /// True iff iOS has the user's notifications-denied state on record. The
+    /// Settings UI surfaces an "Open iOS Settings" affordance when this is
+    /// true so the user can recover from a prior denial (toggling the in-app
+    /// switches won't re-trigger the system prompt once iOS has decided).
+    var pushAuthorizationDenied: Bool {
+        get { pushAuthorizationStatus == .denied }
+    }
+
     // MARK: - Persist
 
     /// Persist a push preference key/value via PUT /api/profile.
-    /// When the user enables a toggle from a disabled state, calls
-    /// `requestAuthorizationAndRegister()` so a prior denial can be
-    /// re-attempted (iOS will surface its Settings redirect at that point).
+    /// On enable, also (re-)request iOS authorization. If iOS reports
+    /// `.notDetermined` this fires the system prompt; if `.authorized`
+    /// it re-registers the device token; if `.denied` it's a no-op and
+    /// the UI shows the "Open iOS Settings" hint.
     func savePushPreference(_ key: String, enabled: Bool) async {
         guard hasSavedConnection else { return }
         let value = enabled ? "1" : "0"
         if enabled {
             await PushService.shared.requestAuthorizationAndRegister()
+            await refreshPushAuthorizationStatus()
         }
         do {
             let updated = try await apiClient.updateProfile(settings: [key: value])
@@ -62,22 +73,40 @@ extension AppState {
 
     // MARK: - Bootstrap
 
-    /// Called once after `bootstrap()` / `refreshAll()` finishes hydrating the profile.
-    ///
-    /// If either push toggle reads enabled (default for fresh accounts because
-    /// `DEFAULT_PROFILE_SETTINGS` seeds both as "1") AND we have not yet prompted
-    /// in this install (`UserDefaults("simmersmith.push.didPrompt") != true`),
-    /// fires the APNs permission prompt once.
-    ///
-    /// If the user denies, the server-side toggles stay "1" but no device token
-    /// is registered — re-prompting requires the user toggling off then back on
-    /// in Settings, which calls `requestAuthorizationAndRegister()` directly.
-    func ensurePushBootstrap() async {
-        let didPromptKey = "simmersmith.push.didPrompt"
-        guard !UserDefaults.standard.bool(forKey: didPromptKey) else { return }
-        guard pushTonightsMealEnabled || pushSaturdayPlanEnabled else { return }
+    /// Re-read the system authorization status into `pushAuthorizationStatus`.
+    /// Call this on bootstrap and after the user toggles a push preference.
+    func refreshPushAuthorizationStatus() async {
+        pushAuthorizationStatus = await PushService.shared.currentAuthorizationStatus()
+    }
 
-        UserDefaults.standard.set(true, forKey: didPromptKey)
-        await PushService.shared.requestAuthorizationAndRegister()
+    /// Called after `refreshAll()` hydrates the profile. Reads the real iOS
+    /// authorization status (not a UserDefaults flag) and reacts:
+    ///
+    ///   - `.notDetermined` + at least one toggle enabled → show the
+    ///     system prompt. This is the fresh-install / first-launch path.
+    ///   - `.authorized` / `.provisional` / `.ephemeral` → re-register
+    ///     the device so a token rotation or restore from backup
+    ///     re-establishes delivery.
+    ///   - `.denied` → no-op. The Settings UI surfaces an "Open iOS
+    ///     Settings" affordance via `pushAuthorizationDenied`.
+    ///
+    /// Best-effort: a failure here must never crash bootstrap.
+    func ensurePushBootstrap() async {
+        await refreshPushAuthorizationStatus()
+        let status = pushAuthorizationStatus
+        let toggleEnabled = pushTonightsMealEnabled || pushSaturdayPlanEnabled
+        switch status {
+        case .notDetermined:
+            if toggleEnabled {
+                await PushService.shared.requestAuthorizationAndRegister()
+                await refreshPushAuthorizationStatus()
+            }
+        case .authorized, .provisional, .ephemeral:
+            await PushService.shared.requestAuthorizationAndRegister()
+        case .denied:
+            break
+        @unknown default:
+            break
+        }
     }
 }
