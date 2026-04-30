@@ -18,6 +18,7 @@ from app.models.event import (
     EventMealIngredient,
     Guest,
 )
+from app.models.image_usage import ImageGenUsage
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.push import PushDevice
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
@@ -54,6 +55,7 @@ __all__ = [
     "FeedbackEntry",
     "GroceryItem",
     "Guest",
+    "ImageGenUsage",
     "IngredientNutritionMatch",
     "IngredientPreference",
     "IngredientVariation",

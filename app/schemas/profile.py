@@ -38,6 +38,19 @@ class UsageSummaryOut(BaseModel):
     remaining: int
 
 
+class ImageUsageProvider(BaseModel):
+    provider: str
+    count: int
+    cost_cents: int
+
+
+class ImageUsageSummary(BaseModel):
+    window_days: int
+    total_count: int
+    total_cost_cents: int
+    by_provider: list[ImageUsageProvider]
+
+
 class ProfileResponse(BaseModel):
     updated_at: datetime | None = None
     settings: dict[str, str]
@@ -47,6 +60,7 @@ class ProfileResponse(BaseModel):
     is_pro: bool = False
     is_trial: bool = False
     usage: list[UsageSummaryOut] = Field(default_factory=list)
+    image_usage: ImageUsageSummary | None = None
 
 
 class ProfileUpdateRequest(BaseModel):

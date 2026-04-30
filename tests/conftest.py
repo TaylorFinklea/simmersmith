@@ -22,9 +22,12 @@ os.environ["SIMMERSMITH_PUSH_SCHEDULER_ENABLED"] = "false"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.config import get_settings
+from app.auth import CurrentUser
+from app.config import Settings, get_settings
 from app.db import reset_db_state, session_scope
 from app.main import app
+from app.models import User
+from app.models._base import new_id
 from app.services.bootstrap import run_migrations, seed_defaults
 
 
@@ -54,3 +57,27 @@ def cleanup_test_dir() -> None:
 def client() -> TestClient:
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def db_session():
+    """Return the database session for direct database access in tests."""
+    with session_scope() as session:
+        yield session
+
+
+@pytest.fixture
+def current_user(db_session) -> CurrentUser:
+    """Create and return a test user."""
+    user = User(id=new_id(), email="test@example.com")
+    db_session.add(user)
+    db_session.commit()
+    return CurrentUser(id=user.id)
+
+
+@pytest.fixture
+def settings_with_api_token(monkeypatch) -> Settings:
+    """Return settings with SIMMERSMITH_API_TOKEN set for admin endpoint testing."""
+    monkeypatch.setenv("SIMMERSMITH_API_TOKEN", "test-admin-token")
+    get_settings.cache_clear()
+    return get_settings()

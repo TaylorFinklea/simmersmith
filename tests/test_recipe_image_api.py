@@ -66,7 +66,7 @@ def _post_recipe(client, *, with_difficulty: bool = True, with_image: bool = Tru
         patches.append(
             patch(
                 "app.api.recipes.generate_recipe_image",
-                return_value=(_png_bytes(), "image/png", "test prompt"),
+                return_value=(_png_bytes(), "image/png", "test prompt", "openai", "gpt-image-1"),
             )
         )
 
@@ -154,7 +154,7 @@ def test_regenerate_replaces_bytes_and_busts_cache(client) -> None:
         return_value=True,
     ), patch(
         "app.api.recipe_images.generate_recipe_image",
-        return_value=(new_bytes, "image/png", "regen prompt"),
+        return_value=(new_bytes, "image/png", "regen prompt", "openai", "gpt-image-1"),
     ):
         regen_resp = client.post(f"/api/recipes/{recipe_id}/image/regenerate")
 
@@ -230,10 +230,10 @@ def test_save_recipe_uses_user_image_provider(client) -> None:
         "app.api.recipes.is_image_gen_configured", return_value=True,
     ), patch(
         "app.services.recipe_image_ai._generate_via_gemini",
-        return_value=(_png_bytes(), "image/png", "gemini prompt"),
+        return_value=(_png_bytes(), "image/png", "gemini prompt", "gemini", "gemini-2.5-flash-image-preview"),
     ) as gemini_mock, patch(
         "app.services.recipe_image_ai._generate_via_openai",
-        return_value=(_png_bytes(), "image/png", "openai prompt"),
+        return_value=(_png_bytes(), "image/png", "openai prompt", "openai", "gpt-image-1"),
     ) as openai_mock:
         response = client.post("/api/recipes", json=_payload())
 
@@ -278,10 +278,10 @@ def test_default_provider_remains_openai(client) -> None:
         "app.api.recipes.is_image_gen_configured", return_value=True,
     ), patch(
         "app.services.recipe_image_ai._generate_via_openai",
-        return_value=(_png_bytes(), "image/png", "openai prompt"),
+        return_value=(_png_bytes(), "image/png", "openai prompt", "openai", "gpt-image-1"),
     ) as openai_mock, patch(
         "app.services.recipe_image_ai._generate_via_gemini",
-        return_value=(_png_bytes(), "image/png", "gemini prompt"),
+        return_value=(_png_bytes(), "image/png", "gemini prompt", "gemini", "gemini-2.5-flash-image-preview"),
     ) as gemini_mock:
         response = client.post("/api/recipes", json=_payload())
 

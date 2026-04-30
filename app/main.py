@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 
+from app.api.admin import router as admin_router
 from app.api.ai import router as ai_router
 from app.api.assistant import router as assistant_router
 from app.api.auth import router as auth_router
@@ -54,6 +55,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
+app.include_router(admin_router)  # Public — admin routes handle their own auth
 app.include_router(auth_router)  # Public — handles its own auth
 protected_dependencies = [Depends(get_current_user)]
 app.include_router(ai_router, dependencies=protected_dependencies)

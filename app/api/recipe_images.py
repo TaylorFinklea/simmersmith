@@ -21,6 +21,7 @@ from app.services.recipe_image_ai import (
     is_image_gen_configured,
     persist_recipe_image,
 )
+from app.services.image_usage import record_image_gen
 from app.services.recipes import get_recipe
 
 
@@ -96,12 +97,20 @@ def regenerate_recipe_image_route(
     if not is_image_gen_configured(settings, user_settings=user_settings):
         raise HTTPException(status_code=503, detail="Image generation is not configured.")
     try:
-        bytes_, mime, prompt = generate_recipe_image(
+        bytes_, mime, prompt, provider, model = generate_recipe_image(
             recipe, settings=settings, user_settings=user_settings
         )
     except RecipeImageError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+    record_image_gen(
+        session,
+        user_id=current_user.id,
+        recipe_id=recipe.id,
+        provider=provider,
+        model=model,
+        trigger="regenerate",
+    )
     session.commit()
     return _refreshed_payload(session, current_user.id, recipe.id)
 

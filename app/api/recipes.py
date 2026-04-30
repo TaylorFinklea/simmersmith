@@ -17,6 +17,7 @@ from app.services.recipe_image_ai import (
     persist_recipe_image,
     recipe_has_image,
 )
+from app.services.image_usage import record_image_gen
 from app.schemas import (
     CookCheckOut,
     CookCheckRequest,
@@ -204,10 +205,18 @@ def save_recipe(
         try:
             user_settings = profile_settings_map(session, current_user.id)
             if is_image_gen_configured(settings, user_settings=user_settings):
-                bytes_, mime, prompt = generate_recipe_image(
+                bytes_, mime, prompt, provider, model = generate_recipe_image(
                     recipe, settings=settings, user_settings=user_settings
                 )
                 persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+                record_image_gen(
+                    session,
+                    user_id=current_user.id,
+                    recipe_id=recipe.id,
+                    provider=provider,
+                    model=model,
+                    trigger="save",
+                )
         except RecipeImageError as exc:
             logger.info("Recipe image generation skipped: %s", exc)
         except Exception as exc:  # noqa: BLE001
@@ -253,7 +262,7 @@ def backfill_recipe_images(
         if recipe.id in has_image_ids:
             continue
         try:
-            bytes_, mime, prompt = generate_recipe_image(
+            bytes_, mime, prompt, provider, model = generate_recipe_image(
                 recipe, settings=settings, user_settings=user_settings
             )
         except RecipeImageError as exc:
@@ -265,6 +274,14 @@ def backfill_recipe_images(
             failed += 1
             continue
         persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+        record_image_gen(
+            session,
+            user_id=current_user.id,
+            recipe_id=recipe.id,
+            provider=provider,
+            model=model,
+            trigger="backfill",
+        )
         session.commit()
         generated += 1
 

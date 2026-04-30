@@ -112,12 +112,16 @@ def generate_recipe_image(
     *,
     settings: Settings,
     user_settings: dict[str, str] | None = None,
-) -> tuple[bytes, str, str]:
-    """Generate a header image for `recipe`. Returns (bytes, mime, prompt).
+) -> tuple[bytes, str, str, str, str]:
+    """Generate a header image for `recipe`. Returns (bytes, mime, prompt, provider, model).
 
     Dispatches to the user's chosen provider (or the global default).
     Raises `RecipeImageError` on any failure — the caller decides
     whether to swallow (best-effort) or surface (backfill / regen).
+
+    The returned (provider, model) tuple is used by callers to log
+    telemetry (record_image_gen) with the resolved provider name and
+    the model string from settings.
     """
     provider = _resolve_provider(settings, user_settings)
     if provider == "gemini":
@@ -125,13 +129,14 @@ def generate_recipe_image(
     return _generate_via_openai(recipe, settings=settings)
 
 
-def _generate_via_openai(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str]:
+def _generate_via_openai(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str, str, str]:
     if not settings.ai_openai_api_key.strip():
         raise RecipeImageError("OpenAI API key not configured")
 
     prompt = _build_prompt(recipe)
+    model = settings.ai_image_model
     payload = {
-        "model": settings.ai_image_model,
+        "model": model,
         "prompt": prompt,
         "n": 1,
         "size": "1024x1024",
@@ -160,14 +165,15 @@ def _generate_via_openai(recipe: Recipe, *, settings: Settings) -> tuple[bytes, 
         raise RecipeImageError(f"Image response was not JSON: {exc}") from exc
 
     image_bytes, mime = _extract_openai_image(body)
-    return image_bytes, mime, prompt
+    return image_bytes, mime, prompt, "openai", model
 
 
-def _generate_via_gemini(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str]:
+def _generate_via_gemini(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str, str, str]:
     if not settings.ai_gemini_api_key.strip():
         raise RecipeImageError("Gemini API key not configured")
 
     prompt = _build_prompt(recipe)
+    model = settings.ai_gemini_image_model
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"responseModalities": ["IMAGE"]},
@@ -178,7 +184,7 @@ def _generate_via_gemini(recipe: Recipe, *, settings: Settings) -> tuple[bytes, 
     }
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{settings.ai_gemini_image_model}:generateContent"
+        f"{model}:generateContent"
     )
 
     try:
@@ -196,7 +202,7 @@ def _generate_via_gemini(recipe: Recipe, *, settings: Settings) -> tuple[bytes, 
         raise RecipeImageError(f"Image response was not JSON: {exc}") from exc
 
     image_bytes, mime = _extract_gemini_image(body)
-    return image_bytes, mime, prompt
+    return image_bytes, mime, prompt, "gemini", model
 
 
 def _build_prompt(recipe: Recipe) -> str:
