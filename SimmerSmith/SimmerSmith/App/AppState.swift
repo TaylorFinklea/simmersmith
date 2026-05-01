@@ -80,6 +80,9 @@ final class AppState {
     /// user toggles a push preference. Drives the "Open iOS Settings"
     /// hint in `SettingsView` when iOS has a denial on record.
     var pushAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    /// Current household snapshot (M21). Loaded by `refreshHousehold()`
+    /// during `refreshAll()`. Drives the Settings → Household section.
+    var currentHousehold: HouseholdSnapshot?
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
@@ -323,6 +326,8 @@ final class AppState {
             // Best-effort: fire the APNs permission prompt once on first launch after sign-in.
             // A failure here must never crash bootstrap.
             await ensurePushBootstrap()
+            // Best-effort household snapshot for the Settings UI (M21).
+            await refreshHousehold()
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
                     .filter { cacheStore.isChecked(groceryItemID: $0.groceryItemId) }
@@ -404,6 +409,7 @@ final class AppState {
         settingsStore.clear()
         serverURLDraft = ""
         authTokenDraft = ""
+        clearHouseholdContext()
         // Also clear the Google Sign-In cache so the next sign-in presents
         // the account picker instead of silently reusing the previous user.
         GIDSignIn.sharedInstance.signOut()

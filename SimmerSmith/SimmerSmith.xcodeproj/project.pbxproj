@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00F86A1EDF7BE61EDC279626 /* RecipeEditorStepsEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */; };
+		053F4E60D3120A763E341304 /* InvitationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA391135FC54F682B62E86F /* InvitationSheet.swift */; };
 		097FB013DA02BB597480D9C3 /* AIFloatingButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C35592BA165B9889094B32 /* AIFloatingButton.swift */; };
 		0AE26B4ED00BCB6B935E0161 /* InSeasonStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A70D406D118627C375D6B64 /* InSeasonStrip.swift */; };
 		0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C73D583ED87BFE61E47C9D /* WeekView.swift */; };
@@ -64,6 +65,7 @@
 		7F423A7D909E7340DE19C42C /* RecipeImageOverrideSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B7C710B194A7A3BDF6D722 /* RecipeImageOverrideSheet.swift */; };
 		822CEF7F346BD614AEB07A6F /* RecipeListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AE2B7D371803789AF07846 /* RecipeListRow.swift */; };
 		84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */; };
+		85083B241385537E729DD20E /* AppState+Household.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80D37100BDECCA31338BFE8 /* AppState+Household.swift */; };
 		88F239CDAD71F97C9D630E3D /* RecipeWebSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E83DD73B6FB0A71D95C5302 /* RecipeWebSearchSheet.swift */; };
 		8C5A3E64B3886FD23E783B87 /* CookingModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */; };
 		8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */; };
@@ -211,8 +213,10 @@
 		A6D99BDCE7DF25F031B23486 /* MealMoveSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealMoveSheet.swift; sourceTree = "<group>"; };
 		A71822917FBDBA318104CE69 /* MemoryPhotoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoView.swift; sourceTree = "<group>"; };
 		A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSupport.swift; sourceTree = "<group>"; };
+		A80D37100BDECCA31338BFE8 /* AppState+Household.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Household.swift"; sourceTree = "<group>"; };
 		A8178AFC294B4845F8D0AFF3 /* SimmerSmithKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithKit; path = ../SimmerSmithKit; sourceTree = SOURCE_ROOT; };
 		AA12D8F99F863C413A31A02F /* SimmerSmithUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		ABA391135FC54F682B62E86F /* InvitationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationSheet.swift; sourceTree = "<group>"; };
 		B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		B3AE2B7D371803789AF07846 /* RecipeListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeListRow.swift; sourceTree = "<group>"; };
 		B7332396128AF5CD988A1821 /* CompactRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactRecipeCard.swift; sourceTree = "<group>"; };
@@ -374,6 +378,7 @@
 				16263AD59B5D2F17D3561E4A /* AppState+AI.swift */,
 				EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */,
 				7387FA57FB78ACD7148F204D /* AppState+Events.swift */,
+				A80D37100BDECCA31338BFE8 /* AppState+Household.swift */,
 				5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */,
 				26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */,
 				3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */,
@@ -466,6 +471,7 @@
 			isa = PBXGroup;
 			children = (
 				826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */,
+				ABA391135FC54F682B62E86F /* InvitationSheet.swift */,
 				6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */,
 				726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */,
 			);
@@ -723,6 +729,7 @@
 				44A436E4F3FBF7F5C991C4BA /* AppState+AI.swift in Sources */,
 				84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */,
 				7807AC58D4B8D2C227EACAB3 /* AppState+Events.swift in Sources */,
+				85083B241385537E729DD20E /* AppState+Household.swift in Sources */,
 				44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */,
 				53333C9542C3853B332E9F9F /* AppState+Profile.swift in Sources */,
 				E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */,
@@ -762,6 +769,7 @@
 				692CAF7C13BE715CECD643FA /* IngredientScannerView.swift in Sources */,
 				3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */,
 				BAE7EEBED1663B060E79F9AF /* IngredientsView.swift in Sources */,
+				053F4E60D3120A763E341304 /* InvitationSheet.swift in Sources */,
 				0E81A9AC529997B1C13A07D9 /* LocalNotificationService.swift in Sources */,
 				B11F36C1CC7CE592858BA603 /* MacroRing.swift in Sources */,
 				5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */,

@@ -435,6 +435,54 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         let _: EmptyResponse = try await request(path: "/api/profile/dietary-goal", method: "DELETE")
     }
 
+    // MARK: - Household sharing (M21)
+
+    /// Fetch the current user's household: members + any active invitations.
+    public func fetchHousehold() async throws -> HouseholdSnapshot {
+        try await request(path: "/api/household")
+    }
+
+    /// Owner-only: rename the household. Returns the refreshed snapshot.
+    public func renameHousehold(name: String) async throws -> HouseholdSnapshot {
+        struct Body: Encodable { let name: String }
+        return try await request(
+            path: "/api/household",
+            method: "PUT",
+            body: Body(name: name)
+        )
+    }
+
+    /// Owner-only: mint a fresh invitation code (8 chars, 7-day expiry).
+    public func createHouseholdInvitation() async throws -> InvitationCreated {
+        struct Body: Encodable {}
+        return try await request(
+            path: "/api/household/invitations",
+            method: "POST",
+            body: Body()
+        )
+    }
+
+    /// Owner-only: revoke an unclaimed invitation.
+    public func revokeHouseholdInvitation(code: String) async throws {
+        let _: EmptyResponse = try await request(
+            path: "/api/household/invitations/\(code)",
+            method: "DELETE"
+        )
+    }
+
+    /// Claim an invitation. The backend auto-merges the joiner's solo
+    /// content (recipes, weeks, staples, events, guests) into the target
+    /// household and deletes the empty solo. Returns the new household
+    /// snapshot.
+    public func joinHousehold(code: String) async throws -> HouseholdSnapshot {
+        struct Body: Encodable { let code: String }
+        return try await request(
+            path: "/api/household/join",
+            method: "POST",
+            body: Body(code: code)
+        )
+    }
+
     // MARK: - Push Notifications (M18)
 
     /// Register or refresh a device token for push notifications.

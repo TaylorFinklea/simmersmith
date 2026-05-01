@@ -52,6 +52,8 @@ struct SettingsView: View {
                 }
             }
 
+            HouseholdSection()
+
             Section("AI") {
                 if let capabilities = appState.aiCapabilities {
                     if let target = capabilities.defaultTarget {
@@ -1076,5 +1078,127 @@ private func preferencePill(for choiceMode: String) -> some View {
         Text(choiceMode.replacingOccurrences(of: "_", with: " ").capitalized)
             .font(.caption)
             .foregroundStyle(SMColor.textSecondary)
+    }
+}
+
+// MARK: - Household Section (M21)
+
+private struct HouseholdSection: View {
+    @Environment(AppState.self) private var appState
+    @State private var showInviteSheet = false
+    @State private var inviteCode: String = ""
+    @State private var inviteExpiresAt: Date?
+    @State private var showJoinSheet = false
+    @State private var renameDraft: String = ""
+    @State private var didLoadRenameDraft = false
+
+    var body: some View {
+        Section("Household") {
+            if let household = appState.currentHousehold {
+                if household.isOwner {
+                    TextField("Household name", text: $renameDraft, prompt: Text("e.g. The Smiths"))
+                        .submitLabel(.done)
+                        .onSubmit {
+                            let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty && trimmed != household.name {
+                                Task { await appState.renameHousehold(trimmed) }
+                            }
+                        }
+                } else if !household.name.isEmpty {
+                    LabeledContent("Name", value: household.name)
+                }
+
+                ForEach(household.members) { member in
+                    HStack {
+                        Text(memberLabel(member, household: household))
+                            .font(SMFont.subheadline)
+                        Spacer()
+                        Text(member.role.capitalized)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                }
+
+                if household.isOwner {
+                    Button {
+                        Task {
+                            if let code = await appState.createHouseholdInvitation() {
+                                inviteCode = code
+                                let expiry = appState.currentHousehold?
+                                    .activeInvitations
+                                    .first(where: { $0.code == code })?
+                                    .expiresAt
+                                inviteExpiresAt = expiry
+                                showInviteSheet = true
+                            }
+                        }
+                    } label: {
+                        Label("Invite a member", systemImage: "person.badge.plus")
+                    }
+
+                    if !household.activeInvitations.isEmpty {
+                        ForEach(household.activeInvitations) { invitation in
+                            HStack {
+                                Text(invitation.code)
+                                    .font(.system(.subheadline, design: .monospaced))
+                                Spacer()
+                                Button(role: .destructive) {
+                                    Task {
+                                        await appState.revokeHouseholdInvitation(code: invitation.code)
+                                    }
+                                } label: {
+                                    Text("Revoke")
+                                        .font(SMFont.caption)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+
+                if household.isSolo {
+                    Button {
+                        showJoinSheet = true
+                    } label: {
+                        Label("Join a household", systemImage: "person.2.fill")
+                    }
+                }
+            } else {
+                Text("Loading household…")
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            guard !didLoadRenameDraft else { return }
+            didLoadRenameDraft = true
+            renameDraft = appState.currentHousehold?.name ?? ""
+            // Best-effort refresh in case bootstrap didn't load it yet.
+            Task { await appState.refreshHousehold() }
+        }
+        .onChange(of: appState.currentHousehold?.name) { _, newName in
+            // Keep the textfield in sync when the household renames externally.
+            let value = newName ?? ""
+            if value != renameDraft {
+                renameDraft = value
+            }
+        }
+        .sheet(isPresented: $showInviteSheet) {
+            InvitationSheet(code: inviteCode, expiresAt: inviteExpiresAt)
+        }
+        .sheet(isPresented: $showJoinSheet) {
+            JoinHouseholdSheet { code in
+                await appState.joinHousehold(code: code)
+            }
+        }
+    }
+
+    private func memberLabel(_ member: HouseholdMember, household: HouseholdSnapshot) -> String {
+        if member.userId == household.createdByUserId {
+            return "You" + (member.role == "owner" ? "" : "")
+        }
+        // We don't have member names yet — show a short ID stub.
+        let stub = String(member.userId.prefix(8))
+        return "Member \(stub)"
     }
 }

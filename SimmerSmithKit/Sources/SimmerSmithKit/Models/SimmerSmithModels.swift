@@ -149,6 +149,83 @@ public struct ProfileSnapshot: Codable, Sendable {
     }
 }
 
+// MARK: - Household sharing (M21)
+
+public struct HouseholdMember: Codable, Sendable, Hashable, Identifiable {
+    public let userId: String
+    public let role: String
+    public let joinedAt: Date
+
+    public var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId
+        case role
+        case joinedAt
+    }
+}
+
+public struct HouseholdInvitation: Codable, Sendable, Hashable, Identifiable {
+    public let code: String
+    public let createdAt: Date
+    public let expiresAt: Date
+    public let createdByUserId: String
+
+    public var id: String { code }
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case createdAt
+        case expiresAt
+        case createdByUserId
+    }
+}
+
+public struct HouseholdSnapshot: Codable, Sendable {
+    public let householdId: String
+    public let name: String
+    public let createdByUserId: String
+    /// Role of the requesting user within this household: `"owner"` or `"member"`.
+    public let role: String
+    public let members: [HouseholdMember]
+    public let activeInvitations: [HouseholdInvitation]
+
+    public var isOwner: Bool { role == "owner" }
+    public var isSolo: Bool { members.count == 1 }
+
+    enum CodingKeys: String, CodingKey {
+        case householdId
+        case name
+        case createdByUserId
+        case role
+        case members
+        case activeInvitations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        householdId = try container.decode(String.self, forKey: .householdId)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        createdByUserId = try container.decode(String.self, forKey: .createdByUserId)
+        role = try container.decodeIfPresent(String.self, forKey: .role) ?? "member"
+        members = try container.decodeIfPresent([HouseholdMember].self, forKey: .members) ?? []
+        activeInvitations = try container.decodeIfPresent(
+            [HouseholdInvitation].self, forKey: .activeInvitations
+        ) ?? []
+    }
+}
+
+public struct InvitationCreated: Codable, Sendable {
+    public let code: String
+    public let expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case expiresAt
+    }
+}
+
+
 public struct SubscriptionStatus: Codable, Sendable {
     public let status: String
     public let productId: String
