@@ -109,10 +109,15 @@ def upgrade() -> None:
             "SELECT id, '', id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users"
         )
     )
+    # Re-use the user's id as the membership row id — each user has
+    # exactly one solo membership at backfill time so the 1:1 mapping
+    # avoids generating a new UUID per row. The `'hhm-' || id` form
+    # tried earlier overflowed the String(36) `id` column (UUID is
+    # already 36 chars; any prefix blew the cap).
     op.execute(
         sa.text(
             "INSERT INTO household_members (id, household_id, user_id, role, joined_at) "
-            "SELECT 'hhm-' || id, id, id, 'owner', CURRENT_TIMESTAMP FROM users"
+            "SELECT id, id, id, 'owner', CURRENT_TIMESTAMP FROM users"
         )
     )
 
