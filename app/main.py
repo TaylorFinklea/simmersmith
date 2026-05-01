@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import sys
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -39,11 +41,34 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _log_lifespan_failure(stage: str, exc: BaseException) -> None:
+    """Print a startup failure to both stdout and stderr with explicit
+    flush so Fly's log tail captures the traceback before the process
+    exits. Without this, uvicorn-mediated lifespan exceptions can be
+    eaten by output buffering on container teardown — leaving the
+    operator with `Main child exited normally with code: 3` and zero
+    diagnostic context."""
+    banner = f"!!! lifespan failure in {stage} !!!"
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    print(banner, flush=True)
+    print(tb, flush=True)
+    print(banner, file=sys.stderr, flush=True)
+    print(tb, file=sys.stderr, flush=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    run_migrations()
-    with session_scope() as session:
-        seed_defaults(session)
+    try:
+        run_migrations()
+    except BaseException as exc:
+        _log_lifespan_failure("run_migrations", exc)
+        raise
+    try:
+        with session_scope() as session:
+            seed_defaults(session)
+    except BaseException as exc:
+        _log_lifespan_failure("seed_defaults", exc)
+        raise
     if not settings.jwt_secret and not settings.api_token.strip():
         logger.warning(
             "No authentication configured — API is open. Set SIMMERSMITH_JWT_SECRET "
