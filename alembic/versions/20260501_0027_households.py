@@ -20,8 +20,6 @@ Revision ID: 20260501_0027
 Revises: 20260430_0026
 Create Date: 2026-05-01 00:00:00.000000
 """
-from datetime import datetime, timezone
-
 import sqlalchemy as sa
 
 from alembic import op
@@ -97,71 +95,26 @@ def upgrade() -> None:
         ),
     )
 
-    # 2 + 3. Create one solo household per existing user, with that user as
-    # the sole owner. Use a deterministic UUID-shaped id derived from the
-    # user_id so re-running this migration on a fresh DB is reproducible.
-    bind = op.get_bind()
-    now = datetime.now(timezone.utc)
-
-    # Pull every existing user_id. Anything in `weeks` etc. without a
-    # corresponding user_id row is invalid pre-existing data; we still
-    # generate a household for those users (best-effort) by also
-    # discovering user_ids from the shared tables.
-    users_q = bind.execute(sa.text("SELECT id FROM users"))
-    user_ids: set[str] = {row[0] for row in users_q.fetchall()}
-
-    for table in SHARED_TABLES:
-        try:
-            extra = bind.execute(sa.text(f"SELECT DISTINCT user_id FROM {table}"))
-            for row in extra.fetchall():
-                if row[0]:
-                    user_ids.add(row[0])
-        except Exception:
-            # Table may not exist on a fresh DB before earlier migrations
-            # are applied; harmless during downstream test runs.
-            pass
-
-    households_table = sa.table(
-        "households",
-        sa.column("id", sa.String),
-        sa.column("name", sa.String),
-        sa.column("created_by_user_id", sa.String),
-        sa.column("created_at", sa.DateTime),
-        sa.column("updated_at", sa.DateTime),
-    )
-    members_table = sa.table(
-        "household_members",
-        sa.column("id", sa.String),
-        sa.column("household_id", sa.String),
-        sa.column("user_id", sa.String),
-        sa.column("role", sa.String),
-        sa.column("joined_at", sa.DateTime),
-    )
-
-    for user_id in sorted(user_ids):
-        # Reuse the user_id as the household_id for solo households so
-        # backfill SQL is a single UPDATE expression (`SET household_id =
-        # user_id`). We never expose this convention in code; the
-        # backfill is a one-time data move.
-        household_id = user_id
-        op.execute(
-            households_table.insert().values(
-                id=household_id,
-                name="",
-                created_by_user_id=user_id,
-                created_at=now,
-                updated_at=now,
-            )
+    # 2 + 3. Create one solo household per existing user via pure SQL.
+    # Reuse the user's id as the household id so the backfill UPDATE
+    # below is a one-liner (`household_id = user_id`).
+    #
+    # Both `INSERT ... SELECT` statements are wrapped in the alembic
+    # transaction; if either fails the whole migration rolls back. They
+    # are deliberately plain SQL — no Python iteration over result sets,
+    # no nested `bind.execute` cursors that could leak across statements.
+    op.execute(
+        sa.text(
+            "INSERT INTO households (id, name, created_by_user_id, created_at, updated_at) "
+            "SELECT id, '', id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users"
         )
-        op.execute(
-            members_table.insert().values(
-                id=f"hhm-{user_id}",
-                household_id=household_id,
-                user_id=user_id,
-                role="owner",
-                joined_at=now,
-            )
+    )
+    op.execute(
+        sa.text(
+            "INSERT INTO household_members (id, household_id, user_id, role, joined_at) "
+            "SELECT 'hhm-' || id, id, id, 'owner', CURRENT_TIMESTAMP FROM users"
         )
+    )
 
     # 4. Add `household_id` column to each shared table as **nullable**.
     # Phase 1 is purely additive: backfill existing rows, but new rows
@@ -169,32 +122,25 @@ def upgrade() -> None:
     # are allowed to have NULL until Phase 2 wires the writers and
     # flips the column NOT NULL.
     for table in SHARED_TABLES:
-        with op.batch_alter_table(table, recreate="auto") as batch_op:
-            batch_op.add_column(
-                sa.Column(
-                    "household_id",
-                    sa.String(36),
-                    nullable=True,
-                )
-            )
-            batch_op.create_index(
-                f"ix_{table}_household_id", ["household_id"], unique=False
-            )
-
-    # 5. Backfill household_id from the user_id-keyed solo household. We
-    # used user_id as the household_id in step 2/3 so this is a single
-    # `SET household_id = user_id` per table.
-    for table in SHARED_TABLES:
-        op.execute(
-            sa.text(f"UPDATE {table} SET household_id = user_id")
+        op.add_column(
+            table,
+            sa.Column("household_id", sa.String(36), nullable=True),
         )
+        op.create_index(
+            f"ix_{table}_household_id", table, ["household_id"], unique=False
+        )
+
+    # 5. Backfill household_id from the user's solo household. Steps 2/3
+    # used user_id as the household_id, so this is a single
+    # `SET household_id = user_id` per shared table.
+    for table in SHARED_TABLES:
+        op.execute(sa.text(f"UPDATE {table} SET household_id = user_id"))
 
 
 def downgrade() -> None:
     for table in SHARED_TABLES:
-        with op.batch_alter_table(table, recreate="auto") as batch_op:
-            batch_op.drop_index(f"ix_{table}_household_id")
-            batch_op.drop_column("household_id")
+        op.drop_index(f"ix_{table}_household_id", table_name=table)
+        op.drop_column(table, "household_id")
 
     op.drop_table("household_settings")
     op.drop_table("household_invitations")
