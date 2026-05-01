@@ -34,6 +34,7 @@ class Guest(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    household_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # Named `relationship_label` in Python to avoid shadowing SQLAlchemy's
     # `relationship()` import used below. DB column name stays readable
@@ -65,6 +66,7 @@ class Event(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    household_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     event_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     occasion: Mapped[str] = mapped_column(String(64), default="other", nullable=False)

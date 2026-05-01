@@ -30,12 +30,12 @@ def dietary_goal_payload(goal: DietaryGoal | None) -> dict[str, object] | None:
     }
 
 
-def profile_payload(session: Session, user_id: str) -> dict[str, object]:
+def profile_payload(session: Session, user_id: str, household_id: str) -> dict[str, object]:
     settings_records = session.scalars(
         select(ProfileSetting).where(ProfileSetting.user_id == user_id).order_by(ProfileSetting.key)
     ).all()
     staple_records = session.scalars(
-        select(Staple).where(Staple.user_id == user_id).order_by(Staple.staple_name)
+        select(Staple).where(Staple.household_id == household_id).order_by(Staple.staple_name)
     ).all()
     dietary_goal = session.scalar(select(DietaryGoal).where(DietaryGoal.user_id == user_id))
     raw_settings = {setting.key: setting.value for setting in settings_records}
@@ -129,15 +129,14 @@ def recipe_payload(
 
 
 def recipes_payload(
-    session: Session,
-    user_id: str,
+    session: Session, household_id: str,
     include_archived: bool = False,
     cuisine: str = "",
     tags: list[str] | None = None,
 ) -> list[dict[str, object]]:
     statement = (
         select(Recipe)
-        .where(Recipe.user_id == user_id)
+        .where(Recipe.household_id == household_id)
         .options(
             selectinload(Recipe.ingredients),
             selectinload(Recipe.steps),

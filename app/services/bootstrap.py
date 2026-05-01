@@ -72,16 +72,28 @@ def run_migrations() -> None:
 
 
 def seed_defaults(session: Session) -> None:
+    local_user_id = get_settings().local_user_id
+
+    # Ensure the dev/local user has a household before any user-scoped
+    # row gets created (Staples below need household_id).
+    from app.services.households import (  # noqa: PLC0415
+        create_solo_household,
+        get_household_id_or_none,
+    )
+    household_id = get_household_id_or_none(session, local_user_id)
+    if household_id is None:
+        household_id = create_solo_household(session, local_user_id)
+
     existing_keys = set(session.scalars(select(ProfileSetting.key)).all())
     for key, value in DEFAULT_PROFILE_SETTINGS.items():
         if key in existing_keys:
             continue
-        session.add(ProfileSetting(user_id=get_settings().local_user_id, key=key, value=value, updated_at=utcnow()))
+        session.add(ProfileSetting(user_id=local_user_id, key=key, value=value, updated_at=utcnow()))
 
     existing_staple = session.scalar(select(Staple).limit(1))
     if existing_staple is None:
         for staple in DEFAULT_STAPLES:
-            session.add(Staple(user_id=get_settings().local_user_id, **staple))
+            session.add(Staple(user_id=local_user_id, household_id=household_id, **staple))
 
     ensure_default_templates(session)
     ensure_nutrition_defaults(session)

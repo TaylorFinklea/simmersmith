@@ -10,10 +10,10 @@ from app.models import ExportRun, GroceryItem, PricingRun, RetailerPrice, Week, 
 SLOT_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
 
 
-def get_current_week(session: Session, user_id: str) -> Week | None:
+def get_current_week(session: Session, household_id: str) -> Week | None:
     statement = (
         select(Week)
-        .where(Week.user_id == user_id)
+        .where(Week.household_id == household_id)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -28,10 +28,10 @@ def get_current_week(session: Session, user_id: str) -> Week | None:
     return session.scalar(statement)
 
 
-def get_week_by_start(session: Session, user_id: str, week_start: date) -> Week | None:
+def get_week_by_start(session: Session, household_id: str, week_start: date) -> Week | None:
     statement = (
         select(Week)
-        .where(Week.user_id == user_id, Week.week_start == week_start)
+        .where(Week.household_id == household_id, Week.week_start == week_start)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -40,14 +40,16 @@ def get_week_by_start(session: Session, user_id: str, week_start: date) -> Week 
             selectinload(Week.feedback_entries),
             selectinload(Week.export_runs).selectinload(ExportRun.items),
         )
+        .order_by(Week.updated_at.desc())
+        .limit(1)
     )
     return session.scalar(statement)
 
 
-def get_week(session: Session, user_id: str, week_id: str) -> Week | None:
+def get_week(session: Session, household_id: str, week_id: str) -> Week | None:
     statement = (
         select(Week)
-        .where(Week.user_id == user_id, Week.id == week_id)
+        .where(Week.household_id == household_id, Week.id == week_id)
         .options(
             selectinload(Week.meals).selectinload(WeekMeal.recipe),
             selectinload(Week.meals).selectinload(WeekMeal.inline_ingredients),
@@ -62,10 +64,10 @@ def get_week(session: Session, user_id: str, week_id: str) -> Week | None:
     return session.scalar(statement)
 
 
-def list_weeks(session: Session, user_id: str, limit: int = 12) -> list[Week]:
+def list_weeks(session: Session, household_id: str, limit: int = 12) -> list[Week]:
     statement = (
         select(Week)
-        .where(Week.user_id == user_id)
+        .where(Week.household_id == household_id)
         .options(
             selectinload(Week.meals),
             selectinload(Week.grocery_items).selectinload(GroceryItem.retailer_prices),
@@ -79,8 +81,22 @@ def list_weeks(session: Session, user_id: str, limit: int = 12) -> list[Week]:
     return list(session.scalars(statement).all())
 
 
-def create_or_get_week(session: Session, user_id: str, week_start: date, notes: str = "") -> Week:
-    existing = session.scalar(select(Week).where(Week.week_start == week_start, Week.user_id == user_id))
+def create_or_get_week(
+    session: Session,
+    *,
+    user_id: str,
+    household_id: str,
+    week_start: date,
+    notes: str = "",
+) -> Week:
+    """Find any household member's week for this week_start (most recent
+    update wins) or create a new one owned by `user_id`."""
+    existing = session.scalar(
+        select(Week)
+        .where(Week.week_start == week_start, Week.household_id == household_id)
+        .order_by(Week.updated_at.desc())
+        .limit(1)
+    )
     if existing is not None:
         if notes:
             existing.notes = notes
@@ -88,6 +104,7 @@ def create_or_get_week(session: Session, user_id: str, week_start: date, notes: 
 
     week = Week(
         user_id=user_id,
+        household_id=household_id,
         week_start=week_start,
         week_end=week_start + timedelta(days=6),
         status="staging",

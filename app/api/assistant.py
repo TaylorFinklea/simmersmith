@@ -105,7 +105,7 @@ def create_thread_route(
 ) -> dict[str, object]:
     linked_week_id = payload.linked_week_id
     if linked_week_id:
-        linked_week = get_week(session, current_user.id, linked_week_id)
+        linked_week = get_week(session, current_user.household_id, linked_week_id)
         if linked_week is None:
             raise HTTPException(status_code=404, detail="Linked week not found.")
 
@@ -201,7 +201,7 @@ async def respond_route(
 
     attached_recipe_payload = payload.attached_recipe_draft
     if attached_recipe_payload is None and payload.attached_recipe_id:
-        attached_recipe = get_recipe(session, current_user.id, payload.attached_recipe_id)
+        attached_recipe = get_recipe(session, current_user.household_id, payload.attached_recipe_id)
         if attached_recipe is not None:
             attached_recipe_payload = RecipePayload.model_validate(recipe_payload(session, attached_recipe))
 
@@ -238,6 +238,7 @@ async def respond_route(
     planning_context_text = _planning_context_text(
         session,
         current_user.id,
+        current_user.household_id,
         linked_week_id,
         page_context=page_context,
     )
@@ -257,6 +258,7 @@ async def respond_route(
     user_settings = profile_settings_map(session, current_user.id)
     use_tools = thread_kind == "planning"
     user_id = current_user.id
+    household_id = current_user.household_id
     assistant_message_id = assistant_message.id
 
     async def event_stream() -> AsyncIterator[str]:
@@ -289,6 +291,7 @@ async def respond_route(
                     name,
                     session=tool_session,
                     user_id=user_id,
+                    household_id=household_id,
                     linked_week_id=linked_week_id,
                     args=args,
                     settings=settings,
@@ -536,6 +539,7 @@ async def respond_route(
 def _planning_context_text(
     session: Session,
     user_id: str,
+    household_id: str,
     linked_week_id: str | None,
     *,
     page_context: object | None = None,
@@ -567,9 +571,9 @@ def _planning_context_text(
 
     week = None
     if linked_week_id:
-        week = get_week(session, user_id, linked_week_id)
+        week = get_week(session, household_id, linked_week_id)
     if week is None:
-        week = get_current_week(session, user_id)
+        week = get_current_week(session, household_id)
     if week is None:
         joined = ("\n".join(page_lines) + "\n") if page_lines else ""
         return joined + "Current week: none. Ask the user to create one before editing."

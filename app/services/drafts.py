@@ -201,12 +201,17 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
     return overrides
 
 
-def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str) -> Recipe:
+def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str, household_id: str) -> Recipe:
     recipe_id = payload.recipe_id
     recipe = session.get(Recipe, recipe_id) if recipe_id else None
     is_new_recipe = recipe is None
     if recipe is None:
-        recipe = Recipe(id=recipe_id or new_id(), name=payload.name, user_id=user_id)
+        recipe = Recipe(
+            id=recipe_id or new_id(),
+            name=payload.name,
+            user_id=user_id,
+            household_id=household_id,
+        )
         session.add(recipe)
 
     base_recipe = None
@@ -313,7 +318,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
 
     known_recipes: dict[str, Recipe] = {}
     for recipe_payload in payload.recipes:
-        recipe = upsert_recipe(session, recipe_payload, user_id=week.user_id)
+        recipe = upsert_recipe(session, recipe_payload, user_id=week.user_id, household_id=week.household_id)
         known_recipes[recipe.id] = recipe
 
     session.execute(delete(WeekMeal).where(WeekMeal.week_id == week.id))
@@ -403,7 +408,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     session.add(ai_run)
     session.flush()
 
-    regenerate_grocery_for_week(session, week.user_id, week)
+    regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
     session.flush()
     baseline_meals = list(
         session.scalars(select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order))
@@ -566,7 +571,7 @@ def update_week_meals(session: Session, week: Week, updates: list[MealUpdatePayl
             ),
             changes=changes,
         )
-        regenerate_grocery_for_week(session, week.user_id, week)
+        regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
     else:
         week.updated_at = utcnow()
     session.flush()

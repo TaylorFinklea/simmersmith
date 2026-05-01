@@ -24,6 +24,7 @@ class Staple(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    household_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     staple_name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)

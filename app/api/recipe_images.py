@@ -40,17 +40,17 @@ class RecipeImageUploadRequest(BaseModel):
     mime_type: str | None = None
 
 
-def _ensure_recipe(session: Session, recipe_id: str, user_id: str) -> Recipe:
+def _ensure_recipe(session: Session, recipe_id: str, household_id: str) -> Recipe:
     recipe = session.scalar(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == user_id)
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
     )
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     return recipe
 
 
-def _refreshed_payload(session: Session, user_id: str, recipe_id: str) -> dict[str, object]:
-    refreshed = get_recipe(session, user_id, recipe_id)
+def _refreshed_payload(session: Session, household_id: str, recipe_id: str) -> dict[str, object]:
+    refreshed = get_recipe(session, household_id, recipe_id)
     return recipe_payload(session, refreshed) if refreshed else {}
 
 
@@ -60,7 +60,7 @@ def fetch_recipe_image(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    _ensure_recipe(session, recipe_id, current_user.id)
+    _ensure_recipe(session, recipe_id, current_user.household_id)
 
     image = session.scalar(select(RecipeImage).where(RecipeImage.recipe_id == recipe_id))
     if image is None:
@@ -92,7 +92,7 @@ def regenerate_recipe_image_route(
     stochastic sampling. Provider is the user's `image_provider`
     profile setting (or the global default). 503 when the resolved
     provider's key isn't configured."""
-    recipe = _ensure_recipe(session, recipe_id, current_user.id)
+    recipe = _ensure_recipe(session, recipe_id, current_user.household_id)
     user_settings = profile_settings_map(session, current_user.id)
     if not is_image_gen_configured(settings, user_settings=user_settings):
         raise HTTPException(status_code=503, detail="Image generation is not configured.")
@@ -112,7 +112,7 @@ def regenerate_recipe_image_route(
         trigger="regenerate",
     )
     session.commit()
-    return _refreshed_payload(session, current_user.id, recipe.id)
+    return _refreshed_payload(session, current_user.household_id, recipe.id)
 
 
 @router.put("/{recipe_id}/image", response_model=RecipeOut)
@@ -125,7 +125,7 @@ def upload_recipe_image_route(
     """Replace the AI image with a user-uploaded photo. The bytes
     overwrite the existing `recipe_images` row and the prompt is
     set to a marker for log traceability."""
-    recipe = _ensure_recipe(session, recipe_id, current_user.id)
+    recipe = _ensure_recipe(session, recipe_id, current_user.household_id)
     if not payload.image_base64:
         raise HTTPException(status_code=400, detail="Image bytes are required")
     if len(payload.image_base64) > _MAX_PHOTO_BASE64_BYTES:
@@ -137,7 +137,7 @@ def upload_recipe_image_route(
     mime = (payload.mime_type or "image/jpeg").strip() or "image/jpeg"
     persist_recipe_image(session, recipe.id, image_bytes, mime, prompt="user upload")
     session.commit()
-    return _refreshed_payload(session, current_user.id, recipe.id)
+    return _refreshed_payload(session, current_user.household_id, recipe.id)
 
 
 @router.delete("/{recipe_id}/image", response_model=RecipeOut)
@@ -148,9 +148,9 @@ def delete_recipe_image_route(
 ) -> dict[str, object]:
     """Remove the recipe's image entirely. Idempotent — returns the
     recipe payload regardless of whether a row existed."""
-    recipe = _ensure_recipe(session, recipe_id, current_user.id)
+    recipe = _ensure_recipe(session, recipe_id, current_user.household_id)
     image = session.scalar(select(RecipeImage).where(RecipeImage.recipe_id == recipe.id))
     if image is not None:
         session.delete(image)
         session.commit()
-    return _refreshed_payload(session, current_user.id, recipe.id)
+    return _refreshed_payload(session, current_user.household_id, recipe.id)

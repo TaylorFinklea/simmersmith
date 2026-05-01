@@ -31,10 +31,10 @@ RECIPE_OVERRIDE_FIELDS = {
 }
 
 
-def get_recipe(session: Session, user_id: str, recipe_id: str) -> Recipe | None:
+def get_recipe(session: Session, household_id: str, recipe_id: str) -> Recipe | None:
     statement = (
         select(Recipe)
-        .where(Recipe.user_id == user_id, Recipe.id == recipe_id)
+        .where(Recipe.household_id == household_id, Recipe.id == recipe_id)
         .options(
             selectinload(Recipe.recipe_template),
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),
@@ -51,10 +51,10 @@ def get_recipe(session: Session, user_id: str, recipe_id: str) -> Recipe | None:
     return session.scalar(statement)
 
 
-def list_recipes(session: Session, user_id: str, include_archived: bool = False) -> list[Recipe]:
+def list_recipes(session: Session, household_id: str, include_archived: bool = False) -> list[Recipe]:
     statement = (
         select(Recipe)
-        .where(Recipe.user_id == user_id)
+        .where(Recipe.household_id == household_id)
         .options(
             selectinload(Recipe.recipe_template),
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.base_ingredient),

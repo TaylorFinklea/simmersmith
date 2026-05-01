@@ -21,6 +21,7 @@ class Week(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    household_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     week_start: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     week_end: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="staging", nullable=False)

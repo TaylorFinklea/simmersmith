@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 @router.get("", response_model=ProfileResponse)
 def get_profile(session: Session = Depends(get_session), current_user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
-    return profile_payload(session, current_user.id)
+    return profile_payload(session, current_user.id, current_user.household_id)
 
 
 @router.put("", response_model=ProfileResponse)
@@ -24,9 +24,9 @@ def put_profile(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    update_profile(session, current_user.id, payload.settings, payload.staples)
+    update_profile(session, current_user.id, current_user.household_id, payload.settings, payload.staples)
     session.commit()
-    return profile_payload(session, current_user.id)
+    return profile_payload(session, current_user.id, current_user.household_id)
 
 
 @router.get("/dietary-goal", response_model=DietaryGoalOut | None)

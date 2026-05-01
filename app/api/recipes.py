@@ -117,7 +117,7 @@ def list_recipes_route(
 ) -> list[dict[str, object]]:
     return recipes_payload(
         session,
-        user_id=current_user.id,
+        household_id=current_user.household_id,
         include_archived=include_archived,
         cuisine=cuisine,
         tags=tag or [],
@@ -161,7 +161,7 @@ def recipe_detail_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     return recipe_payload(session, recipe)
@@ -175,7 +175,7 @@ def save_recipe(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     try:
-        recipe = upsert_recipe(session, payload, user_id=current_user.id)
+        recipe = upsert_recipe(session, payload, user_id=current_user.id, household_id=current_user.household_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # Opportunistic difficulty inference. Runs only when the recipe has
@@ -222,7 +222,7 @@ def save_recipe(
         except Exception as exc:  # noqa: BLE001
             logger.info("Recipe image generation failed: %s", exc)
     session.commit()
-    refreshed = get_recipe(session, current_user.id, recipe.id)
+    refreshed = get_recipe(session, current_user.household_id, recipe.id)
     return recipe_payload(session, refreshed) if refreshed else {}
 
 
@@ -244,7 +244,7 @@ def backfill_recipe_images(
 
     rows = session.scalars(
         select(Recipe)
-        .where(Recipe.user_id == current_user.id, Recipe.archived.is_(False))
+        .where(Recipe.household_id == current_user.household_id, Recipe.archived.is_(False))
         .order_by(Recipe.created_at)
     ).all()
 
@@ -392,7 +392,7 @@ def recipe_companion_drafts_route(
     settings: Settings = Depends(get_settings),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -439,7 +439,7 @@ def recipe_variation_draft_route(
     settings: Settings = Depends(get_settings),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -489,7 +489,7 @@ def recipe_ingredient_substitute_route(
     from app.models import IngredientPreference
     from app.services.ingredient_catalog.variation import list_ingredient_preferences
 
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -544,7 +544,7 @@ def recipe_pairings_route(
     """Return up to 3 AI-generated dish pairings for a recipe."""
     from app.services.pairing_ai import suggest_pairings
 
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -586,7 +586,7 @@ def recipe_cook_check_route(
 
     from app.services.vision_ai import check_cooking_progress
 
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -683,12 +683,12 @@ def archive_recipe_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     archive_recipe(recipe)
     session.commit()
-    refreshed = get_recipe(session, current_user.id, recipe_id)
+    refreshed = get_recipe(session, current_user.household_id, recipe_id)
     return recipe_payload(session, refreshed) if refreshed else {}
 
 
@@ -698,12 +698,12 @@ def restore_recipe_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     restore_recipe(recipe)
     session.commit()
-    refreshed = get_recipe(session, current_user.id, recipe_id)
+    refreshed = get_recipe(session, current_user.household_id, recipe_id)
     return recipe_payload(session, refreshed) if refreshed else {}
 
 
@@ -713,7 +713,7 @@ def delete_recipe_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    recipe = get_recipe(session, current_user.id, recipe_id)
+    recipe = get_recipe(session, current_user.household_id, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     session.delete(recipe)

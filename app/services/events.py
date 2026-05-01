@@ -25,16 +25,16 @@ from app.models._base import new_id
 # Guest CRUD
 # ---------------------------------------------------------------------
 
-def list_guests(session: Session, user_id: str, *, include_inactive: bool = False) -> list[Guest]:
-    stmt = select(Guest).where(Guest.user_id == user_id).order_by(Guest.name)
+def list_guests(session: Session, household_id: str, *, include_inactive: bool = False) -> list[Guest]:
+    stmt = select(Guest).where(Guest.household_id == household_id).order_by(Guest.name)
     if not include_inactive:
         stmt = stmt.where(Guest.active.is_(True))
     return list(session.scalars(stmt).all())
 
 
-def get_guest(session: Session, user_id: str, guest_id: str) -> Guest | None:
+def get_guest(session: Session, household_id: str, guest_id: str) -> Guest | None:
     return session.scalar(
-        select(Guest).where(Guest.id == guest_id, Guest.user_id == user_id)
+        select(Guest).where(Guest.id == guest_id, Guest.household_id == household_id)
     )
 
 
@@ -44,6 +44,7 @@ VALID_AGE_GROUPS = {"baby", "toddler", "child", "teen", "adult"}
 def upsert_guest(
     session: Session,
     user_id: str,
+    household_id: str,
     *,
     guest_id: str | None,
     name: str,
@@ -57,11 +58,11 @@ def upsert_guest(
         raise ValueError(f"age_group must be one of: {sorted(VALID_AGE_GROUPS)}")
     guest: Guest | None = None
     if guest_id:
-        guest = get_guest(session, user_id, guest_id)
+        guest = get_guest(session, household_id, guest_id)
         if guest is None:
             raise ValueError("Guest not found")
     if guest is None:
-        guest = Guest(user_id=user_id, name=name)
+        guest = Guest(user_id=user_id, household_id=household_id, name=name)
         session.add(guest)
     guest.name = name.strip()
     guest.relationship_label = relationship_label.strip()
@@ -73,8 +74,8 @@ def upsert_guest(
     return guest
 
 
-def delete_guest(session: Session, user_id: str, guest_id: str) -> bool:
-    guest = get_guest(session, user_id, guest_id)
+def delete_guest(session: Session, household_id: str, guest_id: str) -> bool:
+    guest = get_guest(session, household_id, guest_id)
     if guest is None:
         return False
     session.delete(guest)
@@ -85,20 +86,20 @@ def delete_guest(session: Session, user_id: str, guest_id: str) -> bool:
 # Event CRUD
 # ---------------------------------------------------------------------
 
-def list_events(session: Session, user_id: str) -> list[Event]:
+def list_events(session: Session, household_id: str) -> list[Event]:
     stmt = (
         select(Event)
-        .where(Event.user_id == user_id)
+        .where(Event.household_id == household_id)
         .order_by(Event.event_date.is_(None), Event.event_date, Event.created_at.desc())
         .options(selectinload(Event.meals), selectinload(Event.attendees))
     )
     return list(session.scalars(stmt).all())
 
 
-def get_event(session: Session, user_id: str, event_id: str) -> Event | None:
+def get_event(session: Session, household_id: str, event_id: str) -> Event | None:
     return session.scalar(
         select(Event)
-        .where(Event.id == event_id, Event.user_id == user_id)
+        .where(Event.id == event_id, Event.household_id == household_id)
         .options(
             selectinload(Event.attendees).selectinload(EventAttendee.guest),
             selectinload(Event.meals).selectinload(EventMeal.inline_ingredients),
@@ -110,6 +111,7 @@ def get_event(session: Session, user_id: str, event_id: str) -> Event | None:
 def create_event(
     session: Session,
     user_id: str,
+    household_id: str,
     *,
     name: str,
     event_date: date | None,
@@ -120,6 +122,7 @@ def create_event(
 ) -> Event:
     event = Event(
         user_id=user_id,
+        household_id=household_id,
         name=name.strip() or "Untitled event",
         event_date=event_date,
         occasion=occasion.strip() or "other",
@@ -128,7 +131,7 @@ def create_event(
     )
     session.add(event)
     session.flush()
-    _sync_attendees(session, event, attendees, user_id=user_id)
+    _sync_attendees(session, event, attendees, household_id=household_id)
     return event
 
 
@@ -143,7 +146,7 @@ def update_event(
     notes: str | None,
     status: str | None,
     attendees: list[tuple[str, int]] | None = None,
-    user_id: str,
+    household_id: str,
 ) -> Event:
     if name is not None:
         event.name = name.strip() or event.name
@@ -162,7 +165,7 @@ def update_event(
     if status is not None:
         event.status = status.strip() or event.status
     if attendees is not None:
-        _sync_attendees(session, event, attendees, user_id=user_id)
+        _sync_attendees(session, event, attendees, household_id=household_id)
     return event
 
 
@@ -171,11 +174,11 @@ def _sync_attendees(
     event: Event,
     attendees: Iterable[tuple[str, int]],
     *,
-    user_id: str,
+    household_id: str,
 ) -> None:
     """Replace the event's attendee list with the given (guest_id, plus_ones)
-    pairs. Guest ownership is validated — callers from a different user
-    can't attach arbitrary guest_ids.
+    pairs. Guest ownership is validated — callers from a different
+    household can't attach arbitrary guest_ids.
     """
     seen: dict[str, int] = {}
     for guest_id, plus_ones in attendees:
@@ -189,10 +192,10 @@ def _sync_attendees(
     # Upsert remaining
     current_by_guest = {row.guest_id: row for row in event.attendees if row.guest_id in seen}
     for guest_id, plus_ones in seen.items():
-        # Confirm ownership — guard against spoofed IDs.
+        # Confirm household ownership — guard against spoofed IDs.
         guest = session.get(Guest, guest_id)
-        if guest is None or guest.user_id != user_id:
-            raise ValueError(f"Guest {guest_id} not owned by user")
+        if guest is None or guest.household_id != household_id:
+            raise ValueError(f"Guest {guest_id} not owned by household")
         row = current_by_guest.get(guest_id)
         if row is None:
             session.add(EventAttendee(event_id=event.id, guest_id=guest_id, plus_ones=plus_ones))
@@ -287,25 +290,24 @@ def add_event_meal(
     recipe_name: str,
     servings: float | None,
     notes: str,
-    assigned_guest_id: str | None,
-    user_id: str,
+    assigned_guest_id: str | None, household_id: str,
 ) -> EventMeal:
     """Add a single manually-entered dish to the event. `ai_generated`
     is set to False so the preserve_manual path of regenerate keeps it.
     Validates guest + recipe ownership to prevent spoofed IDs."""
     if assigned_guest_id:
         guest = session.get(Guest, assigned_guest_id)
-        if guest is None or guest.user_id != user_id:
-            raise ValueError("Assigned guest not owned by user")
+        if guest is None or guest.household_id != household_id:
+            raise ValueError("Assigned guest not owned by household")
     if recipe_id:
         # Recipe ownership is validated via the FK existence — Recipe
-        # has a user_id filter on the model query path. We verify
-        # lightly here to avoid attaching someone else's recipe.
+        # is household-scoped. We verify lightly here to avoid
+        # attaching someone else's recipe.
         from app.models import Recipe as _Recipe
 
         recipe = session.get(_Recipe, recipe_id)
-        if recipe is None or recipe.user_id != user_id:
-            raise ValueError("Recipe not owned by user")
+        if recipe is None or recipe.household_id != household_id:
+            raise ValueError("Recipe not owned by household")
     next_sort = max((m.sort_order for m in event.meals), default=-1) + 1
     meal = EventMeal(
         event_id=event.id,
@@ -337,8 +339,7 @@ def update_event_meal(
     servings: float | None = None,
     notes: str | None = None,
     assigned_guest_id: str | None = None,
-    clear_assignee: bool = False,
-    user_id: str,
+    clear_assignee: bool = False, household_id: str,
 ) -> EventMeal:
     meal = next((m for m in event.meals if m.id == meal_id), None)
     if meal is None:
@@ -352,8 +353,8 @@ def update_event_meal(
             from app.models import Recipe as _Recipe
 
             recipe = session.get(_Recipe, recipe_id)
-            if recipe is None or recipe.user_id != user_id:
-                raise ValueError("Recipe not owned by user")
+            if recipe is None or recipe.household_id != household_id:
+                raise ValueError("Recipe not owned by household")
         meal.recipe_id = recipe_id or None
     if servings is not None:
         meal.servings = servings
@@ -363,8 +364,8 @@ def update_event_meal(
         meal.assigned_guest_id = None
     elif assigned_guest_id is not None:
         guest = session.get(Guest, assigned_guest_id)
-        if guest is None or guest.user_id != user_id:
-            raise ValueError("Assigned guest not owned by user")
+        if guest is None or guest.household_id != household_id:
+            raise ValueError("Assigned guest not owned by household")
         meal.assigned_guest_id = assigned_guest_id
     session.flush()
     return meal

@@ -70,18 +70,18 @@ class AssistantTool:
 # --- Helpers --------------------------------------------------------------
 
 
-def _resolve_week(session: Session, user_id: str, linked_week_id: str | None) -> Week | None:
+def _resolve_week(session: Session, household_id: str, linked_week_id: str | None) -> Week | None:
     if linked_week_id:
-        week = get_week(session, user_id, linked_week_id)
+        week = get_week(session, household_id, linked_week_id)
         if week is not None:
             return week
-    return get_current_week(session, user_id)
+    return get_current_week(session, household_id)
 
 
-def _week_payload_dict(session: Session, user_id: str, week_id: str) -> dict[str, object] | None:
+def _week_payload_dict(session: Session, household_id: str, week_id: str) -> dict[str, object] | None:
     # Expire so collections (meals, grocery_items, etc.) re-load from DB after flush.
     session.expire_all()
-    fresh = get_week(session, user_id, week_id)
+    fresh = get_week(session, household_id, week_id)
     if fresh is None:
         return None
     return week_payload(fresh, session=session)
@@ -141,7 +141,7 @@ def _parse_meal_date(raw: str | None) -> _date | None:
 
 
 def _run_get_current_week(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del args, settings
     if week is None:
@@ -155,7 +155,7 @@ def _run_get_current_week(
 
 
 def _run_get_preferences_summary(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     from app.services.preferences import preference_summary_payload
 
@@ -173,7 +173,7 @@ def _run_get_preferences_summary(
 
 
 def _run_get_dietary_goal(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del args, week, settings
     goal = get_dietary_goal(session, user_id)
@@ -199,6 +199,7 @@ def _run_generate_week_plan(
     *,
     session: Session,
     user_id: str,
+    household_id: str,
     week: Week | None,
     args: dict,
     settings: Settings,
@@ -235,7 +236,7 @@ def _run_generate_week_plan(
     if on_event is None:
         apply_ai_draft(session, week, draft)
         session.flush()
-        payload = _week_payload_dict(session, user_id, week.id) or {}
+        payload = _week_payload_dict(session, household_id, week.id) or {}
         meal_count = len(payload.get("meals") or [])
         return AssistantToolResult(
             ok=True,
@@ -246,11 +247,12 @@ def _run_generate_week_plan(
     meal_count = _apply_week_plan_incrementally(
         session=session,
         user_id=user_id,
+        household_id=household_id,
         week=week,
         draft=draft,
         on_event=on_event,
     )
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(
         ok=True,
         detail=f"Planned the week with {meal_count} meals.",
@@ -262,6 +264,7 @@ def _apply_week_plan_incrementally(
     *,
     session: Session,
     user_id: str,
+    household_id: str,
     week: Week,
     draft: DraftFromAIRequest,
     on_event: Callable[[str, dict[str, object]], None],
@@ -304,7 +307,7 @@ def _apply_week_plan_incrementally(
             )
             meal_count += 1
         session.flush()
-        partial_payload = _week_payload_dict(session, user_id, week.id) or {}
+        partial_payload = _week_payload_dict(session, household_id, week.id) or {}
         on_event("week.updated", {"week": partial_payload})
 
     # Now run the full apply pipeline. It'll delete the placeholder meals we
@@ -317,7 +320,7 @@ def _apply_week_plan_incrementally(
 
 
 def _run_add_meal(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del settings
     if week is None:
@@ -343,7 +346,7 @@ def _run_add_meal(
     )
     update_week_meals(session, week, existing)
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(ok=True, detail=f"Added {recipe_name} to {day_name} {slot}.", week=payload)
 
 
@@ -361,7 +364,7 @@ def _find_meal(week: Week, *, meal_id: str | None, day_name: str | None, slot: s
 
 
 def _run_swap_meal(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del settings
     if week is None:
@@ -389,7 +392,7 @@ def _run_swap_meal(
     ]
     update_week_meals(session, week, updates)
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(
         ok=True,
         detail=f"Swapped {meal.day_name} {meal.slot} to {new_name}.",
@@ -398,7 +401,7 @@ def _run_swap_meal(
 
 
 def _run_remove_meal(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del settings
     if week is None:
@@ -414,7 +417,7 @@ def _run_remove_meal(
     updates = [_as_meal_update(m) for m in week.meals if m.id != meal.id]
     update_week_meals(session, week, updates)
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(
         ok=True,
         detail=f"Removed {meal.day_name} {meal.slot}.",
@@ -423,7 +426,7 @@ def _run_remove_meal(
 
 
 def _run_set_meal_approved(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del settings
     if week is None:
@@ -443,7 +446,7 @@ def _run_set_meal_approved(
     ]
     update_week_meals(session, week, updates)
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     verb = "approved" if approved else "unapproved"
     return AssistantToolResult(
         ok=True,
@@ -453,7 +456,7 @@ def _run_set_meal_approved(
 
 
 def _run_rebalance_day(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     from app.services.week_planner import gather_planning_context, rebalance_day as run_rebalance
 
@@ -497,7 +500,7 @@ def _run_rebalance_day(
     draft = DraftFromAIRequest.model_validate(draft_data)
     apply_ai_draft(session, week, draft)
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(
         ok=True,
         detail=f"Rebalanced {day_name} to hit your dietary goal.",
@@ -506,7 +509,7 @@ def _run_rebalance_day(
 
 
 def _run_fetch_pricing(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     from app.services.pricing import fetch_kroger_pricing
 
@@ -533,12 +536,12 @@ def _run_fetch_pricing(
     except RuntimeError as exc:
         return AssistantToolResult(ok=False, detail=f"Pricing lookup failed: {exc}")
     session.flush()
-    payload = _week_payload_dict(session, user_id, week.id) or {}
+    payload = _week_payload_dict(session, household_id, week.id) or {}
     return AssistantToolResult(ok=True, detail="Fetched Kroger prices for the week.", week=payload)
 
 
 def _run_set_dietary_goal(
-    *, session: Session, user_id: str, week: Week | None, args: dict, settings: Settings
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
     del week, settings
     try:
@@ -771,6 +774,7 @@ def run_tool(
     *,
     session: Session,
     user_id: str,
+    household_id: str,
     linked_week_id: str | None,
     args: dict[str, object],
     settings: Settings,
@@ -780,7 +784,7 @@ def run_tool(
     if tool is None:
         return AssistantToolResult(ok=False, detail=f"Unknown tool: {name}")
 
-    week = _resolve_week(session, user_id, linked_week_id)
+    week = _resolve_week(session, household_id, linked_week_id)
 
     if tool.gated_action is not None:
         try:
@@ -798,6 +802,7 @@ def run_tool(
     runner_kwargs: dict[str, object] = {
         "session": session,
         "user_id": user_id,
+        "household_id": household_id,
         "week": week,
         "args": dict(args or {}),
         "settings": settings,

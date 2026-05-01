@@ -25,8 +25,10 @@ import jwt
 from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,13 @@ GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
 @dataclass(frozen=True)
 class CurrentUser:
-    """Minimal authenticated principal. Only holds the stable user id."""
+    """Authenticated principal. Carries the user id and the active
+    household_id (M21). Every authenticated user belongs to exactly
+    one household; new users get a solo household auto-created on
+    first sign-in. The dev/local user gets a household via
+    `bootstrap.seed_defaults`."""
     id: str
+    household_id: str
 
 
 class _AuthError(HTTPException):
@@ -159,14 +166,31 @@ def _verify_session_jwt(token: str, settings: Settings) -> str:
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     settings: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
 ) -> CurrentUser:
-    """Resolve the authenticated user for the current request."""
+    """Resolve the authenticated user for the current request.
+
+    Returns a `CurrentUser` carrying both the stable user id and the
+    user's active household id (M21). If the user has no household
+    membership (transitional state for legacy users without a row),
+    we lazily create a solo household for them so downstream queries
+    never see a missing household_id.
+    """
+    user_id = _resolve_authenticated_user_id(credentials, settings)
+    household_id = _resolve_or_create_household_id(session, user_id)
+    return CurrentUser(id=user_id, household_id=household_id)
+
+
+def _resolve_authenticated_user_id(
+    credentials: HTTPAuthorizationCredentials | None,
+    settings: Settings,
+) -> str:
     jwt_configured = bool(settings.jwt_secret)
     legacy_configured = bool(settings.api_token.strip())
 
     # (1) Fully open mode — dev and test environments.
     if not jwt_configured and not legacy_configured:
-        return CurrentUser(id=settings.local_user_id)
+        return settings.local_user_id
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _AuthError()
@@ -176,17 +200,33 @@ def get_current_user(
     # (2) Try our session JWT first.
     if jwt_configured:
         try:
-            user_id = _verify_session_jwt(token, settings)
-            return CurrentUser(id=user_id)
+            return _verify_session_jwt(token, settings)
         except _AuthError:
             if not legacy_configured:
                 raise
 
     # (3) Legacy bearer token fallback.
     if legacy_configured and compare_digest(token, settings.api_token.strip()):
-        return CurrentUser(id=settings.local_user_id)
+        return settings.local_user_id
 
     raise _AuthError()
+
+
+def _resolve_or_create_household_id(session: Session, user_id: str) -> str:
+    """Look up the user's household_id; lazy-create a solo household
+    if missing. Avoids a hard 500 on legacy users who pre-date M21."""
+    # Local import to avoid circular dependency at module load.
+    from app.services.households import (  # noqa: PLC0415
+        create_solo_household,
+        get_household_id_or_none,
+    )
+
+    existing = get_household_id_or_none(session, user_id)
+    if existing is not None:
+        return existing
+    new_household_id = create_solo_household(session, user_id)
+    session.commit()
+    return new_household_id
 
 
 # ── Kept for backwards compatibility during migration ───────────────

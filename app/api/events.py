@@ -58,7 +58,7 @@ def list_guests_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    return [guest_payload(g) for g in list_guests(session, current_user.id, include_inactive=include_inactive)]
+    return [guest_payload(g) for g in list_guests(session, current_user.household_id, include_inactive=include_inactive)]
 
 
 @guests_router.post("", response_model=GuestOut)
@@ -71,6 +71,7 @@ def upsert_guest_route(
         guest = upsert_guest(
             session,
             current_user.id,
+            current_user.household_id,
             guest_id=payload.guest_id,
             name=payload.name,
             relationship_label=payload.relationship_label,
@@ -92,7 +93,7 @@ def delete_guest_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    if not delete_guest(session, current_user.id, guest_id):
+    if not delete_guest(session, current_user.household_id, guest_id):
         raise HTTPException(status_code=404, detail="Guest not found")
     session.commit()
     return Response(status_code=204)
@@ -107,7 +108,7 @@ def list_events_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    return [event_summary_payload(e) for e in list_events(session, current_user.id)]
+    return [event_summary_payload(e) for e in list_events(session, current_user.household_id)]
 
 
 @events_router.post("", response_model=EventOut)
@@ -121,6 +122,7 @@ def create_event_route(
         event = create_event(
             session,
             current_user.id,
+            current_user.household_id,
             name=payload.name,
             event_date=payload.event_date,
             occasion=payload.occasion,
@@ -139,7 +141,7 @@ def create_event_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=500, detail="Event vanished after create")
         return event_payload(fresh)
@@ -151,7 +153,7 @@ def get_event_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     return event_payload(event)
@@ -164,7 +166,7 @@ def update_event_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     attendees = (
@@ -183,7 +185,7 @@ def update_event_route(
             notes=payload.notes,
             status=payload.status,
             attendees=attendees,
-            user_id=current_user.id,
+            household_id=current_user.household_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -191,7 +193,7 @@ def update_event_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -203,7 +205,7 @@ def delete_event_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     delete_event(session, event)
@@ -222,7 +224,7 @@ def add_event_meal_route(
     salad" or just "+ Add another side" after the AI generated the
     core menu.
     """
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     try:
@@ -235,7 +237,7 @@ def add_event_meal_route(
             servings=payload.servings,
             notes=payload.notes,
             assigned_guest_id=payload.assigned_guest_id,
-            user_id=current_user.id,
+            household_id=current_user.household_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -244,7 +246,7 @@ def add_event_meal_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -258,7 +260,7 @@ def update_event_meal_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     try:
@@ -273,7 +275,7 @@ def update_event_meal_route(
             notes=payload.notes,
             assigned_guest_id=payload.assigned_guest_id,
             clear_assignee=payload.clear_assignee,
-            user_id=current_user.id,
+            household_id=current_user.household_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -282,7 +284,7 @@ def update_event_meal_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -295,7 +297,7 @@ def delete_event_meal_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     if not delete_event_meal(session, event, meal_id):
@@ -305,7 +307,7 @@ def delete_event_meal_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -327,7 +329,7 @@ def generate_event_menu_route(
     from app.services.event_ai import generate_event_menu
     from app.services.event_grocery import regenerate_event_grocery
 
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -357,7 +359,7 @@ def generate_event_menu_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return {
@@ -376,7 +378,7 @@ def refresh_event_grocery_route(
     when the user has edited meals after the initial AI generation."""
     from app.services.event_grocery import regenerate_event_grocery
 
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     regenerate_event_grocery(session, current_user.id, event)
@@ -385,7 +387,7 @@ def refresh_event_grocery_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -405,12 +407,12 @@ def merge_event_grocery_route(
     from app.models import Week
     from app.services.event_grocery import merge_event_into_week
 
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
     week = session.scalar(
-        select(Week).where(Week.id == payload.week_id, Week.user_id == current_user.id)
+        select(Week).where(Week.id == payload.week_id, Week.household_id == current_user.household_id)
     )
     if week is None:
         raise HTTPException(status_code=404, detail="Week not found")
@@ -421,7 +423,7 @@ def merge_event_grocery_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
@@ -438,11 +440,11 @@ def unmerge_event_grocery_route(
     from app.models import Week
     from app.services.event_grocery import unmerge_event_from_week
 
-    event = get_event(session, current_user.id, event_id)
+    event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     week = session.scalar(
-        select(Week).where(Week.id == week_id, Week.user_id == current_user.id)
+        select(Week).where(Week.id == week_id, Week.household_id == current_user.household_id)
     )
     if week is None:
         raise HTTPException(status_code=404, detail="Week not found")
@@ -452,7 +454,7 @@ def unmerge_event_grocery_route(
     from app.db import session_scope
 
     with session_scope() as read_session:
-        fresh = get_event(read_session, current_user.id, event_id)
+        fresh = get_event(read_session, current_user.household_id, event_id)
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)

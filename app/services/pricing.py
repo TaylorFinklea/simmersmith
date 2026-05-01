@@ -98,7 +98,7 @@ def import_pricing(session: Session, week: Week, payload: PricingImportRequest) 
         session.flush()
         session.expire_all()
 
-        refreshed_week = get_week(session, week.user_id, week.id)
+        refreshed_week = get_week(session, week.household_id, week.id)
         if refreshed_week is None:
             raise ValueError(f"Week {week.id} not found after pricing import.")
 
@@ -204,7 +204,7 @@ def fetch_kroger_pricing(
         session.flush()
         session.expire_all()
 
-        refreshed_week = get_week(session, week.user_id, week.id)
+        refreshed_week = get_week(session, week.household_id, week.id)
         if refreshed_week is None:
             raise ValueError(f"Week {week.id} not found after pricing fetch.")
 

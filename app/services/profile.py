@@ -12,6 +12,7 @@ from app.services.grocery import normalize_name
 def update_profile(
     session: Session,
     user_id: str,
+    household_id: str,
     settings: dict[str, str],
     staples: list[StaplePayload] | None,
 ) -> None:
@@ -22,7 +23,7 @@ def update_profile(
         session.flush()
         return
 
-    session.execute(delete(Staple).where(Staple.user_id == user_id))
+    session.execute(delete(Staple).where(Staple.household_id == household_id))
     seen: set[str] = set()
     for item in staples:
         normalized = normalize_name(item.normalized_name or item.staple_name)
@@ -32,6 +33,7 @@ def update_profile(
         session.add(
             Staple(
                 user_id=user_id,
+                household_id=household_id,
                 staple_name=item.staple_name.strip(),
                 normalized_name=normalized,
                 notes=item.notes,

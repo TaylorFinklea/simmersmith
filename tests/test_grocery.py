@@ -14,7 +14,7 @@ _uid = get_settings().local_user_id
 
 def test_grocery_aggregation_excludes_default_staples() -> None:
     with session_scope() as session:
-        week = create_or_get_week(session, _uid, date(2026, 3, 16), "test week")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 3, 16), notes="test week")
         payload = DraftFromAIRequest(
             prompt="Build a simple protein-focused week.",
             recipes=[
@@ -71,7 +71,7 @@ def test_grocery_aggregation_excludes_default_staples() -> None:
 
 def test_inline_meal_ingredients_flow_into_grocery_rows() -> None:
     with session_scope() as session:
-        week = create_or_get_week(session, _uid, date(2026, 3, 23), "inline ingredients")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 3, 23), notes="inline ingredients")
         payload = DraftFromAIRequest(
             prompt="Ad hoc lunches only.",
             meal_plan=[
@@ -122,7 +122,7 @@ def test_grocery_resolution_prefers_structured_variation_for_base_ingredient() -
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, _uid, date(2026, 3, 30), "biscuits preference")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 3, 30), notes="biscuits preference")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -184,7 +184,7 @@ def test_grocery_resolution_keeps_inferred_exact_variation_match_as_suggested() 
             nutrition_reference_unit="ea",
         )
 
-        week = create_or_get_week(session, _uid, date(2026, 4, 6), "inferred variation suggestion")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 4, 6), notes="inferred variation suggestion")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -257,7 +257,7 @@ def test_grocery_resolution_prefers_household_brand_match_when_recipe_stays_gene
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, _uid, date(2026, 4, 13), "brand preference fallback")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 4, 13), notes="brand preference fallback")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[
@@ -330,7 +330,7 @@ def test_grocery_locked_recipe_variation_beats_household_preference() -> None:
             choice_mode="preferred",
         )
 
-        week = create_or_get_week(session, _uid, date(2026, 4, 20), "locked variation precedence")
+        week = create_or_get_week(session, user_id=_uid, household_id=_uid, week_start=date(2026, 4, 20), notes="locked variation precedence")
         payload = DraftFromAIRequest(
             prompt="Breakfast test",
             recipes=[

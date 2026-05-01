@@ -19,11 +19,11 @@ router = APIRouter(prefix="/api/recipes", tags=["recipe-memories"])
 _MAX_PHOTO_BASE64_BYTES = 5 * 1024 * 1024
 
 
-def _ensure_recipe(session: Session, recipe_id: str, user_id: str) -> Recipe:
-    """Owner-scoped lookup. Raises 404 instead of leaking that the
-    recipe exists for another user."""
+def _ensure_recipe(session: Session, recipe_id: str, household_id: str) -> Recipe:
+    """Household-scoped lookup. Raises 404 instead of leaking that the
+    recipe exists for another household."""
     recipe = session.scalar(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.user_id == user_id)
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.household_id == household_id)
     )
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -52,7 +52,7 @@ def list_memories(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[RecipeMemoryOut]:
-    _ensure_recipe(session, recipe_id, current_user.id)
+    _ensure_recipe(session, recipe_id, current_user.household_id)
     # Explicit column-list select so the LargeBinary `image_bytes`
     # column never gets pulled into a list response. Bytes ride the
     # dedicated `…/photo` route instead.
@@ -93,7 +93,7 @@ def create_memory(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> RecipeMemoryOut:
-    _ensure_recipe(session, recipe_id, current_user.id)
+    _ensure_recipe(session, recipe_id, current_user.household_id)
     body = (payload.body or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Memory body cannot be empty")
@@ -128,7 +128,7 @@ def delete_memory(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> None:
-    _ensure_recipe(session, recipe_id, current_user.id)
+    _ensure_recipe(session, recipe_id, current_user.household_id)
     memory = session.scalar(
         select(RecipeMemory).where(
             RecipeMemory.id == memory_id, RecipeMemory.recipe_id == recipe_id
@@ -147,7 +147,7 @@ def fetch_memory_photo(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    _ensure_recipe(session, recipe_id, current_user.id)
+    _ensure_recipe(session, recipe_id, current_user.household_id)
     memory = session.scalar(
         select(RecipeMemory).where(
             RecipeMemory.id == memory_id, RecipeMemory.recipe_id == recipe_id

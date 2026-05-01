@@ -114,14 +114,14 @@ def quantity_display(quantity: float | None) -> str:
     return f"{quantity:.2f}".rstrip("0").rstrip(".")
 
 
-def staple_names(session: Session, user_id: str) -> set[str]:
+def staple_names(session: Session, household_id: str) -> set[str]:
     staples = session.scalars(
-        select(Staple).where(Staple.user_id == user_id, Staple.is_active.is_(True))
+        select(Staple).where(Staple.household_id == household_id, Staple.is_active.is_(True))
     ).all()
     return {staple.normalized_name for staple in staples}
 
 
-def build_grocery_rows_for_week(session: Session, user_id: str, week: Week) -> list[dict[str, Any]]:
+def build_grocery_rows_for_week(session: Session, user_id: str, household_id: str, week: Week) -> list[dict[str, Any]]:
     meals = list(
         session.scalars(
             select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order)
@@ -149,7 +149,7 @@ def build_grocery_rows_for_week(session: Session, user_id: str, week: Week) -> l
         ).all():
             inline_ingredients_by_meal[ingredient.week_meal_id].append(ingredient)
 
-    staples = staple_names(session, user_id)
+    staples = staple_names(session, household_id)
     aggregations: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     for meal in meals:
@@ -265,12 +265,12 @@ def build_grocery_rows_for_week(session: Session, user_id: str, week: Week) -> l
     return rows
 
 
-def regenerate_grocery_for_week(session: Session, user_id: str, week: Week) -> list[GroceryItem]:
+def regenerate_grocery_for_week(session: Session, user_id: str, household_id: str, week: Week) -> list[GroceryItem]:
     invalidate_week(session, week)
     session.execute(delete(GroceryItem).where(GroceryItem.week_id == week.id))
     session.flush()
 
-    rows = build_grocery_rows_for_week(session, user_id, week)
+    rows = build_grocery_rows_for_week(session, user_id, household_id, week)
     created: list[GroceryItem] = []
     for row in rows:
         grocery_item = GroceryItem(

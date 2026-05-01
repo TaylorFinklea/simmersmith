@@ -68,11 +68,15 @@ def db_session():
 
 @pytest.fixture
 def current_user(db_session) -> CurrentUser:
-    """Create and return a test user."""
+    """Create and return a test user with a solo household (M21)."""
+    from app.services.households import create_solo_household
+
     user = User(id=new_id(), email="test@example.com")
     db_session.add(user)
+    db_session.flush()
+    household_id = create_solo_household(db_session, user.id)
     db_session.commit()
-    return CurrentUser(id=user.id)
+    return CurrentUser(id=user.id, household_id=household_id)
 
 
 @pytest.fixture

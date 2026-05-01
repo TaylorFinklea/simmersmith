@@ -41,6 +41,7 @@ def recipe1(db_session: Session, user1: User) -> Recipe:
     recipe = Recipe(
         id=new_id(),
         user_id=user1.id,
+        household_id=user1.id,
         name="Test Recipe",
         cuisine="italian",
         meal_type="dinner",
@@ -437,6 +438,7 @@ def test_regenerate_logs_usage(client, db_session: Session) -> None:
     recipe = Recipe(
         id=new_id(),
         user_id=test_user_id,
+        household_id=test_user_id,
         name="Test Recipe",
         cuisine="italian",
         meal_type="dinner",
@@ -509,6 +511,7 @@ def test_admin_route_returns_global_data(client, db_session: Session, current_us
     recipe = Recipe(
         id=new_id(),
         user_id=current_user.id,
+        household_id=current_user.id,
         name="Test Recipe",
         cuisine="italian",
         meal_type="dinner",
