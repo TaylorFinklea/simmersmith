@@ -18,6 +18,8 @@ from app.models.event import (
     EventMealIngredient,
     Guest,
 )
+from app.models.household import Household, HouseholdInvitation, HouseholdMember
+from app.models.household_setting import HouseholdSetting
 from app.models.image_usage import ImageGenUsage
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.push import PushDevice
@@ -55,6 +57,10 @@ __all__ = [
     "FeedbackEntry",
     "GroceryItem",
     "Guest",
+    "Household",
+    "HouseholdInvitation",
+    "HouseholdMember",
+    "HouseholdSetting",
     "ImageGenUsage",
     "IngredientNutritionMatch",
     "IngredientPreference",
