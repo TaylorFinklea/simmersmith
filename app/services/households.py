@@ -139,18 +139,27 @@ def list_active_invitations(
     session: Session, household_id: str
 ) -> list[HouseholdInvitation]:
     """Active = not yet claimed and not yet expired."""
+    rows = session.scalars(
+        select(HouseholdInvitation)
+        .where(
+            HouseholdInvitation.household_id == household_id,
+            HouseholdInvitation.claimed_at.is_(None),
+        )
+        .order_by(HouseholdInvitation.created_at.desc())
+    ).all()
+    # Filter expired in Python so we tolerate SQLite's naive-datetime
+    # storage (timezone comparisons can't push down across the dialects).
     now = utcnow()
-    return list(
-        session.scalars(
-            select(HouseholdInvitation)
-            .where(
-                HouseholdInvitation.household_id == household_id,
-                HouseholdInvitation.claimed_at.is_(None),
-                HouseholdInvitation.expires_at > now,
-            )
-            .order_by(HouseholdInvitation.created_at.desc())
-        ).all()
-    )
+    active: list[HouseholdInvitation] = []
+    for inv in rows:
+        expires_at = inv.expires_at
+        if expires_at.tzinfo is None:
+            compare_now = now.replace(tzinfo=None)
+        else:
+            compare_now = now
+        if expires_at > compare_now:
+            active.append(inv)
+    return active
 
 
 def _generate_invitation_code(session: Session) -> str:
@@ -227,7 +236,15 @@ def claim_invitation(
     now = utcnow()
     if invitation.claimed_at is not None:
         raise InvitationExpiredError("Invitation has already been claimed.")
-    if invitation.expires_at <= now:
+    # SQLite drops tzinfo on DateTime columns; PostgreSQL preserves it.
+    # Normalize both sides to naive UTC for the comparison so the test
+    # suite (SQLite) and prod (Postgres) behave identically.
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        compare_now = now.replace(tzinfo=None)
+    else:
+        compare_now = now
+    if expires_at <= compare_now:
         raise InvitationExpiredError("Invitation has expired.")
 
     # Look up joiner's current household (created at first sign-in).

@@ -36,6 +36,14 @@ from app.schemas.event import (
     GuestPayload,
 )
 from app.schemas.health import HealthResponse
+from app.schemas.household import (
+    HouseholdInvitationOut,
+    HouseholdMemberOut,
+    HouseholdOut,
+    HouseholdRenameRequest,
+    InvitationCreatedOut,
+    JoinHouseholdRequest,
+)
 from app.schemas.ingredient import (
     BaseIngredientDetailOut,
     BaseIngredientOut,
