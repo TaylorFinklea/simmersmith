@@ -33,9 +33,10 @@ Open follow-ups:
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Next (M21 candidates)
-- **Household sharing** tied to a Pro seat. (User-picked next.)
+### Next (M22 candidates)
 - **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
+- **Owner role transfer** (M21 follow-up).
+- **Removing a member as owner** (M21 follow-up).
 
 ### Soon
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
@@ -422,6 +423,34 @@ recipe accrues family history across cooks.
       `PhotosPicker` row with the same 2048px / JPEG 0.8 ceiling
       `CookCheckSheet` uses; rows render a 60×60 thumbnail when a
       photo exists; tap → full-screen viewer.
+
+## M21: Household sharing (complete on dev; awaiting deploy + TestFlight 32)
+
+> Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
+
+Closes the long-standing single-user-per-account gap: spouses /
+roommates can now share a Week, Recipe library, Pantry, Events, and
+Guests under one household. Per-user data (taste signals, allergies,
+push devices, AI provider toggle, timezone) stays user-scoped.
+
+- [x] Phase 1 — Schema. New `households`, `household_members`,
+      `household_invitations`, `household_settings` tables. `household_id`
+      column on Week / Recipe / Staple / Event / Guest, backfilled from
+      one-solo-household-per-user seeded for every existing user.
+- [x] Phase 2 — Service rewrite + auth. `CurrentUser` carries
+      `household_id` (lazy solo creation on first request). Every
+      shared-table query flips from `user_id` to `household_id`.
+      Writers populate `household_id` on construct.
+- [x] Phase 3 — Invitation API + tests. 5 routes
+      (GET/PUT household, POST/DELETE invitations, POST join). Auto-merge
+      semantics: joining migrates the joiner's solo content into the
+      target household and deletes the empty solo. 12 new tests.
+- [x] Phase 4 — iOS surfaces. `HouseholdSnapshot` model + 5 API
+      methods + `AppState+Household.swift` + `InvitationSheet`
+      (code + ShareLink) + `JoinHouseholdSheet` + `HouseholdSection`
+      in Settings between Sync and AI.
+- [ ] Phase 5 — Ship. Build bump 31→32, push, fly deploy,
+      TestFlight 32, on-device cross-account dogfood.
 
 ## M20: M18 follow-up pushes (complete on dev; awaiting commit + deploy + TestFlight 31)
 

@@ -8,9 +8,38 @@
 
 ## Last Session Summary
 
-**Date**: 2026-04-30
+**Date**: 2026-05-01
 
-Three milestones shipped end-to-end this session:
+**M21 Household sharing** shipped end-to-end across 5 phases:
+- Phase 1 (commit `edf9a0f`) — schema: `households`, `household_members`,
+  `household_invitations`, `household_settings` tables. `household_id`
+  column on Week / Recipe / Staple / Event / Guest, backfilled.
+- Phase 2 (commit `eff6e8f`) — service rewrite + auth: `CurrentUser`
+  carries `household_id` (lazy-create for legacy users); every shared-
+  table query flips from `user_id` to `household_id`; writers populate
+  `household_id` on construct; per-user data (DietaryGoal,
+  IngredientPreference, PushDevice, etc.) intentionally stays user-scoped.
+- Phase 3 (commit `c50c6ce`) — invitation API + tests: 5 routes (GET
+  household, PUT name, POST/DELETE invitations, POST join). Auto-merge
+  on join: joiner's solo content (recipes, weeks, staples, events,
+  guests) is re-pointed to the target household; the empty solo is
+  deleted. 12 new tests covering owner-only checks, expiry, single-use
+  consume, cross-member visibility, per-user push isolation.
+- Phase 4 (commit `0dbe4a4`) — iOS surfaces: `HouseholdSnapshot` model +
+  5 API client methods + `AppState+Household.swift` + new
+  `InvitationSheet` (display + ShareLink) + `JoinHouseholdSheet` +
+  `HouseholdSection` in Settings (between Sync and AI). Owner sees
+  editable name + member list + invite button + active codes with
+  Revoke. Solo households see "Join a household".
+- Phase 5 — build bump 31→32, push, deploy, TestFlight 32. (in flight)
+
+**Test status**: backend `pytest -q` 260/260 (248 pre-M21 + 12 new
+household-API tests). SimmerSmithKit `swift test` 26/26. iOS build
+green on `generic/platform=iOS Simulator`.
+
+### Previous session (2026-04-30)
+
+Three milestones shipped end-to-end:
 
 - **M17.1 Image-gen cost telemetry** — per-call `image_gen_usage` rows,
   30-day Settings rollup, admin `GET /api/admin/image-usage` behind the
