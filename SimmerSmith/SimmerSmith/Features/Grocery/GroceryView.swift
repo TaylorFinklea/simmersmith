@@ -12,6 +12,7 @@ struct GroceryView: View {
     @State private var showingAddSheet = false
     @State private var isFetchingPrices = false
     @State private var showingBarcodeScanner = false
+    @State private var isRegenerating = false
 
     /// True when this view is presented as a sheet from the Week tab —
     /// shows a Done button to dismiss. False when used as the Grocery
@@ -129,20 +130,7 @@ struct GroceryView: View {
                     await appState.refreshWeek()
                 }
             } else {
-                VStack(spacing: SMSpacing.lg) {
-                    Image(systemName: "cart.badge.questionmark")
-                        .font(.system(size: 48))
-                        .foregroundStyle(SMColor.textTertiary)
-                    Text("No Grocery List")
-                        .font(SMFont.headline)
-                        .foregroundStyle(SMColor.textPrimary)
-                    Text("Sync a current week that includes grocery items.")
-                        .font(SMFont.body)
-                        .foregroundStyle(SMColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(SMColor.surface)
+                emptyState
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -226,6 +214,77 @@ struct GroceryView: View {
         }
         .sheet(isPresented: $showingBarcodeScanner) {
             BarcodeLookupSheet()
+        }
+    }
+
+    private var mealCount: Int { appState.currentWeek?.meals.count ?? 0 }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        VStack(spacing: SMSpacing.lg) {
+            Image(systemName: "cart.badge.questionmark")
+                .font(.system(size: 48))
+                .foregroundStyle(SMColor.textTertiary)
+            Text("No Grocery List")
+                .font(SMFont.headline)
+                .foregroundStyle(SMColor.textPrimary)
+            Text(emptyHelperText)
+                .font(SMFont.body)
+                .foregroundStyle(SMColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, SMSpacing.lg)
+
+            VStack(spacing: SMSpacing.sm) {
+                if appState.currentWeek != nil && mealCount > 0 {
+                    Button {
+                        Task { await regenerate() }
+                    } label: {
+                        Label(
+                            isRegenerating ? "Regenerating…" : "Regenerate from this week's meals",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SMColor.primary)
+                    .disabled(isRegenerating)
+                }
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Label("Add an item manually", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, SMSpacing.xl)
+            .padding(.top, SMSpacing.sm)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SMColor.surface)
+        .refreshable { await appState.refreshWeek() }
+    }
+
+    private var emptyHelperText: String {
+        if appState.currentWeek == nil {
+            return "Pull to refresh once your week loads."
+        }
+        if mealCount == 0 {
+            return "No meals planned yet. Add some on the Week tab — the grocery list builds from your meals automatically."
+        }
+        return "You have \(mealCount) meal\(mealCount == 1 ? "" : "s") this week, but no ingredients have aggregated yet. Tap Regenerate to build the list."
+    }
+
+    private func regenerate() async {
+        guard let weekID = appState.currentWeek?.weekId else { return }
+        isRegenerating = true
+        defer { isRegenerating = false }
+        do {
+            _ = try await appState.regenerateGrocery(weekID: weekID)
+            await appState.refreshWeek()
+            await appState.syncGroceryToReminders()
+        } catch {
+            appState.lastErrorMessage = "Regenerate failed: \(error.localizedDescription)"
         }
     }
 
