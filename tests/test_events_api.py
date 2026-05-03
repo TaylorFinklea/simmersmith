@@ -508,17 +508,19 @@ def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
     )
     assert merge_resp.status_code == 200, merge_resp.text
 
-    # Verify the weekly row is now 6 lb, and the event row is tagged
-    # with merged_into_week_id.
+    # Verify the weekly row is now 1 lb (week portion) + 5 lb (event
+    # portion via M22.2's `event_quantity` column), and the event row
+    # is tagged with merged_into_week_id.
     with session_scope() as session:
         week_rows = list(session.query(GroceryItem).filter_by(week_id=week_id).all())
         assert len(week_rows) == 1
-        assert week_rows[0].total_quantity == 6.0
+        assert week_rows[0].total_quantity == 1.0
+        assert week_rows[0].event_quantity == 5.0
         event_rows = list(session.query(EventGroceryItem).filter_by(event_id=event_id).all())
         assert event_rows[0].merged_into_week_id == week_id
         assert event_rows[0].merged_into_grocery_item_id == week_rows[0].id
 
-    # Unmerge — weekly row should drop back to 1 lb.
+    # Unmerge — event_quantity should clear; total_quantity stays at 1 lb.
     unmerge_resp = client.delete(
         f"/api/events/{event_id}/grocery/merge?week_id={week_id}"
     )
@@ -526,5 +528,6 @@ def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
     with session_scope() as session:
         week_rows = list(session.query(GroceryItem).filter_by(week_id=week_id).all())
         assert week_rows[0].total_quantity == 1.0
+        assert week_rows[0].event_quantity is None
         event_rows = list(session.query(EventGroceryItem).filter_by(event_id=event_id).all())
         assert event_rows[0].merged_into_week_id is None

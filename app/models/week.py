@@ -176,6 +176,13 @@ class GroceryItem(Base):
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checked_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # M22.2: portion contributed by merged events. `total_quantity` is
+    # the week-meal-only portion; `event_quantity` is the sum of merged
+    # event contributions. iOS displays `total + event` (or
+    # `quantity_override` when set). Smart-merge regen can safely
+    # refresh `total_quantity` because event lifecycle is owned by
+    # `merge_event_into_week` / `unmerge_event_from_week`.
+    event_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

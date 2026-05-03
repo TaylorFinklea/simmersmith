@@ -222,16 +222,28 @@ def regenerate_event_grocery(session: Session, user_id: str, event: Event) -> li
     return created
 
 
-def _match_key(row: Any) -> tuple[str, str, str]:
-    """Stable key used to match an event grocery row with a weekly grocery
-    row. Matches on base_ingredient_id when both have one, else falls
-    back to the normalized name. Unit matters — 2 lb chicken and 1 oz
-    chicken don't add together cleanly."""
+def _match_keys(row: Any) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """Pair of stable keys used to match an event grocery row with a
+    weekly grocery row.
+
+    Returns `(base_key, name_key)`:
+    - `base_key` includes `base_ingredient_id` when the row has one
+      (catalog-resolved match wins when both sides have IDs).
+    - `name_key` falls back to the `normalized_name` so a row that
+      didn't resolve to a catalog entry can still match its
+      counterpart by name + unit. M22.2 needs this because event
+      meal ingredients often skip catalog resolution while the
+      week's recipe-derived rows resolve through `choice_for_base_ingredient`.
+
+    Both keys carry the normalized unit so 2 lb chicken doesn't merge
+    with 1 oz chicken.
+    """
     base = getattr(row, "base_ingredient_id", None) or ""
     norm = getattr(row, "normalized_name", "") or ""
     unit = normalize_unit(getattr(row, "unit", "") or "")
-    primary = base or norm
-    return (primary, unit, "")
+    base_key = (base, unit, "") if base else ("", unit, norm)
+    name_key = (norm, unit, "")
+    return (base_key, name_key)
 
 
 def merge_event_into_week(
@@ -250,11 +262,17 @@ def merge_event_into_week(
     points to a grocery_item_id on this week is skipped so callers can
     re-run safely.
     """
-    # Index weekly rows by key for quick matching.
+    # Index weekly rows by both base-id and normalized-name keys so a
+    # catalog-resolved week row still matches a name-only event row
+    # (and vice versa).
     week_rows = list(session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all())
     week_index: dict[tuple[str, str, str], GroceryItem] = {}
     for row in week_rows:
-        week_index[_match_key(row)] = row
+        base_key, name_key = _match_keys(row)
+        if base_key not in week_index:
+            week_index[base_key] = row
+        if name_key not in week_index:
+            week_index[name_key] = row
 
     counts = {"matched": 0, "created": 0, "unmatched_text_only": 0}
     for ev_row in list(event.grocery_items):
@@ -269,24 +287,30 @@ def merge_event_into_week(
             ev_row.merged_into_week_id = week.id
             continue
 
-        key = _match_key(ev_row)
-        match = week_index.get(key)
+        ev_base_key, ev_name_key = _match_keys(ev_row)
+        match = week_index.get(ev_base_key) or week_index.get(ev_name_key)
         if match is not None:
-            existing = match.total_quantity or 0.0
-            match.total_quantity = round(existing + (ev_row.total_quantity or 0.0), 2)
-            match.notes = "; ".join(filter(None, [match.notes, f"+event: {event.name}"]))
+            # M22.2: event contribution is tracked separately so smart
+            # merge can refresh the week-meal portion without
+            # disturbing it. Display sums the two.
+            match.event_quantity = round(
+                (match.event_quantity or 0.0) + (ev_row.total_quantity or 0.0), 2
+            )
             ev_row.merged_into_week_id = week.id
             ev_row.merged_into_grocery_item_id = match.id
             counts["matched"] += 1
         else:
-            # Create a new GroceryItem on the week attributed to the event.
+            # Create a new event-only GroceryItem on the week — no
+            # week-meal contribution, just event_quantity. Smart merge
+            # leaves it untouched (recognized via event_quantity > 0).
             new_row = GroceryItem(
                 week_id=week.id,
                 base_ingredient_id=ev_row.base_ingredient_id,
                 ingredient_variation_id=ev_row.ingredient_variation_id,
                 ingredient_name=ev_row.ingredient_name,
                 normalized_name=ev_row.normalized_name,
-                total_quantity=ev_row.total_quantity,
+                total_quantity=None,
+                event_quantity=ev_row.total_quantity,
                 unit=ev_row.unit,
                 quantity_text=ev_row.quantity_text,
                 category=ev_row.category,
@@ -300,7 +324,9 @@ def merge_event_into_week(
             ev_row.merged_into_week_id = week.id
             ev_row.merged_into_grocery_item_id = new_row.id
             # Index so further event rows in the same call dedupe.
-            week_index[_match_key(new_row)] = new_row
+            new_base_key, new_name_key = _match_keys(new_row)
+            week_index[new_base_key] = new_row
+            week_index[new_name_key] = new_row
             counts["created"] += 1
 
     event.linked_week_id = week.id
@@ -366,23 +392,43 @@ def apply_auto_merge_policy(
 
 
 def unmerge_event_from_week(session: Session, *, event: Event, week: Week) -> int:
-    """Reverse a prior merge. Each event grocery row that was attributed
-    to this week has its contribution subtracted from the matching
-    weekly row (deleting the weekly row if its total goes to zero and
-    it was created by the merge). Returns how many rows were touched.
+    """Reverse a prior merge. Subtracts each event grocery row's
+    contribution from the matching weekly row's `event_quantity`. If
+    the row was event-only (no week-meal contribution) and its
+    `event_quantity` goes to zero with no user investment, delete it.
+    Returns how many rows were touched.
     """
     touched = 0
     for ev_row in list(event.grocery_items):
         if ev_row.merged_into_week_id != week.id:
             continue
         target = ev_row.merged_into_grocery_item
-        if target is not None and ev_row.total_quantity is not None and target.total_quantity is not None:
-            target.total_quantity = round(target.total_quantity - ev_row.total_quantity, 2)
-            # Strip the event attribution tag.
-            target.notes = "; ".join(
-                part for part in (target.notes or "").split("; ") if part and f"+event: {event.name}" not in part
+        if target is not None and ev_row.total_quantity is not None:
+            current_event_qty = target.event_quantity or 0.0
+            new_event_qty = round(current_event_qty - ev_row.total_quantity, 2)
+            target.event_quantity = new_event_qty if new_event_qty > 0.0001 else None
+            # Strip any legacy "+event: X" notes from pre-M22.2 merges
+            # so the display doesn't show stale attribution.
+            if target.notes:
+                target.notes = "; ".join(
+                    part for part in (target.notes or "").split("; ")
+                    if part and f"+event: {event.name}" not in part
+                )
+            # Event-only rows (created by the merge) self-delete when
+            # their event contribution is gone and the user hasn't
+            # invested in them. We detect "event-only" by the
+            # `source_meals == "event:<name>"` marker the merge code
+            # writes when creating a fresh row.
+            event_only = (target.source_meals or "").startswith(f"event:{event.name}")
+            no_remaining_qty = (target.total_quantity or 0) <= 0 and (target.event_quantity or 0) <= 0
+            no_user_investment = (
+                target.quantity_override is None
+                and target.unit_override is None
+                and target.notes_override is None
+                and not target.is_checked
+                and not target.is_user_added
             )
-            if target.total_quantity <= 0 and target.source_meals.startswith(f"event:{event.name}"):
+            if event_only and no_remaining_qty and no_user_investment:
                 session.delete(target)
         ev_row.merged_into_week_id = None
         ev_row.merged_into_grocery_item_id = None

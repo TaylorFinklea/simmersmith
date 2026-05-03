@@ -36,6 +36,10 @@ struct SimmerSmithApp: App {
                     appState.loadCachedData()
                     // Wire delegate so it can route tap-on-notification to the right tab.
                     appDelegate.appState = appState
+                    // M22.1: hand AppState to the background sync service
+                    // so its BGAppRefreshTask handler can pull Reminders
+                    // deltas while the app is backgrounded.
+                    BackgroundSyncService.shared.attach(appState: appState)
                     // Silently restore any previous Google Sign-In session so
                     // subsequent API calls made through GIDSignIn (profile
                     // info, token refresh) pick up without requiring the user

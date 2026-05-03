@@ -13,6 +13,18 @@ final class SimmerSmithAppDelegate: NSObject, UIApplicationDelegate {
 
     func application(
         _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // M22.1: register the BGAppRefreshTask handler before launch
+        // returns. iOS rejects late registration with a runtime warning.
+        Task { @MainActor in
+            BackgroundSyncService.shared.registerLaunchHandler()
+        }
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         guard let appState else { return }

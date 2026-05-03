@@ -47,6 +47,7 @@ def grocery_item_payload(item: GroceryItem) -> dict[str, object]:
         "is_checked": item.is_checked,
         "checked_at": item.checked_at,
         "checked_by_user_id": item.checked_by_user_id,
+        "event_quantity": item.event_quantity,
         "updated_at": item.updated_at,
         "retailer_prices": [
             {
@@ -382,6 +383,7 @@ def week_payload(week: Week | None, *, session: Session | None = None) -> dict[s
                 "is_checked": item.is_checked,
                 "checked_at": item.checked_at,
                 "checked_by_user_id": item.checked_by_user_id,
+                "event_quantity": item.event_quantity,
                 "updated_at": item.updated_at,
                 "retailer_prices": [
                     {

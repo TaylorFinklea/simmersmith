@@ -287,12 +287,31 @@ def _key_for_item(item: GroceryItem) -> tuple[str, str, str, str]:
 
 
 def _has_event_attribution(item: GroceryItem) -> bool:
-    """An item that an Event grocery merge has touched. Smart-merge regen
-    leaves these untouched so the event merge / unmerge pair retains
-    sole ownership of the +event quantity contribution."""
+    """True when an item carries any event-merged contribution.
+    Pre-M22.2 rows used a `+event:` notes tag and the
+    `source_meals="event:<name>"` marker; post-M22.2 the truth lives
+    in the structured `event_quantity` column.
+
+    Smart-merge regen treats these specially: pure event-only rows
+    (no week-meal contribution) are left alone; mixed rows have their
+    week-meal portion (`total_quantity`) refreshed while
+    `event_quantity` stays put — owned by the event merge / unmerge
+    pair.
+    """
+    if item.event_quantity is not None and item.event_quantity > 0:
+        return True
     if (item.source_meals or "").startswith("event:"):
         return True
     return "+event:" in (item.notes or "")
+
+
+def _is_event_only(item: GroceryItem) -> bool:
+    """True for rows that were created purely by event merge — no
+    week-meal aggregation feeds them. Smart merge does not delete
+    these even when they don't match a fresh row."""
+    if (item.event_quantity is None or item.event_quantity <= 0):
+        return False
+    return (item.source_meals or "").startswith("event:")
 
 
 def _has_user_investment(item: GroceryItem) -> bool:
@@ -357,6 +376,10 @@ def regenerate_grocery_for_week(session: Session, user_id: str, household_id: st
     item tombstones, override fields, household-shared check state,
     and event-merged contributions across meal changes. Pure auto
     rows whose meals were removed are deleted.
+
+    M22.2: with `event_quantity` tracked separately, mixed week+event
+    items can now have their `total_quantity` (week-meal portion)
+    refreshed without disturbing the event contribution.
     """
     invalidate_week(session, week)
 
@@ -364,19 +387,17 @@ def regenerate_grocery_for_week(session: Session, user_id: str, household_id: st
         session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
     )
 
-    # Items the smart merge must not touch — they're managed by other
-    # systems (the user, or event_grocery merge/unmerge).
-    untouchable: list[GroceryItem] = [
-        item for item in existing if item.is_user_added or _has_event_attribution(item)
-    ]
-    untouchable_keys = {_key_for_item(item) for item in untouchable}
+    # Pure event-only rows are managed exclusively by
+    # merge_event_into_week / unmerge_event_from_week. User-added
+    # rows are similarly off-limits to the auto path.
+    untouchable_keys: set[tuple[str, str, str, str]] = set()
+    for item in existing:
+        if item.is_user_added or _is_event_only(item):
+            untouchable_keys.add(_key_for_item(item))
 
-    # Auto-managed items keyed for fresh-row matching. Tombstones live
-    # here too so we can detect "fresh row had a tombstone — skip
-    # re-creating" in one lookup.
     eligible_by_key: dict[tuple[str, str, str, str], GroceryItem] = {}
     for item in existing:
-        if item.is_user_added or _has_event_attribution(item):
+        if item.is_user_added or _is_event_only(item):
             continue
         eligible_by_key[_key_for_item(item)] = item
 
@@ -386,13 +407,14 @@ def regenerate_grocery_for_week(session: Session, user_id: str, household_id: st
     for row in rows:
         key = _key_for_row(row)
         if key in untouchable_keys:
-            # An untouchable row already occupies this slot; don't dup.
+            # An untouchable (event-only or user-added) row already
+            # holds this slot. Skip duplication.
             continue
         existing_item = eligible_by_key.get(key)
         if existing_item is not None:
             matched_keys.add(key)
             if existing_item.is_user_removed:
-                # Tombstone — leave as-is; iOS filter excludes removed items.
+                # Tombstone — leave as-is; iOS filter excludes it.
                 continue
             _apply_fresh_to_existing(existing_item, row)
         else:
@@ -403,6 +425,15 @@ def regenerate_grocery_for_week(session: Session, user_id: str, household_id: st
             continue
         if item.is_user_removed:
             continue  # tombstone stays
+        # An item with event_quantity but no fresh week-meal match:
+        # drop the stale week portion but keep the event portion. The
+        # event merge code is the only writer of event_quantity, so we
+        # don't touch it.
+        has_event_qty = item.event_quantity is not None and item.event_quantity > 0
+        if has_event_qty:
+            item.total_quantity = None
+            item.review_flag = ""
+            continue
         if _has_user_investment(item):
             if not item.review_flag:
                 item.review_flag = "no longer in any meal"

@@ -490,6 +490,82 @@ def test_meal_removal_drops_pure_auto_item(client: TestClient) -> None:
 # Case 9: auto_merge_grocery toggle merges/unmerges event ingredients
 # ---------------------------------------------------------------------
 
+def test_event_merge_uses_event_quantity_column(client: TestClient) -> None:
+    """M22.2: a merged event contributes via `event_quantity`, not by
+    bumping `total_quantity`. Smart-merge regen of the week then can
+    refresh `total_quantity` (week-meal portion) without disturbing
+    the event delta.
+    """
+    household_id = _household_id_for(USER_A_ID)
+    # Week with a meal that uses Cake flour 2 cups (week portion)
+    week = _seed_week_with_recipe(
+        user_id=USER_A_ID,
+        household_id=household_id,
+        recipe_id="bread-loaf",
+        ingredient_name="Cake flour",
+        quantity=2,
+        unit="cup",
+    )
+    week_id = week.id
+    week_start = week.week_start
+
+    with session_scope() as session:
+        event = create_event(
+            session, user_id=USER_A_ID, household_id=household_id,
+            name="Birthday", event_date=week_start, occasion="birthday",
+            attendee_count=4, notes="", attendees=[],
+        )
+        session.flush()
+        event_id = event.id
+        from app.models import EventMealIngredient
+        meal = add_event_meal(
+            session, event, role="main", recipe_id=None,
+            recipe_name="Birthday Cake", servings=4, notes="",
+            assigned_guest_id=None, household_id=household_id,
+        )
+        session.flush()
+        session.add(EventMealIngredient(
+            id=f"{meal.id}-cf", event_meal_id=meal.id,
+            ingredient_name="Cake flour", normalized_name="cake flour",
+            quantity=3, unit="cup",
+        ))
+
+    # Merge the event into the week.
+    resp = client.post(
+        f"/api/events/{event_id}/grocery/refresh",
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200, resp.text
+
+    items = _grocery_items(week_id, household_id)
+    flour = next(i for i in items if i.ingredient_name.lower() == "cake flour")
+    # Week meal contributed 2 cups → total_quantity stays at 2.
+    assert flour.total_quantity == 2.0
+    # Event added 3 cups → event_quantity holds those 3.
+    assert flour.event_quantity == 3.0
+
+    # Smart-merge regen does NOT disturb event_quantity.
+    client.post(f"/api/weeks/{week_id}/grocery/regenerate", headers=_headers(USER_A_ID))
+    items = _grocery_items(week_id, household_id)
+    flour = next(i for i in items if i.ingredient_name.lower() == "cake flour")
+    assert flour.total_quantity == 2.0
+    assert flour.event_quantity == 3.0
+
+    # Toggle auto-merge off → unmerge subtracts the 3 cups; the row
+    # stays because the 2-cup week portion remains.
+    resp = client.patch(
+        f"/api/events/{event_id}",
+        json={"auto_merge_grocery": False},
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200, resp.text
+    items = _grocery_items(week_id, household_id)
+    flour = next((i for i in items if i.ingredient_name.lower() == "cake flour"), None)
+    assert flour is not None
+    assert flour.total_quantity == 2.0
+    assert flour.event_quantity is None
+
+
 def test_event_auto_merge_toggle_merges_and_unmerges(client: TestClient) -> None:
     household_id = _household_id_for(USER_A_ID)
     # Week first

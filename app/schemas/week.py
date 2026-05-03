@@ -208,6 +208,7 @@ class GroceryItemOut(BaseModel):
     is_checked: bool = False
     checked_at: datetime | None = None
     checked_by_user_id: str | None = None
+    event_quantity: float | None = None
     updated_at: datetime
     retailer_prices: list[RetailerPriceOut] = Field(default_factory=list)
 

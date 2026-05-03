@@ -1751,13 +1751,24 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
     public let isChecked: Bool
     public let checkedAt: Date?
     public let checkedByUserId: String?
+    /// M22.2: portion contributed by merged events. Display sums
+    /// `totalQuantity` (week-meal portion) + `eventQuantity` (event
+    /// portion). User override still wins when set.
+    public let eventQuantity: Double?
     public let updatedAt: Date
     public let retailerPrices: [RetailerPrice]
 
     public var id: String { groceryItemId }
 
-    /// Quantity to display: user override wins over the auto value.
-    public var effectiveQuantity: Double? { quantityOverride ?? totalQuantity }
+    /// Quantity to display: user override wins; otherwise the sum of
+    /// the week-meal portion and any merged-event contribution.
+    public var effectiveQuantity: Double? {
+        if let override = quantityOverride { return override }
+        let week = totalQuantity ?? 0
+        let event = eventQuantity ?? 0
+        if totalQuantity == nil && eventQuantity == nil { return nil }
+        return week + event
+    }
     /// Unit to display: user override wins over the auto value.
     public var effectiveUnit: String { unitOverride ?? unit }
     /// Notes to display: user override wins over the auto value.
@@ -1787,6 +1798,7 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         case isChecked
         case checkedAt
         case checkedByUserId
+        case eventQuantity
         case updatedAt
         case retailerPrices
     }
@@ -1816,6 +1828,7 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         isChecked = try container.decodeIfPresent(Bool.self, forKey: .isChecked) ?? false
         checkedAt = try container.decodeIfPresent(Date.self, forKey: .checkedAt)
         checkedByUserId = try container.decodeIfPresent(String.self, forKey: .checkedByUserId)
+        eventQuantity = try container.decodeIfPresent(Double.self, forKey: .eventQuantity)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         retailerPrices = try container.decodeIfPresent([RetailerPrice].self, forKey: .retailerPrices) ?? []
     }
