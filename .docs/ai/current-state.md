@@ -8,7 +8,52 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-03
+**Date**: 2026-05-03 (continued)
+
+**M22.1 + M22.2 limitation fixes + M23 skill scaffolding** shipped:
+
+- **M22.1 — background Reminders sync**: new
+  `SimmerSmith/Services/BackgroundSyncService.swift` registers a
+  `BGAppRefreshTaskRequest` (identifier `app.simmersmith.ios.grocerySync`).
+  iOS now wakes the app periodically to pull Reminders deltas back to
+  the server even while it's backgrounded. `Info.plist` gains
+  `BGTaskSchedulerPermittedIdentifiers` and `fetch` + `processing`
+  background modes.
+- **M22.2 — track event_quantity separately**: new
+  `grocery_items.event_quantity` column +
+  `alembic/versions/20260503_0029_grocery_event_quantity.py`.
+  `merge_event_into_week` now writes the event delta into
+  `event_quantity` instead of bumping `total_quantity`. Smart-merge
+  regen can refresh `total_quantity` (week-meal portion) without
+  disturbing the event contribution. iOS's `effectiveQuantity` sums
+  the two for display. `_match_keys` now indexes by both base-id and
+  normalized-name so a catalog-resolved week row still matches a
+  name-only event row. New backend test
+  `test_event_merge_uses_event_quantity_column`. 272 backend tests pass.
+- **M23 — cart-automation skill scaffolding**:
+  `skills/simmersmith-shopping/`. Full Python package:
+  - `SKILL.md` + `README.md` for Claude Code discovery + setup.
+  - `setup.sh` creates `.venv`, installs deps, runs `playwright
+    install`, symlinks into `~/.claude/skills/`.
+  - `parser.py` — permissive `<qty> <unit> <name>` parser handling
+    fractions ("1 1/2 cups") and multi-word units ("fl oz").
+  - `reminders.py` — PyXA + osascript fallback for reading the
+    SimmerSmith Reminders list.
+  - `splitter.py` — greedy + 2-store-combination heuristic
+    minimizing cost subject to per-store delivery minimums and a
+    configurable max-stops cap.
+  - `stores/aldi.py` + `stores/walmart.py` — concrete Playwright
+    drivers with real selectors. `stores/sams_club.py` +
+    `stores/instacart.py` — login-only stubs the user fills in
+    after the first interactive login captures cookies.
+  - `cli.py` — orchestrator with `login --store X` (interactive
+    cookie capture), `--dry-run` (synthesize prices for splitter
+    verification), and the full Reminders → split → cart-fill
+    pipeline.
+  - 8 smoke tests pass (parser + splitter, no Playwright deps).
+- **Build 33 → 34**, deploy + TestFlight to follow.
+
+### Earlier same day (M22 ship)
 
 **M22 Grocery list polish + Apple Reminders sync** shipped end-to-end:
 - Phase 1 — schema + smart-merge regen + 5 mutation routes + 11 new

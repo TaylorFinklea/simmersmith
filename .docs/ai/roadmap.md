@@ -35,7 +35,7 @@ Open follow-ups:
 
 ### Next (M22 in flight, M23 candidates)
 
-**M22 — Grocery list polish + Reminders sync** (in flight 2026-05-03)
+**M22 + M22.1 + M22.2 — Grocery list polish + Reminders sync** (shipped 2026-05-03)
 - Smart-merge regen preserves user edits (`is_user_added`,
   `is_user_removed`, `quantity_override`, `unit_override`,
   `notes_override`).
@@ -44,19 +44,33 @@ Open follow-ups:
 - 5 new mutation routes under `/api/weeks/{id}/grocery/...`.
 - iOS 5th tab + add/edit/remove + EventKit two-way Reminders bridge.
 - Settings → Grocery → "Sync to Reminders" with list picker.
-- M23 = the cart-automation skill (separate milestone, see below).
+- **M22.1**: BGAppRefreshTask wakes the app to sync Reminders while
+  backgrounded.
+- **M22.2**: `event_quantity` column tracks event contribution
+  separately so smart-merge regen can refresh week-meal portion
+  without disturbing event additions.
 
-**M23 candidates** (post-M22)
-- **Cart-automation skill** (Aldi / Walmart / Sam's Club / Instacart).
-  Local Claude Code + Codex skill that reads the chosen Reminders
-  list, runs Playwright/browser-use against each store, computes a
-  store-split, and fills carts to checkout. Skill uses the
-  parse-friendly Reminders title format `"<qty> <unit> <name>"`
-  established by M22.
+**M23 — Cart automation skill** (scaffolded 2026-05-03; complete to
+the level of "Aldi + Walmart drive carts; Sam's Club + Instacart
+need real selectors after first-run login")
+- `skills/simmersmith-shopping/` — full Python package with parser,
+  reminders reader, splitter, per-store handlers, CLI.
+- Aldi + Walmart Playwright drivers with real selectors.
+- Sam's Club + Instacart login flows working; product search +
+  cart-add stubbed (return empty list, splitter avoids them).
+- `setup.sh` symlinks the skill into `~/.claude/skills/`.
+
+**Next candidates** (post-M22+M23)
+- **Sam's Club + Instacart selectors** — fill in `search_products` /
+  `add_to_cart` after first-run login captures live DOM samples.
 - **Anthropic web search support** for the recipe finder (Messages
   API `web_search_20250305` — currently OpenAI-only).
 - **Owner role transfer** (M21 follow-up).
 - **Removing a member as owner** (M21 follow-up).
+- **profile_settings split** — household-scoped keys (timezone,
+  store info, household_name, week_start_day) move into
+  `household_settings`. Tracked since M21 Phase 2; deferred again as
+  the user-visible behavior is unaffected.
 
 ### Soon
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
