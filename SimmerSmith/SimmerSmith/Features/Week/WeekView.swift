@@ -219,7 +219,7 @@ struct WeekView: View {
             NavigationStack { ActivityView() }
         }
         .sheet(isPresented: $showingGrocery) {
-            NavigationStack { GroceryView() }
+            NavigationStack { GroceryView(dismissable: true) }
         }
         .sheet(isPresented: $showingSettings) {
             NavigationStack { SettingsView() }

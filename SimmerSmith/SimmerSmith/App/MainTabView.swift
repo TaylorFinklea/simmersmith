@@ -25,6 +25,14 @@ struct MainTabView: View {
                     Label("Recipes", systemImage: "book")
                 }
 
+                NavigationStack {
+                    GroceryTabView()
+                }
+                .tag(AppState.MainTab.grocery)
+                .tabItem {
+                    Label("Grocery", systemImage: "cart")
+                }
+
                 EventsView()
                     .tag(AppState.MainTab.events)
                     .tabItem {

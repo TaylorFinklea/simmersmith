@@ -312,6 +312,21 @@ struct EventDetailView: View {
                 .font(SMFont.caption)
                 .foregroundStyle(SMColor.primary)
             }
+            // M22: when on, the event's ingredients automatically merge
+            // into the week containing `event_date` whenever the event
+            // grocery is regenerated. Off is the right choice for
+            // events where guests bring food (potlucks).
+            Toggle(
+                "Add ingredients to week's grocery list",
+                isOn: Binding(
+                    get: { event.autoMergeGrocery },
+                    set: { newValue in
+                        Task { await appState.toggleEventAutoMerge(eventID: event.eventId, enabled: newValue) }
+                    }
+                )
+            )
+            .font(SMFont.caption)
+            .toggleStyle(.switch)
             ForEach(event.groceryItems) { item in
                 EventGroceryRow(item: item)
             }

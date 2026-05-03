@@ -7,9 +7,16 @@ struct GroceryView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedItem: GroceryItem?
+    @State private var editingItem: GroceryItem?
     @State private var showingReviewQueue = false
+    @State private var showingAddSheet = false
     @State private var isFetchingPrices = false
     @State private var showingBarcodeScanner = false
+
+    /// True when this view is presented as a sheet from the Week tab —
+    /// shows a Done button to dismiss. False when used as the Grocery
+    /// tab root, where the tab bar handles navigation.
+    var dismissable: Bool = false
 
     var body: some View {
         Group {
@@ -36,7 +43,7 @@ struct GroceryView: View {
                             ForEach(section.items) { item in
                                 HStack(alignment: .top, spacing: 12) {
                                     Button {
-                                        appState.toggleGroceryChecked(item.groceryItemId)
+                                        Task { await appState.toggleGroceryChecked(item.groceryItemId) }
                                     } label: {
                                         Image(systemName: appState.isGroceryChecked(item.groceryItemId) ? "checkmark.circle.fill" : "circle")
                                             .font(.title3)
@@ -50,11 +57,25 @@ struct GroceryView: View {
                                     )
 
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.ingredientName)
-                                            .font(.body.weight(.medium))
-                                            .foregroundStyle(SMColor.textPrimary)
-                                            .strikethrough(appState.isGroceryChecked(item.groceryItemId))
-                                        Text(item.quantityText.isEmpty ? item.unit : item.quantityText)
+                                        HStack(spacing: 6) {
+                                            Text(item.ingredientName)
+                                                .font(.body.weight(.medium))
+                                                .foregroundStyle(SMColor.textPrimary)
+                                                .strikethrough(appState.isGroceryChecked(item.groceryItemId))
+                                            if item.isUserAdded {
+                                                Image(systemName: "person.crop.circle.badge.plus")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(SMColor.textTertiary)
+                                                    .accessibilityLabel("Added by you")
+                                            }
+                                            if item.quantityOverride != nil || item.unitOverride != nil || item.notesOverride != nil {
+                                                Image(systemName: "pencil.circle")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(SMColor.textTertiary)
+                                                    .accessibilityLabel("Edited")
+                                            }
+                                        }
+                                        Text(displayQuantity(for: item))
                                             .font(.footnote)
                                             .foregroundStyle(SMColor.textSecondary)
                                         if !item.sourceMeals.isEmpty {
@@ -84,8 +105,14 @@ struct GroceryView: View {
                                             .foregroundStyle(SMColor.textSecondary)
                                         }
                                     }
+                                    Spacer()
                                 }
-                                .swipeActions {
+                                .contentShape(Rectangle())
+                                .onTapGesture { editingItem = item }
+                                .swipeActions(edge: .trailing) {
+                                    Button("Remove", systemImage: "trash", role: .destructive) {
+                                        Task { await appState.removeGroceryItem(id: item.groceryItemId) }
+                                    }
                                     Button("Feedback", systemImage: "bubble.left") {
                                         selectedItem = item
                                     }
@@ -136,9 +163,19 @@ struct GroceryView: View {
                     .font(SMFont.headline)
                     .foregroundStyle(SMColor.textPrimary)
             }
+            if dismissable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.primary)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { dismiss() }
-                    .foregroundStyle(SMColor.primary)
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add item")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -176,12 +213,33 @@ struct GroceryView: View {
                 try await appState.submitGroceryFeedback(for: item, sentiment: sentiment, notes: notes)
             }
         }
+        .sheet(item: $editingItem) { item in
+            GroceryItemEditSheet(item: item)
+                .environment(appState)
+        }
+        .sheet(isPresented: $showingAddSheet) {
+            AddGroceryItemSheet()
+                .environment(appState)
+        }
         .sheet(isPresented: $showingReviewQueue) {
             IngredientReviewQueueView()
         }
         .sheet(isPresented: $showingBarcodeScanner) {
             BarcodeLookupSheet()
         }
+    }
+
+    private func displayQuantity(for item: GroceryItem) -> String {
+        let qty = item.effectiveQuantity
+        let unit = item.effectiveUnit
+        if let qty {
+            let qtyString: String = qty.rounded() == qty
+                ? String(Int(qty))
+                : String(format: "%g", qty)
+            return unit.isEmpty ? qtyString : "\(qtyString) \(unit)"
+        }
+        if !item.quantityText.isEmpty { return item.quantityText }
+        return unit
     }
 
     private func groupedItems(for week: WeekSnapshot) -> [(category: String, items: [GroceryItem])] {

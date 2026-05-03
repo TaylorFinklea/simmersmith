@@ -1482,6 +1482,7 @@ public struct EventSummary: Codable, Identifiable, Hashable, Sendable {
     public let attendeeCount: Int
     public let status: String
     public let linkedWeekId: String?
+    public let autoMergeGrocery: Bool
     public let mealCount: Int
     public let createdAt: Date
     public let updatedAt: Date
@@ -1496,6 +1497,7 @@ public struct EventSummary: Codable, Identifiable, Hashable, Sendable {
         attendeeCount: Int,
         status: String,
         linkedWeekId: String?,
+        autoMergeGrocery: Bool = true,
         mealCount: Int,
         createdAt: Date,
         updatedAt: Date
@@ -1507,9 +1509,30 @@ public struct EventSummary: Codable, Identifiable, Hashable, Sendable {
         self.attendeeCount = attendeeCount
         self.status = status
         self.linkedWeekId = linkedWeekId
+        self.autoMergeGrocery = autoMergeGrocery
         self.mealCount = mealCount
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eventId = try c.decode(String.self, forKey: .eventId)
+        name = try c.decode(String.self, forKey: .name)
+        eventDate = try c.decodeIfPresent(Date.self, forKey: .eventDate)
+        occasion = try c.decode(String.self, forKey: .occasion)
+        attendeeCount = try c.decode(Int.self, forKey: .attendeeCount)
+        status = try c.decode(String.self, forKey: .status)
+        linkedWeekId = try c.decodeIfPresent(String.self, forKey: .linkedWeekId)
+        autoMergeGrocery = try c.decodeIfPresent(Bool.self, forKey: .autoMergeGrocery) ?? true
+        mealCount = try c.decode(Int.self, forKey: .mealCount)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case eventId, name, eventDate, occasion, attendeeCount, status,
+             linkedWeekId, autoMergeGrocery, mealCount, createdAt, updatedAt
     }
 }
 
@@ -1521,6 +1544,7 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
     public let attendeeCount: Int
     public let status: String
     public let linkedWeekId: String?
+    public let autoMergeGrocery: Bool
     public let mealCount: Int
     public let createdAt: Date
     public let updatedAt: Date
@@ -1530,6 +1554,31 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
     public let groceryItems: [EventGroceryItem]
 
     public var id: String { eventId }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eventId = try c.decode(String.self, forKey: .eventId)
+        name = try c.decode(String.self, forKey: .name)
+        eventDate = try c.decodeIfPresent(Date.self, forKey: .eventDate)
+        occasion = try c.decode(String.self, forKey: .occasion)
+        attendeeCount = try c.decode(Int.self, forKey: .attendeeCount)
+        status = try c.decode(String.self, forKey: .status)
+        linkedWeekId = try c.decodeIfPresent(String.self, forKey: .linkedWeekId)
+        autoMergeGrocery = try c.decodeIfPresent(Bool.self, forKey: .autoMergeGrocery) ?? true
+        mealCount = try c.decode(Int.self, forKey: .mealCount)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        attendees = try c.decodeIfPresent([EventAttendee].self, forKey: .attendees) ?? []
+        meals = try c.decodeIfPresent([EventMeal].self, forKey: .meals) ?? []
+        groceryItems = try c.decodeIfPresent([EventGroceryItem].self, forKey: .groceryItems) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case eventId, name, eventDate, occasion, attendeeCount, status,
+             linkedWeekId, autoMergeGrocery, mealCount, createdAt, updatedAt,
+             notes, attendees, meals, groceryItems
+    }
 }
 
 public struct EventMenuResponse: Codable, Hashable, Sendable {
@@ -1685,10 +1734,34 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
     public let sourceMeals: String
     public let notes: String
     public let reviewFlag: String
+    // M22 mutability fields. `*Override` columns hold the user's
+    // explicit value when set; the auto-aggregated value stays in
+    // `totalQuantity` / `unit` / `notes` so the UI can show "you
+    // overrode 2 → 3 cups, system thinks 2 cups". `isUserAdded` rows
+    // are user-curated and never deleted by smart-merge regen.
+    // `isUserRemoved` is a tombstone — the server hides these from
+    // the regular week payload but exposes them via the delta
+    // endpoint so the local Reminders mirror can propagate the
+    // removal.
+    public let isUserAdded: Bool
+    public let isUserRemoved: Bool
+    public let quantityOverride: Double?
+    public let unitOverride: String?
+    public let notesOverride: String?
+    public let isChecked: Bool
+    public let checkedAt: Date?
+    public let checkedByUserId: String?
     public let updatedAt: Date
     public let retailerPrices: [RetailerPrice]
 
     public var id: String { groceryItemId }
+
+    /// Quantity to display: user override wins over the auto value.
+    public var effectiveQuantity: Double? { quantityOverride ?? totalQuantity }
+    /// Unit to display: user override wins over the auto value.
+    public var effectiveUnit: String { unitOverride ?? unit }
+    /// Notes to display: user override wins over the auto value.
+    public var effectiveNotes: String { notesOverride ?? notes }
 
     enum CodingKeys: String, CodingKey {
         case groceryItemId
@@ -1706,6 +1779,14 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         case sourceMeals
         case notes
         case reviewFlag
+        case isUserAdded
+        case isUserRemoved
+        case quantityOverride
+        case unitOverride
+        case notesOverride
+        case isChecked
+        case checkedAt
+        case checkedByUserId
         case updatedAt
         case retailerPrices
     }
@@ -1727,8 +1808,32 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         sourceMeals = try container.decodeIfPresent(String.self, forKey: .sourceMeals) ?? ""
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         reviewFlag = try container.decodeIfPresent(String.self, forKey: .reviewFlag) ?? ""
+        isUserAdded = try container.decodeIfPresent(Bool.self, forKey: .isUserAdded) ?? false
+        isUserRemoved = try container.decodeIfPresent(Bool.self, forKey: .isUserRemoved) ?? false
+        quantityOverride = try container.decodeIfPresent(Double.self, forKey: .quantityOverride)
+        unitOverride = try container.decodeIfPresent(String.self, forKey: .unitOverride)
+        notesOverride = try container.decodeIfPresent(String.self, forKey: .notesOverride)
+        isChecked = try container.decodeIfPresent(Bool.self, forKey: .isChecked) ?? false
+        checkedAt = try container.decodeIfPresent(Date.self, forKey: .checkedAt)
+        checkedByUserId = try container.decodeIfPresent(String.self, forKey: .checkedByUserId)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         retailerPrices = try container.decodeIfPresent([RetailerPrice].self, forKey: .retailerPrices) ?? []
+    }
+}
+
+/// Response shape from `GET /api/weeks/{id}/grocery?since=...` — used by
+/// the Reminders sync engine to fetch only items that changed since
+/// the previous poll. Includes tombstones (`isUserRemoved=true`) so
+/// the device can detect removals it hasn't yet propagated locally.
+public struct GroceryListDelta: Codable, Sendable {
+    public let weekId: String
+    public let serverTime: Date
+    public let items: [GroceryItem]
+
+    enum CodingKeys: String, CodingKey {
+        case weekId
+        case serverTime
+        case items
     }
 }
 
@@ -1846,6 +1951,70 @@ public struct WeekSnapshot: Codable, Identifiable, Sendable {
         groceryItems = try container.decodeIfPresent([GroceryItem].self, forKey: .groceryItems) ?? []
         nutritionTotals = try container.decodeIfPresent([DailyNutrition].self, forKey: .nutritionTotals) ?? []
         weeklyTotals = try container.decodeIfPresent(MacroBreakdown.self, forKey: .weeklyTotals)
+    }
+
+    /// Memberwise initializer used by `replacingGroceryItems(_:)` to
+    /// build a new snapshot with mutated grocery items. Internal-ish
+    /// helper — every `let` field is reproduced verbatim except the
+    /// one being replaced.
+    public init(
+        weekId: String,
+        weekStart: Date,
+        weekEnd: Date,
+        status: String,
+        notes: String,
+        readyForAiAt: Date?,
+        approvedAt: Date?,
+        pricedAt: Date?,
+        updatedAt: Date,
+        stagedChangeCount: Int,
+        feedbackCount: Int,
+        exportCount: Int,
+        meals: [WeekMeal],
+        groceryItems: [GroceryItem],
+        nutritionTotals: [DailyNutrition],
+        weeklyTotals: MacroBreakdown?
+    ) {
+        self.weekId = weekId
+        self.weekStart = weekStart
+        self.weekEnd = weekEnd
+        self.status = status
+        self.notes = notes
+        self.readyForAiAt = readyForAiAt
+        self.approvedAt = approvedAt
+        self.pricedAt = pricedAt
+        self.updatedAt = updatedAt
+        self.stagedChangeCount = stagedChangeCount
+        self.feedbackCount = feedbackCount
+        self.exportCount = exportCount
+        self.meals = meals
+        self.groceryItems = groceryItems
+        self.nutritionTotals = nutritionTotals
+        self.weeklyTotals = weeklyTotals
+    }
+
+    /// Returns a copy with `groceryItems` swapped. Used by AppState's
+    /// optimistic mutation helpers to keep the local snapshot in sync
+    /// with server PATCH responses without re-pulling the entire week.
+    public func replacingGroceryItems(_ items: [GroceryItem]) -> WeekSnapshot {
+        WeekSnapshot(
+            weekId: weekId,
+            weekStart: weekStart,
+            weekEnd: weekEnd,
+            status: status,
+            notes: notes,
+            readyForAiAt: readyForAiAt,
+            approvedAt: approvedAt,
+            pricedAt: pricedAt,
+            updatedAt: updatedAt,
+            stagedChangeCount: stagedChangeCount,
+            feedbackCount: feedbackCount,
+            exportCount: exportCount,
+            meals: meals,
+            groceryItems: items,
+            nutritionTotals: nutritionTotals,
+            weeklyTotals: weeklyTotals
+        )
     }
 }
 

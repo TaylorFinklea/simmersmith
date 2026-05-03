@@ -12,9 +12,12 @@ extension AppState {
                 try? cacheStore.saveCurrentWeek(currentWeek)
                 exports = try await apiClient.fetchWeekExports(weekID: currentWeek.weekId)
                 try? cacheStore.saveExports(exports, for: currentWeek.weekId)
+                // M22: server is now the source of truth for check state
+                // (so household members share it). Hydrate the local
+                // mirror from `item.isChecked`.
                 checkedGroceryItemIDs = Set(
                     currentWeek.groceryItems
-                        .filter { cacheStore.isChecked(groceryItemID: $0.groceryItemId) }
+                        .filter(\.isChecked)
                         .map(\.groceryItemId)
                 )
             } else {
@@ -187,13 +190,25 @@ extension AppState {
         checkedGroceryItemIDs.contains(groceryItemID)
     }
 
-    func toggleGroceryChecked(_ groceryItemID: String) {
-        let checked = !checkedGroceryItemIDs.contains(groceryItemID)
-        if checked {
-            checkedGroceryItemIDs.insert(groceryItemID)
-        } else {
-            checkedGroceryItemIDs.remove(groceryItemID)
+    /// Toggle the household-shared check state. Optimistically flips the
+    /// local mirror, calls the server, then triggers a Reminders mirror
+    /// push so the user's chosen Reminders list reflects the change.
+    func toggleGroceryChecked(_ groceryItemID: String) async {
+        guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
+        let willCheck = !checkedGroceryItemIDs.contains(groceryItemID)
+        if willCheck { checkedGroceryItemIDs.insert(groceryItemID) }
+        else { checkedGroceryItemIDs.remove(groceryItemID) }
+        do {
+            let updated = willCheck
+                ? try await apiClient.checkGroceryItem(weekID: weekID, itemID: groceryItemID)
+                : try await apiClient.uncheckGroceryItem(weekID: weekID, itemID: groceryItemID)
+            replaceGroceryItemInCurrentWeek(updated)
+            await syncGroceryToReminders()
+        } catch {
+            // Roll back the optimistic flip and surface the failure.
+            if willCheck { checkedGroceryItemIDs.remove(groceryItemID) }
+            else { checkedGroceryItemIDs.insert(groceryItemID) }
+            lastErrorMessage = error.localizedDescription
         }
-        try? cacheStore.setChecked(checked, groceryItemID: groceryItemID)
     }
 }

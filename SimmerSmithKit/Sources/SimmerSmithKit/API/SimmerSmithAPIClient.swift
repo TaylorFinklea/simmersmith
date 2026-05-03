@@ -554,6 +554,121 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/weeks/\(weekID)/grocery/regenerate", method: "POST", body: EmptyBody())
     }
 
+    // MARK: - M22 grocery list mutability
+
+    public struct GroceryItemAddBody: Encodable, Sendable {
+        public let name: String
+        public let quantity: Double?
+        public let unit: String
+        public let notes: String
+        public let category: String
+
+        public init(name: String, quantity: Double? = nil, unit: String = "", notes: String = "", category: String = "") {
+            self.name = name
+            self.quantity = quantity
+            self.unit = unit
+            self.notes = notes
+            self.category = category
+        }
+    }
+
+    /// `model_dump(exclude_unset=True)` on the server distinguishes
+    /// "field absent → leave alone" from "field=null → clear override".
+    /// Use the helper builders below to encode that semantic correctly.
+    public struct GroceryItemPatchBody: Encodable, Sendable {
+        public var name: PatchValue<String>?
+        public var quantity: PatchValue<Double>?
+        public var unit: PatchValue<String>?
+        public var notes: PatchValue<String>?
+        public var category: PatchValue<String>?
+        public var removed: Bool?
+
+        public init() {}
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try name?.encode(to: &c, forKey: .name)
+            try quantity?.encode(to: &c, forKey: .quantity)
+            try unit?.encode(to: &c, forKey: .unit)
+            try notes?.encode(to: &c, forKey: .notes)
+            try category?.encode(to: &c, forKey: .category)
+            if let removed { try c.encode(removed, forKey: .removed) }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, quantity, unit, notes, category, removed
+        }
+    }
+
+    /// Tri-state for PATCH fields: `.set(value)` writes the value;
+    /// `.clear` sends an explicit null (clears the override on server).
+    /// Field absent in the body means "no change".
+    public enum PatchValue<T: Encodable & Sendable>: Encodable, Sendable {
+        case set(T)
+        case clear
+
+        func encode<K: CodingKey>(to container: inout KeyedEncodingContainer<K>, forKey key: K) throws {
+            switch self {
+            case .set(let value): try container.encode(value, forKey: key)
+            case .clear: try container.encodeNil(forKey: key)
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            switch self {
+            case .set(let value): try c.encode(value)
+            case .clear: try c.encodeNil()
+            }
+        }
+    }
+
+    public func addGroceryItem(weekID: String, body: GroceryItemAddBody) async throws -> GroceryItem {
+        try await request(path: "/api/weeks/\(weekID)/grocery/items", method: "POST", body: body)
+    }
+
+    public func patchGroceryItem(weekID: String, itemID: String, body: GroceryItemPatchBody) async throws -> GroceryItem {
+        try await request(path: "/api/weeks/\(weekID)/grocery/items/\(itemID)", method: "PATCH", body: body)
+    }
+
+    public func checkGroceryItem(weekID: String, itemID: String) async throws -> GroceryItem {
+        try await request(path: "/api/weeks/\(weekID)/grocery/items/\(itemID)/check", method: "POST", body: EmptyBody())
+    }
+
+    public func uncheckGroceryItem(weekID: String, itemID: String) async throws -> GroceryItem {
+        try await request(path: "/api/weeks/\(weekID)/grocery/items/\(itemID)/check", method: "DELETE")
+    }
+
+    public func fetchGroceryDelta(weekID: String, since: Date? = nil) async throws -> GroceryListDelta {
+        var path = "/api/weeks/\(weekID)/grocery"
+        if let since {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let cursor = iso.string(from: since)
+            let encoded = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor
+            path += "?since=\(encoded)"
+        }
+        return try await request(path: path)
+    }
+
+    public struct EventPatchBody: Encodable, Sendable {
+        public var name: String?
+        public var eventDate: String?
+        public var occasion: String?
+        public var attendeeCount: Int?
+        public var notes: String?
+        public var status: String?
+        public var autoMergeGrocery: Bool?
+
+        public init(autoMergeGrocery: Bool? = nil) {
+            self.autoMergeGrocery = autoMergeGrocery
+        }
+    }
+
+    public func patchEvent(eventID: String, body: EventPatchBody) async throws -> Event {
+        try await request(path: "/api/events/\(eventID)", method: "PATCH", body: body)
+    }
+
     public func rebalanceDay(weekID: String, mealDate: Date) async throws -> WeekSnapshot {
         struct Body: Encodable { let mealDate: String }
         let formatter = DateFormatter()

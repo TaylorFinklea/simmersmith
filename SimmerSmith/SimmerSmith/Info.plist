@@ -12,6 +12,10 @@
 	<string>SimmerSmith listens for "next" and "previous" so you can move through cooking steps without touching your phone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>SimmerSmith uses on-device speech recognition to advance cooking steps hands-free.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>SimmerSmith mirrors your household's grocery list to a Reminders list of your choosing so you can check items off while shopping.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>SimmerSmith mirrors your household's grocery list to a Reminders list of your choosing so you can check items off while shopping.</string>
 	<key>GIDClientID</key>
 	<string>463593575959-6u86n3qeqq6kf0717medmej9gne3jurg.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>

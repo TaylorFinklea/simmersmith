@@ -1,3 +1,4 @@
+import EventKit
 import SwiftUI
 import UIKit
 import SimmerSmithKit
@@ -53,6 +54,8 @@ struct SettingsView: View {
             }
 
             HouseholdSection()
+
+            GrocerySection()
 
             Section("AI") {
                 if let capabilities = appState.aiCapabilities {
@@ -1200,5 +1203,80 @@ private struct HouseholdSection: View {
         // We don't have member names yet — show a short ID stub.
         let stub = String(member.userId.prefix(8))
         return "Member \(stub)"
+    }
+}
+
+// MARK: - Grocery (M22)
+
+private struct GrocerySection: View {
+    @Environment(AppState.self) private var appState
+    @State private var showingPicker = false
+    @State private var selectedListName: String = ""
+    @State private var permissionStatus: EKAuthorizationStatus = .notDetermined
+
+    var body: some View {
+        Section("Grocery") {
+            Toggle("Sync to Apple Reminders", isOn: Binding(
+                get: { appState.reminderListIdentifier != nil },
+                set: { newValue in
+                    Task { await handleToggle(newValue) }
+                }
+            ))
+
+            if let listID = appState.reminderListIdentifier {
+                LabeledContent("Reminders list") {
+                    Text(selectedListName.isEmpty ? "—" : selectedListName)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Change list") { showingPicker = true }
+            }
+
+            if let last = appState.lastReminderSyncAt {
+                LabeledContent("Last synced") {
+                    Text(last, style: .relative)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if permissionStatus == .denied || permissionStatus == .restricted {
+                Text("Reminders access is denied. Open Settings → SimmerSmith → Reminders to enable.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .task { await refreshState() }
+        .sheet(isPresented: $showingPicker, onDismiss: { Task { await refreshState() } }) {
+            ReminderListPickerSheet()
+                .environment(appState)
+        }
+    }
+
+    private func handleToggle(_ enabled: Bool) async {
+        if enabled {
+            let granted = await appState.requestRemindersAccess()
+            if !granted {
+                await refreshState()
+                return
+            }
+            // If the user hasn't picked a list yet, prompt the picker.
+            if appState.reminderListIdentifier == nil {
+                showingPicker = true
+            } else {
+                await appState.syncGroceryToReminders()
+            }
+        } else {
+            appState.clearReminderList()
+        }
+        await refreshState()
+    }
+
+    private func refreshState() async {
+        permissionStatus = RemindersService.shared.currentAuthorizationStatus()
+        if let id = appState.reminderListIdentifier,
+           let calendar = RemindersService.shared.calendar(identifier: id) {
+            selectedListName = calendar.title
+        } else {
+            selectedListName = ""
+        }
     }
 }

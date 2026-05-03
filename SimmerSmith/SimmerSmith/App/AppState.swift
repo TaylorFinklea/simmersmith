@@ -239,10 +239,10 @@ final class AppState {
             exports = cacheStore.loadExports(for: weekID)
         }
         if let groceryItems = currentWeek?.groceryItems {
+            // M22: server is the source of truth. Local cache load
+            // (cold launch) trusts whatever was last persisted.
             checkedGroceryItemIDs = Set(
-                groceryItems
-                    .filter { cacheStore.isChecked(groceryItemID: $0.groceryItemId) }
-                    .map(\.groceryItemId)
+                groceryItems.filter(\.isChecked).map(\.groceryItemId)
             )
         } else {
             checkedGroceryItemIDs = []
@@ -330,7 +330,7 @@ final class AppState {
             await refreshHousehold()
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
-                    .filter { cacheStore.isChecked(groceryItemID: $0.groceryItemId) }
+                    .filter(\.isChecked)
                     .map(\.groceryItemId)
             )
 
@@ -410,6 +410,10 @@ final class AppState {
         serverURLDraft = ""
         authTokenDraft = ""
         clearHouseholdContext()
+        // M22: drop the per-device Reminders mapping. The next user
+        // who signs in on this device gets a clean mapping for their
+        // chosen Reminders list.
+        clearReminderMappings()
         // Also clear the Google Sign-In cache so the next sign-in presents
         // the account picker instead of silently reusing the previous user.
         GIDSignIn.sharedInstance.signOut()
