@@ -5,32 +5,32 @@ import SimmerSmithKit
 extension AppState {
     // MARK: - Settings
 
-    private static let reminderListIDKey = "simmersmith.grocery.reminderListID"
-    private static let lastSyncedAtKey = "simmersmith.grocery.lastSyncedAt"
-    private static let lastSyncedSummaryKey = "simmersmith.grocery.lastSyncedSummary"
+    static let reminderListIDKey = "simmersmith.grocery.reminderListID"
+    static let lastSyncedAtKey = "simmersmith.grocery.lastSyncedAt"
+    static let lastSyncedSummaryKey = "simmersmith.grocery.lastSyncedSummary"
 
-    /// Identifier of the EKCalendar the user picked as the Reminders
-    /// destination. Empty/nil means sync is OFF.
-    var reminderListIdentifier: String? {
-        get { UserDefaults.standard.string(forKey: Self.reminderListIDKey) }
-        set {
-            if let value = newValue, !value.isEmpty {
-                UserDefaults.standard.set(value, forKey: Self.reminderListIDKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: Self.reminderListIDKey)
-            }
+    /// Hydrate the @Observable stored properties from UserDefaults.
+    /// Called once during `loadCachedData()` so Settings opens with
+    /// the right toggle state and "Last synced" summary.
+    func loadReminderState() {
+        let defaults = UserDefaults.standard
+        let id = defaults.string(forKey: Self.reminderListIDKey)
+        reminderListIdentifier = (id?.isEmpty ?? true) ? nil : id
+        lastReminderSyncAt = defaults.object(forKey: Self.lastSyncedAtKey) as? Date
+        lastReminderSyncSummary = defaults.string(forKey: Self.lastSyncedSummaryKey)
+    }
+
+    /// Persist the chosen Reminders calendar id, mirroring the
+    /// in-memory @Observable property. Always invoked through this
+    /// helper so the UserDefaults write and SwiftUI invalidation stay
+    /// in sync.
+    private func setReminderListIdentifier(_ value: String?) {
+        reminderListIdentifier = (value?.isEmpty ?? true) ? nil : value
+        if let value, !value.isEmpty {
+            UserDefaults.standard.set(value, forKey: Self.reminderListIDKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.reminderListIDKey)
         }
-    }
-
-    var lastReminderSyncAt: Date? {
-        UserDefaults.standard.object(forKey: Self.lastSyncedAtKey) as? Date
-    }
-
-    /// Human-readable summary of the most recent sync. Surfaces in the
-    /// Settings → Grocery section so the user can see whether the last
-    /// run actually wrote any reminders or quietly no-op'd.
-    var lastReminderSyncSummary: String? {
-        UserDefaults.standard.string(forKey: Self.lastSyncedSummaryKey)
     }
 
     // MARK: - List picker / authorization
@@ -52,7 +52,7 @@ extension AppState {
         if let previous = reminderListIdentifier, previous != calendar.calendarIdentifier {
             GroceryReminderMapping.shared.clear(calendarID: previous)
         }
-        reminderListIdentifier = calendar.calendarIdentifier
+        setReminderListIdentifier(calendar.calendarIdentifier)
         await syncGroceryToReminders()
     }
 
@@ -71,7 +71,11 @@ extension AppState {
         if let id = reminderListIdentifier {
             GroceryReminderMapping.shared.clear(calendarID: id)
         }
-        reminderListIdentifier = nil
+        setReminderListIdentifier(nil)
+        lastReminderSyncAt = nil
+        lastReminderSyncSummary = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastSyncedAtKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastSyncedSummaryKey)
     }
 
     // MARK: - Push direction (app → Reminders)
@@ -82,6 +86,9 @@ extension AppState {
     /// permission revoked at the system level, EventKit save error,
     /// etc.). Item counts go in the human-readable summary.
     func syncGroceryToReminders() async {
+        // Clear any stale error so the user can tell whether *this*
+        // sync attempt succeeded or failed.
+        lastErrorMessage = nil
         guard let calendarID = reminderListIdentifier else {
             return
         }
@@ -122,7 +129,9 @@ extension AppState {
                 mapping: &mapping
             )
             GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
-            UserDefaults.standard.set(Date(), forKey: Self.lastSyncedAtKey)
+            let now = Date()
+            lastReminderSyncAt = now
+            UserDefaults.standard.set(now, forKey: Self.lastSyncedAtKey)
             updateSyncSummary(
                 "Synced \(visible.count) item\(visible.count == 1 ? "" : "s") "
                 + "(\(counts.created) created, \(counts.updated) updated"
@@ -137,6 +146,9 @@ extension AppState {
     }
 
     private func updateSyncSummary(_ summary: String) {
+        // @Observable stored property — assignment triggers SwiftUI
+        // re-render. UserDefaults persistence is a side effect.
+        lastReminderSyncSummary = summary
         UserDefaults.standard.set(summary, forKey: Self.lastSyncedSummaryKey)
     }
 
@@ -243,6 +255,6 @@ extension AppState {
     /// Called from `resetConnection` to clear every Reminders mapping.
     func clearReminderMappings() {
         GroceryReminderMapping.shared.clearAll()
-        reminderListIdentifier = nil
+        clearReminderList()
     }
 }

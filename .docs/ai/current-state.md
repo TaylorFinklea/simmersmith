@@ -8,7 +8,29 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-03 (continued, hotfix)
+**Date**: 2026-05-03 (continued, second hotfix)
+
+**M22.5 + diagnostics hotfix** addresses build-35 dogfood:
+
+- **M22.5 — sync feedback now actually surfaces**: the
+  `reminderListIdentifier`, `lastReminderSyncAt`,
+  `lastReminderSyncSummary` were UserDefaults-backed computed
+  properties on `AppState`. `@Observable` only tracks stored
+  properties, so SwiftUI never re-rendered when those changed —
+  Settings → Grocery looked frozen after every Sync now tap. Moved
+  to true stored properties on `AppState`, hydrated in
+  `loadCachedData()` via new `loadReminderState()`, and persist
+  to UserDefaults as a side effect.
+- **API error context**: when the server returns 4xx/5xx, the iOS
+  error now appends `[404 /api/path]` so a generic `"Not Found"`
+  banner tells us which endpoint actually 404'd. (Build 35 surfaced
+  a bare `"Not Found"` with no path; impossible to debug.)
+- **Stale-error clear on Sync now**: tapping the manual sync button
+  clears `lastErrorMessage` so a previous unrelated error doesn't
+  masquerade as a sync failure.
+- **Build 35 → 36**, TestFlight upload follows.
+
+### Earlier same day (build 35)
 
 **M22.3 + M22.4 + M23 hotfix** addresses dogfood feedback:
 

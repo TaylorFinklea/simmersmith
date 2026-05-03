@@ -1784,10 +1784,16 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                     message: payload.detail.message
                 )
             }
+            // Surface the request path in the error so a generic
+            // FastAPI 404 ("Not Found") still tells us which endpoint
+            // the client was asking for. Production logs catch the
+            // server side; the user-facing banner gets the iOS side.
+            let pathHint = http.url?.path ?? ""
+            let suffix = pathHint.isEmpty ? "" : " [\(http.statusCode) \(pathHint)]"
             if let errorPayload = try? decoder.decode(APIErrorResponse.self, from: data) {
-                throw SimmerSmithAPIError.server(errorPayload.detail)
+                throw SimmerSmithAPIError.server(errorPayload.detail + suffix)
             }
-            throw SimmerSmithAPIError.invalidResponse
+            throw SimmerSmithAPIError.server("HTTP \(http.statusCode)\(suffix)")
         }
 
         if T.self == EmptyResponse.self {

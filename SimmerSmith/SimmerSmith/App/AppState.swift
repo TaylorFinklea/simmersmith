@@ -83,6 +83,15 @@ final class AppState {
     /// Current household snapshot (M21). Loaded by `refreshHousehold()`
     /// during `refreshAll()`. Drives the Settings → Household section.
     var currentHousehold: HouseholdSnapshot?
+    /// M22.5: Reminders bridge state must be @Observable stored
+    /// properties — UserDefaults-backed computed properties don't
+    /// trigger SwiftUI re-renders, which is why the Settings →
+    /// Grocery section showed no feedback after Sync now in build 35.
+    /// Hydrated in `loadCachedData()`; mutators persist to
+    /// UserDefaults as a side effect for cross-launch persistence.
+    var reminderListIdentifier: String?
+    var lastReminderSyncAt: Date?
+    var lastReminderSyncSummary: String?
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
@@ -247,6 +256,10 @@ final class AppState {
         } else {
             checkedGroceryItemIDs = []
         }
+        // M22.5: hydrate the @Observable Reminders state so the
+        // Settings sheet renders the right toggle / "Last synced"
+        // values on first open.
+        loadReminderState()
     }
 
     static let productionServerURL = "https://simmersmith.fly.dev"
