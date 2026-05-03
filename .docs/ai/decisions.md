@@ -467,3 +467,109 @@ worker process/dyno, (3) in-process `AsyncIOScheduler`.
 - 5 shared tables now have an extra column on every row. Storage cost is trivial (36 chars per row). Index churn was bounded — we added a household_id index and kept the user_id index for creator-attribution queries that may emerge later.
 - The auto-merge isn't transactional across all 5 tables in the strictest sense — a failure mid-merge could leave content half-pointing-at-the-new-household. Acceptable at v1 user volume; if we hit it, wrap merge_solo_into in `with session.begin_nested()`.
 - No "leave household without joining a different one" UI in v1. Anyone who needs it can sign out + reset.
+
+
+## 2026-05-03: M22 Grocery list mutability + Apple Reminders sync
+
+**Decision**: Make the grocery list a first-class household artifact.
+Auto-aggregation from meals stays the seed, but the user can add
+custom items, edit quantities/units/notes, soft-remove items, and
+check items off as a household-shared state. Mirror the live list
+into a Reminders list of the user's choosing so they can shop
+without opening the app.
+
+**Schema additions** (`alembic/versions/20260503_0028_grocery_edits.py`):
+- `grocery_items.is_user_added` BOOL — never deleted by smart-merge.
+- `grocery_items.is_user_removed` BOOL — tombstone preserves the
+  user's removal across regen.
+- `grocery_items.quantity_override`, `unit_override`, `notes_override` —
+  user values that win over auto-aggregated values on display, while
+  the auto values stay alongside them.
+- `grocery_items.is_checked`, `checked_at`, `checked_by_user_id` —
+  household-shared check state. Old local-only `cacheStore.isChecked`
+  is now a fast-render mirror; server is source of truth.
+- `events.auto_merge_grocery` BOOL DEFAULT TRUE — when on, the event's
+  grocery list automatically merges into the week containing
+  `event_date` whenever `regenerate_event_grocery` runs.
+
+**Smart-merge regeneration**: rewrote `regenerate_grocery_for_week`
+from wipe-rebuild to diff-merge. Items are classified into:
+- `untouchable` (`is_user_added` OR has event-merge attribution) —
+  not touched.
+- `eligible` (auto-managed, possibly with overrides / check state) —
+  matched by `(base_or_normalized_name, locked_variation, unit,
+  quantity_text)` and updated; items not matched but with user
+  investment get `review_flag = "no longer in any meal"`; pure-auto
+  unmatched items are deleted.
+
+**Reminders sync direction**: two-way mirror, last-write-wins by
+`updated_at`. Per-device `(grocery_item_id ↔ EKReminder.calendarItemIdentifier)`
+mapping in UserDefaults JSON keyed by chosen `EKCalendar.calendarIdentifier`.
+Server stays the canonical source per household; each member's iOS
+device independently mirrors the shared server-side list into THEIR
+chosen Reminders list. Title format `"<qty> <unit> <name>"` so the
+future M23 cart-automation skill can parse without extra metadata.
+
+**iOS surfaces**: 5th tab (`AppState.MainTab.grocery` was scaffolded
+but unwired pre-M22; we wired it). Editable `GroceryView` with
+swipe-to-remove, tap-to-edit, "+" toolbar to add. Settings → Grocery
+section with Reminders sync toggle + list picker. Per-event
+auto-merge toggle on `EventDetailView`. `Info.plist` gains
+`NSRemindersUsageDescription` + `NSRemindersFullAccessUsageDescription`.
+
+## 2026-05-03: M23 Cart-automation skill design (deferred — design only)
+
+**Decision**: The Aldi / Walmart / Sam's Club / Instacart cart
+automation does NOT live in the SimmerSmith app or backend. It
+lives in `~/.claude/skills/simmersmith-shopping/` as a Claude Code
+skill (with peer Codex implementation), runs locally on the user's
+laptop, and reads the same Apple Reminders list that M22 mirrors
+into. This keeps the iOS app free of third-party cookie / web
+automation concerns, lets the heavy work run on a beefy laptop
+rather than a phone, and avoids putting per-store credentials on
+Fly.io secrets.
+
+**Skill input contract** (set by M22, frozen):
+- Reminders list title is configurable per device (user picks).
+- Each grocery reminder's title is `"<qty> <unit> <name>"` — e.g.
+  `"2 cups flour"`, `"1 pkg paper towels"`. Skill parses this with
+  a permissive grammar: optional leading number → optional unit →
+  remainder is name.
+- Notes field optional, holds source-meal context ("for Spaghetti
+  Bolognese") that the skill ignores for matching.
+- Skill MAY (not MUST) call SimmerSmith's bearer-token API for
+  richer `base_ingredient_id` / preferred-brand metadata if the
+  string-only path produces too many ambiguous matches.
+
+**Process** (skill-side, NOT in this milestone):
+1. Read the chosen Reminders list (macOS `osascript`,
+   `reminders-cli`, or PyXA via `scripts.app` — pick whichever is
+   most reliable on macOS 15+).
+2. Per-store product resolution + price fetch via Playwright +
+   browser-use. Aldi, Walmart, Sam's Club, Instacart targeted in
+   that priority order. Kroger stays pricing-only via the existing
+   API (M2).
+3. Compute a store-split that minimizes cost subject to per-store
+   delivery minimums and a "no more than 2 stops" constraint.
+   Greedy + 1-store swap heuristic; deterministic.
+4. Drive each store's web UI to add items to the cart. Stop short
+   of placing the order — leave at "ready to check out" so the user
+   reviews.
+
+**Auth**: per-store cookies in a Playwright persistent profile under
+`~/.config/simmersmith/skill-profile/`. User logs in once
+interactively per store; cookies persist. No credentials in code.
+
+**Why not in the iOS app**: WebView automation against retailer
+sites is fragile, runs afoul of mobile cookie restrictions, and
+maintaining per-retailer scrapers in Swift is a poor use of mobile
+runtime. The laptop is also where the user reviews the cart before
+checkout — closer to where the action lands.
+
+**Trade-offs accepted**:
+- The skill is non-portable: it runs only on the user's laptop, not
+  in the cloud. If we ever want a "tap to shop" button on iOS, we'd
+  need a separate hosted automation.
+- The two-way Reminders bridge is foreground-only in v1 (no
+  BGAppRefreshTask). If the user shops with the app backgrounded,
+  the check-state propagation lags until the app is foregrounded.

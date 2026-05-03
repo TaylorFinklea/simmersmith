@@ -8,7 +8,57 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-01
+**Date**: 2026-05-03
+
+**M22 Grocery list polish + Apple Reminders sync** shipped end-to-end:
+- Phase 1 — schema + smart-merge regen + 5 mutation routes + 11 new
+  backend tests (271 total pass).
+  - `grocery_items` extended with 8 mutability fields
+    (`is_user_added`, `is_user_removed`, `quantity_override`,
+    `unit_override`, `notes_override`, `is_checked`, `checked_at`,
+    `checked_by_user_id`) and `events.auto_merge_grocery`.
+  - Smart-merge regeneration replaces the old wipe-rebuild — user
+    edits, household-shared check state, and event-merge attribution
+    survive meal changes.
+  - 5 new routes under `/api/weeks/{id}/grocery/...`:
+    POST `/items`, PATCH `/items/{id}`, POST/DELETE `/items/{id}/check`,
+    GET `/grocery?since=ISO8601` (delta endpoint for Reminders sync).
+  - Per-event `auto_merge_grocery` toggle wired through
+    `apply_auto_merge_policy` so events fold into the week
+    automatically when the toggle is on.
+- Phase 2 — iOS surfaces.
+  - SimmerSmithKit: `GroceryItem` extended with mutability fields +
+    `effectiveQuantity/Unit/Notes` accessors. New `GroceryListDelta`
+    response model. `Event` carries `autoMergeGrocery`.
+  - 6 new API client methods + Sendable patch-body builders.
+  - `AppState+Grocery.swift` (add/edit/remove/restore + local
+    mirror helpers) and `AppState+Reminders.swift` (push and pull
+    direction sync).
+  - `RemindersService.swift` + `GroceryReminderMapping.swift`
+    (per-device JSON store of grocery_item_id ↔ EKReminder
+    calendarItemIdentifier).
+  - 5th tab wired (`AppState.MainTab.grocery` was scaffolded but
+    unwired before M22). `GroceryTabView` + editable `GroceryView`
+    (swipe to remove, tap to edit, "+" toolbar to add).
+  - `AddGroceryItemSheet`, `GroceryItemEditSheet`,
+    `ReminderListPickerSheet`.
+  - Settings → Grocery section with two-way sync toggle + list
+    picker. EventDetailView has the auto-merge toggle.
+  - `Info.plist` adds `NSRemindersUsageDescription` +
+    `NSRemindersFullAccessUsageDescription`. No new entitlement.
+  - Sign-out clears the per-device Reminders mappings via
+    `clearReminderMappings()` from `resetConnection`.
+- Phase 3 — durable design notes for the future M23 cart-automation
+  skill (Aldi / Walmart / Sam's Club / Instacart) appended to
+  `.docs/ai/decisions.md`. Roadmap updated.
+- Phase 4 — `CURRENT_PROJECT_VERSION` 32 → 33. Commit + Fly deploy +
+  TestFlight build 33 to follow.
+
+**Test status**: backend `pytest -q` 271/271 (260 pre-M22 + 11 new
+grocery edits). SimmerSmithKit `swift test` 26/26. iOS build green
+on `generic/platform=iOS Simulator`.
+
+### Previous session (2026-05-01)
 
 **M21 Household sharing** shipped end-to-end across 5 phases:
 - Phase 1 (commit `edf9a0f`) — schema: `households`, `household_members`,

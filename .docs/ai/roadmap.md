@@ -33,8 +33,28 @@ Open follow-ups:
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Next (M22 candidates)
-- **Anthropic web search support** for the recipe finder (Messages API `web_search_20250305` — currently OpenAI-only).
+### Next (M22 in flight, M23 candidates)
+
+**M22 — Grocery list polish + Reminders sync** (in flight 2026-05-03)
+- Smart-merge regen preserves user edits (`is_user_added`,
+  `is_user_removed`, `quantity_override`, `unit_override`,
+  `notes_override`).
+- Server-side household-shared check state.
+- Per-event `auto_merge_grocery` toggle (default on).
+- 5 new mutation routes under `/api/weeks/{id}/grocery/...`.
+- iOS 5th tab + add/edit/remove + EventKit two-way Reminders bridge.
+- Settings → Grocery → "Sync to Reminders" with list picker.
+- M23 = the cart-automation skill (separate milestone, see below).
+
+**M23 candidates** (post-M22)
+- **Cart-automation skill** (Aldi / Walmart / Sam's Club / Instacart).
+  Local Claude Code + Codex skill that reads the chosen Reminders
+  list, runs Playwright/browser-use against each store, computes a
+  store-split, and fills carts to checkout. Skill uses the
+  parse-friendly Reminders title format `"<qty> <unit> <name>"`
+  established by M22.
+- **Anthropic web search support** for the recipe finder (Messages
+  API `web_search_20250305` — currently OpenAI-only).
 - **Owner role transfer** (M21 follow-up).
 - **Removing a member as owner** (M21 follow-up).
 
