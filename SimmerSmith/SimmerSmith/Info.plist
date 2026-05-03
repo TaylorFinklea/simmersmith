@@ -45,6 +45,15 @@
 	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Skip the App Store Connect "Determine Compliance Requirements"
+	     prompt every TestFlight upload. SimmerSmith uses only Apple-
+	     provided encryption (HTTPS via URLSession, Apple Sign-In,
+	     Keychain) which is export-exempt under category 5D992.c. No
+	     custom crypto libraries, no ATS exceptions. If we ever ship
+	     anything that bundles its own cipher, flip this to <true/> and
+	     fill in ITSEncryptionExportComplianceCode. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
