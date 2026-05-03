@@ -6,13 +6,67 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import AssistantMessage, AssistantThread, DietaryGoal, ProfileSetting, Recipe, RecipeImage, Staple, Week
+from app.models import AssistantMessage, AssistantThread, DietaryGoal, GroceryItem, ProfileSetting, Recipe, RecipeImage, Staple, Week
 from app.schemas import RecipePayload
 from app.services.ai import secret_profile_flags, visible_profile_settings
 from app.services.entitlements import all_usage_summaries, is_pro, is_trial_pro
 from app.services.image_usage import usage_summary
 from app.services.nutrition import MacroBreakdown, calculate_meal_macros, calculate_recipe_nutrition
 from app.services.recipes import days_since, effective_override_fields, effective_recipe_data, family_last_used, source_counts
+
+
+def grocery_item_payload(item: GroceryItem) -> dict[str, object]:
+    """Single-item presenter mirroring the shape used by `week_payload`'s
+    `grocery_items[]` entries. Used by the M22 mutation endpoints
+    (POST add / PATCH edit / POST,DELETE check) and by the delta
+    endpoint that drives Reminders sync.
+    """
+    return {
+        "grocery_item_id": item.id,
+        "ingredient_name": item.ingredient_name,
+        "normalized_name": item.normalized_name,
+        "base_ingredient_id": item.base_ingredient_id,
+        "base_ingredient_name": item.base_ingredient.name if item.base_ingredient is not None else None,
+        "ingredient_variation_id": item.ingredient_variation_id,
+        "ingredient_variation_name": (
+            item.ingredient_variation.name if item.ingredient_variation is not None else None
+        ),
+        "resolution_status": item.resolution_status,
+        "total_quantity": item.total_quantity,
+        "unit": item.unit,
+        "quantity_text": item.quantity_text,
+        "category": item.category,
+        "source_meals": item.source_meals,
+        "notes": item.notes,
+        "review_flag": item.review_flag,
+        "is_user_added": item.is_user_added,
+        "is_user_removed": item.is_user_removed,
+        "quantity_override": item.quantity_override,
+        "unit_override": item.unit_override,
+        "notes_override": item.notes_override,
+        "is_checked": item.is_checked,
+        "checked_at": item.checked_at,
+        "checked_by_user_id": item.checked_by_user_id,
+        "updated_at": item.updated_at,
+        "retailer_prices": [
+            {
+                "retailer": price.retailer,
+                "status": price.status,
+                "store_name": price.store_name,
+                "product_name": price.product_name,
+                "package_size": price.package_size,
+                "unit_price": price.unit_price,
+                "line_price": price.line_price,
+                "product_url": price.product_url,
+                "availability": price.availability,
+                "candidate_score": price.candidate_score,
+                "review_note": price.review_note,
+                "raw_query": price.raw_query,
+                "scraped_at": price.scraped_at,
+            }
+            for price in sorted(item.retailer_prices, key=lambda entry: entry.retailer)
+        ],
+    }
 
 
 def dietary_goal_payload(goal: DietaryGoal | None) -> dict[str, object] | None:
@@ -195,7 +249,14 @@ def week_payload(week: Week | None, *, session: Session | None = None) -> dict[s
         return None
 
     meals = sorted(week.meals, key=lambda meal: (meal.meal_date, meal.sort_order, meal.slot))
-    grocery_items = sorted(week.grocery_items, key=lambda item: (item.category, item.ingredient_name))
+    # Tombstones (`is_user_removed=True`) live on the row so smart-merge
+    # remembers the user's removal across regen — but they never surface
+    # to iOS or Reminders sync. The delta endpoint
+    # `/grocery?since=...` returns the full set including tombstones.
+    grocery_items = sorted(
+        (item for item in week.grocery_items if not item.is_user_removed),
+        key=lambda item: (item.category, item.ingredient_name),
+    )
 
     meal_macros: dict[str, MacroBreakdown] = {}
     if session is not None:
@@ -313,6 +374,14 @@ def week_payload(week: Week | None, *, session: Session | None = None) -> dict[s
                 "source_meals": item.source_meals,
                 "notes": item.notes,
                 "review_flag": item.review_flag,
+                "is_user_added": item.is_user_added,
+                "is_user_removed": item.is_user_removed,
+                "quantity_override": item.quantity_override,
+                "unit_override": item.unit_override,
+                "notes_override": item.notes_override,
+                "is_checked": item.is_checked,
+                "checked_at": item.checked_at,
+                "checked_by_user_id": item.checked_by_user_id,
                 "updated_at": item.updated_at,
                 "retailer_prices": [
                     {

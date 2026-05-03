@@ -162,6 +162,20 @@ class GroceryItem(Base):
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     review_flag: Mapped[str] = mapped_column(Text, default="", nullable=False)
     resolution_status: Mapped[str] = mapped_column(String(24), default="unresolved", nullable=False)
+    # M22 mutability flags: smart-merge regen reads these to decide
+    # whether to preserve a row across meal changes (user_added /
+    # user_removed / *_override) and whether to expose a row to the
+    # iOS Grocery view + Reminders sync (`is_user_removed=True` rows
+    # are tombstones — kept so a removed-then-still-in-meals item
+    # stays removed across regen, but never surfaced).
+    is_user_added: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_user_removed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    quantity_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_override: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    notes_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_checked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checked_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

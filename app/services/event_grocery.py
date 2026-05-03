@@ -214,6 +214,11 @@ def regenerate_event_grocery(session: Session, user_id: str, event: Event) -> li
         session.add(item)
         created.append(item)
     session.flush()
+    # The bulk delete bypassed the ORM session's identity map for the
+    # `grocery_items` collection, so callers iterating `event.grocery_items`
+    # right after this would see the stale (deleted) rows. Expire the
+    # collection so the next access re-queries the freshly inserted set.
+    session.expire(event, ["grocery_items"])
     return created
 
 
@@ -300,6 +305,64 @@ def merge_event_into_week(
 
     event.linked_week_id = week.id
     return counts
+
+
+def _resolve_target_week(session: Session, event: Event, household_id: str) -> Week | None:
+    """Find the week the event should auto-merge into. Prefer an
+    explicit `linked_week_id`; otherwise look up the household's week
+    whose `[week_start, week_end]` range contains `event.event_date`.
+    Returns None when the event has no date or no week covers it.
+    """
+    if event.linked_week_id:
+        return session.scalar(
+            select(Week).where(
+                Week.id == event.linked_week_id,
+                Week.household_id == household_id,
+            )
+        )
+    if event.event_date is None:
+        return None
+    return session.scalar(
+        select(Week).where(
+            Week.household_id == household_id,
+            Week.week_start <= event.event_date,
+            Week.week_end >= event.event_date,
+        )
+    )
+
+
+def apply_auto_merge_policy(
+    session: Session,
+    *,
+    event: Event,
+    user_id: str,
+    household_id: str,
+) -> None:
+    """Reconcile `event.auto_merge_grocery` with the event's actual merge
+    state. Call this after any mutation that touches event meals OR
+    flips the toggle itself.
+
+    When True: idempotently merge the event's grocery rows into the
+    week covering `event.event_date` (or `linked_week_id`).
+    When False: if the event was previously merged into a week,
+    unmerge from that week.
+    """
+    if event.auto_merge_grocery:
+        target = _resolve_target_week(session, event, household_id)
+        if target is not None:
+            merge_event_into_week(session, user_id=user_id, event=event, week=target)
+        return
+
+    if event.linked_week_id is None:
+        return
+    week = session.scalar(
+        select(Week).where(
+            Week.id == event.linked_week_id,
+            Week.household_id == household_id,
+        )
+    )
+    if week is not None:
+        unmerge_event_from_week(session, event=event, week=week)
 
 
 def unmerge_event_from_week(session: Session, *, event: Event, week: Week) -> int:

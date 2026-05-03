@@ -95,6 +95,7 @@ def event_summary_payload(event: Event) -> dict[str, Any]:
         "attendee_count": event.attendee_count,
         "status": event.status,
         "linked_week_id": event.linked_week_id,
+        "auto_merge_grocery": event.auto_merge_grocery,
         "meal_count": len(event.meals),
         "created_at": event.created_at,
         "updated_at": event.updated_at,

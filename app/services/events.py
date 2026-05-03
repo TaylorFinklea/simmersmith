@@ -135,6 +135,9 @@ def create_event(
     return event
 
 
+_UNSET: object = object()
+
+
 def update_event(
     session: Session,
     event: Event,
@@ -147,6 +150,7 @@ def update_event(
     status: str | None,
     attendees: list[tuple[str, int]] | None = None,
     household_id: str,
+    auto_merge_grocery: object = _UNSET,
 ) -> Event:
     if name is not None:
         event.name = name.strip() or event.name
@@ -166,6 +170,8 @@ def update_event(
         event.status = status.strip() or event.status
     if attendees is not None:
         _sync_attendees(session, event, attendees, household_id=household_id)
+    if auto_merge_grocery is not _UNSET:
+        event.auto_merge_grocery = bool(auto_merge_grocery)
     return event
 
 

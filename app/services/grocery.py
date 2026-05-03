@@ -4,10 +4,11 @@ import hashlib
 import math
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from fractions import Fraction
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import GroceryItem, Recipe, RecipeIngredient, Staple, Week, WeekMeal, WeekMealIngredient
@@ -150,7 +151,7 @@ def build_grocery_rows_for_week(session: Session, user_id: str, household_id: st
             inline_ingredients_by_meal[ingredient.week_meal_id].append(ingredient)
 
     staples = staple_names(session, household_id)
-    aggregations: dict[tuple[str, str, str], dict[str, Any]] = {}
+    aggregations: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     for meal in meals:
         recipe = recipes.get(meal.recipe_id or "")
@@ -265,31 +266,244 @@ def build_grocery_rows_for_week(session: Session, user_id: str, household_id: st
     return rows
 
 
+def _key_for_row(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Match key used by smart merge. Mirrors the aggregation key in
+    `build_grocery_rows_for_week` so a fresh row matches the existing
+    `GroceryItem` it was derived from on a prior regen.
+    """
+    base = (row.get("base_ingredient_id") or row.get("normalized_name") or "")
+    locked_variation = (
+        row.get("ingredient_variation_id") if row.get("resolution_status") == "locked" else ""
+    ) or ""
+    return (str(base), str(locked_variation), row.get("unit") or "", row.get("quantity_text") or "")
+
+
+def _key_for_item(item: GroceryItem) -> tuple[str, str, str, str]:
+    base = item.base_ingredient_id or item.normalized_name or ""
+    locked_variation = (
+        item.ingredient_variation_id if item.resolution_status == "locked" else ""
+    ) or ""
+    return (str(base), str(locked_variation), item.unit or "", item.quantity_text or "")
+
+
+def _has_event_attribution(item: GroceryItem) -> bool:
+    """An item that an Event grocery merge has touched. Smart-merge regen
+    leaves these untouched so the event merge / unmerge pair retains
+    sole ownership of the +event quantity contribution."""
+    if (item.source_meals or "").startswith("event:"):
+        return True
+    return "+event:" in (item.notes or "")
+
+
+def _has_user_investment(item: GroceryItem) -> bool:
+    """Returns True when the user has explicitly modified this row in
+    a way smart merge must preserve (overrides, check state). User-
+    added rows are handled separately."""
+    return (
+        item.quantity_override is not None
+        or item.unit_override is not None
+        or item.notes_override is not None
+        or item.is_checked
+    )
+
+
+def _apply_fresh_to_existing(item: GroceryItem, row: dict[str, Any]) -> None:
+    """Refresh the auto-managed fields on an existing GroceryItem from a
+    freshly aggregated row. Quantity / unit / notes are NOT touched
+    when the user has set the corresponding override — the auto value
+    stays in `total_quantity` / `unit` / `notes` (so iOS can show "you
+    overrode 2 → 3 cups, system thinks 2 cups") but the override wins
+    on display.
+    """
+    if item.quantity_override is None:
+        item.total_quantity = row["total_quantity"]
+    if item.unit_override is None:
+        item.unit = row["unit"] or ""
+    if item.notes_override is None:
+        item.notes = row["notes"] or ""
+    item.quantity_text = row["quantity_text"] or ""
+    item.category = row["category"] or item.category
+    item.source_meals = row["source_meals"] or ""
+    item.review_flag = row["review_flag"] or ""
+    # Refresh catalog-resolved metadata so a preference change picks up
+    # the new variation.
+    item.base_ingredient_id = row.get("base_ingredient_id")
+    item.ingredient_variation_id = row.get("ingredient_variation_id")
+    item.ingredient_name = row.get("ingredient_name") or item.ingredient_name
+    item.normalized_name = row.get("normalized_name") or item.normalized_name
+    item.resolution_status = row.get("resolution_status") or item.resolution_status
+
+
+def _grocery_item_from_row(week_id: str, row: dict[str, Any]) -> GroceryItem:
+    return GroceryItem(
+        week_id=week_id,
+        base_ingredient_id=row["base_ingredient_id"],
+        ingredient_variation_id=row["ingredient_variation_id"],
+        ingredient_name=row["ingredient_name"],
+        normalized_name=row["normalized_name"],
+        total_quantity=row["total_quantity"],
+        unit=row["unit"],
+        quantity_text=row["quantity_text"],
+        category=row["category"],
+        source_meals=row["source_meals"],
+        notes=row["notes"],
+        review_flag=row["review_flag"],
+        resolution_status=row["resolution_status"],
+    )
+
+
 def regenerate_grocery_for_week(session: Session, user_id: str, household_id: str, week: Week) -> list[GroceryItem]:
+    """Smart-merge regeneration. Preserves user-added items, removed-
+    item tombstones, override fields, household-shared check state,
+    and event-merged contributions across meal changes. Pure auto
+    rows whose meals were removed are deleted.
+    """
     invalidate_week(session, week)
-    session.execute(delete(GroceryItem).where(GroceryItem.week_id == week.id))
-    session.flush()
+
+    existing = list(
+        session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
+    )
+
+    # Items the smart merge must not touch — they're managed by other
+    # systems (the user, or event_grocery merge/unmerge).
+    untouchable: list[GroceryItem] = [
+        item for item in existing if item.is_user_added or _has_event_attribution(item)
+    ]
+    untouchable_keys = {_key_for_item(item) for item in untouchable}
+
+    # Auto-managed items keyed for fresh-row matching. Tombstones live
+    # here too so we can detect "fresh row had a tombstone — skip
+    # re-creating" in one lookup.
+    eligible_by_key: dict[tuple[str, str, str, str], GroceryItem] = {}
+    for item in existing:
+        if item.is_user_added or _has_event_attribution(item):
+            continue
+        eligible_by_key[_key_for_item(item)] = item
 
     rows = build_grocery_rows_for_week(session, user_id, household_id, week)
-    created: list[GroceryItem] = []
+    matched_keys: set[tuple[str, str, str, str]] = set()
+
     for row in rows:
-        grocery_item = GroceryItem(
-            week_id=week.id,
-            base_ingredient_id=row["base_ingredient_id"],
-            ingredient_variation_id=row["ingredient_variation_id"],
-            ingredient_name=row["ingredient_name"],
-            normalized_name=row["normalized_name"],
-            total_quantity=row["total_quantity"],
-            unit=row["unit"],
-            quantity_text=row["quantity_text"],
-            category=row["category"],
-            source_meals=row["source_meals"],
-            notes=row["notes"],
-            review_flag=row["review_flag"],
-            resolution_status=row["resolution_status"],
-        )
-        session.add(grocery_item)
-        created.append(grocery_item)
+        key = _key_for_row(row)
+        if key in untouchable_keys:
+            # An untouchable row already occupies this slot; don't dup.
+            continue
+        existing_item = eligible_by_key.get(key)
+        if existing_item is not None:
+            matched_keys.add(key)
+            if existing_item.is_user_removed:
+                # Tombstone — leave as-is; iOS filter excludes removed items.
+                continue
+            _apply_fresh_to_existing(existing_item, row)
+        else:
+            session.add(_grocery_item_from_row(week.id, row))
+
+    for key, item in eligible_by_key.items():
+        if key in matched_keys:
+            continue
+        if item.is_user_removed:
+            continue  # tombstone stays
+        if _has_user_investment(item):
+            if not item.review_flag:
+                item.review_flag = "no longer in any meal"
+            continue
+        session.delete(item)
 
     session.flush()
-    return created
+    return list(
+        session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
+    )
+
+
+def add_user_grocery_item(
+    session: Session,
+    *,
+    week: Week,
+    name: str,
+    quantity: float | None,
+    unit: str,
+    notes: str,
+    category: str = "",
+) -> GroceryItem:
+    """Insert a manually-added grocery item on the week. Smart-merge
+    regeneration never deletes or rewrites these rows.
+    """
+    invalidate_week(session, week)
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise ValueError("name required")
+    item = GroceryItem(
+        week_id=week.id,
+        ingredient_name=cleaned_name,
+        normalized_name=normalize_name(cleaned_name),
+        total_quantity=quantity,
+        unit=normalize_unit(unit) if unit else "",
+        category=category or "",
+        notes=notes or "",
+        is_user_added=True,
+    )
+    session.add(item)
+    session.flush()
+    return item
+
+
+def update_grocery_item(
+    session: Session,
+    *,
+    week: Week,
+    item: GroceryItem,
+    fields: dict[str, Any],
+) -> GroceryItem:
+    """Patch a grocery item. Setting a value writes the override; passing
+    a key with `None` clears the override (revert to auto). The `removed`
+    pseudo-field flips `is_user_removed` (a soft-delete that survives
+    smart-merge regeneration).
+    """
+    invalidate_week(session, week)
+    if "quantity" in fields:
+        if item.is_user_added:
+            # User-added rows have no aggregated baseline, so we mutate
+            # `total_quantity` directly.
+            item.total_quantity = fields["quantity"]
+        else:
+            item.quantity_override = fields["quantity"]
+    if "unit" in fields:
+        if item.is_user_added:
+            item.unit = normalize_unit(fields["unit"]) if fields["unit"] else ""
+        else:
+            value = fields["unit"]
+            item.unit_override = normalize_unit(value) if value else None
+    if "notes" in fields:
+        if item.is_user_added:
+            item.notes = fields["notes"] or ""
+        else:
+            item.notes_override = fields["notes"]
+    if "category" in fields:
+        item.category = fields["category"] or item.category
+    if "name" in fields and item.is_user_added and fields["name"]:
+        item.ingredient_name = str(fields["name"]).strip()
+        item.normalized_name = normalize_name(item.ingredient_name)
+    if "removed" in fields:
+        item.is_user_removed = bool(fields["removed"])
+    session.flush()
+    return item
+
+
+def set_grocery_item_checked(
+    session: Session,
+    *,
+    week: Week,
+    item: GroceryItem,
+    user_id: str,
+    checked: bool,
+) -> GroceryItem:
+    invalidate_week(session, week)
+    item.is_checked = checked
+    if checked:
+        item.checked_at = datetime.now(timezone.utc)
+        item.checked_by_user_id = user_id
+    else:
+        item.checked_at = None
+        item.checked_by_user_id = None
+    session.flush()
+    return item

@@ -76,6 +76,11 @@ class Event(Base):
     linked_week_id: Mapped[str | None] = mapped_column(
         ForeignKey("weeks.id", ondelete="SET NULL"), nullable=True
     )
+    # M22: when True (default), the event's grocery list automatically
+    # merges into its `linked_week`'s grocery list whenever event meals
+    # change. Flip to False for events where guests bring food (potluck)
+    # — the toggle is exposed in the iOS Event detail view.
+    auto_merge_grocery: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

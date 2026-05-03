@@ -125,6 +125,7 @@ class EventUpdateRequest(BaseModel):
     notes: str | None = None
     status: str | None = None
     attendees: list[EventAttendeePayload] | None = None
+    auto_merge_grocery: bool | None = None
 
 
 class EventSummaryOut(BaseModel):
@@ -135,6 +136,7 @@ class EventSummaryOut(BaseModel):
     attendee_count: int
     status: str
     linked_week_id: str | None
+    auto_merge_grocery: bool = True
     meal_count: int
     created_at: datetime
     updated_at: datetime

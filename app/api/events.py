@@ -174,6 +174,12 @@ def update_event_route(
         if payload.attendees is not None
         else None
     )
+    set_fields = payload.model_fields_set
+    auto_merge_kwarg: dict[str, object] = (
+        {"auto_merge_grocery": payload.auto_merge_grocery}
+        if "auto_merge_grocery" in set_fields
+        else {}
+    )
     try:
         update_event(
             session,
@@ -186,9 +192,20 @@ def update_event_route(
             status=payload.status,
             attendees=attendees,
             household_id=current_user.household_id,
+            **auto_merge_kwarg,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Reconcile auto-merge after the toggle (or event_date) changes.
+    from app.services.event_grocery import apply_auto_merge_policy
+
+    apply_auto_merge_policy(
+        session,
+        event=event,
+        user_id=current_user.id,
+        household_id=current_user.household_id,
+    )
     session.commit()
     from app.db import session_scope
 
@@ -354,6 +371,13 @@ def generate_event_menu_route(
     session.flush()
     session.expire(event, ["meals"])
     regenerate_event_grocery(session, current_user.id, event)
+    from app.services.event_grocery import apply_auto_merge_policy
+    apply_auto_merge_policy(
+        session,
+        event=event,
+        user_id=current_user.id,
+        household_id=current_user.household_id,
+    )
     session.commit()
 
     from app.db import session_scope
@@ -376,12 +400,18 @@ def refresh_event_grocery_route(
 ) -> dict[str, object]:
     """Recompute the event's grocery list from its current meals. Useful
     when the user has edited meals after the initial AI generation."""
-    from app.services.event_grocery import regenerate_event_grocery
+    from app.services.event_grocery import apply_auto_merge_policy, regenerate_event_grocery
 
     event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     regenerate_event_grocery(session, current_user.id, event)
+    apply_auto_merge_policy(
+        session,
+        event=event,
+        user_id=current_user.id,
+        household_id=current_user.household_id,
+    )
     session.commit()
 
     from app.db import session_scope

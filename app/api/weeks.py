@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
@@ -15,6 +16,10 @@ from app.schemas import (
     ExportCreateRequest,
     ExportRunOut,
     FeedbackEntryPayload,
+    GroceryItemAddRequest,
+    GroceryItemOut,
+    GroceryItemPatchRequest,
+    GroceryListDeltaOut,
     WeekChangeBatchOut,
     WeekFeedbackResponse,
     MealUpdatePayload,
@@ -35,8 +40,13 @@ from app.services.entitlements import (
 from app.services.drafts import apply_ai_draft, set_week_approved, set_week_ready_for_ai, update_week_meals
 from app.services.exports import create_export_run, export_runs_payload
 from app.services.feedback import feedback_response_payload, upsert_feedback_entries
-from app.services.grocery import regenerate_grocery_for_week
-from app.services.presenters import pricing_payload, week_payload, week_summary_payload
+from app.services.grocery import (
+    add_user_grocery_item,
+    regenerate_grocery_for_week,
+    set_grocery_item_checked,
+    update_grocery_item,
+)
+from app.services.presenters import grocery_item_payload, pricing_payload, week_payload, week_summary_payload
 from app.services.pricing import import_pricing
 from app.services.weeks import create_or_get_week, get_current_week, get_week, get_week_by_start, list_weeks
 
@@ -316,6 +326,144 @@ def regenerate_grocery(week_id: str, session: Session = Depends(get_session), cu
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}
+
+
+def _load_grocery_item_or_404(
+    session: Session, household_id: str, week_id: str, item_id: str
+):
+    """Resolve `(week, item)`, enforcing household ownership in one shot.
+    Returns the live ORM objects so callers can mutate them and rely on
+    SQLAlchemy's onupdate=utcnow trigger to bump `updated_at`.
+    """
+    from app.models import GroceryItem
+
+    week = load_week_or_404(session, household_id, week_id)
+    item = session.scalar(
+        select(GroceryItem).where(
+            GroceryItem.id == item_id, GroceryItem.week_id == week.id
+        )
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Grocery item not found")
+    return week, item
+
+
+@router.post("/{week_id}/grocery/items", response_model=GroceryItemOut)
+def add_grocery_item_route(
+    week_id: str,
+    payload: GroceryItemAddRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Insert a manually-added grocery item. Smart-merge regen never
+    deletes or rewrites these rows — only the user can remove them.
+    """
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    try:
+        item = add_user_grocery_item(
+            session,
+            week=week,
+            name=payload.name,
+            quantity=payload.quantity,
+            unit=payload.unit,
+            notes=payload.notes,
+            category=payload.category,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    session.refresh(item)
+    return grocery_item_payload(item)
+
+
+@router.patch("/{week_id}/grocery/items/{item_id}", response_model=GroceryItemOut)
+def patch_grocery_item_route(
+    week_id: str,
+    item_id: str,
+    payload: GroceryItemPatchRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Update a grocery item. Pydantic's `model_fields_set` lets us tell
+    "field absent → leave alone" from "field=null → clear override".
+    """
+    week, item = _load_grocery_item_or_404(
+        session, current_user.household_id, week_id, item_id
+    )
+    fields = payload.model_dump(exclude_unset=True)
+    update_grocery_item(session, week=week, item=item, fields=fields)
+    session.commit()
+    session.refresh(item)
+    return grocery_item_payload(item)
+
+
+@router.post("/{week_id}/grocery/items/{item_id}/check", response_model=GroceryItemOut)
+def check_grocery_item_route(
+    week_id: str,
+    item_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    week, item = _load_grocery_item_or_404(
+        session, current_user.household_id, week_id, item_id
+    )
+    set_grocery_item_checked(
+        session, week=week, item=item, user_id=current_user.id, checked=True
+    )
+    session.commit()
+    session.refresh(item)
+    return grocery_item_payload(item)
+
+
+@router.delete("/{week_id}/grocery/items/{item_id}/check", response_model=GroceryItemOut)
+def uncheck_grocery_item_route(
+    week_id: str,
+    item_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    week, item = _load_grocery_item_or_404(
+        session, current_user.household_id, week_id, item_id
+    )
+    set_grocery_item_checked(
+        session, week=week, item=item, user_id=current_user.id, checked=False
+    )
+    session.commit()
+    session.refresh(item)
+    return grocery_item_payload(item)
+
+
+@router.get("/{week_id}/grocery", response_model=GroceryListDeltaOut)
+def grocery_delta_route(
+    week_id: str,
+    since: str | None = None,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Return the week's grocery items, optionally filtered to
+    `updated_at > since`. Includes tombstones (`is_user_removed=True`)
+    so iOS Reminders sync can detect and propagate removals it hasn't
+    yet mirrored locally. The returned `server_time` is what callers
+    should pass back as `since` on the next poll.
+    """
+    from datetime import datetime, timezone
+
+    from app.models import GroceryItem
+
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    statement = select(GroceryItem).where(GroceryItem.week_id == week.id)
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid `since`") from exc
+        statement = statement.where(GroceryItem.updated_at > since_dt)
+    items = list(session.scalars(statement).all())
+    return {
+        "week_id": week.id,
+        "server_time": datetime.now(timezone.utc),
+        "items": [grocery_item_payload(item) for item in items],
+    }
 
 
 @router.get("/{week_id}/feedback", response_model=WeekFeedbackResponse)

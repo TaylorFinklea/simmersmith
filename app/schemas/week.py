@@ -200,6 +200,14 @@ class GroceryItemOut(BaseModel):
     source_meals: str
     notes: str
     review_flag: str
+    is_user_added: bool = False
+    is_user_removed: bool = False
+    quantity_override: float | None = None
+    unit_override: str | None = None
+    notes_override: str | None = None
+    is_checked: bool = False
+    checked_at: datetime | None = None
+    checked_by_user_id: str | None = None
     updated_at: datetime
     retailer_prices: list[RetailerPriceOut] = Field(default_factory=list)
 

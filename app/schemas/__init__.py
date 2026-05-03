@@ -109,6 +109,11 @@ from app.schemas.vision import (
     IngredientIdentificationOut,
     VisionImageRequest,
 )
+from app.schemas.grocery import (
+    GroceryItemAddRequest,
+    GroceryItemPatchRequest,
+    GroceryListDeltaOut,
+)
 from app.schemas.week import (
     DraftFromAIRequest,
     ExportCompleteRequest,
@@ -168,7 +173,10 @@ __all__ = [
     "ExportRunOut",
     "FeedbackEntryOut",
     "FeedbackEntryPayload",
+    "GroceryItemAddRequest",
     "GroceryItemOut",
+    "GroceryItemPatchRequest",
+    "GroceryListDeltaOut",
     "HealthResponse",
     "IngredientIdentificationOut",
     "IngredientMergeRequest",
