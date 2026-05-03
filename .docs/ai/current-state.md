@@ -8,7 +8,39 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-03 (continued)
+**Date**: 2026-05-03 (continued, hotfix)
+
+**M22.3 + M22.4 + M23 hotfix** addresses dogfood feedback:
+
+- **M22.3 — Reminders sync visibility**:
+  - Each reminder now commits individually (`commit: true` per save).
+    The previous batched `commit: false` + final `eventStore.commit()`
+    pattern silently lost writes on iOS 26 in dogfood (sync said
+    success, list stayed empty).
+  - `upsertReminders` returns `(created, updated)` counts.
+  - `syncGroceryToReminders` logs a human-readable summary via
+    `lastReminderSyncSummary` ("Synced 12 items (12 created, 0
+    updated).") and surfaces failures via `lastErrorMessage`.
+  - Settings → Grocery now shows the summary plus a manual "Sync now"
+    button so the user can retry without flipping the toggle.
+- **M22.4 — auto-merge toggle hoisted**:
+  - The toggle was inside `grocerySection` which only rendered when
+    the event already had grocery items. Moved into a standalone
+    `autoMergeRow` that's always visible on event detail (between
+    attendees and Generate menu).
+- **M23 hotfix — uv-native skill, no `.venv` ceremony**:
+  - SKILL.md + README.md updated to use
+    `uv run --project ~/.claude/skills/simmersmith-shopping ...`. uv
+    reads `pyproject.toml` and manages the env transparently; no
+    activation, no `.venv/bin/python`.
+  - `cli.py` auto-installs Playwright Chromium on first browser-
+    driving call so users don't need to remember `playwright install`.
+  - `setup.sh` is now optional (just pre-warms cache + symlinks).
+  - PyXA optional dep dropped — its PyPI release is stale; osascript
+    fallback works on every Mac without extras.
+- **Build 34 → 35**, deploy + TestFlight follows.
+
+### Earlier same day (M22.1 + M22.2 + M23 ship — build 34)
 
 **M22.1 + M22.2 limitation fixes + M23 skill scaffolding** shipped:
 

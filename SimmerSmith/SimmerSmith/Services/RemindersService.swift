@@ -97,31 +97,41 @@ final class RemindersService {
     /// Items with `isUserRemoved=true` are not handled here — callers
     /// should filter those out and call `deleteReminder(for:)` for any
     /// item whose tombstone newly arrived from the server.
+    ///
+    /// Returns `(created, updated)` counts so callers can surface
+    /// per-sync feedback. We commit each save individually rather than
+    /// batching — the batched pattern intermittently lost writes on
+    /// iOS 26 in dogfood (silent success, empty list).
+    @discardableResult
     func upsertReminders(
         in calendar: EKCalendar,
         items: [GroceryItem],
         mapping: inout [String: String]
-    ) throws {
+    ) throws -> (created: Int, updated: Int) {
+        var created = 0
+        var updated = 0
         for item in items where !item.isUserRemoved {
             let title = remindersTitle(for: item)
             let body = item.effectiveNotes
             if let reminderID = mapping[item.groceryItemId],
                let reminder = eventStore.calendarItem(withIdentifier: reminderID) as? EKReminder {
                 if reminder.title != title { reminder.title = title }
-                if (reminder.notes ?? "") != body { reminder.notes = body }
+                if (reminder.notes ?? "") != body { reminder.notes = body.isEmpty ? nil : body }
                 reminder.isCompleted = item.isChecked
-                try eventStore.save(reminder, commit: false)
+                try eventStore.save(reminder, commit: true)
+                updated += 1
             } else {
                 let reminder = EKReminder(eventStore: eventStore)
                 reminder.calendar = calendar
                 reminder.title = title
-                reminder.notes = body
+                reminder.notes = body.isEmpty ? nil : body
                 reminder.isCompleted = item.isChecked
-                try eventStore.save(reminder, commit: false)
+                try eventStore.save(reminder, commit: true)
                 mapping[item.groceryItemId] = reminder.calendarItemIdentifier
+                created += 1
             }
         }
-        try eventStore.commit()
+        return (created, updated)
     }
 
     /// Remove the reminder linked to a grocery item id (e.g. when the

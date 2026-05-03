@@ -1,0 +1,9 @@
+# uv-managed virtualenv — generated on demand by `uv run`. Never commit.
+.venv/
+
+# Egg-info from `pip install -e .` if anyone falls back to that path.
+*.egg-info/
+
+# Per-store Playwright profiles live in ~/.config/simmersmith — never
+# end up here, but defensively ignore in case the user redirects.
+skill-profile/

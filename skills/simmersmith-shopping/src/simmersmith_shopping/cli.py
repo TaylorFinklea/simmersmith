@@ -62,12 +62,37 @@ def _minimums() -> dict[str, float]:
 # Commands
 # ---------------------------------------------------------------------
 
+def _ensure_playwright_chromium() -> None:
+    """Auto-install Playwright's Chromium binary if it isn't present.
+    Avoids forcing the user to remember `playwright install` after a
+    fresh `uv` cache rebuild — first browser-driving call self-heals.
+    """
+    import subprocess
+    from pathlib import Path
+
+    # Playwright caches browsers under ~/Library/Caches/ms-playwright on
+    # macOS. We don't introspect the cache layout — we just try the
+    # noop install command, which exits 0 quickly when chromium is
+    # already present.
+    cache_marker = Path.home() / "Library" / "Caches" / "ms-playwright"
+    if cache_marker.exists() and any(
+        p.name.startswith("chromium-") for p in cache_marker.iterdir()
+    ):
+        return
+    console.print("[yellow]Installing Playwright Chromium (one-time, ~150MB)...[/yellow]")
+    subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=False,
+    )
+
+
 def cmd_login(args: argparse.Namespace) -> int:
     handler = REGISTRY.get(args.store)
     if handler is None:
         console.print(f"[red]unknown store: {args.store}[/red]")
         return 2
 
+    _ensure_playwright_chromium()
     from playwright.sync_api import sync_playwright
 
     console.print(f"[bold]Opening {handler.display_name} for interactive login.[/bold]")
@@ -123,6 +148,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     # Real run: open one persistent context per store, gather real
     # candidates, compute split, fill carts.
+    _ensure_playwright_chromium()
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:

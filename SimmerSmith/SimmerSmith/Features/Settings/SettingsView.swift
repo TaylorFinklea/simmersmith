@@ -1231,11 +1231,24 @@ private struct GrocerySection: View {
                 Button("Change list") { showingPicker = true }
             }
 
+            if appState.reminderListIdentifier != nil {
+                Button {
+                    Task { await appState.syncGroceryToReminders() }
+                } label: {
+                    Label("Sync now", systemImage: "arrow.clockwise")
+                }
+            }
+
             if let last = appState.lastReminderSyncAt {
                 LabeledContent("Last synced") {
                     Text(last, style: .relative)
                         .foregroundStyle(.secondary)
                 }
+            }
+            if let summary = appState.lastReminderSyncSummary {
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if permissionStatus == .denied || permissionStatus == .restricted {

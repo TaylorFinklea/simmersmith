@@ -1,32 +1,30 @@
 #!/usr/bin/env bash
-# One-time install for the SimmerSmith Shopping skill.
+# Convenience installer for the SimmerSmith Shopping skill.
 #
-# Creates a local .venv, installs the skill package, runs
-# `playwright install chromium`, and symlinks this directory into
-# ~/.claude/skills/ so Claude Code discovers it from any session.
+# Optional — the skill works via `uv run --project ...` without ever
+# running this script. setup.sh just pre-warms the dependency cache
+# (so the first invocation isn't slow), installs the Playwright
+# Chromium binary, and adds the discovery symlink under
+# ~/.claude/skills/.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-cd "$HERE"
 
-echo "==> creating .venv"
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-
-echo "==> installing simmersmith-shopping"
-.venv/bin/pip install -e .
-
-# PyXA is macOS-only and may not always be installable. Best-effort.
-if .venv/bin/pip install -e ".[pyxa]" 2>/dev/null; then
-    echo "==> PyXA installed (modern Reminders read path)"
-else
-    echo "==> PyXA install skipped — falling back to osascript at runtime"
+if ! command -v uv >/dev/null 2>&1; then
+    echo "==> uv not found. Install via:"
+    echo "      brew install uv"
+    echo "    or https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
 fi
 
-echo "==> installing playwright browsers"
-.venv/bin/python -m playwright install chromium
+echo "==> pre-warming dependency cache (first run downloads/compiles)"
+uv sync --project "$HERE" 2>&1 | tail -5
+uv run --project "$HERE" python -c "import simmersmith_shopping; print('  loaded', simmersmith_shopping.__version__)"
 
-# Skill discovery: symlink into ~/.claude/skills/ so Claude Code finds it.
+echo "==> installing Playwright chromium binary"
+uv run --project "$HERE" python -m playwright install chromium
+
+# Skill discovery: symlink into ~/.claude/skills/ so Claude Code + Codex find it.
 SKILL_HOME="$HOME/.claude/skills"
 mkdir -p "$SKILL_HOME"
 LINK="$SKILL_HOME/simmersmith-shopping"
@@ -40,17 +38,20 @@ fi
 # Config dir for per-store profiles + .env.
 mkdir -p "$HOME/.config/simmersmith/skill-profile"
 
-cat <<'EOF'
+cat <<EOF
 ==> done.
 
 Next:
-  .venv/bin/python -m simmersmith_shopping login --store aldi
-  .venv/bin/python -m simmersmith_shopping login --store walmart
-  # ...sams_club / instacart as desired
+  uv run --project ~/.claude/skills/simmersmith-shopping \\
+    python -m simmersmith_shopping login --store aldi
+  uv run --project ~/.claude/skills/simmersmith-shopping \\
+    python -m simmersmith_shopping login --store walmart
 
 Then a real run:
-  .venv/bin/python -m simmersmith_shopping --list "SimmerSmith"
+  uv run --project ~/.claude/skills/simmersmith-shopping \\
+    python -m simmersmith_shopping --list "SimmerSmith"
 
-Or a dry run that prints the proposed split:
-  .venv/bin/python -m simmersmith_shopping --list "SimmerSmith" --dry-run
+Or a dry run:
+  uv run --project ~/.claude/skills/simmersmith-shopping \\
+    python -m simmersmith_shopping --list "SimmerSmith" --dry-run
 EOF

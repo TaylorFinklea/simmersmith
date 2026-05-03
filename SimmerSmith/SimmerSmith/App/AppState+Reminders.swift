@@ -7,6 +7,7 @@ extension AppState {
 
     private static let reminderListIDKey = "simmersmith.grocery.reminderListID"
     private static let lastSyncedAtKey = "simmersmith.grocery.lastSyncedAt"
+    private static let lastSyncedSummaryKey = "simmersmith.grocery.lastSyncedSummary"
 
     /// Identifier of the EKCalendar the user picked as the Reminders
     /// destination. Empty/nil means sync is OFF.
@@ -23,6 +24,13 @@ extension AppState {
 
     var lastReminderSyncAt: Date? {
         UserDefaults.standard.object(forKey: Self.lastSyncedAtKey) as? Date
+    }
+
+    /// Human-readable summary of the most recent sync. Surfaces in the
+    /// Settings → Grocery section so the user can see whether the last
+    /// run actually wrote any reminders or quietly no-op'd.
+    var lastReminderSyncSummary: String? {
+        UserDefaults.standard.string(forKey: Self.lastSyncedSummaryKey)
     }
 
     // MARK: - List picker / authorization
@@ -69,40 +77,67 @@ extension AppState {
     // MARK: - Push direction (app → Reminders)
 
     /// Mirror the current week's grocery items into the user's chosen
-    /// Reminders list. Best-effort: failures don't surface a banner —
-    /// the toggle in Settings is the user-facing mechanism for opting
-    /// out if the bridge misbehaves.
+    /// Reminders list. Failures surface via `lastErrorMessage` so the
+    /// user can see why the list stayed empty (no week loaded yet,
+    /// permission revoked at the system level, EventKit save error,
+    /// etc.). Item counts go in the human-readable summary.
     func syncGroceryToReminders() async {
-        guard
-            let calendarID = reminderListIdentifier,
-            let calendar = RemindersService.shared.calendar(identifier: calendarID),
-            let items = currentWeek?.groceryItems
-        else { return }
-
+        guard let calendarID = reminderListIdentifier else {
+            return
+        }
+        guard let calendar = RemindersService.shared.calendar(identifier: calendarID) else {
+            lastErrorMessage = "Reminders list isn't available — pick another in Settings."
+            return
+        }
+        guard let week = currentWeek else {
+            // Don't fail loudly here — refreshAll() will trigger sync
+            // again once the week loads. Show a hint anyway so the
+            // user knows nothing populated.
+            updateSyncSummary("No week loaded yet — sync will retry on refresh.")
+            return
+        }
+        let items = week.groceryItems
         var mapping = GroceryReminderMapping.shared.load(calendarID: calendarID)
 
-        // Propagate tombstones: anything in our mapping that the server
-        // now flags as removed should also disappear from Reminders.
+        // Propagate tombstones first so the upsert pass sees a clean state.
         let visible = items.filter { !$0.isUserRemoved }
         let visibleIDs = Set(visible.map(\.groceryItemId))
+        var deleted = 0
         for (groceryID, _) in mapping where !visibleIDs.contains(groceryID) {
-            try? RemindersService.shared.deleteReminder(
-                forGroceryItemID: groceryID,
-                mapping: &mapping
-            )
+            do {
+                try RemindersService.shared.deleteReminder(
+                    forGroceryItemID: groceryID,
+                    mapping: &mapping
+                )
+                deleted += 1
+            } catch {
+                print("[AppState+Reminders] delete reminder for \(groceryID) failed: \(error)")
+            }
         }
 
         do {
-            try RemindersService.shared.upsertReminders(
+            let counts = try RemindersService.shared.upsertReminders(
                 in: calendar,
                 items: visible,
                 mapping: &mapping
             )
             GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
             UserDefaults.standard.set(Date(), forKey: Self.lastSyncedAtKey)
+            updateSyncSummary(
+                "Synced \(visible.count) item\(visible.count == 1 ? "" : "s") "
+                + "(\(counts.created) created, \(counts.updated) updated"
+                + (deleted > 0 ? ", \(deleted) removed" : "")
+                + ")."
+            )
         } catch {
             print("[AppState+Reminders] syncGroceryToReminders failed: \(error)")
+            lastErrorMessage = "Reminders sync failed: \(error.localizedDescription)"
+            updateSyncSummary("Last sync failed: \(error.localizedDescription)")
         }
+    }
+
+    private func updateSyncSummary(_ summary: String) {
+        UserDefaults.standard.set(summary, forKey: Self.lastSyncedSummaryKey)
     }
 
     // MARK: - Pull direction (Reminders → app)

@@ -25,6 +25,7 @@ struct EventDetailView: View {
                 if let event {
                     header(for: event)
                     attendeesSection(for: event)
+                    autoMergeRow(for: event)
                     generateSection
                     menuSection(for: event)
                     guestsBringingSection(for: event)
@@ -299,6 +300,40 @@ struct EventDetailView: View {
         }
     }
 
+    /// M22.4: standalone toggle row, always visible (M22 originally
+    /// gated this inside the `grocerySection` block, which only
+    /// rendered after the event had grocery items — so users couldn't
+    /// flip the toggle until they generated the menu).
+    private func autoMergeRow(for event: Event) -> some View {
+        HStack(alignment: .top, spacing: SMSpacing.sm) {
+            Image(systemName: "cart")
+                .foregroundStyle(SMColor.primary)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle(
+                    "Add ingredients to week's grocery list",
+                    isOn: Binding(
+                        get: { event.autoMergeGrocery },
+                        set: { newValue in
+                            Task {
+                                await appState.toggleEventAutoMerge(
+                                    eventID: event.eventId,
+                                    enabled: newValue
+                                )
+                            }
+                        }
+                    )
+                )
+                .font(SMFont.subheadline)
+                Text("On (default): event ingredients fold into that week's grocery list. Off: guests are bringing food, no shopping needed.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .padding(SMSpacing.md)
+        .background(SMColor.surfaceElevated, in: RoundedRectangle(cornerRadius: SMRadius.sm))
+    }
+
     private func grocerySection(for event: Event) -> some View {
         VStack(alignment: .leading, spacing: SMSpacing.sm) {
             HStack {
@@ -312,21 +347,6 @@ struct EventDetailView: View {
                 .font(SMFont.caption)
                 .foregroundStyle(SMColor.primary)
             }
-            // M22: when on, the event's ingredients automatically merge
-            // into the week containing `event_date` whenever the event
-            // grocery is regenerated. Off is the right choice for
-            // events where guests bring food (potlucks).
-            Toggle(
-                "Add ingredients to week's grocery list",
-                isOn: Binding(
-                    get: { event.autoMergeGrocery },
-                    set: { newValue in
-                        Task { await appState.toggleEventAutoMerge(eventID: event.eventId, enabled: newValue) }
-                    }
-                )
-            )
-            .font(SMFont.caption)
-            .toggleStyle(.switch)
             ForEach(event.groceryItems) { item in
                 EventGroceryRow(item: item)
             }

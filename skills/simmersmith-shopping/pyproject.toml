@@ -11,11 +11,10 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
-[project.optional-dependencies]
-# PyXA is the modern macOS-only path for reading Reminders. Optional
-# so the package can install on non-mac CI; the runtime falls back
-# to `osascript` when PyXA is missing or the host isn't macOS.
-pyxa = ["pyxa>=0.3.0"]
+# Reminders are read via osascript by default — works on every Mac
+# without extra deps. PyXA is a faster path, but its PyPI release is
+# stale; users who want it can `uv pip install mac-pyxa` after setup
+# and the runtime will pick it up automatically.
 
 [project.scripts]
 simmersmith-shopping = "simmersmith_shopping.cli:main"

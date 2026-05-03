@@ -1,10 +1,13 @@
 # SimmerSmith Shopping Skill (M23)
 
-Local Claude Code / Codex skill that turns a SimmerSmith grocery
-list into pre-filled retailer carts. Reads from the Apple Reminders
-list that the SimmerSmith iOS app mirrors into, runs Playwright
-against Aldi / Walmart / Sam's Club / Instacart, and stops at "ready
-to check out" so a human reviews each cart before placing the order.
+Local Claude Code / Codex skill that turns a SimmerSmith grocery list
+into pre-filled retailer carts. Reads from the Apple Reminders list
+that the SimmerSmith iOS app mirrors into, runs Playwright against
+Aldi / Walmart / Sam's Club / Instacart, and stops at "ready to
+check out" so a human reviews each cart before placing the order.
+
+Discovered as a Claude Code skill via `SKILL.md`. Triggered by user
+phrases like "shop the grocery list", "fill the carts", "do shopping".
 
 ## Why this is a local skill, not a service
 
@@ -14,19 +17,25 @@ to check out" so a human reviews each cart before placing the order.
 - Cart review is naturally a "sit at the laptop" task — no benefit
   to running it in the cloud.
 
-## Install
+## Setup
 
-```bash
-cd skills/simmersmith-shopping
-./setup.sh
-```
+The skill needs three things on first use:
 
-The setup script:
-1. Creates `.venv` with Python 3.12+.
-2. Installs the package (Playwright, PyXA, browser-use, etc).
-3. Runs `playwright install chromium` for the browsers.
-4. Symlinks this directory into `~/.claude/skills/simmersmith-shopping/`
-   so Claude Code discovers it from any conversation.
+1. **Discovery symlink** so Claude Code finds it:
+   ```bash
+   ln -s ~/git/simmersmith/skills/simmersmith-shopping \
+         ~/.claude/skills/simmersmith-shopping
+   ```
+2. **uv** for env management — install via `brew install uv` or
+   <https://docs.astral.sh/uv/getting-started/installation/>.
+3. **Playwright browsers** — the skill auto-installs chromium on
+   first browser-driving call, but you can pre-warm:
+   ```bash
+   uv run --project ~/.claude/skills/simmersmith-shopping \
+     python -m playwright install chromium
+   ```
+
+The convenience script `setup.sh` does all three.
 
 ## First-run login per store
 
@@ -34,20 +43,21 @@ Each retailer needs a one-time interactive sign-in so the skill can
 persist cookies. Run once per store:
 
 ```bash
-.venv/bin/python -m simmersmith_shopping login --store aldi
+uv run --project ~/.claude/skills/simmersmith-shopping \
+  python -m simmersmith_shopping login --store aldi
 ```
 
 A Playwright window opens. Sign in normally (handle 2FA, captchas,
-whatever the site asks). Close the window when you see your account
-landing page. The cookie jar is saved under
-`~/.config/simmersmith/skill-profile/aldi/`.
+whatever). Close the window when you see your account landing page.
+Cookies are saved under `~/.config/simmersmith/skill-profile/aldi/`.
 
 Repeat for `walmart`, `sams_club`, `instacart`.
 
 ## Run a shopping pass
 
 ```bash
-.venv/bin/python -m simmersmith_shopping --list "SimmerSmith"
+uv run --project ~/.claude/skills/simmersmith-shopping \
+  python -m simmersmith_shopping --list "SimmerSmith"
 ```
 
 What happens:
@@ -63,7 +73,8 @@ What happens:
 ## Dry-run
 
 ```bash
-.venv/bin/python -m simmersmith_shopping --list "SimmerSmith" --dry-run
+uv run --project ~/.claude/skills/simmersmith-shopping \
+  python -m simmersmith_shopping --list "SimmerSmith" --dry-run
 ```
 
 Prints the parsed list + the proposed split + per-item store
@@ -75,18 +86,14 @@ parser produced sensible items before driving real carts.
 Optional `.env` file at `~/.config/simmersmith/skill.env`:
 
 ```
-# Per-store delivery minimums (default values shown).
 SIMMERSMITH_ALDI_MIN=35
 SIMMERSMITH_WALMART_MIN=35
 SIMMERSMITH_SAMS_MIN=50
 SIMMERSMITH_INSTACART_MIN=10
-
-# How many stops you're willing to make.
 SIMMERSMITH_MAX_STOPS=2
 
-# Optional API access for richer metadata.
 SIMMERSMITH_API_BASE=https://simmersmith.fly.dev
-SIMMERSMITH_API_TOKEN=...   # bearer token from your iOS Settings
+SIMMERSMITH_API_TOKEN=...   # bearer token from your iOS Settings (optional)
 ```
 
 ## Per-store handler status
@@ -96,7 +103,7 @@ SIMMERSMITH_API_TOKEN=...   # bearer token from your iOS Settings
 | Aldi         | scaffolded    | Login + cart-add patterns set; selectors filled. |
 | Walmart      | scaffolded    | Login + cart-add patterns set; selectors filled. |
 | Sam's Club   | stub          | Login flow works; product search is a TODO.     |
-| Instacart    | stub          | Login flow works; product search is a TODO.    |
+| Instacart    | stub          | Login flow works; product search is a TODO.     |
 
 Stubs return zero candidates so the splitter naturally avoids them
 until a human fills in the selectors. To complete a stub:
@@ -105,9 +112,18 @@ until a human fills in the selectors. To complete a stub:
 3. Replace `add_to_cart` with the real cart-button click.
 4. Re-run a dry-run pass to verify product matches.
 
+## Smoke tests
+
+Self-contained — no Playwright, no Reminders, no network:
+
+```bash
+uv run --project ~/.claude/skills/simmersmith-shopping \
+  python -m unittest discover tests -v
+```
+
 ## What the skill never does
 
 - Place an order — it stops at the cart page.
 - Modify the SimmerSmith grocery list — it only reads.
-- Persist credentials — it uses Playwright's persistent context for
+- Persist credentials — Playwright's persistent context holds
   cookies; passwords stay in your password manager.
