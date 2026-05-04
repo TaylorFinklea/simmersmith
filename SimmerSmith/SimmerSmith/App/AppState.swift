@@ -92,6 +92,16 @@ final class AppState {
     var reminderListIdentifier: String?
     var lastReminderSyncAt: Date?
     var lastReminderSyncSummary: String?
+    /// Token returned by `RemindersService.observeChanges`. Held so we
+    /// can remove the observer on sign-out and avoid duplicate
+    /// subscriptions when the user re-toggles Reminders sync.
+    @ObservationIgnored
+    var reminderObserver: NSObjectProtocol?
+    /// Debounce handle for `EKEventStoreChanged` — iCloud emits a
+    /// flurry of changes during sync, and we don't want to hit the
+    /// server N times for one user-visible edit.
+    @ObservationIgnored
+    var reminderChangeDebounce: Task<Void, Never>?
     var aiDirectProviderDraft: String = ""
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""

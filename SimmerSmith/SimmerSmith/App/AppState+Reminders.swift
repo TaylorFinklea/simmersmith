@@ -18,6 +18,40 @@ extension AppState {
         reminderListIdentifier = (id?.isEmpty ?? true) ? nil : id
         lastReminderSyncAt = defaults.object(forKey: Self.lastSyncedAtKey) as? Date
         lastReminderSyncSummary = defaults.string(forKey: Self.lastSyncedSummaryKey)
+        if reminderListIdentifier != nil {
+            startObservingReminders()
+        }
+    }
+
+    /// Subscribe to `EKEventStoreChanged` so adds/edits in
+    /// Reminders.app round-trip back into SimmerSmith without the
+    /// user waiting for iOS to schedule the BGAppRefreshTask. Idempotent
+    /// — calling twice doesn't create duplicate subscriptions.
+    func startObservingReminders() {
+        if reminderObserver != nil { return }
+        reminderObserver = RemindersService.shared.observeChanges { [weak self] in
+            self?.scheduleReminderPull()
+        }
+    }
+
+    func stopObservingReminders() {
+        if let token = reminderObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        reminderObserver = nil
+        reminderChangeDebounce?.cancel()
+        reminderChangeDebounce = nil
+    }
+
+    /// Debounce iCloud's chatty change stream — collapse a burst of
+    /// `EKEventStoreChanged` notifications into one server-bound sync.
+    private func scheduleReminderPull() {
+        reminderChangeDebounce?.cancel()
+        reminderChangeDebounce = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await self?.handleReminderStoreChange()
+        }
     }
 
     /// Persist the chosen Reminders calendar id, mirroring the
@@ -53,6 +87,11 @@ extension AppState {
             GroceryReminderMapping.shared.clear(calendarID: previous)
         }
         setReminderListIdentifier(calendar.calendarIdentifier)
+        startObservingReminders()
+        // Bidirectional first sync: pull anything the user already had
+        // in Reminders into SimmerSmith, then push the merged set
+        // back so the list is identical on both sides.
+        await handleReminderStoreChange()
         await syncGroceryToReminders()
     }
 
@@ -76,6 +115,7 @@ extension AppState {
         lastReminderSyncSummary = nil
         UserDefaults.standard.removeObject(forKey: Self.lastSyncedAtKey)
         UserDefaults.standard.removeObject(forKey: Self.lastSyncedSummaryKey)
+        stopObservingReminders()
     }
 
     // MARK: - Push direction (app → Reminders)

@@ -27,6 +27,8 @@ struct SimmerSmithApp: App {
         _appState = State(initialValue: AppState(modelContainer: container))
     }
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -54,5 +56,17 @@ struct SimmerSmithApp: App {
                 }
         }
         .modelContainer(modelContainer)
+        .onChange(of: scenePhase) { _, newPhase in
+            // M22.6: foreground sync — when the user comes back to the
+            // app after editing the Reminders list (e.g. adding "Green
+            // curry paste" because they're out), pull those edits into
+            // SimmerSmith without waiting for a BGAppRefreshTask.
+            if newPhase == .active && appState.reminderListIdentifier != nil {
+                Task {
+                    await appState.handleReminderStoreChange()
+                    await appState.syncGroceryToReminders()
+                }
+            }
+        }
     }
 }

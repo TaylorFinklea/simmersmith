@@ -1233,7 +1233,13 @@ private struct GrocerySection: View {
 
             if appState.reminderListIdentifier != nil {
                 Button {
-                    Task { await appState.syncGroceryToReminders() }
+                    Task {
+                        // Pull first (catches items added directly in
+                        // Reminders.app, plus check-state diffs), then
+                        // push so the SimmerSmith list re-mirrors out.
+                        await appState.handleReminderStoreChange()
+                        await appState.syncGroceryToReminders()
+                    }
                 } label: {
                     Label("Sync now", systemImage: "arrow.clockwise")
                 }
