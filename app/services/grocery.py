@@ -560,16 +560,22 @@ def update_grocery_item(
 def dedupe_week_grocery(session: Session, *, week: Week) -> dict[str, int]:
     """Collapse duplicate grocery rows on a week. Two items collide
     when their `(normalized_name, unit)` matches AND neither is a
-    tombstone. Keeps the earliest-created row, sums quantities into
-    it, and tombstones (`is_user_removed=True`) the rest. Returns a
-    counts dict so the iOS toast can say "Merged N rows".
+    tombstone. Returns a counts dict so the iOS toast can say
+    "Merged N rows".
+
+    Keeper-pick policy (build-47 update): when duplicates exist, prefer
+    the earliest-created row that has `source_meals` populated and is
+    NOT marked `is_user_added`. This protects the auto-aggregated row
+    that knows which meal it came from over the loop-created
+    Reminders-side duplicates that lost meal context. If no auto row
+    exists, fall back to the earliest-created user-added row.
 
     Built for the build-45 dogfood incident: the auto-add-from-
     Reminders path created exponential duplicates of "1 1/2 cup almond
     flour" because each sync iteration saw stale mapping state. We
     keep the dedupe code separate from the smart-merge regen path
     because it's intentionally destructive — the user opts in via a
-    Settings/Grocery action, not as a side effect of a normal sync.
+    Grocery menu action, not as a side effect of a normal sync.
     """
     invalidate_week(session, week)
     items = list(
@@ -580,44 +586,73 @@ def dedupe_week_grocery(session: Session, *, week: Week) -> dict[str, int]:
         ).all()
     )
 
-    counts = {"merged": 0, "kept": 0, "tombstoned": 0}
-    by_key: dict[tuple[str, str], GroceryItem] = {}
+    # First pass: group by (normalized_name, unit). Build a list of
+    # candidates per group so the keeper-pick policy can examine all
+    # duplicates before deciding which row survives.
+    groups: dict[tuple[str, str], list[GroceryItem]] = {}
     for item in items:
         key = (
             normalize_name(item.normalized_name or item.ingredient_name or ""),
             (item.unit or "").lower(),
         )
-        keeper = by_key.get(key)
-        if keeper is None:
-            by_key[key] = item
+        groups.setdefault(key, []).append(item)
+
+    counts = {"merged": 0, "kept": 0, "tombstoned": 0}
+    for group in groups.values():
+        if len(group) == 1:
             counts["kept"] += 1
             continue
-        # Sum quantities into the keeper.
-        if item.total_quantity is not None:
-            keeper.total_quantity = round(
-                (keeper.total_quantity or 0.0) + item.total_quantity, 2
-            )
-        if item.event_quantity is not None:
-            keeper.event_quantity = round(
-                (keeper.event_quantity or 0.0) + item.event_quantity, 2
-            )
-        # If the duplicate has user investment that the keeper lacks,
-        # promote it onto the keeper so we don't lose data.
-        if item.quantity_override is not None and keeper.quantity_override is None:
-            keeper.quantity_override = item.quantity_override
-        if item.unit_override and not keeper.unit_override:
-            keeper.unit_override = item.unit_override
-        if item.notes_override and not keeper.notes_override:
-            keeper.notes_override = item.notes_override
-        if item.is_checked and not keeper.is_checked:
-            keeper.is_checked = item.is_checked
-            keeper.checked_at = item.checked_at
-            keeper.checked_by_user_id = item.checked_by_user_id
-        # Tombstone the duplicate so the iOS sync removes its
-        # Reminders mirror on next pass.
-        item.is_user_removed = True
-        counts["merged"] += 1
-        counts["tombstoned"] += 1
+        # Pick the keeper: prefer auto-aggregated (sourceMeals
+        # populated, NOT user_added) so meal context survives. Fall
+        # back to earliest user-added.
+        auto_candidates = [
+            item for item in group
+            if not item.is_user_added and (item.source_meals or "").strip()
+        ]
+        keeper = auto_candidates[0] if auto_candidates else group[0]
+        for item in group:
+            if item is keeper:
+                continue
+            # Sum quantities.
+            if item.total_quantity is not None:
+                keeper.total_quantity = round(
+                    (keeper.total_quantity or 0.0) + item.total_quantity, 2
+                )
+            if item.event_quantity is not None:
+                keeper.event_quantity = round(
+                    (keeper.event_quantity or 0.0) + item.event_quantity, 2
+                )
+            # Concatenate source_meals so the keeper records every
+            # meal the duplicates pointed at. Dedupe individual
+            # entries so we don't double-list the same meal.
+            if (item.source_meals or "").strip():
+                merged_sources = sorted({
+                    part.strip() for part in (
+                        (keeper.source_meals or "") + ";" + item.source_meals
+                    ).split(";") if part.strip()
+                })
+                keeper.source_meals = "; ".join(merged_sources)
+            # Promote user investment fields the keeper lacks.
+            if item.quantity_override is not None and keeper.quantity_override is None:
+                keeper.quantity_override = item.quantity_override
+            if item.unit_override and not keeper.unit_override:
+                keeper.unit_override = item.unit_override
+            if item.notes_override and not keeper.notes_override:
+                keeper.notes_override = item.notes_override
+            if item.is_checked and not keeper.is_checked:
+                keeper.is_checked = item.is_checked
+                keeper.checked_at = item.checked_at
+                keeper.checked_by_user_id = item.checked_by_user_id
+            # If the keeper is currently flagged user_added but a
+            # non-user-added duplicate exists, downgrade so smart-
+            # merge regen can manage it on future passes.
+            if keeper.is_user_added and not item.is_user_added:
+                keeper.is_user_added = False
+            # Tombstone the duplicate.
+            item.is_user_removed = True
+            counts["merged"] += 1
+            counts["tombstoned"] += 1
+        counts["kept"] += 1
     session.flush()
     return counts
 

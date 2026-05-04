@@ -180,31 +180,33 @@ final class RemindersService {
 
     // MARK: - Title formatting
 
-    /// Build the parse-friendly title used by the future M23 cart
-    /// automation skill: `"<qty> <unit> <name>"` (e.g. "2 cups flour"),
-    /// falling back to just the name when no quantity is available.
+    /// Reminder title is just the ingredient name. Build 47 moved
+    /// quantity + meal context into the body per dogfood feedback:
+    /// the title is what the user reads while shopping, and "1/4 cup"
+    /// in front of the name is noisy when they just want to see
+    /// "fresh dill" at a glance.
     private func remindersTitle(for item: GroceryItem) -> String {
-        var pieces: [String] = []
-        if let qty = item.effectiveQuantity {
-            pieces.append(formatQuantity(qty))
-        } else if !item.quantityText.isEmpty {
-            pieces.append(item.quantityText)
-        }
-        let unit = item.effectiveUnit.trimmingCharacters(in: .whitespaces)
-        if !unit.isEmpty { pieces.append(unit) }
-        pieces.append(item.ingredientName)
-        return pieces.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        item.ingredientName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Build the Reminders notes/body. Originally we passed the
-    /// recipe-ingredient `notes` (which mixes prep instructions like
-    /// "chopped", "minced", "halved" alongside actual cook tips).
-    /// Build 38 dogfood feedback: prep info doesn't help while
-    /// shopping — the user wants meal context. Now we surface
-    /// `sourceMeals` (e.g. "Tuesday / Dinner / Greek Salad") in
-    /// human-readable form, plus any user-curated `notesOverride`.
+    /// Build the Reminders notes/body. First line is quantity + unit,
+    /// subsequent lines are meal context and any user-curated notes.
+    /// The M23 cart-automation skill reads qty/unit from this body —
+    /// the parser is updated to scan the first numeric line.
     private func remindersBody(for item: GroceryItem) -> String {
         var lines: [String] = []
+        let qty = item.effectiveQuantity
+        let unit = item.effectiveUnit.trimmingCharacters(in: .whitespaces)
+        var qtyLine = ""
+        if let qty {
+            qtyLine = formatQuantity(qty)
+            if !unit.isEmpty { qtyLine += " " + unit }
+        } else if !item.quantityText.isEmpty {
+            qtyLine = item.quantityText
+        } else if !unit.isEmpty {
+            qtyLine = unit
+        }
+        if !qtyLine.isEmpty { lines.append(qtyLine) }
         let meals = parseSourceMeals(item.sourceMeals)
         if !meals.isEmpty {
             lines.append("For: \(meals.joined(separator: "; "))")
