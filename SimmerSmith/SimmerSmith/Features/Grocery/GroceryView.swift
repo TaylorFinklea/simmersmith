@@ -174,6 +174,11 @@ struct GroceryView: View {
                         Label("Regenerate from meals", systemImage: "arrow.triangle.2.circlepath")
                     }
                     Button {
+                        Task { await dedupe() }
+                    } label: {
+                        Label("Dedupe duplicates", systemImage: "rectangle.stack.badge.minus")
+                    }
+                    Button {
                         showingArchive = true
                     } label: {
                         Label("Show removed items", systemImage: "tray")
@@ -306,6 +311,17 @@ struct GroceryView: View {
             await appState.syncGroceryToReminders()
         } catch {
             appState.lastErrorMessage = "Regenerate failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func dedupe() async {
+        guard let weekID = appState.currentWeek?.weekId else { return }
+        do {
+            _ = try await appState.apiClient.dedupeGrocery(weekID: weekID)
+            await appState.refreshWeek()
+            await appState.syncGroceryToReminders()
+        } catch {
+            appState.lastErrorMessage = "Dedupe failed: \(error.localizedDescription)"
         }
     }
 

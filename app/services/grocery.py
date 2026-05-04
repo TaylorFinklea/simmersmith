@@ -557,6 +557,71 @@ def update_grocery_item(
     return item
 
 
+def dedupe_week_grocery(session: Session, *, week: Week) -> dict[str, int]:
+    """Collapse duplicate grocery rows on a week. Two items collide
+    when their `(normalized_name, unit)` matches AND neither is a
+    tombstone. Keeps the earliest-created row, sums quantities into
+    it, and tombstones (`is_user_removed=True`) the rest. Returns a
+    counts dict so the iOS toast can say "Merged N rows".
+
+    Built for the build-45 dogfood incident: the auto-add-from-
+    Reminders path created exponential duplicates of "1 1/2 cup almond
+    flour" because each sync iteration saw stale mapping state. We
+    keep the dedupe code separate from the smart-merge regen path
+    because it's intentionally destructive — the user opts in via a
+    Settings/Grocery action, not as a side effect of a normal sync.
+    """
+    invalidate_week(session, week)
+    items = list(
+        session.scalars(
+            select(GroceryItem)
+            .where(GroceryItem.week_id == week.id, GroceryItem.is_user_removed.is_(False))
+            .order_by(GroceryItem.created_at)
+        ).all()
+    )
+
+    counts = {"merged": 0, "kept": 0, "tombstoned": 0}
+    by_key: dict[tuple[str, str], GroceryItem] = {}
+    for item in items:
+        key = (
+            normalize_name(item.normalized_name or item.ingredient_name or ""),
+            (item.unit or "").lower(),
+        )
+        keeper = by_key.get(key)
+        if keeper is None:
+            by_key[key] = item
+            counts["kept"] += 1
+            continue
+        # Sum quantities into the keeper.
+        if item.total_quantity is not None:
+            keeper.total_quantity = round(
+                (keeper.total_quantity or 0.0) + item.total_quantity, 2
+            )
+        if item.event_quantity is not None:
+            keeper.event_quantity = round(
+                (keeper.event_quantity or 0.0) + item.event_quantity, 2
+            )
+        # If the duplicate has user investment that the keeper lacks,
+        # promote it onto the keeper so we don't lose data.
+        if item.quantity_override is not None and keeper.quantity_override is None:
+            keeper.quantity_override = item.quantity_override
+        if item.unit_override and not keeper.unit_override:
+            keeper.unit_override = item.unit_override
+        if item.notes_override and not keeper.notes_override:
+            keeper.notes_override = item.notes_override
+        if item.is_checked and not keeper.is_checked:
+            keeper.is_checked = item.is_checked
+            keeper.checked_at = item.checked_at
+            keeper.checked_by_user_id = item.checked_by_user_id
+        # Tombstone the duplicate so the iOS sync removes its
+        # Reminders mirror on next pass.
+        item.is_user_removed = True
+        counts["merged"] += 1
+        counts["tombstoned"] += 1
+    session.flush()
+    return counts
+
+
 def set_grocery_item_checked(
     session: Session,
     *,

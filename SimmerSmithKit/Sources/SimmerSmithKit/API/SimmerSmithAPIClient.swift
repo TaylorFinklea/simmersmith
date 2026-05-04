@@ -555,6 +555,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/weeks/\(weekID)/grocery/regenerate", method: "POST", body: EmptyBody())
     }
 
+    public func dedupeGrocery(weekID: String) async throws -> WeekSnapshot {
+        try await request(path: "/api/weeks/\(weekID)/grocery/dedupe", method: "POST", body: EmptyBody())
+    }
+
     // MARK: - M22 grocery list mutability
 
     public struct GroceryItemAddBody: Encodable, Sendable {

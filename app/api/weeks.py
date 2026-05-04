@@ -42,6 +42,7 @@ from app.services.exports import create_export_run, export_runs_payload
 from app.services.feedback import feedback_response_payload, upsert_feedback_entries
 from app.services.grocery import (
     add_user_grocery_item,
+    dedupe_week_grocery,
     regenerate_grocery_for_week,
     set_grocery_item_checked,
     update_grocery_item,
@@ -323,6 +324,25 @@ def rebalance_day_endpoint(
 def regenerate_grocery(week_id: str, session: Session = Depends(get_session), current_user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     week = load_week_or_404(session, current_user.household_id, week_id)
     regenerate_grocery_for_week(session, current_user.id, current_user.household_id, week)
+    session.commit()
+    session.expire_all()
+    return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}
+
+
+@router.post("/{week_id}/grocery/dedupe", response_model=WeekOut)
+def dedupe_grocery(
+    week_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Collapse duplicate grocery rows on this week — same
+    `(normalized_name, unit)` rolls up into the earliest-created row
+    with quantities summed; the rest are tombstoned. Triggered by the
+    iOS Grocery → Dedupe duplicates action. Idempotent.
+    """
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    counts = dedupe_week_grocery(session, week=week)
+    logger.info("dedupe_grocery week=%s counts=%s", week.id, counts)
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}

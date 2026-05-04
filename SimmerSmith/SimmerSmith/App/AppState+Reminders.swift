@@ -216,16 +216,62 @@ extension AppState {
         }
 
         let serverItems = currentWeek?.groceryItems ?? []
+        // Build TWO lookup tables: by id (for mapped items) and by
+        // normalized title (for the unmapped-but-matching case that
+        // caused the build-45 duplicate explosion). EKEventStore can
+        // mint a fresh `calendarItemIdentifier` after iCloud round-
+        // trips a reminder, so the mapping miss-rate is non-zero;
+        // without title dedup we re-create the row every sync and
+        // each new row syncs out as a new reminder, infinite loop.
         let serverByID = Dictionary(uniqueKeysWithValues: serverItems.map { ($0.groceryItemId, $0) })
+        let serverByTitle: [String: GroceryItem] = Dictionary(
+            serverItems.map { (Self.normalizedReminderTitle($0.ingredientName), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let reverseMapping: [String: String] = Dictionary(
             uniqueKeysWithValues: mapping.map { ($0.value, $0.key) }
         )
+
+        // Bail if we don't have a fresh server view of the week —
+        // running the add path against an empty list re-creates
+        // every reminder server-side. Better to no-op than corrupt.
+        guard !serverItems.isEmpty || reminders.isEmpty else {
+            print("[AppState+Reminders] skipping pull: server items not loaded yet (\(reminders.count) reminders pending).")
+            return
+        }
 
         // 1. Reminders that we know about: detect check-state diffs and
         //    push them back to the server.
         var seenServerIDs: Set<String> = []
         for reminder in reminders {
             let reminderID = reminder.calendarItemIdentifier
+            // Title-based recovery: if a reminder isn't in our mapping
+            // but its title matches an existing server item, treat it
+            // as the same row and re-bind the mapping. This happens
+            // after iCloud syncs the reminder back with a new
+            // identifier, after a fresh install rehydrates the
+            // mapping cache, and after the user manually re-creates a
+            // reminder with the same title.
+            if reverseMapping[reminderID] == nil {
+                let titleKey = Self.normalizedReminderTitle(reminder.title ?? "")
+                if let existing = serverByTitle[titleKey] {
+                    mapping[existing.groceryItemId] = reminderID
+                    seenServerIDs.insert(existing.groceryItemId)
+                    if reminder.isCompleted != existing.isChecked {
+                        do {
+                            let updated = reminder.isCompleted
+                                ? try await apiClient.checkGroceryItem(weekID: weekID, itemID: existing.groceryItemId)
+                                : try await apiClient.uncheckGroceryItem(weekID: weekID, itemID: existing.groceryItemId)
+                            replaceGroceryItemInCurrentWeek(updated)
+                            if updated.isChecked { checkedGroceryItemIDs.insert(existing.groceryItemId) }
+                            else { checkedGroceryItemIDs.remove(existing.groceryItemId) }
+                        } catch {
+                            print("[AppState+Reminders] check propagation (title-rebind) failed: \(error)")
+                        }
+                    }
+                    continue
+                }
+            }
             if let groceryID = reverseMapping[reminderID], let serverItem = serverByID[groceryID] {
                 seenServerIDs.insert(groceryID)
                 if reminder.isCompleted != serverItem.isChecked {
@@ -242,8 +288,10 @@ extension AppState {
                 }
                 continue
             }
-            // 2. New reminder added directly in Reminders.app — create
-            //    a matching server-side user-added grocery item.
+            // 2. Genuinely new reminder added directly in Reminders.app
+            //    — create a matching server-side user-added grocery
+            //    item. We've already checked title dedup above, so if
+            //    we get here the title is truly new.
             let title = (reminder.title ?? "").trimmingCharacters(in: .whitespaces)
             guard !title.isEmpty else { continue }
             do {
@@ -294,5 +342,15 @@ extension AppState {
     func clearReminderMappings() {
         GroceryReminderMapping.shared.clearAll()
         clearReminderList()
+    }
+
+    /// Title canonicalization for the dedup hash — collapse whitespace,
+    /// case-fold, and trim the trailing punctuation Reminders.app
+    /// occasionally appends.
+    static func normalizedReminderTitle(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!"))
     }
 }
