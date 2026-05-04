@@ -73,7 +73,19 @@ class BaseIngredient(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    normalized_name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    # M25: `normalized_name` is no longer globally unique on its own.
+    # The 0031 migration adds two partial unique indexes so two
+    # households can each have a private row with the same name and
+    # the global (household_id NULL) approved row stays unique.
+    normalized_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    # M25: catalog ownership + lifecycle. NULL household_id = global
+    # (approved master list); non-null = the household that authored
+    # this entry. `submission_status` is one of approved /
+    # submitted / household_only / rejected — see governance.py.
+    household_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    submission_status: Mapped[str] = mapped_column(
+        String(24), default="approved", nullable=False
+    )
     category: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     default_unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)

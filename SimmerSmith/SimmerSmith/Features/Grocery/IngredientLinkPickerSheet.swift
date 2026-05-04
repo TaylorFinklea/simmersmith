@@ -26,6 +26,7 @@ struct IngredientLinkPickerSheet: View {
     @State private var isSearching = false
     @State private var savingID: String?
     @State private var errorMessage: String?
+    @State private var isCreatingNew = false
 
     var body: some View {
         NavigationStack {
@@ -58,11 +59,30 @@ struct IngredientLinkPickerSheet: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if results.isEmpty {
-                    ContentUnavailableView(
-                        "No matches",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try a shorter or simpler search. If the canonical ingredient doesn't exist yet, add it under Settings → Ingredients first.")
-                    )
+                    VStack(spacing: SMSpacing.lg) {
+                        ContentUnavailableView(
+                            "No matches",
+                            systemImage: "magnifyingglass",
+                            description: Text("Add it as a new ingredient — it'll be private to your household until you submit it for global adoption.")
+                        )
+                        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            Button {
+                                Task { await createNew(named: trimmed) }
+                            } label: {
+                                Label(
+                                    isCreatingNew ? "Adding…" : "Add \"\(trimmed)\" as new ingredient",
+                                    systemImage: "plus.circle.fill"
+                                )
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(SMColor.primary)
+                            .disabled(isCreatingNew)
+                            .padding(.horizontal, SMSpacing.lg)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         ForEach(results) { base in
@@ -73,6 +93,25 @@ struct IngredientLinkPickerSheet: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(savingID != nil)
+                        }
+                        // Always offer to add new even when partial
+                        // matches exist — the user might want a more
+                        // specific entry.
+                        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            Section {
+                                Button {
+                                    Task { await createNew(named: trimmed) }
+                                } label: {
+                                    Label(
+                                        "Add \"\(trimmed)\" as new ingredient",
+                                        systemImage: "plus.circle"
+                                    )
+                                }
+                                .disabled(isCreatingNew)
+                            } footer: {
+                                Text("Saved as private to your household. Submit for global adoption from Settings → Ingredients.")
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -139,6 +178,25 @@ struct IngredientLinkPickerSheet: View {
         } catch {
             errorMessage = "Search failed: \(error.localizedDescription)"
             results = []
+        }
+    }
+
+    private func createNew(named trimmed: String) async {
+        guard let weekID = appState.currentWeek?.weekId else { return }
+        isCreatingNew = true
+        defer { isCreatingNew = false }
+        errorMessage = nil
+        do {
+            // 1. Create the new BaseIngredient as household_only.
+            let created = try await appState.apiClient.createBaseIngredient(
+                name: trimmed,
+                submissionStatus: "household_only"
+            )
+            // 2. Link the grocery item to it (same path as tapping a
+            // matching row).
+            await link(to: created)
+        } catch {
+            errorMessage = "Couldn't add ingredient: \(error.localizedDescription)"
         }
     }
 

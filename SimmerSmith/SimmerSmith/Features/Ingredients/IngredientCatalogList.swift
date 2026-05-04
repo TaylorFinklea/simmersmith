@@ -50,12 +50,26 @@ struct IngredientCatalogRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                 Spacer()
-                if ingredient.provisional {
-                    IngredientBadge(title: "Review", tint: .orange)
-                } else if ingredient.productLike {
-                    IngredientBadge(title: "Product-like", tint: .blue)
-                } else if !ingredient.active {
-                    IngredientBadge(title: "Archived", tint: .secondary)
+                // M25 lifecycle chips. Approved (default) gets no
+                // chip — it's the implicit baseline. Mine /
+                // Submitted / Rejected come from submission_status;
+                // Review and Product-like are pre-M25 markers that
+                // still apply.
+                switch ingredient.submissionStatus {
+                case "household_only":
+                    IngredientBadge(title: "Mine", tint: .purple)
+                case "submitted":
+                    IngredientBadge(title: "Submitted", tint: .blue)
+                case "rejected":
+                    IngredientBadge(title: "Rejected", tint: .red)
+                default:
+                    if ingredient.provisional {
+                        IngredientBadge(title: "Review", tint: .orange)
+                    } else if ingredient.productLike {
+                        IngredientBadge(title: "Product-like", tint: .blue)
+                    } else if !ingredient.active {
+                        IngredientBadge(title: "Archived", tint: .secondary)
+                    }
                 }
             }
 

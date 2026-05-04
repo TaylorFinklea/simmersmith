@@ -461,7 +461,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
     public let notes: String
     public let sourceName: String
     public let sourceRecordId: String
-    public let sourceURL: String
+    public let sourceUrl: String
     public let provisional: Bool
     public let active: Bool
     public let nutritionReferenceAmount: Double?
@@ -474,6 +474,14 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
     public let recipeUsageCount: Int
     public let groceryUsageCount: Int
     public let productLike: Bool
+    /// M25 catalog ownership. NULL = global (approved master). Non-
+    /// null = household-private (submission_status drives whether
+    /// it's submitted, household_only, or rejected).
+    public let householdId: String?
+    /// M25 submission lifecycle: `approved` / `submitted` /
+    /// `household_only` / `rejected`. iOS surfaces this via row
+    /// chips in IngredientsView and the inline link picker.
+    public let submissionStatus: String
     public let updatedAt: Date
 
     public var id: String { baseIngredientId }
@@ -487,7 +495,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         notes: String = "",
         sourceName: String = "",
         sourceRecordId: String = "",
-        sourceURL: String = "",
+        sourceUrl: String = "",
         provisional: Bool = false,
         active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
@@ -500,6 +508,8 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         recipeUsageCount: Int = 0,
         groceryUsageCount: Int = 0,
         productLike: Bool = false,
+        householdId: String? = nil,
+        submissionStatus: String = "approved",
         updatedAt: Date
     ) {
         self.baseIngredientId = baseIngredientId
@@ -510,7 +520,7 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         self.notes = notes
         self.sourceName = sourceName
         self.sourceRecordId = sourceRecordId
-        self.sourceURL = sourceURL
+        self.sourceUrl = sourceUrl
         self.provisional = provisional
         self.active = active
         self.nutritionReferenceAmount = nutritionReferenceAmount
@@ -523,7 +533,52 @@ public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
         self.recipeUsageCount = recipeUsageCount
         self.groceryUsageCount = groceryUsageCount
         self.productLike = productLike
+        self.householdId = householdId
+        self.submissionStatus = submissionStatus
         self.updatedAt = updatedAt
+    }
+
+    /// Custom decoder so the new M25 fields (`householdId`,
+    /// `submissionStatus`) decode safely against pre-M25 server
+    /// responses or fixtures that don't include them yet. Treat
+    /// missing `submissionStatus` as `approved` (the historical
+    /// default; everything was global before M25).
+    private enum CodingKeys: String, CodingKey {
+        case baseIngredientId, name, normalizedName, category, defaultUnit, notes
+        case sourceName, sourceRecordId, sourceUrl
+        case provisional, active
+        case nutritionReferenceAmount, nutritionReferenceUnit, calories
+        case archivedAt, mergedIntoId
+        case variationCount, preferenceCount, recipeUsageCount, groceryUsageCount
+        case productLike, householdId, submissionStatus, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        baseIngredientId = try c.decode(String.self, forKey: .baseIngredientId)
+        name = try c.decode(String.self, forKey: .name)
+        normalizedName = try c.decode(String.self, forKey: .normalizedName)
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        defaultUnit = try c.decodeIfPresent(String.self, forKey: .defaultUnit) ?? ""
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        sourceName = try c.decodeIfPresent(String.self, forKey: .sourceName) ?? ""
+        sourceRecordId = try c.decodeIfPresent(String.self, forKey: .sourceRecordId) ?? ""
+        sourceUrl = try c.decodeIfPresent(String.self, forKey: .sourceUrl) ?? ""
+        provisional = try c.decodeIfPresent(Bool.self, forKey: .provisional) ?? false
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? true
+        nutritionReferenceAmount = try c.decodeIfPresent(Double.self, forKey: .nutritionReferenceAmount)
+        nutritionReferenceUnit = try c.decodeIfPresent(String.self, forKey: .nutritionReferenceUnit) ?? ""
+        calories = try c.decodeIfPresent(Double.self, forKey: .calories)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        mergedIntoId = try c.decodeIfPresent(String.self, forKey: .mergedIntoId)
+        variationCount = try c.decodeIfPresent(Int.self, forKey: .variationCount) ?? 0
+        preferenceCount = try c.decodeIfPresent(Int.self, forKey: .preferenceCount) ?? 0
+        recipeUsageCount = try c.decodeIfPresent(Int.self, forKey: .recipeUsageCount) ?? 0
+        groceryUsageCount = try c.decodeIfPresent(Int.self, forKey: .groceryUsageCount) ?? 0
+        productLike = try c.decodeIfPresent(Bool.self, forKey: .productLike) ?? false
+        householdId = try c.decodeIfPresent(String.self, forKey: .householdId)
+        submissionStatus = try c.decodeIfPresent(String.self, forKey: .submissionStatus) ?? "approved"
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -542,7 +597,7 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
     public let notes: String
     public let sourceName: String
     public let sourceRecordId: String
-    public let sourceURL: String
+    public let sourceUrl: String
     public let active: Bool
     public let nutritionReferenceAmount: Double?
     public let nutritionReferenceUnit: String
@@ -568,7 +623,7 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
         notes: String = "",
         sourceName: String = "",
         sourceRecordId: String = "",
-        sourceURL: String = "",
+        sourceUrl: String = "",
         active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
@@ -591,7 +646,7 @@ public struct IngredientVariation: Codable, Identifiable, Hashable, Sendable {
         self.notes = notes
         self.sourceName = sourceName
         self.sourceRecordId = sourceRecordId
-        self.sourceURL = sourceURL
+        self.sourceUrl = sourceUrl
         self.active = active
         self.nutritionReferenceAmount = nutritionReferenceAmount
         self.nutritionReferenceUnit = nutritionReferenceUnit
@@ -817,7 +872,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
     public var ingredients: [RecipeIngredient]
     public var steps: [RecipeStep]
     public var nutritionSummary: NutritionSummary?
-    public var imageURL: String?
+    public var imageUrl: String?
 
     public init(
         recipeId: String? = nil,
@@ -843,7 +898,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         ingredients: [RecipeIngredient] = [],
         steps: [RecipeStep] = [],
         nutritionSummary: NutritionSummary? = nil,
-        imageURL: String? = nil
+        imageUrl: String? = nil
     ) {
         self.recipeId = recipeId
         self.recipeTemplateId = recipeTemplateId
@@ -868,7 +923,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         self.ingredients = ingredients
         self.steps = steps
         self.nutritionSummary = nutritionSummary
-        self.imageURL = imageURL
+        self.imageUrl = imageUrl
     }
 
     enum CodingKeys: String, CodingKey {
@@ -895,7 +950,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         case ingredients
         case steps
         case nutritionSummary
-        case imageURL = "imageUrl"
+        case imageUrl = "imageUrl"
     }
 
     public init(from decoder: Decoder) throws {
@@ -923,7 +978,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
-        imageURL = try container.decodeIfPresent(String.self, forKey: .imageURL)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
     }
 }
 
@@ -1262,7 +1317,7 @@ public struct InSeasonItem: Codable, Identifiable, Hashable, Sendable {
 // MARK: - Recipe memories log (M15)
 
 /// One time-stamped memory entry on a recipe — body text plus an
-/// optional photo. The server returns `photoURL` already pointing
+/// optional photo. The server returns `photoUrl` already pointing
 /// at `/api/recipes/{recipeId}/memories/{id}/photo?v=...` when a
 /// photo exists; the iOS view layer fetches bytes through the
 /// authenticated session (mirrors the M14 RecipeHeaderImage flow).
@@ -1270,13 +1325,13 @@ public struct RecipeMemory: Codable, Identifiable, Hashable, Sendable {
     public let id: String
     public let body: String
     public let createdAt: Date
-    public let photoURL: String?
+    public let photoUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case body
         case createdAt
-        case photoURL = "photoUrl"
+        case photoUrl = "photoUrl"
     }
 }
 
@@ -1646,7 +1701,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let ingredients: [RecipeIngredient]
     public let steps: [RecipeStep]
     public let nutritionSummary: NutritionSummary?
-    public let imageURL: String?
+    public let imageUrl: String?
 
     public var id: String { recipeId }
 
@@ -1684,7 +1739,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         case ingredients
         case steps
         case nutritionSummary
-        case imageURL = "imageUrl"
+        case imageUrl = "imageUrl"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1722,7 +1777,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
-        imageURL = try container.decodeIfPresent(String.self, forKey: .imageURL)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
     }
 }
 

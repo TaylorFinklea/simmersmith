@@ -21,6 +21,13 @@ class BaseIngredientPayload(BaseModel):
     nutrition_reference_amount: float | None = None
     nutrition_reference_unit: str = ""
     calories: float | None = None
+    # M25 catalog ownership lifecycle. New rows default to
+    # `household_only` (private to the authoring household). The
+    # caller can pick `submitted` to send for admin review at create
+    # time, or use POST /api/ingredients/{id}/submit afterwards.
+    submission_status: Literal[
+        "approved", "submitted", "household_only", "rejected"
+    ] = "household_only"
 
 
 class BaseIngredientOut(BaseIngredientPayload):
@@ -33,6 +40,7 @@ class BaseIngredientOut(BaseIngredientPayload):
     recipe_usage_count: int = 0
     grocery_usage_count: int = 0
     product_like: bool = False
+    household_id: str | None = None
     updated_at: datetime
 
 

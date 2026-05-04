@@ -204,12 +204,19 @@ private struct BaseIngredientBody: Encodable {
     let notes: String
     let sourceName: String
     let sourceRecordId: String
-    let sourceURL: String
+    // Use snake-case-friendly form so convertToSnakeCase produces
+    // `source_url`. The all-caps `URL` form would encode as
+    // `source_u_r_l`, which the server doesn't expect.
+    let sourceUrl: String
     let provisional: Bool
     let active: Bool
     let nutritionReferenceAmount: Double?
     let nutritionReferenceUnit: String
     let calories: Double?
+    /// M25 submission lifecycle. Defaults to "household_only" so
+    /// every iOS-initiated create lands as private to the
+    /// authoring household until the user submits for adoption.
+    let submissionStatus: String
 }
 
 private struct IngredientVariationBody: Encodable {
@@ -766,7 +773,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
-        calories: Double? = nil
+        calories: Double? = nil,
+        submissionStatus: String = "household_only"
     ) async throws -> BaseIngredient {
         try await request(
             path: "/api/ingredients",
@@ -780,12 +788,13 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 notes: notes,
                 sourceName: sourceName,
                 sourceRecordId: sourceRecordId,
-                sourceURL: sourceURL,
+                sourceUrl: sourceURL,
                 provisional: provisional,
                 active: active,
                 nutritionReferenceAmount: nutritionReferenceAmount,
                 nutritionReferenceUnit: nutritionReferenceUnit,
-                calories: calories
+                calories: calories,
+                submissionStatus: submissionStatus
             )
         )
     }
@@ -804,7 +813,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         active: Bool = true,
         nutritionReferenceAmount: Double? = nil,
         nutritionReferenceUnit: String = "",
-        calories: Double? = nil
+        calories: Double? = nil,
+        submissionStatus: String = "household_only"
     ) async throws -> BaseIngredient {
         try await request(
             path: "/api/ingredients",
@@ -818,13 +828,24 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 notes: notes,
                 sourceName: sourceName,
                 sourceRecordId: sourceRecordId,
-                sourceURL: sourceURL,
+                sourceUrl: sourceURL,
                 provisional: provisional,
                 active: active,
                 nutritionReferenceAmount: nutritionReferenceAmount,
                 nutritionReferenceUnit: nutritionReferenceUnit,
-                calories: calories
+                calories: calories,
+                submissionStatus: submissionStatus
             )
+        )
+    }
+
+    /// M25: household author promotes a `household_only` row to
+    /// `submitted` so an admin can review for global adoption.
+    public func submitIngredientForAdoption(baseIngredientID: String) async throws -> BaseIngredient {
+        try await request(
+            path: "/api/ingredients/\(baseIngredientID)/submit",
+            method: "POST",
+            body: EmptyBody()
         )
     }
 

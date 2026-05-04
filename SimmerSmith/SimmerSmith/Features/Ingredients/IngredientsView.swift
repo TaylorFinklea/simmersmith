@@ -340,9 +340,9 @@ struct IngredientDetailView: View {
                 Text("Custom SimmerSmith ingredient")
                     .foregroundStyle(.secondary)
             }
-            let sourceURL = detail.ingredient.sourceURL
-            if !sourceURL.isEmpty {
-                Text(sourceURL)
+            let sourceUrl = detail.ingredient.sourceUrl
+            if !sourceUrl.isEmpty {
+                Text(sourceUrl)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -468,6 +468,10 @@ struct BaseIngredientEditorSheet: View {
                     Toggle("Active", isOn: $active)
                 }
 
+                if let existing = context.ingredient {
+                    submissionSection(for: existing)
+                }
+
                 Section("Notes") {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
@@ -493,6 +497,65 @@ struct BaseIngredientEditorSheet: View {
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func submissionSection(for ingredient: BaseIngredient) -> some View {
+        Section {
+            LabeledContent("Submission status") {
+                Text(submissionStatusLabel(ingredient.submissionStatus))
+                    .foregroundStyle(.secondary)
+            }
+            if ingredient.submissionStatus == "household_only" {
+                Button {
+                    Task { await submitForAdoption(ingredient) }
+                } label: {
+                    Label("Submit for global adoption", systemImage: "paperplane")
+                }
+                .disabled(isSaving)
+            }
+            if ingredient.submissionStatus == "submitted" {
+                Text("Pending admin review. You can keep using it — once approved, every household will see it.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if ingredient.submissionStatus == "rejected" {
+                Text("Admin declined this submission. The notes field above carries the reason.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text("Catalog visibility")
+        } footer: {
+            if ingredient.submissionStatus == "household_only" {
+                Text("Currently private to your household. Submit so other households can use it too.")
+            }
+        }
+    }
+
+    private func submissionStatusLabel(_ status: String) -> String {
+        switch status {
+        case "approved": return "Approved (global)"
+        case "submitted": return "Submitted (pending review)"
+        case "household_only": return "Mine only"
+        case "rejected": return "Rejected"
+        default: return status.capitalized
+        }
+    }
+
+    private func submitForAdoption(_ ingredient: BaseIngredient) async {
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+        do {
+            _ = try await appState.apiClient.submitIngredientForAdoption(
+                baseIngredientID: ingredient.baseIngredientId
+            )
+            // Bounce so the user reopens on the now-submitted row.
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

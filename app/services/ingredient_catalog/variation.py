@@ -46,12 +46,41 @@ def ensure_base_ingredient(
     carbs_g: float | None = None,
     fat_g: float | None = None,
     fiber_g: float | None = None,
+    household_id: str | None = None,
+    submission_status: str = "approved",
 ) -> BaseIngredient:
     cleaned_name = str(name).strip()
     normalized = _normalized_or_name(cleaned_name, normalized_name)
-    existing = session.scalar(
-        select(BaseIngredient).where(BaseIngredient.normalized_name == normalized)
-    )
+    # M25: lookup respects scope. Approved (global) rows match
+    # household_id NULL; household-owned rows match the caller's
+    # household_id. We never reuse a row owned by a different
+    # household even if normalized_name collides — that's the whole
+    # point of the per-household partial uniques.
+    if household_id is None:
+        existing = session.scalar(
+            select(BaseIngredient).where(
+                BaseIngredient.normalized_name == normalized,
+                BaseIngredient.household_id.is_(None),
+            )
+        )
+    else:
+        existing = session.scalar(
+            select(BaseIngredient).where(
+                BaseIngredient.normalized_name == normalized,
+                BaseIngredient.household_id == household_id,
+            )
+        )
+        if existing is None:
+            # Fall through to an existing approved row before creating
+            # a new household-only one — that way auto-resolver doesn't
+            # mint household-private duplicates of canonical ingredients.
+            existing = session.scalar(
+                select(BaseIngredient).where(
+                    BaseIngredient.normalized_name == normalized,
+                    BaseIngredient.household_id.is_(None),
+                    BaseIngredient.submission_status == "approved",
+                )
+            )
     if existing is None:
         existing = BaseIngredient(
             name=cleaned_name or normalized,
@@ -72,6 +101,8 @@ def ensure_base_ingredient(
             carbs_g=carbs_g,
             fat_g=fat_g,
             fiber_g=fiber_g,
+            household_id=household_id,
+            submission_status=submission_status,
         )
         session.add(existing)
     else:

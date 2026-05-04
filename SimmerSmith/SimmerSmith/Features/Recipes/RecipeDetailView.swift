@@ -171,7 +171,7 @@ struct RecipeDetailView: View {
                             } label: {
                                 Label("Use my own photo", systemImage: "photo.on.rectangle.angled")
                             }
-                            if recipe.imageURL != nil {
+                            if recipe.imageUrl != nil {
                                 Button(role: .destructive) {
                                     imageRemovalPending = true
                                 } label: {

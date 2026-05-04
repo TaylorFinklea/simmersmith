@@ -73,12 +73,28 @@ def search_base_ingredients(
     with_preferences: bool = False,
     with_variations: bool = False,
     include_product_like: bool = False,
+    household_id: str | None = None,
 ) -> list[BaseIngredient]:
     statement = select(BaseIngredient)
     if not include_archived:
         statement = statement.where(
             BaseIngredient.archived_at.is_(None), BaseIngredient.active.is_(True)
         )
+    # M25: visibility filter. Approved (global) is always visible; the
+    # caller's own household-owned rows are also visible regardless of
+    # `submission_status`. Other households' submitted/household_only
+    # rows stay hidden until an admin promotes them to approved.
+    if household_id is not None:
+        statement = statement.where(
+            or_(
+                BaseIngredient.submission_status == "approved",
+                BaseIngredient.household_id == household_id,
+            )
+        )
+    else:
+        # No household context (e.g. anonymous internal callers like
+        # the seed script) — restrict to approved rows only.
+        statement = statement.where(BaseIngredient.submission_status == "approved")
     if provisional_only:
         statement = statement.where(BaseIngredient.provisional.is_(True))
     if with_preferences:

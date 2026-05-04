@@ -39,6 +39,8 @@ from app.services.ingredient_catalog import (
 )
 
 
+from app.api.admin import require_admin_bearer
+
 router = APIRouter(prefix="/api/ingredients", tags=["ingredients"])
 preferences_router = APIRouter(prefix="/api/ingredient-preferences", tags=["ingredients"])
 
@@ -62,6 +64,9 @@ def _base_payload(session: Session, item) -> dict[str, object]:
         "calories": item.calories,
         "archived_at": item.archived_at,
         "merged_into_id": item.merged_into_id,
+        # M25: catalog ownership + lifecycle.
+        "household_id": item.household_id,
+        "submission_status": item.submission_status,
         **counts,
         "product_like": is_product_like_base_ingredient(item),
         "updated_at": item.updated_at,
@@ -121,6 +126,7 @@ def list_ingredients_route(
     with_variations: bool = False,
     include_product_like: bool = False,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
     return [
         _base_payload(session, item)
@@ -133,6 +139,7 @@ def list_ingredients_route(
             with_preferences=with_preferences,
             with_variations=with_variations,
             include_product_like=include_product_like,
+            household_id=current_user.household_id,
         )
     ]
 
@@ -159,7 +166,15 @@ def ingredient_detail_route(
 def create_ingredient_route(
     payload: BaseIngredientPayload,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    # M25: new ingredients default to household_only — author-private
+    # until they choose to submit for global adoption. Edits to an
+    # existing row preserve its current ownership/status (no cross-
+    # household tampering since the GET filter prevents seeing rows
+    # the household doesn't own anyway).
+    submission_status = payload.submission_status or "household_only"
+    household_id = current_user.household_id if submission_status != "approved" else None
     if payload.base_ingredient_id:
         try:
             item = update_base_ingredient(
@@ -197,7 +212,72 @@ def create_ingredient_route(
             nutrition_reference_amount=payload.nutrition_reference_amount,
             nutrition_reference_unit=payload.nutrition_reference_unit,
             calories=payload.calories,
+            household_id=household_id,
+            submission_status=submission_status,
         )
+    session.commit()
+    return _base_payload(session, item)
+
+
+@router.post("/{base_ingredient_id}/submit", response_model=BaseIngredientOut)
+def submit_ingredient_for_adoption_route(
+    base_ingredient_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Author household promotes a `household_only` row to `submitted`
+    so an admin can review for global adoption."""
+    from app.services.ingredient_catalog.governance import submit_for_adoption
+
+    try:
+        item = submit_for_adoption(
+            session,
+            ingredient_id=base_ingredient_id,
+            household_id=current_user.household_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    return _base_payload(session, item)
+
+
+@router.post("/{base_ingredient_id}/approve", response_model=BaseIngredientOut)
+def approve_ingredient_route(
+    base_ingredient_id: str,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_admin_bearer),
+) -> dict[str, object]:
+    """Admin promotes a submitted (or household_only) row to approved
+    and clears the household scope. The row joins the global catalog.
+    Bearer-token gated via `SIMMERSMITH_API_TOKEN`.
+    """
+    from app.services.ingredient_catalog.governance import approve_submission
+
+    try:
+        item = approve_submission(session, ingredient_id=base_ingredient_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    return _base_payload(session, item)
+
+
+@router.post("/{base_ingredient_id}/reject", response_model=BaseIngredientOut)
+def reject_ingredient_route(
+    base_ingredient_id: str,
+    session: Session = Depends(get_session),
+    reason: str = "",
+    _: None = Depends(require_admin_bearer),
+) -> dict[str, object]:
+    """Admin declines a submitted row; stays visible to the authoring
+    household for context. Bearer-token gated."""
+    from app.services.ingredient_catalog.governance import reject_submission
+
+    try:
+        item = reject_submission(
+            session, ingredient_id=base_ingredient_id, reason=reason
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.commit()
     return _base_payload(session, item)
 

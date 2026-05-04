@@ -32,7 +32,7 @@ struct RecipeHeaderImage: View {
                     .scaleEffect(1.4)
             }
         }
-        .task(id: recipe.imageURL ?? "") {
+        .task(id: recipe.imageUrl ?? "") {
             await load()
         }
     }
@@ -45,7 +45,7 @@ struct RecipeHeaderImage: View {
 
     private func load() async {
         // No image yet — keep showing the gradient.
-        guard recipe.imageURL != nil else {
+        guard recipe.imageUrl != nil else {
             imageData = nil
             return
         }

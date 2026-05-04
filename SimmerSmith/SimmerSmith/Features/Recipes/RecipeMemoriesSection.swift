@@ -68,7 +68,7 @@ struct RecipeMemoriesSection: View {
             MemoryPhotoViewer(
                 recipeID: recipeID,
                 memoryID: memory.id,
-                cacheBuster: memory.photoURL
+                cacheBuster: memory.photoUrl
             )
         }
         .confirmationDialog(
@@ -90,14 +90,14 @@ struct RecipeMemoriesSection: View {
     @ViewBuilder
     private func memoryRow(_ memory: RecipeMemory) -> some View {
         HStack(alignment: .top, spacing: SMSpacing.md) {
-            if memory.photoURL != nil {
+            if memory.photoUrl != nil {
                 Button {
                     viewingPhoto = memory
                 } label: {
                     MemoryPhotoView(
                         recipeID: recipeID,
                         memoryID: memory.id,
-                        cacheBuster: memory.photoURL
+                        cacheBuster: memory.photoUrl
                     )
                     .frame(width: 60, height: 60)
                     .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
