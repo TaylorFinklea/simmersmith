@@ -29,6 +29,12 @@ class GroceryItemPatchRequest(BaseModel):
     override; pass with None to clear the override (revert to auto);
     omit the key to leave it untouched. `removed=true` soft-deletes the
     item via `is_user_removed`; `removed=false` undoes that.
+
+    `base_ingredient_id` and `ingredient_variation_id` let the iOS
+    review-queue link an unresolved row (e.g. a free-typed "almond
+    flour") to a catalog entry. When `base_ingredient_id` is set the
+    server flips `resolution_status` to "locked" so smart-merge regen
+    treats the link as user-curated.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +44,8 @@ class GroceryItemPatchRequest(BaseModel):
     notes: Optional[str] = None
     category: Optional[str] = None
     removed: Optional[bool] = None
+    base_ingredient_id: Optional[str] = None
+    ingredient_variation_id: Optional[str] = None
 
 
 class GroceryListDeltaOut(BaseModel):

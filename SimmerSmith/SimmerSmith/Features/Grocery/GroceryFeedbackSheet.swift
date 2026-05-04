@@ -18,6 +18,7 @@ struct GroceryFeedbackSheet: View {
     @State private var pinAction: PinAction = .none
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var showingLinker = false
 
     enum PinAction: Hashable {
         case none
@@ -65,9 +66,14 @@ struct GroceryFeedbackSheet: View {
                     }
                 } else {
                     Section {
-                        Text("This item isn't linked to a catalog ingredient yet, so brand preferences can't be pinned from here. Set one up under Settings → Ingredient Preferences.")
+                        Text("This item isn't linked to a catalog ingredient yet — link it first to enable brand preferences.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        Button {
+                            showingLinker = true
+                        } label: {
+                            Label("Link to Ingredient", systemImage: "link")
+                        }
                     } header: {
                         Text("Brand preference")
                     }
@@ -108,6 +114,16 @@ struct GroceryFeedbackSheet: View {
                     }
                     .disabled(isSaving)
                 }
+            }
+            .sheet(isPresented: $showingLinker) {
+                IngredientLinkPickerSheet(item: item) { _ in
+                    // Linker fires onLinked + dismisses itself. Bounce
+                    // the feedback sheet too — the user reopens it
+                    // fresh on the now-resolved row to set the
+                    // preference. Keeps the state model simple.
+                    dismiss()
+                }
+                .environment(appState)
             }
         }
     }

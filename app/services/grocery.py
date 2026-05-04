@@ -516,6 +516,43 @@ def update_grocery_item(
         item.normalized_name = normalize_name(item.ingredient_name)
     if "removed" in fields:
         item.is_user_removed = bool(fields["removed"])
+    # M24+: catalog linking. Setting `base_ingredient_id` flips the
+    # row to "locked" so smart-merge respects the link; passing
+    # `None` unlinks (returns the row to "unresolved" so the auto
+    # path can attempt to re-resolve next regen).
+    if "base_ingredient_id" in fields:
+        from app.models import BaseIngredient
+
+        new_base_id = fields["base_ingredient_id"]
+        if new_base_id:
+            base = session.get(BaseIngredient, new_base_id)
+            if base is None:
+                raise ValueError("Base ingredient not found")
+            item.base_ingredient_id = new_base_id
+            item.resolution_status = "locked"
+            # Refresh the canonical name + normalized form so future
+            # smart-merge regen can match the same key.
+            if not item.is_user_added:
+                item.ingredient_name = base.name
+            item.normalized_name = base.normalized_name or normalize_name(base.name)
+            item.review_flag = ""
+        else:
+            item.base_ingredient_id = None
+            item.ingredient_variation_id = None
+            item.resolution_status = "unresolved"
+    if "ingredient_variation_id" in fields:
+        from app.models import IngredientVariation
+
+        new_variation_id = fields["ingredient_variation_id"]
+        if new_variation_id:
+            variation = session.get(IngredientVariation, new_variation_id)
+            if variation is None:
+                raise ValueError("Ingredient variation not found")
+            if item.base_ingredient_id and variation.base_ingredient_id != item.base_ingredient_id:
+                raise ValueError("Variation belongs to a different base ingredient")
+            item.ingredient_variation_id = new_variation_id
+        else:
+            item.ingredient_variation_id = None
     session.flush()
     return item
 

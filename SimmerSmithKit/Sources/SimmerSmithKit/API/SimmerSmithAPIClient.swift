@@ -583,6 +583,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public var notes: PatchValue<String>?
         public var category: PatchValue<String>?
         public var removed: Bool?
+        public var baseIngredientId: PatchValue<String>?
+        public var ingredientVariationId: PatchValue<String>?
 
         public init() {}
 
@@ -594,10 +596,14 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             try notes?.encode(to: &c, forKey: .notes)
             try category?.encode(to: &c, forKey: .category)
             if let removed { try c.encode(removed, forKey: .removed) }
+            try baseIngredientId?.encode(to: &c, forKey: .baseIngredientId)
+            try ingredientVariationId?.encode(to: &c, forKey: .ingredientVariationId)
         }
 
         private enum CodingKeys: String, CodingKey {
             case name, quantity, unit, notes, category, removed
+            case baseIngredientId = "base_ingredient_id"
+            case ingredientVariationId = "ingredient_variation_id"
         }
     }
 

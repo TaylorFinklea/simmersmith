@@ -301,6 +301,7 @@ struct IngredientReviewQueueView: View {
 
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var preferenceEditor: IngredientPreferenceEditorContext?
+    @State private var linkingItem: GroceryItem?
     @State private var isRefreshing = false
 
     var body: some View {
@@ -397,14 +398,26 @@ struct IngredientReviewQueueView: View {
                                         }
 
                                         if let context = preferenceContext(for: item) {
-                                            Button("Set Preference") {
-                                                preferenceEditor = context
+                                            HStack(spacing: 8) {
+                                                Button("Set Preference") {
+                                                    preferenceEditor = context
+                                                }
+                                                .buttonStyle(.bordered)
+                                                Button("Re-link") {
+                                                    linkingItem = item
+                                                }
+                                                .buttonStyle(.bordered)
                                             }
-                                            .buttonStyle(.bordered)
                                         } else {
-                                            Text("Resolve this ingredient in a recipe first before setting a household preference.")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                            HStack(spacing: 8) {
+                                                Button("Link to Ingredient") {
+                                                    linkingItem = item
+                                                }
+                                                .buttonStyle(.borderedProminent)
+                                                Text("Pick a canonical entry so smart-merge and brand preferences apply.")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                     }
                                     .padding(.vertical, 4)
@@ -449,6 +462,12 @@ struct IngredientReviewQueueView: View {
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
+        }
+        .sheet(item: $linkingItem) { item in
+            IngredientLinkPickerSheet(item: item) { _ in
+                Task { await refreshQueue() }
+            }
+            .environment(appState)
         }
     }
 
