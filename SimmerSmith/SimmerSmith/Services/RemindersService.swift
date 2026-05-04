@@ -112,7 +112,7 @@ final class RemindersService {
         var updated = 0
         for item in items where !item.isUserRemoved {
             let title = remindersTitle(for: item)
-            let body = item.effectiveNotes
+            let body = remindersBody(for: item)
             if let reminderID = mapping[item.groceryItemId],
                let reminder = eventStore.calendarItem(withIdentifier: reminderID) as? EKReminder {
                 if reminder.title != title { reminder.title = title }
@@ -196,8 +196,66 @@ final class RemindersService {
         return pieces.joined(separator: " ").trimmingCharacters(in: .whitespaces)
     }
 
+    /// Build the Reminders notes/body. Originally we passed the
+    /// recipe-ingredient `notes` (which mixes prep instructions like
+    /// "chopped", "minced", "halved" alongside actual cook tips).
+    /// Build 38 dogfood feedback: prep info doesn't help while
+    /// shopping — the user wants meal context. Now we surface
+    /// `sourceMeals` (e.g. "Tuesday / Dinner / Greek Salad") in
+    /// human-readable form, plus any user-curated `notesOverride`.
+    private func remindersBody(for item: GroceryItem) -> String {
+        var lines: [String] = []
+        let meals = parseSourceMeals(item.sourceMeals)
+        if !meals.isEmpty {
+            lines.append("For: \(meals.joined(separator: "; "))")
+        }
+        if let override = item.notesOverride, !override.isEmpty {
+            lines.append(override)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// `source_meals` arrives as semicolon-separated entries shaped
+    /// like "Tuesday / Dinner / Recipe Name". Convert each into the
+    /// shopping-friendly "Tuesday Dinner — Recipe Name" so the
+    /// Reminders preview reads naturally.
+    private func parseSourceMeals(_ raw: String) -> [String] {
+        raw.split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { entry in
+                let parts = entry
+                    .split(separator: "/")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                switch parts.count {
+                case 0: return entry
+                case 1: return parts[0]
+                case 2: return "\(parts[0]) \(parts[1])"
+                default:
+                    let day = parts[0]
+                    let slot = parts[1].capitalized
+                    let recipe = parts[2...].joined(separator: " ")
+                    return "\(day) \(slot) — \(recipe)"
+                }
+            }
+    }
+
     private func formatQuantity(_ value: Double) -> String {
         if value.rounded() == value { return String(Int(value)) }
+        // Common kitchen fractions read better than decimals on a
+        // shopping list.
+        let rounded3 = (value * 1000).rounded() / 1000
+        let fractionMap: [(value: Double, label: String)] = [
+            (0.125, "1/8"), (0.25, "1/4"), (0.333, "1/3"), (0.375, "3/8"),
+            (0.5, "1/2"), (0.625, "5/8"), (0.667, "2/3"), (0.75, "3/4"),
+            (0.875, "7/8")
+        ]
+        let whole = floor(rounded3)
+        let frac = rounded3 - whole
+        if let match = fractionMap.first(where: { abs($0.value - frac) < 0.01 }) {
+            return whole > 0 ? "\(Int(whole)) \(match.label)" : match.label
+        }
         return String(format: "%g", value)
     }
 }
