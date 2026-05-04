@@ -106,6 +106,7 @@ def _preference_payload(item) -> dict[str, object]:
         "choice_mode": item.choice_mode,
         "active": item.active,
         "notes": item.notes,
+        "rank": item.rank,
         "updated_at": item.updated_at,
     }
 
@@ -362,6 +363,7 @@ def upsert_ingredient_preference_route(
             choice_mode=payload.choice_mode,
             active=payload.active,
             notes=payload.notes,
+            rank=payload.rank,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

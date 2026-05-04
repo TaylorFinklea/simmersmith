@@ -192,6 +192,7 @@ private struct IngredientPreferenceBody: Encodable {
     let choiceMode: String
     let active: Bool
     let notes: String
+    let rank: Int
 }
 
 private struct BaseIngredientBody: Encodable {
@@ -965,7 +966,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         preferredBrand: String = "",
         choiceMode: String = "preferred",
         active: Bool = true,
-        notes: String = ""
+        notes: String = "",
+        rank: Int = 1
     ) async throws -> IngredientPreference {
         try await request(
             path: "/api/ingredient-preferences",
@@ -977,7 +979,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 preferredBrand: preferredBrand,
                 choiceMode: choiceMode,
                 active: active,
-                notes: notes
+                notes: notes,
+                rank: rank
             )
         )
     }

@@ -340,6 +340,18 @@ struct SettingsView: View {
                                 HStack {
                                     Text(preference.baseIngredientName)
                                         .foregroundStyle(SMColor.textPrimary)
+                                    if preference.rank > 1 && !preference.isAvoidance {
+                                        // Primary rows aren't labelled (it's the
+                                        // implicit default); secondary/tertiary
+                                        // get a chip so the list reads clearly
+                                        // when a base has multiple ranks.
+                                        Text(rankLabel(preference.rank))
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(SMColor.aiPurple.opacity(0.15), in: Capsule())
+                                            .foregroundStyle(SMColor.aiPurple)
+                                    }
                                     if !preference.active {
                                         Text("Inactive")
                                             .font(.caption2.weight(.semibold))
@@ -686,6 +698,7 @@ struct IngredientPreferenceEditorSheet: View {
     @State private var choiceMode: String
     @State private var notes: String
     @State private var isActive: Bool
+    @State private var rank: Int
     @State private var isSearching = false
     @State private var isLoadingVariations = false
     @State private var isSaving = false
@@ -700,6 +713,7 @@ struct IngredientPreferenceEditorSheet: View {
         _choiceMode = State(initialValue: context.preference?.choiceMode ?? "preferred")
         _notes = State(initialValue: context.preference?.notes ?? "")
         _isActive = State(initialValue: context.preference?.active ?? true)
+        _rank = State(initialValue: context.preference?.rank ?? 1)
     }
 
     var body: some View {
@@ -803,6 +817,13 @@ struct IngredientPreferenceEditorSheet: View {
 
                             TextField("Preferred brand", text: $preferredBrand)
                                 .textInputAutocapitalization(.words)
+
+                            Picker("Rank", selection: $rank) {
+                                Text("Primary").tag(1)
+                                Text("Secondary").tag(2)
+                                Text("Tertiary").tag(3)
+                            }
+                            .pickerStyle(.segmented)
                         }
 
                         Toggle("Active", isOn: $isActive)
@@ -899,7 +920,8 @@ struct IngredientPreferenceEditorSheet: View {
                     : preferredBrand.trimmingCharacters(in: .whitespacesAndNewlines),
                 choiceMode: choiceMode,
                 active: isActive,
-                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+                rank: isAvoidance ? 1 : rank
             )
             dismiss()
         } catch {
@@ -1056,6 +1078,16 @@ private extension IngredientPreference {
         choiceMode == "avoid" || choiceMode == "allergy"
     }
 }
+
+private func rankLabel(_ rank: Int) -> String {
+    switch rank {
+    case 1: return "Primary"
+    case 2: return "Secondary"
+    case 3: return "Tertiary"
+    default: return "#\(rank)"
+    }
+}
+
 
 /// Pill next to the preference row's title. Amber for plain avoids,
 /// red for allergies — user can eyeball the whole list for anything

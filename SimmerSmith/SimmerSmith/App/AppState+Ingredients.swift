@@ -218,7 +218,8 @@ extension AppState {
         preferredBrand: String = "",
         choiceMode: String = "preferred",
         active: Bool = true,
-        notes: String = ""
+        notes: String = "",
+        rank: Int = 1
     ) async throws -> IngredientPreference {
         let preference = try await apiClient.upsertIngredientPreference(
             preferenceID: preferenceID,
@@ -227,13 +228,19 @@ extension AppState {
             preferredBrand: preferredBrand,
             choiceMode: choiceMode,
             active: active,
-            notes: notes
+            notes: notes,
+            rank: rank
         )
         if let index = ingredientPreferences.firstIndex(where: { $0.preferenceId == preference.preferenceId }) {
             ingredientPreferences[index] = preference
         } else {
             ingredientPreferences.append(preference)
-            ingredientPreferences.sort { $0.baseIngredientName.localizedCaseInsensitiveCompare($1.baseIngredientName) == .orderedAscending }
+            // Sort by base ingredient name, then by rank (primary first).
+            ingredientPreferences.sort { lhs, rhs in
+                let nameOrder = lhs.baseIngredientName.localizedCaseInsensitiveCompare(rhs.baseIngredientName)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.rank < rhs.rank
+            }
         }
         return preference
     }

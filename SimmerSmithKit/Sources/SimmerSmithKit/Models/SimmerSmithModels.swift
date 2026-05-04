@@ -641,9 +641,35 @@ public struct IngredientPreference: Codable, Identifiable, Hashable, Sendable {
     public let choiceMode: String
     public let active: Bool
     public let notes: String
+    /// M24: rank=1 is the primary brand pick; rank=2 is the secondary
+    /// fallback used by the M23 cart-automation skill when the
+    /// primary is out of stock. Higher ranks are valid; iOS surfaces
+    /// 1-3 in the editor today.
+    public let rank: Int
     public let updatedAt: Date
 
     public var id: String { preferenceId }
+
+    enum CodingKeys: String, CodingKey {
+        case preferenceId, baseIngredientId, baseIngredientName,
+             preferredVariationId, preferredVariationName,
+             preferredBrand, choiceMode, active, notes, rank, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        preferenceId = try c.decode(String.self, forKey: .preferenceId)
+        baseIngredientId = try c.decode(String.self, forKey: .baseIngredientId)
+        baseIngredientName = try c.decode(String.self, forKey: .baseIngredientName)
+        preferredVariationId = try c.decodeIfPresent(String.self, forKey: .preferredVariationId)
+        preferredVariationName = try c.decodeIfPresent(String.self, forKey: .preferredVariationName)
+        preferredBrand = try c.decodeIfPresent(String.self, forKey: .preferredBrand) ?? ""
+        choiceMode = try c.decodeIfPresent(String.self, forKey: .choiceMode) ?? "preferred"
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? true
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        rank = try c.decodeIfPresent(Int.self, forKey: .rank) ?? 1
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 public struct RecipeIngredient: Codable, Identifiable, Hashable, Sendable {

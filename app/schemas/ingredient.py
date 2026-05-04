@@ -128,6 +128,11 @@ class IngredientPreferencePayload(BaseModel):
     ] = "preferred"
     active: bool = True
     notes: str = ""
+    # M24: rank=1 is the user's primary pick; rank=2 is the secondary
+    # used as a fallback by the M23 cart-automation skill when the
+    # primary is out of stock. Higher ranks supported but the iOS UI
+    # currently surfaces 1-3.
+    rank: int = 1
 
 
 class IngredientPreferenceOut(IngredientPreferencePayload):

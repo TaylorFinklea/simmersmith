@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -172,7 +172,10 @@ class IngredientVariation(Base):
 class IngredientPreference(Base):
     __tablename__ = "ingredient_preferences"
     __table_args__ = (
-        UniqueConstraint("user_id", "base_ingredient_id", name="uq_ingredient_preferences_user_base"),
+        UniqueConstraint(
+            "user_id", "base_ingredient_id", "rank",
+            name="uq_ingredient_preferences_user_base_rank",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -191,6 +194,11 @@ class IngredientPreference(Base):
     choice_mode: Mapped[str] = mapped_column(String(32), default="preferred", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # M24: ranked preferences. `rank=1` is the primary pick; `rank=2`
+    # is the secondary fallback used by the M23 cart-automation skill
+    # when the primary is out of stock. Higher ranks are allowed but
+    # the iOS UI surfaces 1-3 today.
+    rank: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

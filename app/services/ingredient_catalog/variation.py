@@ -240,6 +240,7 @@ def upsert_ingredient_preference(
     choice_mode: str = "preferred",
     active: bool = True,
     notes: str = "",
+    rank: int = 1,
 ) -> IngredientPreference:
     if choice_mode not in {
         "preferred",
@@ -251,6 +252,8 @@ def upsert_ingredient_preference(
         "allergy",
     }:
         raise ValueError("Unsupported choice mode")
+    if rank < 1:
+        raise ValueError("Rank must be 1 or greater")
     base = get_base_ingredient(session, base_ingredient_id)
     if base is None:
         raise ValueError("Base ingredient not found")
@@ -258,10 +261,12 @@ def upsert_ingredient_preference(
         variation = session.get(IngredientVariation, preferred_variation_id)
         if variation is None or variation.base_ingredient_id != base_ingredient_id:
             raise ValueError("Preferred variation not found for base ingredient")
+    # Match on (user, base, rank) — multiple ranks coexist per base.
     preference = session.scalar(
         select(IngredientPreference).where(
             IngredientPreference.user_id == user_id,
             IngredientPreference.base_ingredient_id == base_ingredient_id,
+            IngredientPreference.rank == rank,
         )
     )
     if preference is None:
@@ -273,6 +278,7 @@ def upsert_ingredient_preference(
             choice_mode=choice_mode,
             active=active,
             notes=str(notes or "").strip(),
+            rank=rank,
         )
         session.add(preference)
     else:
@@ -281,6 +287,7 @@ def upsert_ingredient_preference(
         preference.choice_mode = choice_mode
         preference.active = active
         preference.notes = str(notes or "").strip()
+        preference.rank = rank
         preference.updated_at = utcnow()
     session.flush()
     return preference
@@ -290,7 +297,28 @@ def list_ingredient_preferences(session: Session, user_id: str) -> list[Ingredie
     statement = (
         select(IngredientPreference)
         .where(IngredientPreference.user_id == user_id)
-        .order_by(IngredientPreference.created_at)
+        .order_by(
+            IngredientPreference.base_ingredient_id,
+            IngredientPreference.rank,
+            IngredientPreference.created_at,
+        )
+    )
+    return list(session.scalars(statement).all())
+
+
+def list_preferences_for_base(
+    session: Session, user_id: str, base_ingredient_id: str
+) -> list[IngredientPreference]:
+    """All ranks the user has set for a given base ingredient, sorted
+    primary-first. Used by the M23 cart-automation skill to walk the
+    user's ranked brand list when the primary is out of stock."""
+    statement = (
+        select(IngredientPreference)
+        .where(
+            IngredientPreference.user_id == user_id,
+            IngredientPreference.base_ingredient_id == base_ingredient_id,
+        )
+        .order_by(IngredientPreference.rank)
     )
     return list(session.scalars(statement).all())
 
@@ -298,11 +326,18 @@ def list_ingredient_preferences(session: Session, user_id: str) -> list[Ingredie
 def ingredient_preference_for_base(
     session: Session, user_id: str, base_ingredient_id: str
 ) -> IngredientPreference | None:
+    """Return the user's primary (rank=1) preference for the base
+    ingredient. Falls back to the lowest-rank preference when no
+    explicit rank=1 exists (legacy rows pre-M24 also satisfy this
+    via the migration's default of rank=1)."""
     return session.scalar(
-        select(IngredientPreference).where(
+        select(IngredientPreference)
+        .where(
             IngredientPreference.user_id == user_id,
             IngredientPreference.base_ingredient_id == base_ingredient_id,
         )
+        .order_by(IngredientPreference.rank)
+        .limit(1)
     )
 
 
