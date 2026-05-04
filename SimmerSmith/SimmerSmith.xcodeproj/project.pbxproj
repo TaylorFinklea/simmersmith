@@ -49,6 +49,7 @@
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
 		5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DB39B05047967856041B5 /* AssistantToolCallCard.swift */; };
+		60A7F273AE95AA7B028D49FF /* GroceryArchiveSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9198792752E0165F0CA595CE /* GroceryArchiveSheet.swift */; };
 		60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */; };
 		692CAF7C13BE715CECD643FA /* IngredientScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */; };
 		6A33B301E1727D4D46AB6A25 /* AppState+Weeks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC343882E82E9D7CE676F34 /* AppState+Weeks.swift */; };
@@ -215,6 +216,7 @@
 		8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Subscription.swift"; sourceTree = "<group>"; };
 		8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithTests.swift; sourceTree = "<group>"; };
 		90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayNutritionSheet.swift; sourceTree = "<group>"; };
+		9198792752E0165F0CA595CE /* GroceryArchiveSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryArchiveSheet.swift; sourceTree = "<group>"; };
 		943154DAFF1DC47F701B6AF6 /* HeroRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroRecipeCard.swift; sourceTree = "<group>"; };
 		948ABB7833B8C8B3E7ACAC20 /* GroceryReminderMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryReminderMapping.swift; sourceTree = "<group>"; };
 		9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionStore.swift; sourceTree = "<group>"; };
@@ -521,6 +523,7 @@
 			isa = PBXGroup;
 			children = (
 				FA6E46D15E4FD124EB6535A2 /* AddGroceryItemSheet.swift */,
+				9198792752E0165F0CA595CE /* GroceryArchiveSheet.swift */,
 				23E7E670ABE57D04263684B7 /* GroceryItemEditSheet.swift */,
 				D259DF81D5A9A31461E55E26 /* GroceryTabView.swift */,
 				C97F2A8FAD850D02995516AE /* GroceryView.swift */,
@@ -792,6 +795,7 @@
 				7DF18617E71614C94B47D16F /* EventMealEditorSheet.swift in Sources */,
 				B04E2D4442A2F39C64D588A8 /* EventsView.swift in Sources */,
 				7052A86ABF59B0DB2864DA42 /* FeedbackComposerView.swift in Sources */,
+				60A7F273AE95AA7B028D49FF /* GroceryArchiveSheet.swift in Sources */,
 				A974A080D61B943871407169 /* GroceryItemEditSheet.swift in Sources */,
 				C9EA34D9C2ECB8D439EE011C /* GroceryReminderMapping.swift in Sources */,
 				33B2B158AE35CE5A95414D5D /* GroceryTabView.swift in Sources */,
@@ -898,7 +902,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1014,7 +1018,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

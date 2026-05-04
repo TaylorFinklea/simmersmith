@@ -13,6 +13,7 @@ struct GroceryView: View {
     @State private var isFetchingPrices = false
     @State private var showingBarcodeScanner = false
     @State private var isRegenerating = false
+    @State private var showingArchive = false
 
     /// True when this view is presented as a sheet from the Week tab —
     /// shows a Done button to dismiss. False when used as the Grocery
@@ -166,6 +167,23 @@ struct GroceryView: View {
                 .accessibilityLabel("Add item")
             }
             ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        Task { await regenerate() }
+                    } label: {
+                        Label("Regenerate from meals", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Button {
+                        showingArchive = true
+                    } label: {
+                        Label("Show removed items", systemImage: "tray")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("More grocery actions")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await appState.refreshWeek() }
                 } label: {
@@ -207,6 +225,10 @@ struct GroceryView: View {
         }
         .sheet(isPresented: $showingAddSheet) {
             AddGroceryItemSheet()
+                .environment(appState)
+        }
+        .sheet(isPresented: $showingArchive) {
+            GroceryArchiveSheet()
                 .environment(appState)
         }
         .sheet(isPresented: $showingReviewQueue) {

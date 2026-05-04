@@ -219,32 +219,30 @@ extension AppState {
         }
 
         // 3. Mapped grocery items whose reminders disappeared from
-        //    Reminders.app — treat as user-removed.
-        for (groceryID, _) in mapping where !seenServerIDs.contains(groceryID) {
-            // Skip items we never saw in the fetched reminders set —
-            // EKEventStore can return a partial set if the calendar
-            // is mid-sync. We only act when the server still has the
-            // grocery item (i.e. the user really pruned it).
-            if !reminders.contains(where: { $0.calendarItemIdentifier == mapping[groceryID] }) {
-                if serverByID[groceryID] != nil {
-                    do {
-                        _ = try await apiClient.patchGroceryItem(
-                            weekID: weekID,
-                            itemID: groceryID,
-                            body: {
-                                var b = SimmerSmithAPIClient.GroceryItemPatchBody()
-                                b.removed = true
-                                return b
-                            }()
-                        )
-                        removeGroceryItemFromCurrentWeek(id: groceryID)
-                        checkedGroceryItemIDs.remove(groceryID)
-                        mapping.removeValue(forKey: groceryID)
-                    } catch {
-                        print("[AppState+Reminders] remove propagation failed: \(error)")
-                    }
-                }
+        //    Reminders.app — clean up our LOCAL mapping only.
+        //
+        // We deliberately do NOT propagate removals back to the server
+        // anymore. The previous version PATCHed `removed=true` here,
+        // but EKEventStore's `fetchReminders` returns a partial list
+        // mid-sync, on iCloud round-trips, and after toggling the
+        // master Reminders permission. Build 35/36 dogfood lost
+        // user-curated items because the partial fetch tombstoned
+        // everything the device hadn't re-synced yet. Removal is now
+        // strictly app→Reminders: swipe in iOS to remove. The skill
+        // and Reminders.app stay read-only/check-state for the
+        // user's grocery list.
+        let staleMappingIDs: [String] = mapping
+            .filter { !seenServerIDs.contains($0.key) }
+            .compactMap { (groceryID, reminderID) -> String? in
+                let reminderStillPresent = reminders.contains { $0.calendarItemIdentifier == reminderID }
+                guard !reminderStillPresent else { return nil }
+                return groceryID
             }
+        for groceryID in staleMappingIDs {
+            mapping.removeValue(forKey: groceryID)
+        }
+        if !staleMappingIDs.isEmpty {
+            print("[AppState+Reminders] dropped \(staleMappingIDs.count) stale mapping entr\(staleMappingIDs.count == 1 ? "y" : "ies"); next sync will recreate reminders for items still on SimmerSmith.")
         }
 
         GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
