@@ -1753,11 +1753,23 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
     ) throws -> URLRequest {
         let connection = settingsStore.load()
         let baseURLString = ConnectionSettingsStore.normalizeServerURL(connection.serverURLString)
-        guard let baseURL = URL(string: baseURLString), !baseURLString.isEmpty else {
+        guard !baseURLString.isEmpty, URL(string: baseURLString) != nil else {
             throw SimmerSmithAPIError.missingServerURL
         }
 
-        let url = baseURL.appending(path: path)
+        // `URL.appending(path:)` (iOS 16+) percent-escapes `?` because
+        // it treats the input as a single path component. That broke
+        // every query-string endpoint in the app silently — search
+        // hits "/api/ingredients%3Fq=…" instead of "/api/ingredients?q=…",
+        // returning 404. We construct the final URL by string
+        // concatenation so the query delimiter survives.
+        let normalizedBase = baseURLString.hasSuffix("/")
+            ? String(baseURLString.dropLast())
+            : baseURLString
+        let normalizedPath = path.hasPrefix("/") ? path : "/" + path
+        guard let url = URL(string: normalizedBase + normalizedPath) else {
+            throw SimmerSmithAPIError.missingServerURL
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 60
