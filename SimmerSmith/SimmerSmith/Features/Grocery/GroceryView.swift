@@ -215,9 +215,8 @@ struct GroceryView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            FeedbackComposerView(title: item.ingredientName) { sentiment, notes in
-                try await appState.submitGroceryFeedback(for: item, sentiment: sentiment, notes: notes)
-            }
+            GroceryFeedbackSheet(item: item)
+                .environment(appState)
         }
         .sheet(item: $editingItem) { item in
             GroceryItemEditSheet(item: item)
