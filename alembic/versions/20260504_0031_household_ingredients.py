@@ -126,13 +126,31 @@ def upgrade() -> None:
             sqlite_where=sa.text("household_id IS NOT NULL"),
         )
     else:
-        # Postgres path. The original UNIQUE constraint was created
-        # implicitly via `unique=True` on the column declaration, so it
-        # lives as both an index and a constraint named after the
-        # default convention. Drop the unique constraint, recreate the
-        # plain index for lookup speed, then add the two partial
-        # uniques.
-        op.drop_constraint(OLD_NORMALIZED_INDEX, "base_ingredients", type_="unique")
+        # Postgres path. SQLAlchemy's `unique=True` on a column declares
+        # both an implicit UNIQUE constraint (auto-named
+        # `<table>_<column>_key`) and a backing index. We can't predict
+        # the exact constraint name across SQLAlchemy versions, so use
+        # introspection: find any UNIQUE constraint that covers
+        # `normalized_name` and drop it explicitly. This also handles
+        # historical drift where the constraint was renamed manually.
+        bind_pg = op.get_bind()
+        unique_constraints = bind_pg.execute(sa.text(
+            """
+            SELECT con.conname
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY(con.conkey)
+            WHERE rel.relname = 'base_ingredients'
+              AND con.contype = 'u'
+              AND att.attname = 'normalized_name'
+              AND array_length(con.conkey, 1) = 1
+            """
+        )).fetchall()
+        for (conname,) in unique_constraints:
+            op.execute(sa.text(f'ALTER TABLE base_ingredients DROP CONSTRAINT IF EXISTS "{conname}"'))
+        # The legacy `index=True` index might also exist with a UNIQUE
+        # backing — drop it if so, then recreate non-unique for lookup.
+        op.execute(sa.text(f'DROP INDEX IF EXISTS "{OLD_NORMALIZED_INDEX}"'))
         op.create_index(OLD_NORMALIZED_INDEX, "base_ingredients", ["normalized_name"], unique=False)
         op.create_index(
             GLOBAL_PARTIAL_UNIQUE,
