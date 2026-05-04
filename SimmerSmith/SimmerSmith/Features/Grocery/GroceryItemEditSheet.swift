@@ -16,6 +16,7 @@ struct GroceryItemEditSheet: View {
     @State private var unit: String
     @State private var notes: String
     @State private var isSaving = false
+    @State private var showingLinker = false
 
     init(item: GroceryItem) {
         self.item = item
@@ -49,6 +50,30 @@ struct GroceryItemEditSheet: View {
                     TextField("Optional", text: $notes, axis: .vertical)
                         .lineLimit(2...4)
                 }
+                Section {
+                    Button {
+                        showingLinker = true
+                    } label: {
+                        HStack {
+                            Label(item.baseIngredientId == nil ? "Link to Ingredient" : "Re-link to Ingredient",
+                                  systemImage: "link")
+                            Spacer()
+                            if let base = item.baseIngredientName, !base.isEmpty {
+                                Text(base)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Catalog ingredient")
+                } footer: {
+                    if item.baseIngredientId == nil {
+                        Text("Link this row to a canonical ingredient so smart-merge regen and brand preferences apply.")
+                    } else {
+                        Text("Linked to a canonical entry. Re-link to switch to a different one.")
+                    }
+                }
                 if !item.isUserAdded && hasAnyOverride {
                     Section {
                         Button("Reset to auto", role: .destructive) {
@@ -69,6 +94,15 @@ struct GroceryItemEditSheet: View {
                     Button("Save") { Task { await save() } }
                         .disabled(isSaving)
                 }
+            }
+            .sheet(isPresented: $showingLinker) {
+                IngredientLinkPickerSheet(item: item) { _ in
+                    // Linker writes to the server + AppState; bounce
+                    // the editor so the user reopens it on the live
+                    // (now-linked) row.
+                    dismiss()
+                }
+                .environment(appState)
             }
         }
     }

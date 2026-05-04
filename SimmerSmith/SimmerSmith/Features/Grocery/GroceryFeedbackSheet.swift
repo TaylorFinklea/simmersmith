@@ -49,6 +49,31 @@ struct GroceryFeedbackSheet: View {
                     }
                 }
 
+                Section {
+                    Button {
+                        showingLinker = true
+                    } label: {
+                        HStack {
+                            Label(canSetPreference ? "Re-link to Ingredient" : "Link to Ingredient",
+                                  systemImage: "link")
+                            Spacer()
+                            if let base = item.baseIngredientName, !base.isEmpty {
+                                Text(base)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Catalog ingredient")
+                } footer: {
+                    if canSetPreference {
+                        Text("Linked to a canonical entry — smart-merge regen and brand preferences both apply.")
+                    } else {
+                        Text("This item isn't linked yet. Pick a canonical entry so smart-merge stays consistent and brand preferences become available.")
+                    }
+                }
+
                 if canSetPreference {
                     Section {
                         Picker("Brand preference", selection: $pinAction) {
@@ -63,19 +88,6 @@ struct GroceryFeedbackSheet: View {
                         Text("Brand preference")
                     } footer: {
                         Text("Pinning saves \(pinSubject) as the default for \(item.baseIngredientName ?? item.ingredientName). Primary is the first pick; Secondary is the fallback when the primary is out.")
-                    }
-                } else {
-                    Section {
-                        Text("This item isn't linked to a catalog ingredient yet — link it first to enable brand preferences.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button {
-                            showingLinker = true
-                        } label: {
-                            Label("Link to Ingredient", systemImage: "link")
-                        }
-                    } header: {
-                        Text("Brand preference")
                     }
                 }
 
