@@ -42,6 +42,9 @@ struct WeekView: View {
     // Meal feedback
     @State private var feedbackMeal: WeekMeal?
 
+    // Manage sides on a meal (M26)
+    @State private var sidesMeal: WeekMeal?
+
     // Day nutrition sheet
     @State private var nutritionDay: (dayName: String, date: Date, meals: [WeekMeal], totals: MacroBreakdown)?
 
@@ -178,6 +181,9 @@ struct WeekView: View {
                 Button("Edit Notes") {
                     editingMeal = meal
                 }
+                Button("Manage Sides") {
+                    sidesMeal = meal
+                }
                 Button("Move to...") {
                     movingMeal = meal
                 }
@@ -274,6 +280,11 @@ struct WeekView: View {
                 MealMoveSheet(meal: meal, week: week) { newDayName, newDate, newSlot in
                     await moveMeal(meal, toDayName: newDayName, date: newDate, slot: newSlot)
                 }
+            }
+        }
+        .sheet(item: $sidesMeal) { meal in
+            if let week = displayedWeek {
+                MealSidesSheet(weekID: week.weekId, mealID: meal.mealId)
             }
         }
         .sheet(item: $linkRecipeMeal) { meal in

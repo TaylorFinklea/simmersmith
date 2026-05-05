@@ -4,6 +4,7 @@ generation and grocery merge land in Phases 2 + 3 of M10.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -328,6 +329,54 @@ def delete_event_meal_route(
         if fresh is None:
             raise HTTPException(status_code=404, detail="Event not found")
         return event_payload(fresh)
+
+
+class EventMealAIRecipeRequest(BaseModel):
+    prompt: str = ""
+    servings: int = Field(default=0, ge=0, le=200)
+
+
+@events_router.post("/{event_id}/meals/{meal_id}/ai-recipe")
+def generate_event_meal_recipe_route(
+    event_id: str,
+    meal_id: str,
+    payload: EventMealAIRecipeRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Ask the AI for a complete recipe draft for one event dish.
+
+    Returns a `RecipePayload`-shaped dict the iOS client can preview
+    and save as a real `Recipe` (then PATCH the event meal's
+    `recipe_id` to link it). The route does NOT persist the recipe —
+    keeps the human in the loop, so a bad AI output doesn't pollute
+    the catalog.
+    """
+    from app.services.event_ai import generate_recipe_for_meal
+
+    event = get_event(session, current_user.household_id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    meal = next((m for m in event.meals if m.id == meal_id), None)
+    if meal is None:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    user_settings = profile_settings_map(session, current_user.id)
+    servings = payload.servings or int(meal.servings or event.attendee_count or 1)
+    try:
+        draft = generate_recipe_for_meal(
+            session=session,
+            event=event,
+            meal_name=meal.recipe_name,
+            servings=servings,
+            user_prompt=payload.prompt,
+            settings=settings,
+            user_settings=user_settings,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return draft
 
 
 @events_router.post("/{event_id}/ai/menu", response_model=EventMenuGenerateResponse)

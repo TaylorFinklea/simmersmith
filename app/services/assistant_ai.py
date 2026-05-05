@@ -803,6 +803,12 @@ def _run_provider_tool_loop(
                 "started_at": started_at,
                 "completed_at": completed_at,
             }
+            # M26 Phase 5: surface tool `data` (e.g. proposed_change for
+            # the dry-run confirm flow) so the iOS client can render the
+            # diff card. Only include when non-empty to keep the
+            # transcript compact for tools that don't carry payloads.
+            if result.data:
+                tool_entry["data"] = result.data
             tool_transcript.append(tool_entry)
 
             _emit("assistant.tool_result", dict(tool_entry))

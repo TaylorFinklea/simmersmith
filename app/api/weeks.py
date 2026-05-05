@@ -26,6 +26,9 @@ from app.schemas import (
     PricingImportRequest,
     PricingResponse,
     WeekCreateRequest,
+    WeekMealSideAddRequest,
+    WeekMealSideOut,
+    WeekMealSidePatchRequest,
     WeekOut,
     WeekSummaryOut,
 )
@@ -47,6 +50,7 @@ from app.services.grocery import (
     set_grocery_item_checked,
     update_grocery_item,
 )
+from app.services.sides import add_side, delete_side, update_side
 from app.services.presenters import grocery_item_payload, pricing_payload, week_payload, week_summary_payload
 from app.services.pricing import import_pricing
 from app.services.weeks import create_or_get_week, get_current_week, get_week, get_week_by_start, list_weeks
@@ -160,7 +164,7 @@ def generate_week_plan(
     settings = get_settings()
     user_settings = profile_settings_map(session, current_user.id)
 
-    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id)
+    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id, household_id=current_user.household_id)
 
     try:
         draft_data = run_planner(
@@ -215,6 +219,124 @@ def update_meals(
     session.commit()
     session.expire_all()
     return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}
+
+
+def _load_meal_or_404(session: Session, household_id: str, week_id: str, meal_id: str):
+    """Resolve `(week, meal)` enforcing household ownership in one shot."""
+    from app.models import WeekMeal
+
+    week = load_week_or_404(session, household_id, week_id)
+    meal = session.scalar(
+        select(WeekMeal).where(WeekMeal.id == meal_id, WeekMeal.week_id == week.id)
+    )
+    if meal is None:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    return week, meal
+
+
+def _load_side_or_404(session: Session, household_id: str, week_id: str, meal_id: str, side_id: str):
+    from app.models import WeekMealSide
+
+    week, meal = _load_meal_or_404(session, household_id, week_id, meal_id)
+    side = session.scalar(
+        select(WeekMealSide).where(
+            WeekMealSide.id == side_id, WeekMealSide.week_meal_id == meal.id
+        )
+    )
+    if side is None:
+        raise HTTPException(status_code=404, detail="Side not found")
+    return week, meal, side
+
+
+def _side_payload(side) -> dict[str, object]:
+    return {
+        "side_id": side.id,
+        "week_meal_id": side.week_meal_id,
+        "recipe_id": side.recipe_id,
+        "recipe_name": side.recipe.name if side.recipe is not None else None,
+        "name": side.name,
+        "notes": side.notes,
+        "sort_order": side.sort_order,
+        "updated_at": side.updated_at,
+    }
+
+
+@router.post("/{week_id}/meals/{meal_id}/sides", response_model=WeekMealSideOut)
+def add_side_route(
+    week_id: str,
+    meal_id: str,
+    payload: WeekMealSideAddRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    week, meal = _load_meal_or_404(session, current_user.household_id, week_id, meal_id)
+    try:
+        side = add_side(
+            session,
+            week=week,
+            meal=meal,
+            household_id=current_user.household_id,
+            name=payload.name,
+            recipe_id=payload.recipe_id,
+            notes=payload.notes,
+            sort_order=payload.sort_order if payload.sort_order > 0 else None,
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    session.refresh(side)
+    return _side_payload(side)
+
+
+@router.patch("/{week_id}/meals/{meal_id}/sides/{side_id}", response_model=WeekMealSideOut)
+def patch_side_route(
+    week_id: str,
+    meal_id: str,
+    side_id: str,
+    payload: WeekMealSidePatchRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    week, _meal, side = _load_side_or_404(
+        session, current_user.household_id, week_id, meal_id, side_id
+    )
+    fields = payload.model_dump(exclude_unset=True)
+    try:
+        update_side(
+            session,
+            week=week,
+            side=side,
+            household_id=current_user.household_id,
+            fields=fields,
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    session.refresh(side)
+    return _side_payload(side)
+
+
+@router.delete("/{week_id}/meals/{meal_id}/sides/{side_id}", status_code=204)
+def delete_side_route(
+    week_id: str,
+    meal_id: str,
+    side_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    week, _meal, side = _load_side_or_404(
+        session, current_user.household_id, week_id, meal_id, side_id
+    )
+    delete_side(
+        session,
+        week=week,
+        side=side,
+        household_id=current_user.household_id,
+        user_id=current_user.id,
+    )
+    session.commit()
 
 
 @router.get("/{week_id}/changes", response_model=list[WeekChangeBatchOut])
@@ -284,7 +406,7 @@ def rebalance_day_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid meal_date: {payload.meal_date}") from exc
 
-    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id)
+    context = gather_planning_context(session, current_user.id, exclude_week_id=week_id, household_id=current_user.household_id)
 
     # Delete the existing meals + inline ingredients for that day.
     existing = [m for m in week.meals if m.meal_date == target_date]

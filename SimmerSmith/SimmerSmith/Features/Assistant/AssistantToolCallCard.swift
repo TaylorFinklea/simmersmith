@@ -3,8 +3,26 @@ import SimmerSmithKit
 
 struct AssistantToolCallCard: View {
     let call: AssistantToolCall
+    /// Optional handlers for the Was→Becomes diff card (M26 Phase 5).
+    /// When `call.proposedChange` is non-nil and these are wired by
+    /// the parent view, the card renders Confirm/Cancel buttons that
+    /// send follow-up messages to the assistant.
+    var onConfirmProposedChange: ((AssistantProposedChange) -> Void)? = nil
+    var onCancelProposedChange: ((AssistantProposedChange) -> Void)? = nil
 
     var body: some View {
+        if let proposed = call.proposedChange {
+            ProposedChangeCard(
+                proposal: proposed,
+                onConfirm: onConfirmProposedChange,
+                onCancel: onCancelProposedChange
+            )
+        } else {
+            defaultCard
+        }
+    }
+
+    private var defaultCard: some View {
         HStack(alignment: .top, spacing: SMSpacing.md) {
             ZStack {
                 Circle()
@@ -159,5 +177,92 @@ struct AssistantToolCallCard: View {
     private var iconBackground: Color {
         if !call.ok { return SMColor.destructive.opacity(0.15) }
         return SMColor.primary.opacity(0.18)
+    }
+}
+
+/// M26 Phase 5 — Was→Becomes diff card for assistant-proposed
+/// changes (currently only `swap_meal`). Tap Confirm to apply, Cancel
+/// to abandon. The parent view sends a follow-up assistant message
+/// so the LLM dispatches `confirm_swap_meal` / `cancel_swap_meal`.
+struct ProposedChangeCard: View {
+    let proposal: AssistantProposedChange
+    let onConfirm: ((AssistantProposedChange) -> Void)?
+    let onCancel: ((AssistantProposedChange) -> Void)?
+
+    @State private var resolved: Resolution? = nil
+
+    enum Resolution { case confirmed, cancelled }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SMSpacing.md) {
+            HStack(spacing: SMSpacing.sm) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(SMColor.primary)
+                Text(proposal.summary)
+                    .font(SMFont.subheadline)
+                    .foregroundStyle(SMColor.textPrimary)
+            }
+
+            VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                diffRow(label: "Was", value: proposal.beforeRecipeName, color: SMColor.textSecondary)
+                diffRow(label: "Becomes", value: proposal.afterRecipeName, color: SMColor.textPrimary, bold: true)
+            }
+            .padding(.vertical, SMSpacing.sm)
+            .padding(.horizontal, SMSpacing.md)
+            .background(SMColor.surfaceElevated, in: RoundedRectangle(cornerRadius: SMRadius.sm))
+
+            if let resolved {
+                Text(resolved == .confirmed ? "Applied — the assistant will finalize." : "Cancelled — no changes were made.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(resolved == .confirmed ? SMColor.success : SMColor.textTertiary)
+            } else {
+                HStack(spacing: SMSpacing.md) {
+                    Button {
+                        resolved = .cancelled
+                        onCancel?(proposal)
+                    } label: {
+                        Text("Cancel")
+                            .font(SMFont.label)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.sm)
+                            .background(SMColor.surfaceElevated, in: RoundedRectangle(cornerRadius: SMRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        resolved = .confirmed
+                        onConfirm?(proposal)
+                    } label: {
+                        Text("Confirm")
+                            .font(SMFont.label)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.sm)
+                            .background(SMColor.primary, in: RoundedRectangle(cornerRadius: SMRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(SMSpacing.md)
+        .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .stroke(SMColor.primary.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func diffRow(label: String, value: String, color: Color, bold: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: SMSpacing.sm) {
+            Text(label)
+                .font(SMFont.caption)
+                .foregroundStyle(SMColor.textTertiary)
+                .frame(width: 60, alignment: .leading)
+            Text(value)
+                .font(bold ? SMFont.subheadline : SMFont.body)
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

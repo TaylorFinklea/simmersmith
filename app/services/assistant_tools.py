@@ -211,7 +211,7 @@ def _run_generate_week_plan(
         return AssistantToolResult(ok=False, detail="No active week. Create one first.")
 
     user_prompt = str(args.get("prompt") or "Plan a balanced, varied week of meals.").strip()
-    context = gather_planning_context(session, user_id, exclude_week_id=week.id)
+    context = gather_planning_context(session, user_id, exclude_week_id=week.id, household_id=household_id)
     user_settings = profile_settings_map(session, user_id)
 
     try:
@@ -366,7 +366,70 @@ def _find_meal(week: Week, *, meal_id: str | None, day_name: str | None, slot: s
 def _run_swap_meal(
     *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
-    del settings
+    """M26 Phase 5: dry-run. Returns a `proposed_change` payload that
+    iOS renders as a Was→Becomes confirm card. The LLM must call
+    `confirm_swap_meal` with the same args to actually apply.
+
+    No DB mutation happens here.
+    """
+    del settings, session, user_id, household_id
+    if week is None:
+        return AssistantToolResult(ok=False, detail="No active week.")
+    meal = _find_meal(
+        week,
+        meal_id=str(args.get("meal_id") or "") or None,
+        day_name=str(args.get("day_name") or "") or None,
+        slot=str(args.get("slot") or "") or None,
+    )
+    if meal is None:
+        return AssistantToolResult(ok=False, detail="Couldn't find that meal.")
+    new_name = str(args.get("recipe_name") or "").strip()
+    if not new_name:
+        return AssistantToolResult(ok=False, detail="recipe_name is required.")
+    new_notes = str(args.get("notes") or "").strip()
+
+    proposed = {
+        "kind": "proposed_change",
+        "summary": f"Swap {meal.day_name} {meal.slot}",
+        "before": {
+            "meal_id": meal.id,
+            "day_name": meal.day_name,
+            "slot": meal.slot,
+            "recipe_name": meal.recipe_name,
+        },
+        "after": {
+            "meal_id": meal.id,
+            "day_name": meal.day_name,
+            "slot": meal.slot,
+            "recipe_name": new_name,
+            "notes": new_notes or meal.notes,
+        },
+        "confirm_tool": "confirm_swap_meal",
+        "confirm_args": {
+            "meal_id": meal.id,
+            "recipe_name": new_name,
+            "notes": new_notes,
+        },
+    }
+    return AssistantToolResult(
+        ok=True,
+        detail=(
+            f"Proposed swap: {meal.day_name} {meal.slot} from "
+            f"\"{meal.recipe_name}\" to \"{new_name}\". "
+            "Awaiting user confirmation — call `confirm_swap_meal` with the "
+            "same args to apply, or `cancel_swap_meal` to abandon."
+        ),
+        data=proposed,
+    )
+
+
+def _run_confirm_swap_meal(
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
+) -> AssistantToolResult:
+    """Apply the swap that `swap_meal` proposed. Same identification
+    semantics (meal_id preferred; day_name+slot fallback) so the LLM
+    can re-resolve from context if needed."""
+    del settings, user_id
     if week is None:
         return AssistantToolResult(ok=False, detail="No active week.")
     meal = _find_meal(
@@ -397,6 +460,19 @@ def _run_swap_meal(
         ok=True,
         detail=f"Swapped {meal.day_name} {meal.slot} to {new_name}.",
         week=payload,
+    )
+
+
+def _run_cancel_swap_meal(
+    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
+) -> AssistantToolResult:
+    """No-op acknowledgement that the user dismissed the proposed
+    change. Returns success so the LLM closes the loop cleanly."""
+    del session, user_id, household_id, week, settings
+    summary = str(args.get("summary") or "").strip() or "the proposed change"
+    return AssistantToolResult(
+        ok=True,
+        detail=f"User declined {summary}. No changes were applied.",
     )
 
 
@@ -474,7 +550,7 @@ def _run_rebalance_day(
         )
 
     user_settings = profile_settings_map(session, user_id)
-    context = gather_planning_context(session, user_id, exclude_week_id=week.id)
+    context = gather_planning_context(session, user_id, exclude_week_id=week.id, household_id=household_id)
 
     existing = [m for m in week.meals if m.meal_date == target_date]
     day_name = existing[0].day_name if existing else target_date.strftime("%A")
@@ -637,7 +713,35 @@ REGISTRY: dict[str, AssistantTool] = {
     ),
     "swap_meal": AssistantTool(
         name="swap_meal",
-        description="Replace a meal's recipe. Identify by meal_id, or (day_name + slot).",
+        description=(
+            "PROPOSE replacing a meal's recipe — does NOT apply the change. Returns a "
+            "structured proposed_change payload the iOS client renders as a Was→Becomes "
+            "confirm card. After the user taps Confirm, call `confirm_swap_meal` with the "
+            "same identification args to actually apply. If they tap Cancel, call "
+            "`cancel_swap_meal`. Identify the meal by meal_id, or (day_name + slot)."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "meal_id": {"type": "string"},
+                "day_name": {"type": "string"},
+                "slot": {"type": "string"},
+                "recipe_name": {"type": "string"},
+                "notes": {"type": "string"},
+            },
+            "required": ["recipe_name"],
+            "additionalProperties": False,
+        },
+        mutates_week=False,
+        gated_action=None,
+        runner=_run_swap_meal,
+    ),
+    "confirm_swap_meal": AssistantTool(
+        name="confirm_swap_meal",
+        description=(
+            "APPLY a swap previously proposed by `swap_meal` — the user has tapped "
+            "Confirm. Pass the same args you passed to swap_meal."
+        ),
         parameters_schema={
             "type": "object",
             "properties": {
@@ -652,7 +756,21 @@ REGISTRY: dict[str, AssistantTool] = {
         },
         mutates_week=True,
         gated_action=None,
-        runner=_run_swap_meal,
+        runner=_run_confirm_swap_meal,
+    ),
+    "cancel_swap_meal": AssistantTool(
+        name="cancel_swap_meal",
+        description="Acknowledge that the user dismissed a proposed swap. No changes are applied.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+        mutates_week=False,
+        gated_action=None,
+        runner=_run_cancel_swap_meal,
     ),
     "remove_meal": AssistantTool(
         name="remove_meal",

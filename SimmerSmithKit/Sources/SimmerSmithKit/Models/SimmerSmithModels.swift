@@ -1003,6 +1003,67 @@ public struct RecipeAIOptions: Codable, Hashable, Sendable {
     public let options: [RecipeAIDraftOption]
 }
 
+/// M26 Phase 5 — when an assistant tool returns a `proposed_change`
+/// payload (e.g. `swap_meal` proposes before applying), the iOS
+/// client renders a Was→Becomes diff card with Confirm/Cancel
+/// buttons. The structured fields below mirror the server-side dict
+/// produced by `_run_swap_meal`.
+public struct AssistantProposedChange: Codable, Hashable, Sendable {
+    public let kind: String
+    public let summary: String
+    public let beforeRecipeName: String
+    public let afterRecipeName: String
+    public let dayName: String
+    public let slot: String
+    public let mealId: String?
+    public let confirmTool: String
+    public let confirmArgs: [String: SimmerSmithJSONValue]
+
+    /// Decode the loosely-typed `data` blob from a tool result into a
+    /// structured proposal. Returns nil when the payload doesn't look
+    /// like a proposed_change (so the iOS client knows to fall back
+    /// to plain rendering).
+    public static func from(_ data: [String: SimmerSmithJSONValue]) -> AssistantProposedChange? {
+        guard case let .string(kind) = data["kind"], kind == "proposed_change" else {
+            return nil
+        }
+        let summary = (data["summary"]).flatMap { value -> String? in
+            if case let .string(s) = value { return s }
+            return nil
+        } ?? "Proposed change"
+        guard case let .object(before) = data["before"],
+              case let .object(after) = data["after"] else {
+            return nil
+        }
+        func str(_ dict: [String: SimmerSmithJSONValue], _ key: String) -> String {
+            if case let .string(s) = dict[key] { return s }
+            return ""
+        }
+        let confirmTool = (data["confirm_tool"]).flatMap { value -> String? in
+            if case let .string(s) = value { return s }
+            return nil
+        } ?? "confirm_swap_meal"
+        var confirmArgs: [String: SimmerSmithJSONValue] = [:]
+        if case let .object(args) = data["confirm_args"] {
+            confirmArgs = args
+        }
+        return AssistantProposedChange(
+            kind: kind,
+            summary: summary,
+            beforeRecipeName: str(before, "recipe_name"),
+            afterRecipeName: str(after, "recipe_name"),
+            dayName: str(after, "day_name").isEmpty ? str(before, "day_name") : str(after, "day_name"),
+            slot: str(after, "slot").isEmpty ? str(before, "slot") : str(after, "slot"),
+            mealId: {
+                let m = str(before, "meal_id")
+                return m.isEmpty ? nil : m
+            }(),
+            confirmTool: confirmTool,
+            confirmArgs: confirmArgs
+        )
+    }
+}
+
 public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
     public let callId: String
     public let name: String
@@ -1012,8 +1073,19 @@ public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
     public let status: String
     public let startedAt: Date?
     public let completedAt: Date?
+    /// Tool result `data` blob (M26 Phase 5). Carries `proposed_change`
+    /// payloads from `swap_meal` so the iOS client can render a diff
+    /// card. Nil for tools that don't surface structured data.
+    public let data: [String: SimmerSmithJSONValue]?
 
     public var id: String { callId }
+
+    /// Convenience: parse the `data` payload as a proposed-change card
+    /// when present.
+    public var proposedChange: AssistantProposedChange? {
+        guard let data else { return nil }
+        return AssistantProposedChange.from(data)
+    }
 
     public init(
         callId: String,
@@ -1023,7 +1095,8 @@ public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
         detail: String = "",
         status: String = "completed",
         startedAt: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        data: [String: SimmerSmithJSONValue]? = nil
     ) {
         self.callId = callId
         self.name = name
@@ -1033,6 +1106,7 @@ public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
         self.status = status
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.data = data
     }
 
     public init(from decoder: Decoder) throws {
@@ -1049,6 +1123,7 @@ public struct AssistantToolCall: Codable, Identifiable, Hashable, Sendable {
         status = (try container.decodeIfPresent(String.self, forKey: .status)) ?? "running"
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        data = try container.decodeIfPresent([String: SimmerSmithJSONValue].self, forKey: .data)
     }
 }
 
@@ -1931,6 +2006,64 @@ public struct GroceryListDelta: Codable, Sendable {
     }
 }
 
+/// M26 Phase 3 — per-household shorthand alias.
+public struct HouseholdTermAlias: Codable, Identifiable, Hashable, Sendable {
+    public let aliasId: String
+    public let term: String
+    public let expansion: String
+    public let notes: String
+    public let updatedAt: Date
+
+    public var id: String { aliasId }
+
+    public init(
+        aliasId: String,
+        term: String,
+        expansion: String,
+        notes: String = "",
+        updatedAt: Date = Date()
+    ) {
+        self.aliasId = aliasId
+        self.term = term
+        self.expansion = expansion
+        self.notes = notes
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct WeekMealSide: Codable, Identifiable, Hashable, Sendable {
+    public let sideId: String
+    public let weekMealId: String
+    public let recipeId: String?
+    public let recipeName: String?
+    public let name: String
+    public let notes: String
+    public let sortOrder: Int
+    public let updatedAt: Date
+
+    public var id: String { sideId }
+
+    public init(
+        sideId: String,
+        weekMealId: String,
+        recipeId: String? = nil,
+        recipeName: String? = nil,
+        name: String,
+        notes: String = "",
+        sortOrder: Int = 0,
+        updatedAt: Date = Date()
+    ) {
+        self.sideId = sideId
+        self.weekMealId = weekMealId
+        self.recipeId = recipeId
+        self.recipeName = recipeName
+        self.name = name
+        self.notes = notes
+        self.sortOrder = sortOrder
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
     public let mealId: String
     public let dayName: String
@@ -1946,6 +2079,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
     public let aiGenerated: Bool
     public let updatedAt: Date
     public let ingredients: [RecipeIngredient]
+    public let sides: [WeekMealSide]
     public let macros: MacroBreakdown?
 
     public var id: String { mealId }
@@ -1965,6 +2099,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
         case aiGenerated
         case updatedAt
         case ingredients
+        case sides
         case macros
     }
 
@@ -1984,6 +2119,7 @@ public struct WeekMeal: Codable, Identifiable, Hashable, Sendable {
         aiGenerated = try container.decodeIfPresent(Bool.self, forKey: .aiGenerated) ?? false
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         ingredients = try container.decodeIfPresent([RecipeIngredient].self, forKey: .ingredients) ?? []
+        sides = try container.decodeIfPresent([WeekMealSide].self, forKey: .sides) ?? []
         macros = try container.decodeIfPresent(MacroBreakdown.self, forKey: .macros)
     }
 }

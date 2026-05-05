@@ -225,6 +225,34 @@ class DailyNutritionOut(MacroBreakdownOut):
     meal_date: DateLike
 
 
+class WeekMealSideAddRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    recipe_id: str | None = None
+    notes: str = ""
+    sort_order: int = 0
+
+
+class WeekMealSidePatchRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    recipe_id: str | None = None
+    clear_recipe: bool = False
+    notes: str | None = None
+    sort_order: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WeekMealSideOut(BaseModel):
+    side_id: str
+    week_meal_id: str
+    recipe_id: str | None
+    recipe_name: str | None = None
+    name: str
+    notes: str
+    sort_order: int
+    updated_at: datetime
+
+
 class WeekMealOut(BaseModel):
     meal_id: str
     day_name: str
@@ -240,6 +268,7 @@ class WeekMealOut(BaseModel):
     ai_generated: bool
     updated_at: datetime
     ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
+    sides: list[WeekMealSideOut] = Field(default_factory=list)
     macros: MacroBreakdownOut | None = None
 
 

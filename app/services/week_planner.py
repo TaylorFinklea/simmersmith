@@ -59,10 +59,18 @@ class PlanningContext:
     # == "allergy"). Surfaced as a separate, more-emphasized line in the
     # system prompt than regular avoids.
     allergies: list[str] = field(default_factory=list)
+    # M26 Phase 3 — household-level shorthand aliases (e.g. "chx" →
+    # "chicken"). Injected as a preamble in the system prompt so the AI
+    # treats the term as if the user typed the expansion.
+    term_aliases: dict[str, str] = field(default_factory=dict)
 
 
 def gather_planning_context(
-    session: Session, user_id: str, exclude_week_id: str | None = None,
+    session: Session,
+    user_id: str,
+    exclude_week_id: str | None = None,
+    *,
+    household_id: str | None = None,
 ) -> PlanningContext:
     """Fetch preference signals, staples, recent meal history, and dietary goal."""
     from app.services.grocery import staple_names
@@ -137,6 +145,14 @@ def gather_planning_context(
     ))
     deduped_allergies = list(dict.fromkeys(allergy_names))
 
+    # Household-scoped term aliases (M26 Phase 3). Falls back to user_id
+    # when called from a code path that hasn't threaded household_id
+    # through yet — single-member households use user_id == household_id.
+    from app.services.aliases import aliases_map
+
+    alias_household_id = household_id or user_id
+    aliases = aliases_map(session, household_id=alias_household_id)
+
     return PlanningContext(
         hard_avoids=merged_avoids,
         strong_likes=summary["strong_likes"],
@@ -148,6 +164,7 @@ def gather_planning_context(
         rules=summary["rules"],
         dietary_goal=dietary_goal,
         allergies=deduped_allergies,
+        term_aliases=aliases,
     )
 
 
@@ -175,6 +192,20 @@ def _build_system_prompt(
     context_sections = ""
     if context:
         sections: list[str] = []
+
+        # Household shorthand dictionary (M26 Phase 3). Top of the
+        # context block so the AI sees alias expansions BEFORE it
+        # interprets the user's prompt — "chx" should already mean
+        # "chicken" by the time it reaches the meal-planning request.
+        if context.term_aliases:
+            alias_lines = [
+                f"- {term} → {expansion}"
+                for term, expansion in sorted(context.term_aliases.items())
+            ]
+            sections.append(
+                "Household shorthand (treat each term as if the user typed the expansion):\n"
+                + "\n".join(alias_lines)
+            )
 
         # Preference signals
         pref_lines: list[str] = []

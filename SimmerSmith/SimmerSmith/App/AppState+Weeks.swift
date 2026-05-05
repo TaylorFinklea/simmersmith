@@ -111,6 +111,54 @@ extension AppState {
         return week
     }
 
+    /// Add / patch / delete a side on a meal (M26 Phase 2). The single-
+    /// side response endpoints don't return a full `WeekSnapshot`, so
+    /// after each mutation we re-fetch the whole week to refresh both
+    /// the meal's `sides` array AND the regenerated grocery list.
+    func addMealSide(
+        weekID: String,
+        mealID: String,
+        name: String,
+        recipeID: String? = nil,
+        notes: String = ""
+    ) async throws -> WeekSnapshot {
+        _ = try await apiClient.addMealSide(
+            weekID: weekID,
+            mealID: mealID,
+            body: SimmerSmithAPIClient.WeekMealSideAddBody(
+                name: name, recipeId: recipeID, notes: notes
+            )
+        )
+        return try await refreshWeekAfterSideMutation(weekID: weekID)
+    }
+
+    func patchMealSide(
+        weekID: String,
+        mealID: String,
+        sideID: String,
+        body: SimmerSmithAPIClient.WeekMealSidePatchBody
+    ) async throws -> WeekSnapshot {
+        _ = try await apiClient.patchMealSide(
+            weekID: weekID, mealID: mealID, sideID: sideID, body: body
+        )
+        return try await refreshWeekAfterSideMutation(weekID: weekID)
+    }
+
+    func deleteMealSide(weekID: String, mealID: String, sideID: String) async throws -> WeekSnapshot {
+        try await apiClient.deleteMealSide(weekID: weekID, mealID: mealID, sideID: sideID)
+        return try await refreshWeekAfterSideMutation(weekID: weekID)
+    }
+
+    private func refreshWeekAfterSideMutation(weekID: String) async throws -> WeekSnapshot {
+        let week = try await apiClient.fetchWeek(weekID: weekID)
+        if currentWeek?.weekId == week.weekId {
+            currentWeek = week
+            try? cacheStore.saveCurrentWeek(week)
+        }
+        syncPhase = .synced(.now)
+        return week
+    }
+
     func approveWeek(weekID: String) async throws -> WeekSnapshot {
         let week = try await apiClient.approveWeek(weekID: weekID)
         if currentWeek?.weekId == week.weekId {

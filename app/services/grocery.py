@@ -11,7 +11,16 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import GroceryItem, Recipe, RecipeIngredient, Staple, Week, WeekMeal, WeekMealIngredient
+from app.models import (
+    GroceryItem,
+    Recipe,
+    RecipeIngredient,
+    Staple,
+    Week,
+    WeekMeal,
+    WeekMealIngredient,
+    WeekMealSide,
+)
 from app.services.ingredient_catalog import choice_for_base_ingredient
 from app.services.weeks import invalidate_week
 
@@ -129,7 +138,16 @@ def build_grocery_rows_for_week(session: Session, user_id: str, household_id: st
         ).all()
     )
     meal_ids = [m.id for m in meals]
-    recipe_ids = [m.recipe_id for m in meals if m.recipe_id]
+
+    sides_by_meal: dict[str, list[WeekMealSide]] = defaultdict(list)
+    if meal_ids:
+        for side in session.scalars(
+            select(WeekMealSide).where(WeekMealSide.week_meal_id.in_(meal_ids))
+        ).all():
+            sides_by_meal[side.week_meal_id].append(side)
+
+    side_recipe_ids = [s.recipe_id for sides in sides_by_meal.values() for s in sides if s.recipe_id]
+    recipe_ids = [m.recipe_id for m in meals if m.recipe_id] + side_recipe_ids
 
     recipes = {
         recipe.id: recipe
@@ -153,17 +171,7 @@ def build_grocery_rows_for_week(session: Session, user_id: str, household_id: st
     staples = staple_names(session, household_id)
     aggregations: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
-    for meal in meals:
-        recipe = recipes.get(meal.recipe_id or "")
-        if recipe:
-            base_servings = recipe.servings or 1.0
-            meal_servings = meal.servings or base_servings
-            factor = meal.scale_multiplier or (meal_servings / base_servings if base_servings else 1.0)
-            ingredients = ingredients_by_recipe.get(recipe.id, [])
-        else:
-            factor = 1.0
-            ingredients = inline_ingredients_by_meal.get(meal.id, [])
-
+    def _aggregate(ingredients: list[Any], factor: float, source_label_str: str) -> None:
         for ingredient in ingredients:
             ingredient_name = ingredient.ingredient_name.strip()
             if not ingredient_name:
@@ -213,7 +221,43 @@ def build_grocery_rows_for_week(session: Session, user_id: str, household_id: st
                 bucket["notes"].add(ingredient.prep)
             if ingredient.category and not bucket["category"]:
                 bucket["category"] = ingredient.category
-            bucket["source_meals"].add(source_label(meal))
+            bucket["source_meals"].add(source_label_str)
+
+    for meal in meals:
+        recipe = recipes.get(meal.recipe_id or "")
+        if recipe:
+            base_servings = recipe.servings or 1.0
+            meal_servings = meal.servings or base_servings
+            factor = meal.scale_multiplier or (meal_servings / base_servings if base_servings else 1.0)
+            ingredients = ingredients_by_recipe.get(recipe.id, [])
+        else:
+            factor = 1.0
+            ingredients = inline_ingredients_by_meal.get(meal.id, [])
+
+        _aggregate(ingredients, factor, source_label(meal))
+
+        # Sides with a recipe link aggregate just like a recipe-backed
+        # meal, scaled by the parent meal's multiplier. Sides without a
+        # recipe contribute nothing to grocery (they're informational
+        # only on the meal card). The source_meals string carries
+        # `[side: <name>]` so the user can see where a grocery row
+        # came from.
+        for side in sides_by_meal.get(meal.id, []):
+            if not side.recipe_id:
+                continue
+            side_recipe = recipes.get(side.recipe_id)
+            if side_recipe is None:
+                continue
+            side_base_servings = side_recipe.servings or 1.0
+            side_meal_servings = meal.servings or side_base_servings
+            side_factor = meal.scale_multiplier or (
+                side_meal_servings / side_base_servings if side_base_servings else 1.0
+            )
+            _aggregate(
+                ingredients_by_recipe.get(side_recipe.id, []),
+                side_factor,
+                f"{source_label(meal)} [side: {side.name}]",
+            )
 
     rows = []
     for bucket in aggregations.values():

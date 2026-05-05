@@ -329,6 +329,19 @@ def week_payload(week: Week | None, *, session: Session | None = None) -> dict[s
                 "ai_generated": meal.ai_generated,
                 "updated_at": meal.updated_at,
                 "macros": meal_macros[meal.id].as_payload() if meal.id in meal_macros and not meal_macros[meal.id].is_empty else None,
+                "sides": [
+                    {
+                        "side_id": side.id,
+                        "week_meal_id": side.week_meal_id,
+                        "recipe_id": side.recipe_id,
+                        "recipe_name": side.recipe.name if side.recipe is not None else None,
+                        "name": side.name,
+                        "notes": side.notes,
+                        "sort_order": side.sort_order,
+                        "updated_at": side.updated_at,
+                    }
+                    for side in sorted(meal.sides, key=lambda s: (s.sort_order, s.created_at))
+                ],
                 "ingredients": [
                     {
                         "ingredient_id": ingredient.id,

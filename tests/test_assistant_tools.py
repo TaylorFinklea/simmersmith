@@ -58,6 +58,9 @@ def test_registry_exposes_expected_tools() -> None:
         "rebalance_day",
         "fetch_pricing",
         "set_dietary_goal",
+        # M26 Phase 5: dry-run confirm flow.
+        "confirm_swap_meal",
+        "cancel_swap_meal",
     }
     assert set(REGISTRY.keys()) == expected
     # Every mutating tool has a JSON schema
@@ -125,9 +128,24 @@ def test_tool_add_swap_remove_meal(client) -> None:
         if m["recipe_name"] == "Salmon Tacos"
     )
 
+    # M26 Phase 5: swap_meal now PROPOSES (no DB mutation). The actual
+    # swap requires confirm_swap_meal — exercise the two-step flow.
+    with session_scope() as session:
+        propose_result = run_tool(
+            "swap_meal",
+            session=session,
+            user_id=get_settings().local_user_id,
+            household_id=get_settings().local_user_id,
+            linked_week_id=week_id,
+            args={"meal_id": meal_id, "recipe_name": "Shrimp Tacos"},
+            settings=settings,
+        )
+    assert propose_result.ok is True
+    assert propose_result.data.get("kind") == "proposed_change"
+
     with session_scope() as session:
         swap_result = run_tool(
-            "swap_meal",
+            "confirm_swap_meal",
             session=session,
             user_id=get_settings().local_user_id,
             household_id=get_settings().local_user_id,
@@ -275,17 +293,22 @@ def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
             "assistant.tool_result",
             {"call_id": "c1", "name": "get_current_week", "ok": get_result.ok, "detail": get_result.detail, "status": "completed"},
         )
+        # M26 Phase 5: simulate the apply-after-confirm path. The LLM
+        # would normally call swap_meal first (proposal) then
+        # confirm_swap_meal after the user taps Confirm — for this
+        # streaming test we go straight to confirm so we can assert
+        # the swap landed server-side.
         swap_result = tool_runner(
-            "swap_meal",
+            "confirm_swap_meal",
             {"day_name": "Wednesday", "slot": "dinner", "recipe_name": "Mushroom Risotto"},
         )
         on_event(
             "assistant.tool_call",
-            {"call_id": "c2", "name": "swap_meal", "arguments": {}, "status": "running"},
+            {"call_id": "c2", "name": "confirm_swap_meal", "arguments": {}, "status": "running"},
         )
         on_event(
             "assistant.tool_result",
-            {"call_id": "c2", "name": "swap_meal", "ok": swap_result.ok, "detail": swap_result.detail, "status": "completed"},
+            {"call_id": "c2", "name": "confirm_swap_meal", "ok": swap_result.ok, "detail": swap_result.detail, "status": "completed"},
         )
         if swap_result.week is not None:
             on_event("week.updated", {"week": swap_result.week})
@@ -315,7 +338,7 @@ def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
                 },
                 {
                     "call_id": "c2",
-                    "name": "swap_meal",
+                    "name": "confirm_swap_meal",
                     "arguments": {},
                     "ok": swap_result.ok,
                     "detail": swap_result.detail,
@@ -360,7 +383,7 @@ def test_planning_thread_streams_tool_call_events(client, monkeypatch) -> None:
     assistant_messages = [m for m in thread_detail["messages"] if m["role"] == "assistant"]
     assert len(assistant_messages) == 1
     tool_calls = assistant_messages[0]["tool_calls"]
-    assert [call["name"] for call in tool_calls] == ["get_current_week", "swap_meal"]
+    assert [call["name"] for call in tool_calls] == ["get_current_week", "confirm_swap_meal"]
 
 
 def test_abort_event_cancels_tool_loop_mid_stream(client, monkeypatch) -> None:

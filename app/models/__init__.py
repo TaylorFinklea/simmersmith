@@ -1,5 +1,6 @@
 from app.models._base import new_id, utcnow
 from app.models.ai import AIRun, AssistantMessage, AssistantThread
+from app.models.aliases import HouseholdTermAlias
 from app.models.billing import Subscription, UsageCounter
 from app.models.catalog import (
     BaseIngredient,
@@ -39,6 +40,7 @@ from app.models.week import (
     WeekChangeEvent,
     WeekMeal,
     WeekMealIngredient,
+    WeekMealSide,
 )
 
 __all__ = [
@@ -61,6 +63,7 @@ __all__ = [
     "HouseholdInvitation",
     "HouseholdMember",
     "HouseholdSetting",
+    "HouseholdTermAlias",
     "ImageGenUsage",
     "IngredientNutritionMatch",
     "IngredientPreference",
@@ -87,6 +90,7 @@ __all__ = [
     "WeekChangeEvent",
     "WeekMeal",
     "WeekMealIngredient",
+    "WeekMealSide",
     "new_id",
     "utcnow",
 ]

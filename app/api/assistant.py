@@ -545,6 +545,18 @@ def _planning_context_text(
     page_context: object | None = None,
 ) -> str:
     """Build a compact week snapshot + page context for the system prompt."""
+    # M26 Phase 3: household shorthand dictionary at the very top so the
+    # AI sees alias expansions BEFORE interpreting the user's message.
+    from app.services.aliases import aliases_map
+
+    alias_lines: list[str] = []
+    aliases = aliases_map(session, household_id=household_id)
+    if aliases:
+        alias_lines.append("Household shorthand (treat each term as if the user typed the expansion):")
+        for term, expansion in sorted(aliases.items()):
+            alias_lines.append(f"  - {term} → {expansion}")
+        alias_lines.append("")  # spacer
+
     page_lines: list[str] = []
     if page_context is not None:
         # AssistantPageContext model; dump with pydantic to tolerate any type.
@@ -576,7 +588,8 @@ def _planning_context_text(
         week = get_current_week(session, household_id)
     if week is None:
         joined = ("\n".join(page_lines) + "\n") if page_lines else ""
-        return joined + "Current week: none. Ask the user to create one before editing."
+        prefix = ("\n".join(alias_lines) + "\n") if alias_lines else ""
+        return prefix + joined + "Current week: none. Ask the user to create one before editing."
 
     payload = week_payload(week, session=session) or {}
     meals = payload.get("meals") or []
@@ -605,7 +618,7 @@ def _planning_context_text(
                 f"(meal_id={meal.get('meal_id')}){tag}"
             )
     lines.append("")
-    return "\n".join(page_lines + lines)
+    return "\n".join(alias_lines + page_lines + lines)
 
 
 def encode_sse(event: str, payload: dict[str, object]) -> str:

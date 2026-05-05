@@ -210,12 +210,21 @@ private struct AssistantThreadView: View {
                             quickPrompts
                         } else {
                             ForEach(thread.messages) { message in
-                                AssistantMessageBubble(message: message) { draft in
-                                    editorContext = RecipeEditorSheetContext(
-                                        title: "Recipe Draft",
-                                        draft: draft
-                                    )
-                                }
+                                AssistantMessageBubble(
+                                    message: message,
+                                    openDraft: { draft in
+                                        editorContext = RecipeEditorSheetContext(
+                                            title: "Recipe Draft",
+                                            draft: draft
+                                        )
+                                    },
+                                    onConfirmProposedChange: { proposal in
+                                        Task { await respondToProposal(proposal, confirm: true) }
+                                    },
+                                    onCancelProposedChange: { proposal in
+                                        Task { await respondToProposal(proposal, confirm: false) }
+                                    }
+                                )
                             }
                         }
                     } else if appState.assistantSendingThreadIDs.contains(threadID) {
@@ -377,11 +386,37 @@ private struct AssistantThreadView: View {
             appState.assistantErrorByThreadID[threadID] = error.localizedDescription
         }
     }
+
+    /// M26 Phase 5: when the user taps Confirm/Cancel on a proposed-
+    /// change card, send a follow-up assistant message that prompts
+    /// the LLM to call `confirm_swap_meal` or `cancel_swap_meal`.
+    /// Including the dish identity in the text gives the LLM enough
+    /// context to re-issue the same args without re-resolving from
+    /// the prior proposal.
+    private func respondToProposal(_ proposal: AssistantProposedChange, confirm: Bool) async {
+        let descriptor = "\(proposal.dayName) \(proposal.slot) (\"\(proposal.afterRecipeName)\")"
+        let text = confirm
+            ? "Confirm the proposed swap of \(descriptor). Call confirm_swap_meal with the same args."
+            : "Cancel the proposed swap of \(descriptor). Call cancel_swap_meal."
+        do {
+            try await appState.sendAssistantMessage(
+                threadID: threadID,
+                text: text,
+                attachedRecipeID: nil,
+                attachedRecipeDraft: nil,
+                intent: intent
+            )
+        } catch {
+            appState.assistantErrorByThreadID[threadID] = error.localizedDescription
+        }
+    }
 }
 
 private struct AssistantMessageBubble: View {
     let message: AssistantMessage
     let openDraft: (RecipeDraft) -> Void
+    var onConfirmProposedChange: ((AssistantProposedChange) -> Void)? = nil
+    var onCancelProposedChange: ((AssistantProposedChange) -> Void)? = nil
 
     private var isUser: Bool { message.role == "user" }
 
@@ -391,7 +426,11 @@ private struct AssistantMessageBubble: View {
                 if !message.toolCalls.isEmpty {
                     VStack(alignment: .leading, spacing: SMSpacing.sm) {
                         ForEach(message.toolCalls) { call in
-                            AssistantToolCallCard(call: call)
+                            AssistantToolCallCard(
+                                call: call,
+                                onConfirmProposedChange: onConfirmProposedChange,
+                                onCancelProposedChange: onCancelProposedChange
+                            )
                         }
                     }
                 }

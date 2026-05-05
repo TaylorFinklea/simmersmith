@@ -645,6 +645,132 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/weeks/\(weekID)/grocery/items", method: "POST", body: body)
     }
 
+    // MARK: - Meal sides (M26 Phase 2)
+
+    public struct WeekMealSideAddBody: Encodable, Sendable {
+        public var name: String
+        public var recipeId: String?
+        public var notes: String
+        public var sortOrder: Int
+
+        public init(name: String, recipeId: String? = nil, notes: String = "", sortOrder: Int = 0) {
+            self.name = name
+            self.recipeId = recipeId
+            self.notes = notes
+            self.sortOrder = sortOrder
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, notes
+            case recipeId = "recipe_id"
+            case sortOrder = "sort_order"
+        }
+    }
+
+    public struct WeekMealSidePatchBody: Encodable, Sendable {
+        public var name: String?
+        public var recipeId: String?
+        public var clearRecipe: Bool?
+        public var notes: String?
+        public var sortOrder: Int?
+
+        public init(
+            name: String? = nil,
+            recipeId: String? = nil,
+            clearRecipe: Bool? = nil,
+            notes: String? = nil,
+            sortOrder: Int? = nil
+        ) {
+            self.name = name
+            self.recipeId = recipeId
+            self.clearRecipe = clearRecipe
+            self.notes = notes
+            self.sortOrder = sortOrder
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            if let name { try c.encode(name, forKey: .name) }
+            if let recipeId { try c.encode(recipeId, forKey: .recipeId) }
+            if let clearRecipe { try c.encode(clearRecipe, forKey: .clearRecipe) }
+            if let notes { try c.encode(notes, forKey: .notes) }
+            if let sortOrder { try c.encode(sortOrder, forKey: .sortOrder) }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, notes
+            case recipeId = "recipe_id"
+            case clearRecipe = "clear_recipe"
+            case sortOrder = "sort_order"
+        }
+    }
+
+    public func addMealSide(
+        weekID: String,
+        mealID: String,
+        body: WeekMealSideAddBody
+    ) async throws -> WeekMealSide {
+        try await request(
+            path: "/api/weeks/\(weekID)/meals/\(mealID)/sides",
+            method: "POST",
+            body: body
+        )
+    }
+
+    public func patchMealSide(
+        weekID: String,
+        mealID: String,
+        sideID: String,
+        body: WeekMealSidePatchBody
+    ) async throws -> WeekMealSide {
+        try await request(
+            path: "/api/weeks/\(weekID)/meals/\(mealID)/sides/\(sideID)",
+            method: "PATCH",
+            body: body
+        )
+    }
+
+    public func deleteMealSide(
+        weekID: String,
+        mealID: String,
+        sideID: String
+    ) async throws {
+        let _: EmptyResponse = try await request(
+            path: "/api/weeks/\(weekID)/meals/\(mealID)/sides/\(sideID)",
+            method: "DELETE"
+        )
+    }
+
+    // MARK: - Household term aliases (M26 Phase 3)
+
+    public struct HouseholdTermAliasUpsertBody: Encodable, Sendable {
+        public var term: String
+        public var expansion: String
+        public var notes: String
+
+        public init(term: String, expansion: String, notes: String = "") {
+            self.term = term
+            self.expansion = expansion
+            self.notes = notes
+        }
+    }
+
+    public func fetchHouseholdAliases() async throws -> [HouseholdTermAlias] {
+        try await request(path: "/api/household/aliases")
+    }
+
+    public func upsertHouseholdAlias(body: HouseholdTermAliasUpsertBody) async throws -> HouseholdTermAlias {
+        try await request(path: "/api/household/aliases", method: "POST", body: body)
+    }
+
+    public func deleteHouseholdAlias(term: String) async throws {
+        let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? term
+        let _: EmptyResponse = try await request(
+            path: "/api/household/aliases/\(encoded)",
+            method: "DELETE"
+        )
+    }
+
     public func patchGroceryItem(weekID: String, itemID: String, body: GroceryItemPatchBody) async throws -> GroceryItem {
         try await request(path: "/api/weeks/\(weekID)/grocery/items/\(itemID)", method: "PATCH", body: body)
     }
@@ -1667,6 +1793,26 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(
             path: "/api/events/\(eventID)/meals/\(mealID)",
             method: "DELETE"
+        )
+    }
+
+    /// M26 Phase 4 — generate a complete recipe draft for one event
+    /// dish. Returns a `RecipeDraft` the caller can preview and save.
+    /// The route does NOT persist a Recipe; the iOS client decides.
+    public func generateEventMealRecipe(
+        eventID: String,
+        mealID: String,
+        prompt: String = "",
+        servings: Int = 0
+    ) async throws -> RecipeDraft {
+        struct Body: Encodable {
+            let prompt: String
+            let servings: Int
+        }
+        return try await request(
+            path: "/api/events/\(eventID)/meals/\(mealID)/ai-recipe",
+            method: "POST",
+            body: Body(prompt: prompt, servings: servings)
         )
     }
 

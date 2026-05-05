@@ -142,6 +142,20 @@ struct SettingsView: View {
                     Task { await appState.saveAISettings(clearStoredAPIKey: true) }
                 }
                 .disabled(!appState.aiDirectAPIKeyConfigured)
+
+                NavigationLink {
+                    HouseholdAliasesView()
+                } label: {
+                    HStack {
+                        Label("Custom terms", systemImage: "textformat.abc")
+                        Spacer()
+                        if !appState.householdAliases.isEmpty {
+                            Text("\(appState.householdAliases.count)")
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    }
+                }
             }
 
             Section("Recipe images") {

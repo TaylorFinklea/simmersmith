@@ -101,7 +101,34 @@ class WeekMeal(Base):
         cascade="all, delete-orphan",
         order_by=lambda: WeekMealIngredient.ingredient_name,
     )
+    sides: Mapped[list["WeekMealSide"]] = relationship(
+        back_populates="week_meal",
+        cascade="all, delete-orphan",
+        order_by=lambda: (WeekMealSide.sort_order, WeekMealSide.created_at),
+    )
     feedback_entries: Mapped[list["FeedbackEntry"]] = relationship(back_populates="meal")
+
+
+class WeekMealSide(Base):
+    __tablename__ = "week_meal_sides"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    week_meal_id: Mapped[str] = mapped_column(
+        ForeignKey("week_meals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    recipe_id: Mapped[str | None] = mapped_column(
+        ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    week_meal: Mapped["WeekMeal"] = relationship(back_populates="sides")
+    recipe: Mapped["Recipe | None"] = relationship()
 
 
 class WeekMealIngredient(Base):

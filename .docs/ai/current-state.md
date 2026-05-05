@@ -8,7 +8,62 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-03 (continued, second hotfix)
+**Date**: 2026-05-04 — M26 ship (Savanne dogfood feedback, all 5 phases)
+
+**Build 49** bundles M26 phases 1–5 in one TestFlight slice:
+
+- **Phase 1 — Meal-card word wrap**: dropped `.lineLimit` on
+  `CompactMealCard` + `TodayMealCard` recipe-name text; HStack
+  switched to `alignment: .top` so slot label + checkmark stay
+  pinned to the first line of a wrapped title.
+- **Phase 2 — Sides on a meal**: new `week_meal_sides` table
+  (migration `0032`); `WeekMealSide` model + cascade-delete
+  relationship; `app/services/sides.py` (add/update/delete + auto
+  grocery regen); REST endpoints under
+  `/api/weeks/{w}/meals/{m}/sides`. Grocery aggregation in
+  `build_grocery_rows_for_week` walks each meal's sides and folds
+  recipe-linked sides into the grocery list scaled by the parent
+  meal's `scale_multiplier`. iOS: `WeekMealSide` model, API client
+  methods, `MealSidesSheet` reachable from the meal action sheet's
+  "Manage Sides" item, side pills below the recipe name on both
+  card variants. 5 new tests passing.
+- **Phase 3 — Per-household shorthand dictionary**: new
+  `household_term_aliases` table (migration `0033`);
+  `app/services/aliases.py` (case-normalized term, household-scoped
+  upsert); `app/api/aliases.py` GET/POST/DELETE; `gather_planning_context`
+  + `_planning_context_text` inject the alias map as a "treat term
+  X as expansion Y" preamble in both planner and assistant prompts.
+  iOS: `HouseholdTermAlias` model, API client, AppState helpers,
+  `HouseholdAliasesView` reachable from Settings → AI → Custom
+  terms. 6 new tests passing.
+- **Phase 4 — Event dish recipe linking + AI gen**:
+  `event_ai.generate_recipe_for_meal` per-dish helper extracted
+  from the existing menu pipeline; new `POST /api/events/{e}/meals/{m}/ai-recipe`
+  returns a `RecipePayload` draft (no DB persist — human-in-loop).
+  iOS: `generateEventMealRecipe` API method, "Generate recipe with
+  AI" section in `EventMealEditorSheet` that calls the route, saves
+  the draft as a Recipe, links it to the event meal. 3 new tests
+  passing.
+- **Phase 5 — AI dry-run confirm for swaps**: `_run_swap_meal` no
+  longer mutates — returns a structured `proposed_change` payload
+  in `AssistantToolResult.data`. Two new tools `confirm_swap_meal`
+  (applies) and `cancel_swap_meal` (no-op ack). Tool descriptions
+  teach the LLM the propose-then-confirm pattern. iOS: new
+  `ProposedChangeCard` rendered inside `AssistantToolCallCard` when
+  the tool result carries a `proposed_change` payload — Was/Becomes
+  diff with Confirm/Cancel buttons that send follow-up assistant
+  messages so the LLM dispatches the apply/cancel tool. 3 new
+  tests passing.
+
+**Test status**: backend `pytest -q` 296/296 (290 pre-M26 + 5 sides
++ 6 aliases + 3 event recipe + 3 dry-run minus 1 retired). iOS
+build green on `Seedkeep iPhone` simulator.
+
+**Build bump**: `CURRENT_PROJECT_VERSION` 48 → 49. Backend has new
+migrations `0032` (week_meal_sides) + `0033` (household_term_aliases)
+ready for `fly deploy`.
+
+### Earlier sessions (build 35 → 48: M22.5 / M23 / M24 / M25)
 
 **M22.5 + diagnostics hotfix** addresses build-35 dogfood:
 

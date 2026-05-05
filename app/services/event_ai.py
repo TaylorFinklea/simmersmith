@@ -226,6 +226,100 @@ def _resolve_coverage(
     return resolved
 
 
+def _build_per_dish_prompt(
+    *,
+    event: Event,
+    meal_name: str,
+    servings: int,
+    user_prompt: str,
+) -> str:
+    """Build a focused prompt for ONE recipe attached to one event dish.
+    Reuses the event's guest-constraint context so the recipe avoids
+    allergens for the diners that will eat it.
+    """
+    attendees = [(row.guest, row.plus_ones) for row in event.attendees if row.guest is not None]
+    guest_block, _ = _describe_guests(attendees)
+    extra = f"\nUser hint: {user_prompt.strip()}" if user_prompt.strip() else ""
+    schema = (
+        '{\n'
+        '  "name": "",\n'
+        '  "meal_type": "",\n'
+        '  "cuisine": "",\n'
+        '  "servings": 0,\n'
+        '  "prep_minutes": 0,\n'
+        '  "cook_minutes": 0,\n'
+        '  "tags": [],\n'
+        '  "instructions_summary": "",\n'
+        '  "ingredients": [\n'
+        '    {"ingredient_name": "", "quantity": 0, "unit": "", "prep": "", "notes": ""}\n'
+        '  ],\n'
+        '  "steps": [\n'
+        '    {"order_index": 1, "instruction": ""}\n'
+        '  ]\n'
+        "}"
+    )
+    return (
+        f"You are writing ONE detailed recipe for the dish \"{meal_name}\" "
+        f"on the event \"{event.name}\" (occasion: {event.occasion or 'general'}).\n"
+        f"This recipe must serve {servings} people total — scale ingredient "
+        "quantities accordingly. Keep instructions usable in a real kitchen.\n\n"
+        "Guests with constraints (avoid allergens for these diners):\n"
+        f"{guest_block}\n"
+        f"{extra}\n\n"
+        "Rules:\n"
+        "- Provide complete ingredient quantities. Avoid bare names like just \"salt\".\n"
+        "- `steps[].instruction` must be a numbered cooking step, not a heading.\n"
+        "- NEVER include a known allergen for any guest listed above.\n"
+        "- Return ONLY a JSON object matching this schema:\n"
+        f"{schema}\n"
+    )
+
+
+def generate_recipe_for_meal(
+    *,
+    session: Session,
+    event: Event,
+    meal_name: str,
+    servings: int,
+    user_prompt: str = "",
+    settings: Settings,
+    user_settings: dict[str, str],
+) -> dict[str, Any]:
+    """Generate a single recipe draft sized for an event dish.
+
+    Reuses the event-menu pipeline's provider resolution + JSON
+    extraction. Returns a dict shaped to fit `RecipePayload` (servings,
+    ingredients, steps, etc.) — the caller decides whether to persist
+    it as a real `Recipe` and link it to the event meal.
+    """
+    target = _resolve_target(settings, user_settings)
+    prompt = _build_per_dish_prompt(
+        event=event,
+        meal_name=meal_name,
+        servings=servings,
+        user_prompt=user_prompt,
+    )
+    raw = run_direct_provider(
+        target=target,
+        settings=settings,
+        user_settings=user_settings,
+        prompt=prompt,
+    )
+    candidate = extract_json_object(raw)
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("AI returned invalid JSON for event-meal recipe.") from exc
+    # Light shape coercion — AI sometimes omits empty lists.
+    payload.setdefault("name", meal_name)
+    payload.setdefault("ingredients", [])
+    payload.setdefault("steps", [])
+    payload.setdefault("tags", [])
+    if not payload.get("servings"):
+        payload["servings"] = float(servings)
+    return payload
+
+
 def generate_event_menu(
     *,
     session: Session,

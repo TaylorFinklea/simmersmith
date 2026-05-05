@@ -21,6 +21,11 @@ struct EventMealEditorSheet: View {
     @State private var isDeleting = false
     @State private var errorMessage: String?
 
+    // M26 Phase 4 — AI recipe generation for an existing event meal.
+    @State private var aiPrompt: String = ""
+    @State private var isGeneratingAI = false
+    @State private var aiToast: String? = nil
+
     private let roles = ["starter", "main", "side", "dessert", "beverage", "other"]
 
     var body: some View {
@@ -51,6 +56,35 @@ struct EventMealEditorSheet: View {
                     Text("Link to saved recipe (optional)")
                 } footer: {
                     Text("Pick a recipe and the grocery list will pull ingredients automatically. Free-text dishes don't contribute to the grocery roll-up yet.")
+                }
+
+                if let meal {
+                    Section {
+                        TextField("Hint (optional, e.g. \"gluten-free\")", text: $aiPrompt, axis: .vertical)
+                            .lineLimit(1...3)
+                        Button {
+                            Task { await generateRecipeWithAI(for: meal) }
+                        } label: {
+                            HStack {
+                                if isGeneratingAI {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "sparkles")
+                                }
+                                Text(isGeneratingAI ? "Generating…" : "Generate recipe with AI")
+                            }
+                        }
+                        .disabled(isGeneratingAI)
+                        if let aiToast {
+                            Text(aiToast)
+                                .font(.footnote)
+                                .foregroundStyle(SMColor.textSecondary)
+                        }
+                    } header: {
+                        Text("Or have AI write a recipe")
+                    } footer: {
+                        Text("AI uses the dish name + guest constraints. The new recipe lands in your library and gets linked here automatically.")
+                    }
                 }
 
                 Section {
@@ -172,6 +206,42 @@ struct EventMealEditorSheet: View {
         do {
             _ = try await appState.deleteEventMeal(eventID: event.eventId, mealID: meal.mealId)
             dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Pipeline: ask the server for a recipe draft → persist as a new
+    /// Recipe → link the resulting recipe to this event meal. Refreshes
+    /// the recipes cache so the linked picker shows the new entry.
+    private func generateRecipeWithAI(for meal: EventMeal) async {
+        isGeneratingAI = true
+        defer { isGeneratingAI = false }
+        aiToast = nil
+        errorMessage = nil
+        let servings = Int(servingsText.trimmingCharacters(in: .whitespaces)) ?? 0
+        do {
+            let draft = try await appState.apiClient.generateEventMealRecipe(
+                eventID: event.eventId,
+                mealID: meal.mealId,
+                prompt: aiPrompt,
+                servings: servings
+            )
+            let saved = try await appState.saveRecipe(draft)
+            _ = try await appState.updateEventMeal(
+                eventID: event.eventId,
+                mealID: meal.mealId,
+                role: role,
+                recipeID: saved.recipeId,
+                recipeName: recipeName,
+                servings: servings > 0 ? Double(servings) : nil,
+                notes: notes,
+                assignedGuestID: assignedGuestID,
+                clearAssignee: false
+            )
+            linkedRecipeID = saved.recipeId
+            aiToast = "Linked to new recipe \"\(saved.name)\". Tap Save to keep dish-level edits."
+            await appState.refreshRecipes()
         } catch {
             errorMessage = error.localizedDescription
         }

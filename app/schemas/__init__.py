@@ -135,6 +135,9 @@ from app.schemas.week import (
     WeekFeedbackResponse,
     WeekFeedbackSummary,
     WeekMealOut,
+    WeekMealSideAddRequest,
+    WeekMealSideOut,
+    WeekMealSidePatchRequest,
     WeekOut,
     WeekSummaryOut,
 )
@@ -254,6 +257,9 @@ __all__ = [
     "WeekFeedbackResponse",
     "WeekFeedbackSummary",
     "WeekMealOut",
+    "WeekMealSideAddRequest",
+    "WeekMealSideOut",
+    "WeekMealSidePatchRequest",
     "WeekOut",
     "WeekSummaryOut",
 ]

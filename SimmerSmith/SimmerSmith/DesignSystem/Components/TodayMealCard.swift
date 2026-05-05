@@ -32,8 +32,12 @@ struct TodayMealCard: View {
                 Text(meal.recipeName)
                     .font(SMFont.headline)
                     .foregroundStyle(SMColor.textPrimary)
-                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !meal.sides.isEmpty {
+                    SideChipRow(sides: meal.sides)
+                }
 
                 HStack(spacing: SMSpacing.md) {
                     if let cuisine = recipe?.cuisine, !cuisine.isEmpty {

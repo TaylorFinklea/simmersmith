@@ -119,6 +119,9 @@ final class AppState {
     var assistantThreads: [AssistantThreadSummary] = []
     var assistantThreadDetails: [String: AssistantThread] = [:]
     var ingredientPreferences: [IngredientPreference] = []
+    /// M26 Phase 3 — per-household shorthand aliases. Loaded lazily
+    /// when the Settings → AI → Custom terms screen opens.
+    var householdAliases: [HouseholdTermAlias] = []
     var guests: [Guest] = []
     var eventSummaries: [EventSummary] = []
     var eventDetails: [String: Event] = [:]
