@@ -209,6 +209,7 @@ def run_assistant_turn(
         system_prompt = build_planning_system_prompt(
             thread_title=thread_title,
             planning_context=planning_context or "",
+            user_settings=user_settings,
         )
         attached_note = ""
         if attached_recipe is not None:
@@ -240,6 +241,7 @@ def run_assistant_turn(
         request=request,
         attached_recipe=attached_recipe,
         planning_context=planning_context,
+        user_settings=user_settings,
     )
     provider_thread_id = existing_provider_thread_id
     if target.provider_kind == "mcp":
@@ -852,11 +854,15 @@ def _run_provider_tool_loop(
 
 
 def build_planning_system_prompt(
-    *, thread_title: str, planning_context: str
+    *, thread_title: str, planning_context: str, user_settings: dict[str, str] | None = None
 ) -> str:
+    from app.services.ai import unit_system_directive
+
+    units_directive = unit_system_directive(user_settings or {})
     return (
         "You are SimmerSmith's Planning Assistant, a conversational agent that helps "
         "a single user plan their week of meals.\n"
+        f"{units_directive}\n"
         "You have tools that can READ and MODIFY the user's current week in real time. "
         "When the user asks for a change, CALL THE TOOL rather than describing what you would do. "
         "Do not claim to have done something you haven't called a tool for.\n"
@@ -878,7 +884,10 @@ def build_assistant_prompt(
     request: AssistantRespondRequest,
     attached_recipe: RecipePayload | None,
     planning_context: str | None = None,
+    user_settings: dict[str, str] | None = None,
 ) -> str:
+    from app.services.ai import unit_system_directive
+    units_directive = unit_system_directive(user_settings or {})
     envelope_schema = json.dumps(strict_json_schema(AssistantProviderEnvelope), indent=2)
     transcript = []
     for message in conversation[-10:]:
@@ -895,6 +904,7 @@ def build_assistant_prompt(
 
     return (
         "You are SimmerSmith Assistant, an in-app cooking and recipe assistant.\n"
+        f"{units_directive}\n"
         "You must respond with exactly one JSON object that matches the provided schema.\n"
         "Never wrap the JSON in markdown fences.\n"
         "Never include any text outside the JSON object.\n"

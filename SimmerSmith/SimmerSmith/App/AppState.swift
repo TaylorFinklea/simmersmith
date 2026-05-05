@@ -75,6 +75,10 @@ final class AppState {
     /// Per-user image-gen provider (M17). `"openai"` (default) or
     /// `"gemini"`. Hydrated from `profile.settings["image_provider"]`.
     var imageProviderDraft: String = "openai"
+    /// M27 — unit-system localization. `"us"` (default) or `"metric"`.
+    /// Constrains AI-generated and AI-found recipes to use the right
+    /// units. Hydrated from `profile.settings["unit_system"]`.
+    var unitSystemDraft: String = "us"
     /// Current iOS notification authorization status (M18). Hydrated by
     /// `ensurePushBootstrap()` on `refreshAll()` and refreshed after the
     /// user toggles a push preference. Drives the "Open iOS Settings"
@@ -251,6 +255,7 @@ final class AppState {
             syncAIDrafts(from: profile)
             syncRegionDraft(from: profile)
             syncImageProviderDraft(from: profile)
+            syncUnitSystemDraft(from: profile)
             // Push drafts are derived from profile.settings — no extra sync needed;
             // ensurePushBootstrap() is called in refreshAll() after network hydration.
         }
@@ -348,6 +353,7 @@ final class AppState {
             syncAIDrafts(from: fetchedProfile)
             syncRegionDraft(from: fetchedProfile)
             syncImageProviderDraft(from: fetchedProfile)
+            syncUnitSystemDraft(from: fetchedProfile)
             currentWeek = fetchedWeek
             // Best-effort: fire the APNs permission prompt once on first launch after sign-in.
             // A failure here must never crash bootstrap.

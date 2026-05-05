@@ -8,7 +8,40 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-04 — M26 ship (Savanne dogfood feedback, all 5 phases)
+**Date**: 2026-05-05 — M27 ship (unit-system localization)
+
+**Build 50** adds a per-user `unit_system` profile setting (`us` |
+`metric`, default `us`) that constrains every recipe-producing AI
+prompt to one unit system. Drift was unconstrained before — the AI
+mixed cups + grams in the same recipe.
+
+- `app/services/ai.py` — `unit_system()` + `unit_system_directive()`
+  helpers. The directive is a top-of-prompt instruction
+  (`UNIT SYSTEM — US CUSTOMARY ONLY` / `UNIT SYSTEM — METRIC ONLY`)
+  that enumerates the allowed units (cups/tbsp/oz/lb/°F vs g/ml/°C)
+  and tells the AI to convert from imported sources before
+  responding.
+- Injected into the high-traffic recipe surfaces:
+  - `week_planner._build_system_prompt` (whole-week plan)
+  - `event_ai._build_prompt` (whole-event menu)
+  - `event_ai._build_per_dish_prompt` (M26 Phase 4 per-dish)
+  - `recipe_search_ai._build_input` (find a recipe via web search)
+  - `substitution_ai._build_prompt`
+  - `assistant_ai.build_planning_system_prompt` + `build_assistant_prompt`
+- `app/services/bootstrap.py:DEFAULT_PROFILE_SETTINGS` adds
+  `unit_system: "us"` so every new household starts on US customary
+  by default; legacy users without the row inherit `"us"`.
+- iOS: `AppState.unitSystemDraft` + `saveUnitSystem` / `syncUnitSystemDraft`
+  helpers (M17 image-provider pattern). Settings → AI → Recipe
+  units picker writes via `PUT /api/profile`.
+- Tests: `tests/test_unit_system.py` (6 cases — defaults, normalize,
+  directive content, week-planner injection, per-dish injection).
+  302/302 backend pass.
+
+**Build bump**: 49 → 50. Backend has no migrations — pure prompt
++ profile-setting change. Fly deploy + TestFlight build 50 follow.
+
+### Earlier session (build 49 / Fly v75 — M26 Savanne dogfood, all 5 phases)
 
 **Build 49** bundles M26 phases 1–5 in one TestFlight slice:
 

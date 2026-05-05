@@ -20,6 +20,7 @@ from app.services.ai import (
     SUPPORTED_DIRECT_PROVIDERS,
     direct_provider_availability,
     resolve_direct_model,
+    unit_system_directive,
 )
 from app.services.assistant_ai import (
     AssistantExecutionTarget,
@@ -139,6 +140,7 @@ def _build_prompt(
     attendees: list[tuple[Guest, int]],
     roles: list[str],
     user_prompt: str,
+    user_settings: dict[str, str],
 ) -> str:
     guest_block, _ = _describe_guests(attendees)
     role_spec = ", ".join(roles) if roles else "dealer's choice"
@@ -164,7 +166,9 @@ def _build_prompt(
         '  "coverage_summary": "one short paragraph describing how each constrained guest has something they can eat"\n'
         "}"
     )
+    units_directive = unit_system_directive(user_settings)
     return (
+        f"{units_directive}\n\n"
         "You are designing a menu for a one-off event (not a recurring week). "
         "Your job: propose a crowd-pleasing menu for the majority, THEN ensure "
         "every guest with constraints has at least one compatible dish at each "
@@ -232,6 +236,7 @@ def _build_per_dish_prompt(
     meal_name: str,
     servings: int,
     user_prompt: str,
+    user_settings: dict[str, str],
 ) -> str:
     """Build a focused prompt for ONE recipe attached to one event dish.
     Reuses the event's guest-constraint context so the recipe avoids
@@ -258,7 +263,9 @@ def _build_per_dish_prompt(
         '  ]\n'
         "}"
     )
+    units_directive = unit_system_directive(user_settings)
     return (
+        f"{units_directive}\n\n"
         f"You are writing ONE detailed recipe for the dish \"{meal_name}\" "
         f"on the event \"{event.name}\" (occasion: {event.occasion or 'general'}).\n"
         f"This recipe must serve {servings} people total — scale ingredient "
@@ -298,6 +305,7 @@ def generate_recipe_for_meal(
         meal_name=meal_name,
         servings=servings,
         user_prompt=user_prompt,
+        user_settings=user_settings,
     )
     raw = run_direct_provider(
         target=target,
@@ -341,6 +349,7 @@ def generate_event_menu(
         attendees=attendees,
         roles=list(roles) if roles else list(DEFAULT_ROLES),
         user_prompt=user_prompt,
+        user_settings=user_settings,
     )
     raw = run_direct_provider(
         target=target,

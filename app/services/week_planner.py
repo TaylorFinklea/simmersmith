@@ -20,6 +20,7 @@ from app.services.ai import (
     resolve_ai_execution_target,
     resolve_direct_api_key,
     resolve_direct_model,
+    unit_system_directive,
     visible_profile_settings,
 )
 
@@ -299,7 +300,11 @@ def _build_system_prompt(
     dates = [(week_start + timedelta(days=i)) for i in range(7)]
     day_labels = [f"{DAYS[i]} ({dates[i].isoformat()})" for i in range(7)]
 
+    units_directive = unit_system_directive(user_settings)
+
     return f"""You are SimmerSmith, an AI meal planning assistant.
+
+{units_directive}
 
 Generate a complete 7-day meal plan based on the user's request and their profile.
 

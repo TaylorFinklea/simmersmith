@@ -103,6 +103,7 @@ def _build_prompt(
     target: RecipeIngredient,
     preferences: list[IngredientPreference],
     hint: str,
+    user_settings: dict[str, str],
 ) -> str:
     all_ingredients = "\n".join(
         f"- {_ingredient_line(ing)}" for ing in recipe.ingredients
@@ -114,7 +115,11 @@ def _build_prompt(
     schema_hint = (
         '{"suggestions": [{"name": "", "reason": "", "quantity": "", "unit": ""}]}'
     )
+    from app.services.ai import unit_system_directive
+
+    units_directive = unit_system_directive(user_settings)
     return (
+        f"{units_directive}\n\n"
         "You are a cooking assistant helping a home cook substitute a single "
         "ingredient in a recipe. Propose "
         f"{MIN_SUGGESTIONS}-{MAX_SUGGESTIONS} substitutes that keep the dish "
@@ -183,6 +188,7 @@ def suggest_substitutions(
         target=target_ingredient,
         preferences=user_preferences,
         hint=hint,
+        user_settings=user_settings,
     )
     execution_target = AssistantExecutionTarget(
         provider_kind="direct",

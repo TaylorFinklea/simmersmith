@@ -44,6 +44,12 @@ DEFAULT_PROFILE_SETTINGS = {
     "walmart_store_id": "",
     "ai_provider_mode": "auto",
     "ai_direct_provider": "",
+    # M27: unit-system localization. Constrains AI-generated and
+    # AI-found recipes to one of:
+    #   "us"     — cups, tbsp, tsp, oz, lb, °F (default)
+    #   "metric" — g, kg, ml, l, °C
+    # Empty / unrecognized falls back to "us".
+    "unit_system": "us",
     # Push notification defaults (M18). All on by default.
     "push_tonights_meal": "1",
     "push_saturday_plan": "1",

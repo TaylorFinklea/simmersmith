@@ -156,6 +156,17 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                // M27 — unit-system localization. Constrains AI-
+                // generated and AI-found recipes to one unit system.
+                @Bindable var unitsBindable = appState
+                Picker("Recipe units", selection: $unitsBindable.unitSystemDraft) {
+                    Text("US (cups, tbsp, °F)").tag("us")
+                    Text("Metric (g, ml, °C)").tag("metric")
+                }
+                .onChange(of: appState.unitSystemDraft) { _, newValue in
+                    Task { await appState.saveUnitSystem(newValue) }
+                }
             }
 
             Section("Recipe images") {

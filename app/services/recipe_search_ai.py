@@ -81,7 +81,10 @@ def _resolve_openai_target(settings: Settings, user_settings: dict[str, str]) ->
     return _Target(model=model)
 
 
-def _build_input(query: str) -> str:
+def _build_input(query: str, *, user_settings: dict[str, str]) -> str:
+    from app.services.ai import unit_system_directive
+
+    units_directive = unit_system_directive(user_settings)
     schema_hint = (
         '{"name": "...", "source_url": "https://...", "source_label": "site name", '
         '"cuisine": "...", "meal_type": "breakfast|lunch|dinner|snack|dessert", '
@@ -92,6 +95,7 @@ def _build_input(query: str) -> str:
         '"notes": "Why this recipe is the pick"}'
     )
     return (
+        f"{units_directive}\n\n"
         "You are a recipe finder. Use web search to find the BEST recipe that "
         f"matches this request: {query.strip()}\n\n"
         "Pick exactly ONE recipe — the one you'd recommend after looking at a "
@@ -191,7 +195,7 @@ def search_recipe(
     api_key = resolve_direct_api_key("openai", settings=settings, user_settings=user_settings)
     body = {
         "model": target.model,
-        "input": _build_input(query),
+        "input": _build_input(query, user_settings=user_settings),
         "tools": [{"type": "web_search"}],
     }
     headers = {

@@ -78,6 +78,38 @@ def visible_profile_settings(settings: dict[str, str]) -> dict[str, str]:
     return {key: value for key, value in settings.items() if key not in AI_SECRET_KEYS}
 
 
+def unit_system(user_settings: dict[str, str]) -> str:
+    """Normalize the user's `unit_system` profile setting.
+
+    Returns one of `"us"` or `"metric"`. Empty / unrecognized values
+    fall back to `"us"` so legacy users (no setting) get the original
+    behavior.
+    """
+    raw = str(user_settings.get("unit_system", "")).strip().lower()
+    return "metric" if raw == "metric" else "us"
+
+
+def unit_system_directive(user_settings: dict[str, str]) -> str:
+    """Prompt fragment that locks AI-produced recipes to the user's
+    preferred unit system. Inject near the top of the system prompt
+    so the rule outranks any unit hints the LLM picked up from the
+    request text or training data.
+    """
+    if unit_system(user_settings) == "metric":
+        return (
+            "UNIT SYSTEM — METRIC ONLY. All ingredient quantities must use "
+            "metric units (g, kg, ml, l). All temperatures must be in °C. "
+            "Convert any imperial values from your sources before returning. "
+            "Do not mix systems."
+        )
+    return (
+        "UNIT SYSTEM — US CUSTOMARY ONLY. All ingredient quantities must use "
+        "US customary units (cups, tbsp, tsp, oz, lb, fl oz). All temperatures "
+        "must be in °F. Convert any metric values from your sources before "
+        "returning. Do not mix systems."
+    )
+
+
 def secret_profile_flags(settings: dict[str, str]) -> dict[str, bool]:
     return {f"{key}_present": bool(str(settings.get(key, "")).strip()) for key in AI_SECRET_KEYS}
 
