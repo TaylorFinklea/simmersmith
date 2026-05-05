@@ -8,7 +8,64 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M27 ship (unit-system localization)
+**Date**: 2026-05-05 — M28 phase 1 ship (pantry extension on staples)
+
+**Build 51** extends the existing `staples` table into a full pantry
+concept. Pre-M28, staples already filtered from meal-driven grocery
+aggregation ("we always have eggs, don't add them to grocery just
+because a meal needs them"). M28 adds two more capabilities:
+
+- **Typical purchase quantity**: informational metadata on how the
+  household buys an item (e.g. "50 lb bag of flour"). Surfaced on
+  the pantry editor; doesn't change grocery quantities.
+- **Recurring auto-add**: each pantry item can carry an optional
+  cadence (`weekly` / `biweekly` / `monthly`) + quantity + unit.
+  When set, `apply_pantry_recurrings` folds it into the week's
+  grocery list as a `user_added` row. The function is idempotent
+  (matches by `pantry:recurring:<id>` source marker) and respects
+  the cadence gap via `last_applied_at`. It also runs at the tail
+  of `regenerate_grocery_for_week` so any regen brings recurrings
+  current.
+
+**Backend**:
+- `alembic/versions/20260505_0034_pantry_columns.py` adds 7
+  columns to `staples`: `typical_quantity`, `typical_unit`,
+  `recurring_quantity`, `recurring_unit`, `recurring_cadence`,
+  `category`, `last_applied_at`.
+- `app/models/profile.py:Staple` gets the new fields + a docstring
+  rebrand explaining the pantry vs. pure-staple split.
+- `app/services/pantry.py` (new): `add_pantry_item`,
+  `update_pantry_item`, `delete_pantry_item`,
+  `apply_pantry_recurrings`, `_is_due` cadence resolver.
+- `app/api/pantry.py` (new): GET/POST/PATCH/DELETE `/api/pantry`
+  + `POST /api/pantry/apply/{week_id}`. PATCH-by-id flow keeps
+  recurring metadata across partial saves; the legacy
+  `PUT /api/profile` staple flow still works for simple edits.
+- `app/services/grocery.py:regenerate_grocery_for_week` now calls
+  `apply_pantry_recurrings` after smart-merge.
+- Tests: `tests/test_pantry.py` (6 cases — recurring lands,
+  idempotent, cadence gap, regen integration, partial update,
+  staple-filter regression). 308/308 backend pass.
+
+**iOS**:
+- `PantryItem` model in SimmerSmithKit + 5 API client methods.
+- `AppState.pantryItems` state + `AppState+Pantry.swift` helpers
+  (load/add/patch/delete + applyToCurrentWeek).
+- `Features/Grocery/PantryView.swift` reachable from Grocery →
+  ⋯ menu → "Pantry". Lists items with cadence badges, supports
+  swipe-to-delete + manual "Apply recurrings to this week"
+  button.
+- `Features/Grocery/PantryItemEditorSheet.swift` — name +
+  category + active toggle + typical-purchase qty/unit +
+  recurring cadence picker + recurring qty/unit + notes.
+
+**Build bump**: 50 → 51.
+
+**Out of scope for phase 1, follows in phase 2**: event
+supplemental override (e.g. event needs 100 eggs, supplement the
+recurring pantry stock by N for that event).
+
+### Earlier session (build 50 / Fly v76 — M27 unit-system localization)
 
 **Build 50** adds a per-user `unit_system` profile setting (`us` |
 `metric`, default `us`) that constrains every recipe-producing AI

@@ -6,11 +6,68 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+PantryCadence = Literal["none", "weekly", "biweekly", "monthly"]
+
+
 class StaplePayload(BaseModel):
     staple_name: str
     normalized_name: str
     notes: str = ""
     is_active: bool = True
+    # M28 pantry extension. All optional so the pre-M28 PUT /api/profile
+    # path keeps working unchanged for existing clients.
+    typical_quantity: float | None = None
+    typical_unit: str = ""
+    recurring_quantity: float | None = None
+    recurring_unit: str = ""
+    recurring_cadence: PantryCadence = "none"
+    category: str = ""
+
+
+class PantryItemOut(BaseModel):
+    """Full row shape for the M28 pantry CRUD endpoints. Carries the
+    `pantry_item_id` so the iOS client can PATCH/DELETE by id without
+    losing the recurring metadata."""
+    pantry_item_id: str
+    staple_name: str
+    normalized_name: str
+    notes: str = ""
+    is_active: bool = True
+    typical_quantity: float | None = None
+    typical_unit: str = ""
+    recurring_quantity: float | None = None
+    recurring_unit: str = ""
+    recurring_cadence: PantryCadence = "none"
+    category: str = ""
+    last_applied_at: datetime | None = None
+    updated_at: datetime
+
+
+class PantryItemAddRequest(BaseModel):
+    staple_name: str = Field(min_length=1, max_length=255)
+    normalized_name: str = ""
+    notes: str = ""
+    is_active: bool = True
+    typical_quantity: float | None = None
+    typical_unit: str = ""
+    recurring_quantity: float | None = None
+    recurring_unit: str = ""
+    recurring_cadence: PantryCadence = "none"
+    category: str = ""
+
+
+class PantryItemPatchRequest(BaseModel):
+    staple_name: str | None = Field(default=None, min_length=1, max_length=255)
+    notes: str | None = None
+    is_active: bool | None = None
+    typical_quantity: float | None = None
+    clear_typical_quantity: bool = False
+    typical_unit: str | None = None
+    recurring_quantity: float | None = None
+    clear_recurring_quantity: bool = False
+    recurring_unit: str | None = None
+    recurring_cadence: PantryCadence | None = None
+    category: str | None = None
 
 
 GoalType = Literal["lose", "maintain", "gain", "custom"]

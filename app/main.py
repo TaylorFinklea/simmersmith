@@ -18,6 +18,7 @@ from app.api.exports import router as exports_router
 from app.api.household import router as household_router
 from app.api.ingredients import preferences_router as ingredient_preferences_router
 from app.api.ingredients import router as ingredients_router
+from app.api.pantry import router as pantry_router
 from app.api.preferences import router as preferences_router
 from app.api.products import router as products_router
 from app.api.profile import router as profile_router
@@ -96,6 +97,7 @@ app.include_router(preferences_router, dependencies=protected_dependencies)
 app.include_router(exports_router, dependencies=protected_dependencies)
 app.include_router(ingredients_router, dependencies=protected_dependencies)
 app.include_router(ingredient_preferences_router, dependencies=protected_dependencies)
+app.include_router(pantry_router, dependencies=protected_dependencies)
 app.include_router(products_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
 app.include_router(push_router, dependencies=protected_dependencies)

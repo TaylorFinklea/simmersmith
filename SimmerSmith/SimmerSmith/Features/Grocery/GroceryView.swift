@@ -183,6 +183,11 @@ struct GroceryView: View {
                     } label: {
                         Label("Show removed items", systemImage: "tray")
                     }
+                    NavigationLink {
+                        PantryView()
+                    } label: {
+                        Label("Pantry", systemImage: "shippingbox")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }

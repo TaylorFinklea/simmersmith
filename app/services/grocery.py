@@ -485,6 +485,13 @@ def regenerate_grocery_for_week(session: Session, user_id: str, household_id: st
         session.delete(item)
 
     session.flush()
+    # M28: fold pantry recurrings (e.g. "5 dozen eggs / week") into
+    # the grocery list. Idempotent — checks `pantry:recurring:<id>`
+    # source markers so re-running doesn't double-add.
+    from app.services.pantry import apply_pantry_recurrings
+
+    apply_pantry_recurrings(session, week=week, household_id=household_id)
+    session.flush()
     return list(
         session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
     )

@@ -763,6 +763,147 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/household/aliases", method: "POST", body: body)
     }
 
+    // MARK: - Pantry (M28)
+
+    public struct PantryItemAddBody: Encodable, Sendable {
+        public var stapleName: String
+        public var normalizedName: String
+        public var notes: String
+        public var isActive: Bool
+        public var typicalQuantity: Double?
+        public var typicalUnit: String
+        public var recurringQuantity: Double?
+        public var recurringUnit: String
+        public var recurringCadence: String
+        public var category: String
+
+        public init(
+            stapleName: String,
+            normalizedName: String = "",
+            notes: String = "",
+            isActive: Bool = true,
+            typicalQuantity: Double? = nil,
+            typicalUnit: String = "",
+            recurringQuantity: Double? = nil,
+            recurringUnit: String = "",
+            recurringCadence: String = "none",
+            category: String = ""
+        ) {
+            self.stapleName = stapleName
+            self.normalizedName = normalizedName
+            self.notes = notes
+            self.isActive = isActive
+            self.typicalQuantity = typicalQuantity
+            self.typicalUnit = typicalUnit
+            self.recurringQuantity = recurringQuantity
+            self.recurringUnit = recurringUnit
+            self.recurringCadence = recurringCadence
+            self.category = category
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case stapleName = "staple_name"
+            case normalizedName = "normalized_name"
+            case notes
+            case isActive = "is_active"
+            case typicalQuantity = "typical_quantity"
+            case typicalUnit = "typical_unit"
+            case recurringQuantity = "recurring_quantity"
+            case recurringUnit = "recurring_unit"
+            case recurringCadence = "recurring_cadence"
+            case category
+        }
+    }
+
+    public struct PantryItemPatchBody: Encodable, Sendable {
+        public var stapleName: String?
+        public var notes: String?
+        public var isActive: Bool?
+        public var typicalQuantity: Double?
+        public var clearTypicalQuantity: Bool?
+        public var typicalUnit: String?
+        public var recurringQuantity: Double?
+        public var clearRecurringQuantity: Bool?
+        public var recurringUnit: String?
+        public var recurringCadence: String?
+        public var category: String?
+
+        public init(
+            stapleName: String? = nil,
+            notes: String? = nil,
+            isActive: Bool? = nil,
+            typicalQuantity: Double? = nil,
+            clearTypicalQuantity: Bool? = nil,
+            typicalUnit: String? = nil,
+            recurringQuantity: Double? = nil,
+            clearRecurringQuantity: Bool? = nil,
+            recurringUnit: String? = nil,
+            recurringCadence: String? = nil,
+            category: String? = nil
+        ) {
+            self.stapleName = stapleName
+            self.notes = notes
+            self.isActive = isActive
+            self.typicalQuantity = typicalQuantity
+            self.clearTypicalQuantity = clearTypicalQuantity
+            self.typicalUnit = typicalUnit
+            self.recurringQuantity = recurringQuantity
+            self.clearRecurringQuantity = clearRecurringQuantity
+            self.recurringUnit = recurringUnit
+            self.recurringCadence = recurringCadence
+            self.category = category
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            if let stapleName { try c.encode(stapleName, forKey: .stapleName) }
+            if let notes { try c.encode(notes, forKey: .notes) }
+            if let isActive { try c.encode(isActive, forKey: .isActive) }
+            if let typicalQuantity { try c.encode(typicalQuantity, forKey: .typicalQuantity) }
+            if let clearTypicalQuantity { try c.encode(clearTypicalQuantity, forKey: .clearTypicalQuantity) }
+            if let typicalUnit { try c.encode(typicalUnit, forKey: .typicalUnit) }
+            if let recurringQuantity { try c.encode(recurringQuantity, forKey: .recurringQuantity) }
+            if let clearRecurringQuantity { try c.encode(clearRecurringQuantity, forKey: .clearRecurringQuantity) }
+            if let recurringUnit { try c.encode(recurringUnit, forKey: .recurringUnit) }
+            if let recurringCadence { try c.encode(recurringCadence, forKey: .recurringCadence) }
+            if let category { try c.encode(category, forKey: .category) }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case stapleName = "staple_name"
+            case notes
+            case isActive = "is_active"
+            case typicalQuantity = "typical_quantity"
+            case clearTypicalQuantity = "clear_typical_quantity"
+            case typicalUnit = "typical_unit"
+            case recurringQuantity = "recurring_quantity"
+            case clearRecurringQuantity = "clear_recurring_quantity"
+            case recurringUnit = "recurring_unit"
+            case recurringCadence = "recurring_cadence"
+            case category
+        }
+    }
+
+    public func fetchPantryItems() async throws -> [PantryItem] {
+        try await request(path: "/api/pantry")
+    }
+
+    public func addPantryItem(body: PantryItemAddBody) async throws -> PantryItem {
+        try await request(path: "/api/pantry", method: "POST", body: body)
+    }
+
+    public func patchPantryItem(itemID: String, body: PantryItemPatchBody) async throws -> PantryItem {
+        try await request(path: "/api/pantry/\(itemID)", method: "PATCH", body: body)
+    }
+
+    public func deletePantryItem(itemID: String) async throws {
+        let _: EmptyResponse = try await request(path: "/api/pantry/\(itemID)", method: "DELETE")
+    }
+
+    public func applyPantryToWeek(weekID: String) async throws -> [PantryItem] {
+        try await request(path: "/api/pantry/apply/\(weekID)", method: "POST", body: EmptyBody())
+    }
+
     public func deleteHouseholdAlias(term: String) async throws {
         let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? term
         let _: EmptyResponse = try await request(

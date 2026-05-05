@@ -33,6 +33,7 @@
 		364F923A2908430AB4FB39D5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF982BE7185D4506E4BAC7C6 /* RootView.swift */; };
 		3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */; };
 		3B27C1AB3BF4F270416007B8 /* SimmerSmithUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */; };
+		3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E66D6C949E92294D4B03EC /* PantryView.swift */; };
 		40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */; };
 		43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */; };
 		43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */; };
@@ -54,6 +55,7 @@
 		60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */; };
 		692CAF7C13BE715CECD643FA /* IngredientScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */; };
 		6A33B301E1727D4D46AB6A25 /* AppState+Weeks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC343882E82E9D7CE676F34 /* AppState+Weeks.swift */; };
+		6AD954EF4BFC9CF8D07BDB34 /* PantryItemEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6485B4F246B99307DF48773D /* PantryItemEditorSheet.swift */; };
 		6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */; };
 		6DB2E8D0092EBB3D823FE5CE /* IngredientCatalogList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */; };
 		6DEB6FB3394993D202D2A101 /* RecipePairingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7199A2250CBA7830AFF57E /* RecipePairingsCard.swift */; };
@@ -110,6 +112,7 @@
 		D6D665599BB2121248AC3271 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF738967CD3644971E26635 /* SignInView.swift */; };
 		D6F565FBCB27395CEBE63D72 /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD4B0B2B48797EDA3DA4907 /* RemindersService.swift */; };
 		DDB8C4DD897500DB62356859 /* AddGroceryItemSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6E46D15E4FD124EB6535A2 /* AddGroceryItemSheet.swift */; };
+		DF013B689CE654E21C864D22 /* AppState+Pantry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDDF7B7C9AD00BE199D8CB3A /* AppState+Pantry.swift */; };
 		DF7731457AC9E508DD586A96 /* AppState+Vision.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */; };
 		E0378532886B9D2564206062 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 41A88D3F5C64A7005794412A /* GoogleSignInSwift */; };
 		E395F9237FD8F1D10B4A2113 /* AIPageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BAF92537028E47DF2B80C2 /* AIPageContext.swift */; };
@@ -200,7 +203,9 @@
 		61DF4C402A2B4FBFF4C1D3D4 /* MacroRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroRing.swift; sourceTree = "<group>"; };
 		62F1F6BBBA32D70674A08939 /* AIRecipeCreateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRecipeCreateSheet.swift; sourceTree = "<group>"; };
 		62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorView.swift; sourceTree = "<group>"; };
+		6485B4F246B99307DF48773D /* PantryItemEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryItemEditorSheet.swift; sourceTree = "<group>"; };
 		66465170F1619913CD28CBBB /* AIAssistantSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantSheetView.swift; sourceTree = "<group>"; };
+		66E66D6C949E92294D4B03EC /* PantryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryView.swift; sourceTree = "<group>"; };
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6DF738967CD3644971E26635 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		6ECB22E673210C0A5DD08ADF /* DayKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayKey.swift; sourceTree = "<group>"; };
@@ -272,6 +277,7 @@
 		F9B7C710B194A7A3BDF6D722 /* RecipeImageOverrideSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeImageOverrideSheet.swift; sourceTree = "<group>"; };
 		FA6E46D15E4FD124EB6535A2 /* AddGroceryItemSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroceryItemSheet.swift; sourceTree = "<group>"; };
 		FAE77361E7724F4B7835C0AE /* PhotoCompression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoCompression.swift; sourceTree = "<group>"; };
+		FDDF7B7C9AD00BE199D8CB3A /* AppState+Pantry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Pantry.swift"; sourceTree = "<group>"; };
 		FF982BE7185D4506E4BAC7C6 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -412,6 +418,7 @@
 				A99F4CCC2130F15AC404F605 /* AppState+Grocery.swift */,
 				A80D37100BDECCA31338BFE8 /* AppState+Household.swift */,
 				5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */,
+				FDDF7B7C9AD00BE199D8CB3A /* AppState+Pantry.swift */,
 				26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */,
 				3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */,
 				614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */,
@@ -542,6 +549,8 @@
 				D259DF81D5A9A31461E55E26 /* GroceryTabView.swift */,
 				C97F2A8FAD850D02995516AE /* GroceryView.swift */,
 				B11211BF532BA99470BA0A30 /* IngredientLinkPickerSheet.swift */,
+				6485B4F246B99307DF48773D /* PantryItemEditorSheet.swift */,
+				66E66D6C949E92294D4B03EC /* PantryView.swift */,
 			);
 			path = Grocery;
 			sourceTree = "<group>";
@@ -779,6 +788,7 @@
 				6EDBEB2CECDA59F00D71E08F /* AppState+Grocery.swift in Sources */,
 				85083B241385537E729DD20E /* AppState+Household.swift in Sources */,
 				44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */,
+				DF013B689CE654E21C864D22 /* AppState+Pantry.swift in Sources */,
 				53333C9542C3853B332E9F9F /* AppState+Profile.swift in Sources */,
 				E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */,
 				60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */,
@@ -839,6 +849,8 @@
 				BC9D16F26416CFC6C3192713 /* MemoryPhotoView.swift in Sources */,
 				F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */,
 				3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */,
+				6AD954EF4BFC9CF8D07BDB34 /* PantryItemEditorSheet.swift in Sources */,
+				3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */,
 				FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */,
 				CFE7B0CFDDC854D99448FF99 /* PhotoCompression.swift in Sources */,
 				53D3903682897BECC71E2611 /* PushService.swift in Sources */,
@@ -922,7 +934,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 50;
+				CURRENT_PROJECT_VERSION = 51;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1038,7 +1050,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 50;
+				CURRENT_PROJECT_VERSION = 51;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

@@ -126,6 +126,10 @@ final class AppState {
     /// M26 Phase 3 — per-household shorthand aliases. Loaded lazily
     /// when the Settings → AI → Custom terms screen opens.
     var householdAliases: [HouseholdTermAlias] = []
+    /// M28 — pantry items (extends staples with typical-purchase
+    /// quantity and recurring auto-add to weekly grocery). Loaded
+    /// lazily when the Grocery → Pantry screen opens.
+    var pantryItems: [PantryItem] = []
     var guests: [Guest] = []
     var eventSummaries: [EventSummary] = []
     var eventDetails: [String: Event] = [:]

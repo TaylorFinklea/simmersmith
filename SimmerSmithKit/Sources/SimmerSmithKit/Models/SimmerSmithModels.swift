@@ -2006,6 +2006,60 @@ public struct GroceryListDelta: Codable, Sendable {
     }
 }
 
+/// M28 — pantry item (always-in-stock ingredient with optional
+/// recurring auto-add to weekly grocery).
+public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
+    public let pantryItemId: String
+    public let stapleName: String
+    public let normalizedName: String
+    public let notes: String
+    public let isActive: Bool
+    public let typicalQuantity: Double?
+    public let typicalUnit: String
+    public let recurringQuantity: Double?
+    public let recurringUnit: String
+    /// `none` | `weekly` | `biweekly` | `monthly`. `none` = pure
+    /// staple (filtered from meal grocery; never auto-added).
+    public let recurringCadence: String
+    public let category: String
+    public let lastAppliedAt: Date?
+    public let updatedAt: Date
+
+    public var id: String { pantryItemId }
+
+    public var hasRecurring: Bool { recurringCadence != "none" }
+
+    public init(
+        pantryItemId: String,
+        stapleName: String,
+        normalizedName: String,
+        notes: String = "",
+        isActive: Bool = true,
+        typicalQuantity: Double? = nil,
+        typicalUnit: String = "",
+        recurringQuantity: Double? = nil,
+        recurringUnit: String = "",
+        recurringCadence: String = "none",
+        category: String = "",
+        lastAppliedAt: Date? = nil,
+        updatedAt: Date = Date()
+    ) {
+        self.pantryItemId = pantryItemId
+        self.stapleName = stapleName
+        self.normalizedName = normalizedName
+        self.notes = notes
+        self.isActive = isActive
+        self.typicalQuantity = typicalQuantity
+        self.typicalUnit = typicalUnit
+        self.recurringQuantity = recurringQuantity
+        self.recurringUnit = recurringUnit
+        self.recurringCadence = recurringCadence
+        self.category = category
+        self.lastAppliedAt = lastAppliedAt
+        self.updatedAt = updatedAt
+    }
+}
+
 /// M26 Phase 3 — per-household shorthand alias.
 public struct HouseholdTermAlias: Codable, Identifiable, Hashable, Sendable {
     public let aliasId: String
