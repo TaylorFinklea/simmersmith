@@ -12,6 +12,22 @@ struct RecipesView: View {
     /// editorial sections for a flat filtered list so the user can
     /// audit AI drafts + unused recipes at a glance.
     @State private var selectedCleanup: RecipeCleanupFilter = .none
+    /// M29 build 55 — multi-select cleanup mode. When `true`, recipe
+    /// rows show a checkbox + tap-to-toggle; the bottom action bar
+    /// exposes bulk Delete. Off by default; entered via the toolbar
+    /// "Select" item.
+    @State private var isSelecting = false
+    @State private var selectedRecipeIDs: Set<String> = []
+    @State private var pendingBulkDelete = false
+    @State private var isBulkDeleting = false
+    /// M29 build 55 — funnel for the web-search review-first refactor.
+    @State private var pendingReviewDraft: PendingReviewDraft? = nil
+
+    private struct PendingReviewDraft: Identifiable {
+        let id = UUID()
+        let draft: RecipeDraft
+        let contextHint: String
+    }
     @State private var importLaunchMode: RecipeImportLaunchMode?
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var isGeneratingSuggestion = false
@@ -46,13 +62,15 @@ struct RecipesView: View {
                         editorialSections
                     }
                 }
-                .padding(.bottom, 80)
+                .padding(.bottom, isSelecting ? 96 : 24)
             }
 
-            AIFloatingButton {
-                showingAISuggestionSheet = true
+            // M29 build 55 — bulk-action bar replaces the old AI FAB
+            // (the Assistant tab is the canonical chat entry now;
+            // recipe-suggestion was moved into the toolbar + menu).
+            if isSelecting {
+                bulkActionBar
             }
-            .padding(SMSpacing.xl)
         }
         .navigationTitle("Recipes")
         .navigationBarTitleDisplayMode(.large)
@@ -66,61 +84,90 @@ struct RecipesView: View {
             )
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showGalleryView.toggle()
-                    }
-                } label: {
-                    Image(systemName: showGalleryView ? "square.grid.2x2.fill" : "list.bullet")
+            // Selection-mode toolbar takes over the right side so the
+            // user has unambiguous Cancel + count + (in the bottom bar)
+            // a clear delete affordance.
+            if isSelecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { exitSelectionMode() }
                         .foregroundStyle(SMColor.primary)
                 }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+                ToolbarItem(placement: .principal) {
+                    Text("\(selectedRecipeIDs.count) selected")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textPrimary)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        editorContext = RecipeEditorSheetContext(
-                            title: "New Recipe",
-                            draft: RecipeDraft(name: "", mealType: "dinner")
-                        )
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showGalleryView.toggle()
+                        }
                     } label: {
-                        Label("New recipe", systemImage: "square.and.pencil")
+                        Image(systemName: showGalleryView ? "square.grid.2x2.fill" : "list.bullet")
+                            .foregroundStyle(SMColor.primary)
                     }
-                    Divider()
-                    Button {
-                        importLaunchMode = .url
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            editorContext = RecipeEditorSheetContext(
+                                title: "New Recipe",
+                                draft: RecipeDraft(name: "", mealType: "dinner")
+                            )
+                        } label: {
+                            Label("New recipe", systemImage: "square.and.pencil")
+                        }
+                        // M29 build 55 — moved from the (removed) AI FAB.
+                        Button {
+                            showingAISuggestionSheet = true
+                        } label: {
+                            Label("AI suggestion", systemImage: "sparkles")
+                        }
+                        Divider()
+                        Button {
+                            importLaunchMode = .url
+                        } label: {
+                            Label("Import from URL", systemImage: "link")
+                        }
+                        Button {
+                            importLaunchMode = .camera
+                        } label: {
+                            Label("Import from Camera", systemImage: "camera")
+                        }
+                        Button {
+                            importLaunchMode = .photo
+                        } label: {
+                            Label("Import from Photo", systemImage: "photo")
+                        }
+                        Button {
+                            importLaunchMode = .pdf
+                        } label: {
+                            Label("Import from PDF", systemImage: "doc.richtext")
+                        }
+                        Divider()
+                        Button {
+                            showingWebRecipeSearch = true
+                        } label: {
+                            Label("Find recipe online", systemImage: "magnifyingglass.circle")
+                        }
+                        Button {
+                            showingIngredientScanner = true
+                        } label: {
+                            Label("Identify ingredient", systemImage: "viewfinder.circle")
+                        }
+                        Divider()
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isSelecting = true
+                            }
+                        } label: {
+                            Label("Select recipes", systemImage: "checkmark.circle")
+                        }
                     } label: {
-                        Label("Import from URL", systemImage: "link")
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(SMColor.primary)
                     }
-                    Button {
-                        importLaunchMode = .camera
-                    } label: {
-                        Label("Import from Camera", systemImage: "camera")
-                    }
-                    Button {
-                        importLaunchMode = .photo
-                    } label: {
-                        Label("Import from Photo", systemImage: "photo")
-                    }
-                    Button {
-                        importLaunchMode = .pdf
-                    } label: {
-                        Label("Import from PDF", systemImage: "doc.richtext")
-                    }
-                    Divider()
-                    Button {
-                        showingWebRecipeSearch = true
-                    } label: {
-                        Label("Find recipe online", systemImage: "magnifyingglass.circle")
-                    }
-                    Button {
-                        showingIngredientScanner = true
-                    } label: {
-                        Label("Identify ingredient", systemImage: "viewfinder.circle")
-                    }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(SMColor.primary)
                 }
             }
         }
@@ -142,12 +189,22 @@ struct RecipesView: View {
             }
         }
         .sheet(isPresented: $showingWebRecipeSearch) {
+            // M29 build 55 — web-search results land in the review
+            // sheet so the user can refine ("smaller portion for two")
+            // or hand-edit before anything saves to the library.
             RecipeWebSearchSheet { draft in
-                editorContext = RecipeEditorSheetContext(
-                    title: "Imported from web",
-                    draft: draft
+                pendingReviewDraft = PendingReviewDraft(
+                    draft: draft,
+                    contextHint: "a recipe found via web search"
                 )
             }
+        }
+        .sheet(item: $pendingReviewDraft) { pending in
+            RecipeDraftReviewSheet(
+                initialDraft: pending.draft,
+                refineContextHint: pending.contextHint,
+                onSave: { _ in /* recipe is already in `appState.recipes` */ }
+            )
         }
         .alert("AI Suggestion Failed", isPresented: Binding(
             get: { suggestionErrorMessage != nil },
@@ -260,6 +317,91 @@ struct RecipesView: View {
                 }
             }
             .padding(.horizontal, SMSpacing.lg)
+        }
+    }
+
+    private var bulkActionBar: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            HStack(spacing: SMSpacing.md) {
+                Button(role: .destructive) {
+                    pendingBulkDelete = true
+                } label: {
+                    HStack(spacing: SMSpacing.sm) {
+                        if isBulkDeleting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "trash")
+                        }
+                        Text(isBulkDeleting ? "Deleting…" : "Delete \(selectedRecipeIDs.count)")
+                            .font(SMFont.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, SMSpacing.md)
+                    .background(SMColor.destructive)
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md))
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedRecipeIDs.isEmpty || isBulkDeleting)
+            }
+            .padding(.horizontal, SMSpacing.lg)
+            .padding(.vertical, SMSpacing.md)
+            .background(.ultraThinMaterial)
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .confirmationDialog(
+            "Delete \(selectedRecipeIDs.count) recipe\(selectedRecipeIDs.count == 1 ? "" : "s")?",
+            isPresented: $pendingBulkDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete \(selectedRecipeIDs.count)", role: .destructive) {
+                Task { await performBulkDelete() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the selected recipes. Any week meals or sides linked to them will keep their dish name but lose the recipe link.")
+        }
+    }
+
+    private func exitSelectionMode() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isSelecting = false
+            selectedRecipeIDs.removeAll()
+        }
+    }
+
+    private func toggleSelection(_ recipe: RecipeSummary) {
+        if selectedRecipeIDs.contains(recipe.recipeId) {
+            selectedRecipeIDs.remove(recipe.recipeId)
+        } else {
+            selectedRecipeIDs.insert(recipe.recipeId)
+        }
+    }
+
+    private func performBulkDelete() async {
+        guard !selectedRecipeIDs.isEmpty else { return }
+        isBulkDeleting = true
+        defer { isBulkDeleting = false }
+        let snapshot = appState.recipes.filter { selectedRecipeIDs.contains($0.recipeId) }
+        var failed: [String] = []
+        for recipe in snapshot {
+            do {
+                try await appState.deleteRecipe(recipe)
+            } catch {
+                failed.append(recipe.name)
+            }
+        }
+        if failed.isEmpty {
+            exitSelectionMode()
+        } else {
+            // Surface partial failure but keep selection so the user
+            // can retry the failed ones. The successful ones are
+            // gone from `appState.recipes` already.
+            appState.lastErrorMessage = "Couldn't delete: \(failed.joined(separator: ", "))"
+            selectedRecipeIDs = Set(failed.compactMap { name in
+                appState.recipes.first(where: { $0.name == name })?.recipeId
+            })
         }
     }
 
@@ -505,12 +647,30 @@ struct RecipesView: View {
     private func recipeListStack(recipes: [RecipeSummary]) -> some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
-                NavigationLink {
-                    RecipeDetailView(recipeID: recipe.recipeId)
-                } label: {
-                    RecipeListRow(recipe: recipe, gradientIndex: index)
+                if isSelecting {
+                    Button {
+                        toggleSelection(recipe)
+                    } label: {
+                        HStack(spacing: SMSpacing.md) {
+                            Image(systemName: selectedRecipeIDs.contains(recipe.recipeId)
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .font(.title3)
+                                .foregroundStyle(selectedRecipeIDs.contains(recipe.recipeId)
+                                                 ? SMColor.primary
+                                                 : SMColor.textTertiary)
+                            RecipeListRow(recipe: recipe, gradientIndex: index)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink {
+                        RecipeDetailView(recipeID: recipe.recipeId)
+                    } label: {
+                        RecipeListRow(recipe: recipe, gradientIndex: index)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 if index < recipes.count - 1 {
                     Divider()
@@ -524,12 +684,33 @@ struct RecipesView: View {
     private func recipeGalleryGrid(recipes: [RecipeSummary]) -> some View {
         LazyVGrid(columns: Self.galleryColumns, spacing: SMSpacing.md) {
             ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
-                NavigationLink {
-                    RecipeDetailView(recipeID: recipe.recipeId)
-                } label: {
-                    RecipeCard(recipe: recipe, gradientIndex: index)
+                if isSelecting {
+                    Button {
+                        toggleSelection(recipe)
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            RecipeCard(recipe: recipe, gradientIndex: index)
+                            Image(systemName: selectedRecipeIDs.contains(recipe.recipeId)
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .font(.title3)
+                                .foregroundStyle(selectedRecipeIDs.contains(recipe.recipeId)
+                                                 ? SMColor.primary
+                                                 : SMColor.textTertiary)
+                                .padding(SMSpacing.sm)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .padding(SMSpacing.xs)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink {
+                        RecipeDetailView(recipeID: recipe.recipeId)
+                    } label: {
+                        RecipeCard(recipe: recipe, gradientIndex: index)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, SMSpacing.lg)

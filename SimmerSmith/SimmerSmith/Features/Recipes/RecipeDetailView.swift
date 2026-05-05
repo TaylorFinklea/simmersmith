@@ -29,6 +29,16 @@ struct RecipeDetailView: View {
     @State private var isOverridingImage = false
     @State private var imageRemovalPending = false
     @State private var imageActionToast: String?
+    /// M29 build 55 — variation/companion drafts route through the
+    /// review sheet (refine loop + edit-by-hand + save) instead of
+    /// straight to `RecipeEditorView`.
+    @State private var pendingReviewDraft: PendingReviewDraft? = nil
+
+    private struct PendingReviewDraft: Identifiable {
+        let id = UUID()
+        let draft: RecipeDraft
+        let contextHint: String
+    }
 
     var body: some View {
         Group {
@@ -218,12 +228,21 @@ struct RecipeDetailView: View {
         }
         .sheet(item: $companionContext) { context in
             RecipeCompanionOptionsView(context: context) { selected in
+                // M29 build 55 — companion drafts route through
+                // the review sheet for refine + edit before save.
                 companionContext = nil
-                editorContext = RecipeEditorSheetContext(
-                    title: "\(selected.label) Draft",
-                    draft: selected.draft
+                pendingReviewDraft = PendingReviewDraft(
+                    draft: selected.draft,
+                    contextHint: "a \(selected.label.lowercased()) companion for \"\(recipe?.name ?? "this dish")\""
                 )
             }
+        }
+        .sheet(item: $pendingReviewDraft) { pending in
+            RecipeDraftReviewSheet(
+                initialDraft: pending.draft,
+                refineContextHint: pending.contextHint,
+                onSave: { _ in /* recipe upserts into appState.recipes */ }
+            )
         }
         .sheet(item: $nutritionMatchContext) { context in
             RecipeNutritionMatchView(context: context) {
@@ -1045,9 +1064,12 @@ struct RecipeDetailView: View {
 
         do {
             let aiDraft = try await appState.generateRecipeVariationDraft(recipeID: recipe.recipeId, goal: goal.title)
-            editorContext = RecipeEditorSheetContext(
-                title: "\(aiDraft.goal) Draft",
-                draft: aiDraft.draft
+            // M29 build 55 — variation drafts now go through the
+            // review sheet so the user can refine ("less spice")
+            // before the variant lands in the library.
+            pendingReviewDraft = PendingReviewDraft(
+                draft: aiDraft.draft,
+                contextHint: "a \(aiDraft.goal.lowercased()) variation of \"\(recipe.name)\""
             )
             errorMessage = nil
         } catch {

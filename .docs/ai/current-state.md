@@ -8,7 +8,39 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M29 build 54 ship (dogfood fixes + AI cleanup filters)
+**Date**: 2026-05-05 — M29 build 55 ship (multi-select + FAB removal + review-first refactor)
+
+**Build 55** absorbs build-54 dogfood UX feedback (FAB overlapping
+recipe rows, no bulk-delete) AND lands the originally-planned
+review-first refactor: web search, recipe variation, and recipe
+companion drafts now route through `RecipeDraftReviewSheet` so they
+inherit the refine loop introduced in build 53.
+
+**iOS**:
+- `Features/Recipes/RecipesView.swift`:
+  - Removed the `AIFloatingButton` overlay; "AI suggestion" moved
+    into the existing top-right `+` menu (next to "New recipe").
+  - New "Select recipes" item in the same menu enters multi-select
+    mode. Toolbar swaps to "Done" + "N selected"; rows render with
+    a checkbox; bulk-action bar pinned to the bottom shows
+    "Delete N" with a destructive confirmation dialog.
+  - Web-search results now route through `RecipeDraftReviewSheet`
+    (refine + edit before save).
+- `Features/Recipes/RecipeDetailView.swift`: AI variation drafts +
+  companion drafts both route through `RecipeDraftReviewSheet`.
+  Same refine loop the side / event-meal / quick-add flows have.
+- Bulk delete reuses `appState.deleteRecipe` per row + surfaces
+  partial failures via `lastErrorMessage`. Selection persists for
+  the failed entries so the user can retry.
+
+**Build bump**: 54 → 55. No backend changes (pure iOS surfaces).
+
+**Pause for dogfood after build 55.** Build 56 candidates:
+- Assistant `recipe_draft` envelope routing through review sheet.
+- More bulk operations (favorite, archive, move to week).
+- Polish from 55 dogfood findings.
+
+### Earlier session (build 54 / Fly v80 — M29 dogfood fixes + AI cleanup filters)
 
 **Build 54** addresses TestFlight 53 feedback (intermittent "invalid
 JSON" on AI gen, slow Save, no way to find AI-generated slop, stuck
