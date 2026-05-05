@@ -2054,13 +2054,27 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
     /// `none` | `weekly` | `biweekly` | `monthly`. `none` = pure
     /// staple (filtered from meal grocery; never auto-added).
     public let recurringCadence: String
+    /// Legacy single-string field (kept for back-compat with cached
+    /// snapshots from before build 56). Display reads `categories`.
     public let category: String
+    /// M29 build 56 — multi-value categories (Dairy, Pantry, etc.).
+    public let categories: [String]
     public let lastAppliedAt: Date?
     public let updatedAt: Date
 
     public var id: String { pantryItemId }
 
     public var hasRecurring: Bool { recurringCadence != "none" }
+
+    /// Convenience: for cached snapshots that only carry `category`,
+    /// derive the list. Build 56+ servers always send `categories`.
+    public var displayCategories: [String] {
+        if !categories.isEmpty { return categories }
+        return category
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
 
     public init(
         pantryItemId: String,
@@ -2074,6 +2088,7 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
         recurringUnit: String = "",
         recurringCadence: String = "none",
         category: String = "",
+        categories: [String] = [],
         lastAppliedAt: Date? = nil,
         updatedAt: Date = Date()
     ) {
@@ -2088,8 +2103,43 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
         self.recurringUnit = recurringUnit
         self.recurringCadence = recurringCadence
         self.category = category
+        self.categories = categories
         self.lastAppliedAt = lastAppliedAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pantryItemId = try c.decode(String.self, forKey: .pantryItemId)
+        stapleName = try c.decode(String.self, forKey: .stapleName)
+        normalizedName = try c.decode(String.self, forKey: .normalizedName)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        typicalQuantity = try c.decodeIfPresent(Double.self, forKey: .typicalQuantity)
+        typicalUnit = try c.decodeIfPresent(String.self, forKey: .typicalUnit) ?? ""
+        recurringQuantity = try c.decodeIfPresent(Double.self, forKey: .recurringQuantity)
+        recurringUnit = try c.decodeIfPresent(String.self, forKey: .recurringUnit) ?? ""
+        recurringCadence = try c.decodeIfPresent(String.self, forKey: .recurringCadence) ?? "none"
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        // `categories` is new in build 56 — older cached payloads
+        // won't have it; derive from `category` so existing entries
+        // surface immediately on first launch after upgrade.
+        if let list = try c.decodeIfPresent([String].self, forKey: .categories) {
+            categories = list
+        } else {
+            categories = (try c.decodeIfPresent(String.self, forKey: .category) ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        lastAppliedAt = try c.decodeIfPresent(Date.self, forKey: .lastAppliedAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pantryItemId, stapleName, normalizedName, notes, isActive,
+             typicalQuantity, typicalUnit, recurringQuantity, recurringUnit,
+             recurringCadence, category, categories, lastAppliedAt, updatedAt
     }
 }
 

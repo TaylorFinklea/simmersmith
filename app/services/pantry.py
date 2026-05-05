@@ -41,6 +41,34 @@ _CADENCE_MIN_DAYS = {
 _PANTRY_SOURCE_PREFIX = "pantry:recurring:"
 
 
+def serialize_categories(categories: list[str]) -> str:
+    """M29 build 56: pantry categories live in `Staple.category` as a
+    comma-joined string (legacy single-value column). The API surface
+    exposes them as a list — these helpers do the round-trip without
+    a schema migration."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in categories or []:
+        value = (raw or "").strip()
+        if not value:
+            continue
+        # Comma is the separator; strip embedded commas so a careless
+        # "dairy, freezer" entry doesn't desync.
+        value = value.replace(",", " ")
+        normalized = value.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(value)
+    return ", ".join(cleaned)
+
+
+def parse_categories(stored: str) -> list[str]:
+    if not stored:
+        return []
+    return [part.strip() for part in stored.split(",") if part.strip()]
+
+
 def list_pantry_items(session: Session, *, household_id: str) -> list[Staple]:
     return list(
         session.scalars(
@@ -71,6 +99,7 @@ def add_pantry_item(
     recurring_unit: str = "",
     recurring_cadence: str = "none",
     category: str = "",
+    categories: list[str] | None = None,
     normalized_name_override: str = "",
 ) -> Staple:
     cleaned = (name or "").strip()
@@ -87,6 +116,13 @@ def add_pantry_item(
     )
     if existing is not None:
         raise ValueError("Pantry item with that name already exists")
+    # `categories` is the new multi-value list; `category` is the
+    # legacy single-string entry point. When both are provided, the
+    # list wins; otherwise fall back to the single value.
+    if categories is not None:
+        category_value = serialize_categories(categories)
+    else:
+        category_value = (category or "").strip()
     item = Staple(
         user_id=user_id,
         household_id=household_id,
@@ -99,7 +135,7 @@ def add_pantry_item(
         recurring_quantity=recurring_quantity,
         recurring_unit=normalize_unit(recurring_unit) if recurring_unit else "",
         recurring_cadence=recurring_cadence if recurring_cadence in {"none", "weekly", "biweekly", "monthly"} else "none",
-        category=category,
+        category=category_value,
     )
     session.add(item)
     session.flush()
@@ -138,7 +174,10 @@ def update_pantry_item(
         cadence = str(fields["recurring_cadence"])
         if cadence in {"none", "weekly", "biweekly", "monthly"}:
             item.recurring_cadence = cadence
-    if "category" in fields and fields["category"] is not None:
+    if "categories" in fields and fields["categories"] is not None:
+        item.category = serialize_categories(list(fields["categories"]))
+    elif "category" in fields and fields["category"] is not None:
+        # Legacy single-string path stays accepted for back-compat.
         item.category = str(fields["category"])
     session.flush()
     return item

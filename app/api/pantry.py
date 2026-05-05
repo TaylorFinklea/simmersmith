@@ -32,6 +32,8 @@ router = APIRouter(prefix="/api/pantry", tags=["pantry"])
 
 
 def _payload(item) -> dict[str, object]:
+    from app.services.pantry import parse_categories
+
     return {
         "pantry_item_id": item.id,
         "staple_name": item.staple_name,
@@ -44,6 +46,7 @@ def _payload(item) -> dict[str, object]:
         "recurring_unit": item.recurring_unit,
         "recurring_cadence": item.recurring_cadence,
         "category": item.category,
+        "categories": parse_categories(item.category),
         "last_applied_at": item.last_applied_at,
         "updated_at": item.updated_at,
     }

@@ -775,7 +775,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public var recurringQuantity: Double?
         public var recurringUnit: String
         public var recurringCadence: String
+        /// Legacy single-string. Build 56+ clients fill `categories`
+        /// instead; this stays for back-compat.
         public var category: String
+        public var categories: [String]
 
         public init(
             stapleName: String,
@@ -787,7 +790,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             recurringQuantity: Double? = nil,
             recurringUnit: String = "",
             recurringCadence: String = "none",
-            category: String = ""
+            category: String = "",
+            categories: [String] = []
         ) {
             self.stapleName = stapleName
             self.normalizedName = normalizedName
@@ -799,6 +803,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             self.recurringUnit = recurringUnit
             self.recurringCadence = recurringCadence
             self.category = category
+            self.categories = categories
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -811,7 +816,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             case recurringQuantity = "recurring_quantity"
             case recurringUnit = "recurring_unit"
             case recurringCadence = "recurring_cadence"
-            case category
+            case category, categories
         }
     }
 
@@ -827,6 +832,9 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public var recurringUnit: String?
         public var recurringCadence: String?
         public var category: String?
+        /// Build 56+: send `categories` to overwrite the list. nil =
+        /// leave alone; `[]` = clear all categories.
+        public var categories: [String]?
 
         public init(
             stapleName: String? = nil,
@@ -839,7 +847,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             clearRecurringQuantity: Bool? = nil,
             recurringUnit: String? = nil,
             recurringCadence: String? = nil,
-            category: String? = nil
+            category: String? = nil,
+            categories: [String]? = nil
         ) {
             self.stapleName = stapleName
             self.notes = notes
@@ -852,6 +861,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             self.recurringUnit = recurringUnit
             self.recurringCadence = recurringCadence
             self.category = category
+            self.categories = categories
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -867,6 +877,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             if let recurringUnit { try c.encode(recurringUnit, forKey: .recurringUnit) }
             if let recurringCadence { try c.encode(recurringCadence, forKey: .recurringCadence) }
             if let category { try c.encode(category, forKey: .category) }
+            if let categories { try c.encode(categories, forKey: .categories) }
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -880,7 +891,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             case clearRecurringQuantity = "clear_recurring_quantity"
             case recurringUnit = "recurring_unit"
             case recurringCadence = "recurring_cadence"
-            case category
+            case category, categories
         }
     }
 

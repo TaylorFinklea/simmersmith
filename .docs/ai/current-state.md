@@ -8,7 +8,54 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M29 build 55 ship (multi-select + FAB removal + review-first refactor)
+**Date**: 2026-05-05 — Build 56 ship (pantry UX: ingredient autocomplete + multi-select categories)
+
+**Build 56** addresses dogfood feedback on the pantry editor: too
+much free-text typing, no awareness of the existing ingredient
+catalog, single-string category that didn't match real-world
+multi-section items.
+
+**Backend** (no migration — comma-joined storage on existing
+`Staple.category` column):
+- `app/services/pantry.py`: new `serialize_categories` and
+  `parse_categories` helpers handle the round-trip between the
+  list-shaped API surface and the legacy single-string column.
+  `add_pantry_item` / `update_pantry_item` accept a `categories`
+  list (wins over the legacy `category` string).
+- `app/schemas/profile.py`: `PantryItemOut` now carries both
+  `category: str` (back-compat) and `categories: list[str]`.
+  `PantryItemAddRequest` + `PantryItemPatchRequest` accept the
+  new list field.
+- `app/api/pantry.py`: `_payload` derives `categories` from the
+  stored string for every read.
+- New test in `tests/test_pantry.py` round-trips the list +
+  exercises the helpers' edge cases. 321/321 pass.
+- `app/api/weeks.py`: imported missing `Settings` alongside
+  `get_settings` (silent pyright fix; runtime worked because of
+  `from __future__ import annotations`).
+
+**iOS**:
+- `SimmerSmithKit/.../Models/SimmerSmithModels.swift`: `PantryItem`
+  gains `categories: [String]` + a `displayCategories` accessor
+  that falls back to splitting the legacy single string. Custom
+  decoder handles older cached payloads.
+- API client `PantryItemAddBody` + `PantryItemPatchBody` carry the
+  new `categories` field.
+- `PantryItemEditorSheet`:
+  - Name field now searches the household ingredient catalog after
+    300 ms debounce. Tapping a suggestion prefills name + auto-
+    selects the catalog row's category. Free-text input still
+    works for one-off pantry items.
+  - Replaced the single-line category field with a chip multi-
+    picker. Defaults: Produce / Dairy / Meat / Seafood / Pantry /
+    Freezer / Beverages / Condiments / Baking / Snacks / Spices.
+    Merged with categories already in use across the household so
+    custom values stick around. Inline "Add custom" affordance.
+
+**Build bump**: 55 → 56. Backend has no migration — pure column
+serialization change.
+
+### Earlier session (build 55 / Fly v80 — multi-select + FAB removal)
 
 **Build 55** absorbs build-54 dogfood UX feedback (FAB overlapping
 recipe rows, no bulk-delete) AND lands the originally-planned

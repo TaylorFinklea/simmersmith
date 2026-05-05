@@ -27,7 +27,11 @@ class StaplePayload(BaseModel):
 class PantryItemOut(BaseModel):
     """Full row shape for the M28 pantry CRUD endpoints. Carries the
     `pantry_item_id` so the iOS client can PATCH/DELETE by id without
-    losing the recurring metadata."""
+    losing the recurring metadata.
+
+    M29 build 56: `categories` is the new multi-value field. The
+    legacy `category` single-string is the same data joined for
+    older clients."""
     pantry_item_id: str
     staple_name: str
     normalized_name: str
@@ -39,6 +43,7 @@ class PantryItemOut(BaseModel):
     recurring_unit: str = ""
     recurring_cadence: PantryCadence = "none"
     category: str = ""
+    categories: list[str] = Field(default_factory=list)
     last_applied_at: datetime | None = None
     updated_at: datetime
 
@@ -53,7 +58,10 @@ class PantryItemAddRequest(BaseModel):
     recurring_quantity: float | None = None
     recurring_unit: str = ""
     recurring_cadence: PantryCadence = "none"
+    # `categories` wins when both are provided. Old clients can still
+    # send `category` as a single string.
     category: str = ""
+    categories: list[str] = Field(default_factory=list)
 
 
 class PantryItemPatchRequest(BaseModel):
@@ -68,6 +76,7 @@ class PantryItemPatchRequest(BaseModel):
     recurring_unit: str | None = None
     recurring_cadence: PantryCadence | None = None
     category: str | None = None
+    categories: list[str] | None = None
 
 
 GoalType = Literal["lose", "maintain", "gain", "custom"]

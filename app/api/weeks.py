@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, get_current_user
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import get_session
 from app.schemas import (
     DraftFromAIRequest,

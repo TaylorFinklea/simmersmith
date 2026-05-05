@@ -209,6 +209,46 @@ def test_pantry_items_still_filter_from_meal_aggregation() -> None:
     assert "bell pepper" in names
 
 
+def test_pantry_categories_round_trip_through_list() -> None:
+    """M29 build 56: the API surface accepts/returns categories as a
+    list, but they're stored on the legacy single-string column —
+    no migration needed. Round-trip via the service layer."""
+    from app.services.pantry import (
+        add_pantry_item,
+        update_pantry_item,
+        parse_categories,
+        serialize_categories,
+    )
+
+    with session_scope() as session:
+        item = add_pantry_item(
+            session,
+            user_id=_uid,
+            household_id=_uid,
+            name="Cheddar",
+            categories=["Dairy", "fridge"],
+        )
+        assert parse_categories(item.category) == ["Dairy", "fridge"]
+
+        # Patch with a different list — the new list overwrites.
+        update_pantry_item(
+            session,
+            item=item,
+            fields={"categories": ["fridge", "snacks"]},
+        )
+        assert parse_categories(item.category) == ["fridge", "snacks"]
+
+        # Empty list clears the categories.
+        update_pantry_item(session, item=item, fields={"categories": []})
+        assert parse_categories(item.category) == []
+
+    # Helper edge cases.
+    assert serialize_categories(["Dairy", " dairy ", "Dairy"]) == "Dairy"  # case-insensitive dedupe
+    assert serialize_categories(["a, b"]) == "a  b"  # comma stripped to keep separator clean
+    assert parse_categories("") == []
+    assert parse_categories("dairy , fridge,, snacks") == ["dairy", "fridge", "snacks"]
+
+
 def test_pantry_update_patches_in_place() -> None:
     with session_scope() as session:
         item = add_pantry_item(

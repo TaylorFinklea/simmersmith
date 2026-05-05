@@ -6,6 +6,14 @@ import SimmerSmithKit
 /// Cadence picker drives the recurring auto-add. `none` makes the row
 /// a pure staple (filtered from grocery, never auto-added). The other
 /// options auto-add to weekly grocery on the chosen rhythm.
+///
+/// M29 build 56:
+/// - Name field surfaces ingredient suggestions from the household
+///   `BaseIngredient` catalog as the user types. Tapping a suggestion
+///   prefills the name + (when present) auto-selects the catalog
+///   row's category.
+/// - Category is now a multi-select chip row with a default grocery-
+///   section list, plus any custom values the household already used.
 struct PantryItemEditorSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -13,7 +21,8 @@ struct PantryItemEditorSheet: View {
     let item: PantryItem?
 
     @State private var name: String = ""
-    @State private var category: String = ""
+    @State private var selectedCategories: Set<String> = []
+    @State private var customCategoryDraft: String = ""
     @State private var notes: String = ""
     @State private var isActive: Bool = true
     @State private var typicalQuantityText: String = ""
@@ -24,6 +33,12 @@ struct PantryItemEditorSheet: View {
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
 
+    // Ingredient autocomplete state.
+    @State private var nameSuggestions: [BaseIngredient] = []
+    @State private var isSearchingIngredients = false
+    @State private var lastSearchedQuery: String = ""
+    @State private var searchTask: Task<Void, Never>? = nil
+
     private let cadenceOptions: [(value: String, label: String)] = [
         ("none", "Don't auto-add"),
         ("weekly", "Weekly"),
@@ -31,15 +46,42 @@ struct PantryItemEditorSheet: View {
         ("monthly", "Monthly"),
     ]
 
+    /// Default grocery sections — shown as chips even when the
+    /// household hasn't used them yet so the user has a fast lane.
+    private static let defaultCategories: [String] = [
+        "Produce", "Dairy", "Meat", "Seafood",
+        "Pantry", "Freezer", "Beverages",
+        "Condiments", "Baking", "Snacks", "Spices",
+    ]
+
+    /// Defaults + any categories already in use across the household
+    /// (existing pantry rows). Lowercased dedupe so "dairy" and
+    /// "Dairy" don't both show.
+    private var availableCategories: [String] {
+        var seen: [String: String] = [:]
+        for raw in Self.defaultCategories + appState.pantryItems.flatMap(\.displayCategories) + Array(selectedCategories) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            if seen[key] == nil {
+                seen[key] = trimmed
+            }
+        }
+        return seen.values.sorted { $0.lowercased() < $1.lowercased() }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                nameSection
+                categorySection
+
                 Section {
-                    TextField("Name (e.g. Eggs)", text: $name)
-                    TextField("Category (e.g. dairy)", text: $category)
                     Toggle("Active", isOn: $isActive)
                     TextField("Notes (optional)", text: $notes, axis: .vertical)
                         .lineLimit(1...3)
+                } header: {
+                    Text("Details")
                 }
 
                 Section {
@@ -95,13 +137,170 @@ struct PantryItemEditorSheet: View {
                 }
             }
             .onAppear(perform: seed)
+            .onChange(of: name) { _, newValue in
+                scheduleSearch(for: newValue)
+            }
         }
     }
+
+    // MARK: - Name section with autocomplete
+
+    @ViewBuilder
+    private var nameSection: some View {
+        Section {
+            TextField("Name (e.g. Eggs)", text: $name)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+            if !nameSuggestions.isEmpty && shouldShowSuggestions {
+                ForEach(nameSuggestions) { base in
+                    Button {
+                        applySuggestion(base)
+                    } label: {
+                        HStack(spacing: SMSpacing.sm) {
+                            Image(systemName: "leaf.circle")
+                                .foregroundStyle(SMColor.primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(base.name)
+                                    .font(SMFont.body)
+                                    .foregroundStyle(SMColor.textPrimary)
+                                if !base.category.isEmpty {
+                                    Text(base.category)
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textSecondary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.left")
+                                .font(.caption)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if isSearchingIngredients {
+                HStack(spacing: SMSpacing.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("Searching…")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+            }
+        } header: {
+            Text("Name")
+        } footer: {
+            Text("Type to search your ingredient catalog. Tap a match to autofill the name + category.")
+        }
+    }
+
+    private var shouldShowSuggestions: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed.lowercased() != lastAcceptedSuggestionName.lowercased()
+    }
+    @State private var lastAcceptedSuggestionName: String = ""
+
+    private func applySuggestion(_ base: BaseIngredient) {
+        name = base.name
+        lastAcceptedSuggestionName = base.name
+        nameSuggestions = []
+        let trimmedCategory = base.category.trimmingCharacters(in: .whitespaces)
+        if !trimmedCategory.isEmpty {
+            selectedCategories.insert(trimmedCategory)
+        }
+    }
+
+    private func scheduleSearch(for raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed.count < 2 {
+            nameSuggestions = []
+            return
+        }
+        // Don't re-fire when the user just accepted a suggestion.
+        if trimmed.lowercased() == lastAcceptedSuggestionName.lowercased() {
+            nameSuggestions = []
+            return
+        }
+        // Cancel the in-flight search so we only hit the network for
+        // the latest keystroke (debounced 300 ms).
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await runSearch(query: trimmed)
+        }
+    }
+
+    private func runSearch(query: String) async {
+        guard !query.isEmpty, query != lastSearchedQuery else { return }
+        lastSearchedQuery = query
+        isSearchingIngredients = true
+        defer { isSearchingIngredients = false }
+        do {
+            let results = try await appState.apiClient.fetchBaseIngredients(
+                query: query,
+                limit: 8,
+                includeProductLike: false
+            )
+            // Don't replace results with stale data if the user has
+            // typed past this query already.
+            if !Task.isCancelled, query == lastSearchedQuery {
+                nameSuggestions = results
+            }
+        } catch {
+            // Silent failure — autocomplete is a nice-to-have.
+            // Free-text input still works.
+        }
+    }
+
+    // MARK: - Category multi-select
+
+    @ViewBuilder
+    private var categorySection: some View {
+        Section {
+            FlowChips(
+                items: availableCategories,
+                isSelected: { selectedCategories.contains($0) },
+                onToggle: { value in
+                    if selectedCategories.contains(value) {
+                        selectedCategories.remove(value)
+                    } else {
+                        selectedCategories.insert(value)
+                    }
+                }
+            )
+            HStack {
+                TextField("Add custom (e.g. Bulk bin)", text: $customCategoryDraft)
+                    .submitLabel(.done)
+                Button {
+                    addCustomCategory()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(SMColor.primary)
+                }
+                .disabled(customCategoryDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        } header: {
+            Text("Categories")
+        } footer: {
+            Text("Tap any number of chips. Custom values you add are remembered and offered to other pantry items.")
+        }
+    }
+
+    private func addCustomCategory() {
+        let trimmed = customCategoryDraft.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        selectedCategories.insert(trimmed)
+        customCategoryDraft = ""
+    }
+
+    // MARK: - Lifecycle
 
     private func seed() {
         guard let item else { return }
         name = item.stapleName
-        category = item.category
+        lastAcceptedSuggestionName = item.stapleName
+        selectedCategories = Set(item.displayCategories)
         notes = item.notes
         isActive = item.isActive
         typicalQuantityText = item.typicalQuantity.map { String($0.cleanFormat) } ?? ""
@@ -122,13 +321,16 @@ struct PantryItemEditorSheet: View {
         let recurringQty = recurringCadence == "none"
             ? nil
             : Double(recurringQuantityText.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces))
+        let categoriesPayload = Array(selectedCategories).sorted()
 
         if let existing = item {
             // PATCH path — only send what changed so partial saves
             // don't blank out fields on the server.
             var body = SimmerSmithAPIClient.PantryItemPatchBody()
             if trimmedName != existing.stapleName { body.stapleName = trimmedName }
-            if category != existing.category { body.category = category }
+            if Set(existing.displayCategories) != selectedCategories {
+                body.categories = categoriesPayload
+            }
             if notes != existing.notes { body.notes = notes }
             if isActive != existing.isActive { body.isActive = isActive }
             if typicalQty == nil && existing.typicalQuantity != nil {
@@ -156,11 +358,79 @@ struct PantryItemEditorSheet: View {
                     recurringQuantity: recurringQty,
                     recurringUnit: recurringUnit,
                     recurringCadence: recurringCadence,
-                    category: category
+                    categories: categoriesPayload
                 )
             )
         }
         dismiss()
+    }
+}
+
+/// Lightweight chip layout for the category multi-picker. Reuses
+/// `SwiftUI.Layout` (iOS 16+); each chip is a Button so accessibility
+/// + tap targets work without extra plumbing.
+private struct FlowChips: View {
+    let items: [String]
+    let isSelected: (String) -> Bool
+    let onToggle: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(items, id: \.self) { item in
+                Button {
+                    onToggle(item)
+                } label: {
+                    Text(item)
+                        .font(SMFont.caption)
+                        .foregroundStyle(isSelected(item) ? .white : SMColor.textPrimary)
+                        .padding(.horizontal, SMSpacing.sm)
+                        .padding(.vertical, 6)
+                        .background(isSelected(item) ? SMColor.primary : SMColor.surfaceElevated)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var totalHeight: CGFloat = 0
+        var lineWidth: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if lineWidth + size.width > maxWidth, lineWidth > 0 {
+                totalHeight += lineHeight + spacing
+                lineWidth = 0
+                lineHeight = 0
+            }
+            lineWidth += size.width + (lineWidth > 0 ? spacing : 0)
+            lineHeight = max(lineHeight, size.height)
+        }
+        totalHeight += lineHeight
+        return CGSize(width: maxWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }
 
