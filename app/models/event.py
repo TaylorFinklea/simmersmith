@@ -25,6 +25,7 @@ from app.models._base import new_id, utcnow
 
 if TYPE_CHECKING:
     from app.models.catalog import BaseIngredient, IngredientVariation
+    from app.models.profile import Staple
     from app.models.recipe import Recipe
     from app.models.week import GroceryItem, Week
 
@@ -100,6 +101,11 @@ class Event(Base):
         back_populates="event",
         cascade="all, delete-orphan",
         order_by=lambda: (EventGroceryItem.category, EventGroceryItem.ingredient_name),
+    )
+    pantry_supplements: Mapped[list["EventPantrySupplement"]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+        order_by=lambda: EventPantrySupplement.created_at,
     )
     linked_week: Mapped["Week | None"] = relationship()
 
@@ -240,3 +246,37 @@ class EventGroceryItem(Base):
     base_ingredient: Mapped["BaseIngredient | None"] = relationship()
     ingredient_variation: Mapped["IngredientVariation | None"] = relationship()
     merged_into_grocery_item: Mapped["GroceryItem | None"] = relationship()
+
+
+class EventPantrySupplement(Base):
+    """M28 phase 2 — additive pantry top-up for an event.
+
+    The household keeps a normal pantry stock (with optional weekly
+    recurring), but events can need extra: "we usually have 5 dozen
+    eggs, but this party needs 100 — add 100 extra to grocery."
+    Stored quantity is purely ADDITIVE — it stacks on top of any
+    recurring pantry restock for the event's week.
+
+    Flows through `_aggregate_event_rows` so the existing event-→-week
+    merge path (M22.2) routes the supplement into the week's
+    `event_quantity` column with attribution.
+    """
+    __tablename__ = "event_pantry_supplements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    event_id: Mapped[str] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    pantry_item_id: Mapped[str] = mapped_column(
+        ForeignKey("staples.id", ondelete="CASCADE"), nullable=False
+    )
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    event: Mapped["Event"] = relationship(back_populates="pantry_supplements")
+    pantry_item: Mapped["Staple"] = relationship()

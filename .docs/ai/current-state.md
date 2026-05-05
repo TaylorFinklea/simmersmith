@@ -8,7 +8,55 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M28 phase 1 ship (pantry extension on staples)
+**Date**: 2026-05-05 — M28 phase 2 ship (event pantry supplements)
+
+**Build 52** completes the M28 pantry feature. Phase 1 (build 51)
+added the recurring fold-in. Phase 2 lets events request
+supplemental quantities of pantry items beyond normal household
+stock — e.g. "we usually keep 5 dozen eggs, but this party needs
+100 extra."
+
+- `alembic/versions/20260505_0035_event_pantry_supplements.py`:
+  new `event_pantry_supplements` table with FK cascades from both
+  `events` and `staples`. Unique on `(event_id, pantry_item_id)`
+  so one supplement per pantry item per event.
+- `EventPantrySupplement` model + `Event.pantry_supplements`
+  relationship.
+- `app/services/event_supplements.py` (new): CRUD by id with the
+  duplicate-by-pantry-item guard.
+- `app/services/event_grocery.py:_aggregate_event_rows` extended:
+  bypasses the staple filter for supplements (the whole point —
+  the user explicitly said "extra of this pantry item"),
+  attributes via `source_meals="pantry-supplement:<id>"`.
+- `app/api/events.py`: GET/POST/PATCH/DELETE supplement routes.
+  Each mutation re-runs `regenerate_event_grocery` +
+  `apply_auto_merge_policy` so the linked week's grocery list
+  reflects the change as `event_quantity`.
+- `EventOut` schema + presenter expose `pantry_supplements`.
+- 6 new backend tests in `tests/test_event_supplements.py`. 314
+  total backend tests pass.
+
+**iOS**:
+- `EventPantrySupplement` model + `Event.pantrySupplements`.
+- 3 new API client methods (add/patch/delete) returning the
+  refreshed Event.
+- AppState helpers in `AppState+Events.swift`.
+- `EventDetailView` gets a "Pantry supplements" section between
+  Menu and Guests-bringing.
+- `EventPantrySupplementSheet` for add/edit/delete; pantry item
+  picker excludes items that already have a supplement on the
+  event.
+
+**End-to-end behavior**: user has Eggs in pantry with a 60-ct
+weekly recurring. Adds an event "Easter Brunch" with a +100 eggs
+supplement. The week's grocery list shows a single Eggs row:
+`total_quantity = 60` (recurring restock) + `event_quantity =
+100` (supplement) — user sees `160 ct` total with a "+100 from
+Easter Brunch" attribution.
+
+**Build bump**: 51 → 52.
+
+### Earlier session (build 51 / Fly v77 — M28 phase 1 pantry extension)
 
 **Build 51** extends the existing `staples` table into a full pantry
 concept. Pre-M28, staples already filtered from meal-driven grocery

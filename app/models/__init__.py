@@ -17,6 +17,7 @@ from app.models.event import (
     EventGroceryItem,
     EventMeal,
     EventMealIngredient,
+    EventPantrySupplement,
     Guest,
 )
 from app.models.household import Household, HouseholdInvitation, HouseholdMember
@@ -54,6 +55,7 @@ __all__ = [
     "EventGroceryItem",
     "EventMeal",
     "EventMealIngredient",
+    "EventPantrySupplement",
     "ExportItem",
     "ExportRun",
     "FeedbackEntry",

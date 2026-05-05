@@ -102,6 +102,19 @@ def event_summary_payload(event: Event) -> dict[str, Any]:
     }
 
 
+def event_pantry_supplement_payload(supplement) -> dict[str, Any]:
+    pantry_item = supplement.pantry_item
+    return {
+        "supplement_id": supplement.id,
+        "pantry_item_id": supplement.pantry_item_id,
+        "pantry_item_name": pantry_item.staple_name if pantry_item is not None else "",
+        "quantity": supplement.quantity,
+        "unit": supplement.unit,
+        "notes": supplement.notes,
+        "updated_at": supplement.updated_at,
+    }
+
+
 def event_payload(event: Event) -> dict[str, Any]:
     return {
         **event_summary_payload(event),
@@ -117,5 +130,9 @@ def event_payload(event: Event) -> dict[str, Any]:
         "meals": [event_meal_payload(meal) for meal in event.meals],
         "grocery_items": [
             event_grocery_item_payload(item) for item in event.grocery_items
+        ],
+        "pantry_supplements": [
+            event_pantry_supplement_payload(supplement)
+            for supplement in event.pantry_supplements
         ],
     }

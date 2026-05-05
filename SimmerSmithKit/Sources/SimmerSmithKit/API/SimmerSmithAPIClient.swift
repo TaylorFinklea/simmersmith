@@ -904,6 +904,77 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/pantry/apply/\(weekID)", method: "POST", body: EmptyBody())
     }
 
+    // MARK: - Event pantry supplements (M28 phase 2)
+
+    public struct EventSupplementAddBody: Encodable, Sendable {
+        public var pantryItemId: String
+        public var quantity: Double
+        public var unit: String
+        public var notes: String
+
+        public init(pantryItemId: String, quantity: Double, unit: String = "", notes: String = "") {
+            self.pantryItemId = pantryItemId
+            self.quantity = quantity
+            self.unit = unit
+            self.notes = notes
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case pantryItemId = "pantry_item_id"
+            case quantity, unit, notes
+        }
+    }
+
+    public struct EventSupplementPatchBody: Encodable, Sendable {
+        public var quantity: Double?
+        public var unit: String?
+        public var notes: String?
+
+        public init(quantity: Double? = nil, unit: String? = nil, notes: String? = nil) {
+            self.quantity = quantity
+            self.unit = unit
+            self.notes = notes
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            if let quantity { try c.encode(quantity, forKey: .quantity) }
+            if let unit { try c.encode(unit, forKey: .unit) }
+            if let notes { try c.encode(notes, forKey: .notes) }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case quantity, unit, notes
+        }
+    }
+
+    public func addEventSupplement(eventID: String, body: EventSupplementAddBody) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/supplements",
+            method: "POST",
+            body: body
+        )
+    }
+
+    public func patchEventSupplement(
+        eventID: String,
+        supplementID: String,
+        body: EventSupplementPatchBody
+    ) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/supplements/\(supplementID)",
+            method: "PATCH",
+            body: body
+        )
+    }
+
+    public func deleteEventSupplement(eventID: String, supplementID: String) async throws -> Event {
+        try await request(
+            path: "/api/events/\(eventID)/supplements/\(supplementID)",
+            method: "DELETE"
+        )
+    }
+
     public func deleteHouseholdAlias(term: String) async throws {
         let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? term
         let _: EmptyResponse = try await request(

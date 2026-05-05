@@ -19,6 +19,9 @@ from app.schemas import (
     EventMenuGenerateRequest,
     EventMenuGenerateResponse,
     EventOut,
+    EventPantrySupplementAddRequest,
+    EventPantrySupplementOut,
+    EventPantrySupplementPatchRequest,
     EventSummaryOut,
     EventUpdateRequest,
     GuestOut,
@@ -461,6 +464,133 @@ def refresh_event_grocery_route(
         user_id=current_user.id,
         household_id=current_user.household_id,
     )
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.household_id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+def _refresh_event_after_supplement_change(
+    session: Session, *, event, current_user: CurrentUser
+) -> None:
+    """After supplement add/edit/delete, the event's grocery list and
+    any merged week need to reflect the new supplement quantity. Same
+    pattern the meal-edit and menu-regen routes use."""
+    from app.services.event_grocery import apply_auto_merge_policy, regenerate_event_grocery
+
+    regenerate_event_grocery(session, current_user.id, event)
+    apply_auto_merge_policy(
+        session,
+        event=event,
+        user_id=current_user.id,
+        household_id=current_user.household_id,
+    )
+
+
+@events_router.get("/{event_id}/supplements", response_model=list[EventPantrySupplementOut])
+def list_event_supplements_route(
+    event_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, object]]:
+    from app.services.event_presenters import event_pantry_supplement_payload
+
+    event = get_event(session, current_user.household_id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return [event_pantry_supplement_payload(s) for s in event.pantry_supplements]
+
+
+@events_router.post("/{event_id}/supplements", response_model=EventOut)
+def add_event_supplement_route(
+    event_id: str,
+    payload: EventPantrySupplementAddRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    from app.services.event_supplements import add_supplement
+
+    event = get_event(session, current_user.household_id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    try:
+        add_supplement(
+            session,
+            event=event,
+            pantry_item_id=payload.pantry_item_id,
+            quantity=payload.quantity,
+            unit=payload.unit,
+            notes=payload.notes,
+            household_id=current_user.household_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _refresh_event_after_supplement_change(session, event=event, current_user=current_user)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.household_id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.patch("/{event_id}/supplements/{supplement_id}", response_model=EventOut)
+def patch_event_supplement_route(
+    event_id: str,
+    supplement_id: str,
+    payload: EventPantrySupplementPatchRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    from app.services.event_supplements import get_supplement, update_supplement
+
+    event = get_event(session, current_user.household_id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    supplement = get_supplement(session, event_id=event_id, supplement_id=supplement_id)
+    if supplement is None:
+        raise HTTPException(status_code=404, detail="Supplement not found")
+    try:
+        update_supplement(session, supplement=supplement, fields=payload.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _refresh_event_after_supplement_change(session, event=event, current_user=current_user)
+    session.commit()
+
+    from app.db import session_scope
+
+    with session_scope() as read_session:
+        fresh = get_event(read_session, current_user.household_id, event_id)
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event_payload(fresh)
+
+
+@events_router.delete("/{event_id}/supplements/{supplement_id}", response_model=EventOut)
+def delete_event_supplement_route(
+    event_id: str,
+    supplement_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    from app.services.event_supplements import delete_supplement, get_supplement
+
+    event = get_event(session, current_user.household_id, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    supplement = get_supplement(session, event_id=event_id, supplement_id=supplement_id)
+    if supplement is None:
+        raise HTTPException(status_code=404, detail="Supplement not found")
+    delete_supplement(session, supplement=supplement)
+    _refresh_event_after_supplement_change(session, event=event, current_user=current_user)
     session.commit()
 
     from app.db import session_scope

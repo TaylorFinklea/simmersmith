@@ -179,6 +179,53 @@ extension AppState {
         return event
     }
 
+    /// M28 phase 2 — pantry supplements.
+    @discardableResult
+    func addEventSupplement(
+        eventID: String,
+        pantryItemID: String,
+        quantity: Double,
+        unit: String = "",
+        notes: String = ""
+    ) async throws -> Event {
+        let event = try await apiClient.addEventSupplement(
+            eventID: eventID,
+            body: SimmerSmithAPIClient.EventSupplementAddBody(
+                pantryItemId: pantryItemID,
+                quantity: quantity,
+                unit: unit,
+                notes: notes
+            )
+        )
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
+    @discardableResult
+    func patchEventSupplement(
+        eventID: String,
+        supplementID: String,
+        body: SimmerSmithAPIClient.EventSupplementPatchBody
+    ) async throws -> Event {
+        let event = try await apiClient.patchEventSupplement(
+            eventID: eventID,
+            supplementID: supplementID,
+            body: body
+        )
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
+    @discardableResult
+    func deleteEventSupplement(eventID: String, supplementID: String) async throws -> Event {
+        let event = try await apiClient.deleteEventSupplement(eventID: eventID, supplementID: supplementID)
+        eventDetails[event.eventId] = event
+        syncSummary(from: event)
+        return event
+    }
+
     @discardableResult
     func generateEventMenu(
         eventID: String,

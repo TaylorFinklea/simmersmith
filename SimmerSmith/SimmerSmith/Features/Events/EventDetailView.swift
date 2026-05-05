@@ -16,6 +16,18 @@ struct EventDetailView: View {
     @State private var mealEditorContext: EventMealEditorContext?
     @State private var showingEventEditor: Bool = false
     @State private var pendingDelete: Bool = false
+    @State private var supplementContext: SupplementEditorContext?
+
+    private struct SupplementEditorContext: Identifiable {
+        let id: String
+        let event: Event
+        let supplement: EventPantrySupplement?
+        init(event: Event, supplement: EventPantrySupplement? = nil) {
+            self.id = supplement?.supplementId ?? "new"
+            self.event = event
+            self.supplement = supplement
+        }
+    }
 
     private var event: Event? { appState.eventDetails[eventID] }
 
@@ -28,6 +40,7 @@ struct EventDetailView: View {
                     autoMergeRow(for: event)
                     generateSection
                     menuSection(for: event)
+                    pantrySupplementsSection(for: event)
                     guestsBringingSection(for: event)
                     if !event.groceryItems.isEmpty {
                         grocerySection(for: event)
@@ -78,6 +91,12 @@ struct EventDetailView: View {
         .refreshable { await load() }
         .sheet(item: $mealEditorContext) { context in
             EventMealEditorSheet(event: context.event, meal: context.meal)
+        }
+        .sheet(item: $supplementContext) { context in
+            EventPantrySupplementSheet(
+                event: context.event,
+                supplement: context.supplement
+            )
         }
         .sheet(isPresented: $showingEventEditor) {
             if let event {
@@ -237,6 +256,85 @@ struct EventDetailView: View {
                 .background(SMColor.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: SMRadius.sm))
             }
         }
+    }
+
+    @ViewBuilder
+    private func pantrySupplementsSection(for event: Event) -> some View {
+        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            HStack {
+                Text("Pantry supplements")
+                    .font(SMFont.label)
+                    .foregroundStyle(SMColor.textTertiary)
+                Spacer()
+                Button {
+                    supplementContext = SupplementEditorContext(event: event)
+                } label: {
+                    Label("Add", systemImage: "plus.circle")
+                        .font(SMFont.caption.weight(.semibold))
+                        .foregroundStyle(SMColor.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(appState.pantryItems.isEmpty)
+            }
+            if event.pantrySupplements.isEmpty {
+                Text("Need extra of a pantry item beyond your normal stock for this event? Add a supplement (e.g. \"100 eggs for the brunch\") and it'll land on the linked week's grocery list as event-attributed.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            } else {
+                ForEach(event.pantrySupplements) { supplement in
+                    Button {
+                        supplementContext = SupplementEditorContext(event: event, supplement: supplement)
+                    } label: {
+                        HStack(alignment: .top) {
+                            Image(systemName: "shippingbox.and.arrow.backward")
+                                .foregroundStyle(SMColor.primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(supplement.pantryItemName)
+                                    .font(SMFont.body.weight(.semibold))
+                                    .foregroundStyle(SMColor.textPrimary)
+                                Text(supplementSubtitle(supplement))
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textSecondary)
+                                if !supplement.notes.isEmpty {
+                                    Text(supplement.notes)
+                                        .font(SMFont.caption)
+                                        .foregroundStyle(SMColor.textTertiary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(SMColor.textTertiary)
+                        }
+                        .padding(SMSpacing.sm)
+                        .background(SMColor.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: SMRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if appState.pantryItems.isEmpty {
+                Text("Add pantry items first (Grocery → ⋯ → Pantry) to attach supplements here.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .task {
+            if appState.pantryItems.isEmpty {
+                await appState.loadPantryItems()
+            }
+        }
+    }
+
+    private func supplementSubtitle(_ supplement: EventPantrySupplement) -> String {
+        let qty = supplement.quantity
+        let qtyText: String
+        if qty.rounded() == qty {
+            qtyText = String(Int(qty))
+        } else {
+            qtyText = String(format: "%.2f", qty)
+        }
+        let unit = supplement.unit.isEmpty ? "" : " \(supplement.unit)"
+        return "+ \(qtyText)\(unit) extra for this event"
     }
 
     @ViewBuilder

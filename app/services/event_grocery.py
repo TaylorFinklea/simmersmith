@@ -182,6 +182,37 @@ def _aggregate_event_rows(
                 "review_flag": review,
             }
         )
+    # M28 phase 2 — pantry supplements. Bypass the staple filter (we
+    # WANT pantry items here; the user explicitly said "for this event
+    # we need extra"). One supplement → one row, attributed via
+    # source_meals so the iOS event view can label it.
+    for supplement in event.pantry_supplements:
+        pantry_item = supplement.pantry_item
+        if pantry_item is None or supplement.quantity <= 0:
+            continue
+        supplement_unit = normalize_unit(supplement.unit) if supplement.unit else (
+            normalize_unit(pantry_item.recurring_unit or pantry_item.typical_unit or "")
+        )
+        rows.append(
+            {
+                "ingredient_name": pantry_item.staple_name,
+                "normalized_name": pantry_item.normalized_name,
+                "base_ingredient_id": None,
+                "ingredient_variation_id": None,
+                "resolution_status": "locked",
+                "total_quantity": round(float(supplement.quantity), 2),
+                "unit": supplement_unit,
+                "quantity_text": "",
+                "category": pantry_item.category or "",
+                "source_meals": json.dumps([f"pantry-supplement:{supplement.id}"]),
+                "notes": (
+                    f"Pantry supplement for {event.name}"
+                    + (f" — {supplement.notes}" if supplement.notes.strip() else "")
+                ),
+                "review_flag": "",
+            }
+        )
+
     rows.sort(key=lambda r: ((r.get("category") or "").lower(), r["ingredient_name"].lower()))
     return rows
 

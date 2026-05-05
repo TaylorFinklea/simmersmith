@@ -142,11 +142,35 @@ class EventSummaryOut(BaseModel):
     updated_at: datetime
 
 
+class EventPantrySupplementOut(BaseModel):
+    supplement_id: str
+    pantry_item_id: str
+    pantry_item_name: str
+    quantity: float
+    unit: str = ""
+    notes: str = ""
+    updated_at: datetime
+
+
+class EventPantrySupplementAddRequest(BaseModel):
+    pantry_item_id: str
+    quantity: float = Field(gt=0)
+    unit: str = ""
+    notes: str = ""
+
+
+class EventPantrySupplementPatchRequest(BaseModel):
+    quantity: float | None = Field(default=None, gt=0)
+    unit: str | None = None
+    notes: str | None = None
+
+
 class EventOut(EventSummaryOut):
     notes: str
     attendees: list[EventAttendeeOut]
     meals: list[EventMealOut]
     grocery_items: list[EventGroceryItemOut]
+    pantry_supplements: list[EventPantrySupplementOut] = Field(default_factory=list)
 
 
 class EventMenuGenerateRequest(BaseModel):

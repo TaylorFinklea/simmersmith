@@ -1692,6 +1692,37 @@ public struct EventSummary: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// M28 phase 2 — additive pantry top-up for an event.
+public struct EventPantrySupplement: Codable, Identifiable, Hashable, Sendable {
+    public let supplementId: String
+    public let pantryItemId: String
+    public let pantryItemName: String
+    public let quantity: Double
+    public let unit: String
+    public let notes: String
+    public let updatedAt: Date
+
+    public var id: String { supplementId }
+
+    public init(
+        supplementId: String,
+        pantryItemId: String,
+        pantryItemName: String,
+        quantity: Double,
+        unit: String = "",
+        notes: String = "",
+        updatedAt: Date = Date()
+    ) {
+        self.supplementId = supplementId
+        self.pantryItemId = pantryItemId
+        self.pantryItemName = pantryItemName
+        self.quantity = quantity
+        self.unit = unit
+        self.notes = notes
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct Event: Codable, Identifiable, Hashable, Sendable {
     public let eventId: String
     public let name: String
@@ -1708,6 +1739,7 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
     public let attendees: [EventAttendee]
     public let meals: [EventMeal]
     public let groceryItems: [EventGroceryItem]
+    public let pantrySupplements: [EventPantrySupplement]
 
     public var id: String { eventId }
 
@@ -1728,12 +1760,13 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
         attendees = try c.decodeIfPresent([EventAttendee].self, forKey: .attendees) ?? []
         meals = try c.decodeIfPresent([EventMeal].self, forKey: .meals) ?? []
         groceryItems = try c.decodeIfPresent([EventGroceryItem].self, forKey: .groceryItems) ?? []
+        pantrySupplements = try c.decodeIfPresent([EventPantrySupplement].self, forKey: .pantrySupplements) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
         case eventId, name, eventDate, occasion, attendeeCount, status,
              linkedWeekId, autoMergeGrocery, mealCount, createdAt, updatedAt,
-             notes, attendees, meals, groceryItems
+             notes, attendees, meals, groceryItems, pantrySupplements
     }
 }
 

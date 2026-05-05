@@ -97,6 +97,8 @@ def list_events(session: Session, household_id: str) -> list[Event]:
 
 
 def get_event(session: Session, household_id: str, event_id: str) -> Event | None:
+    from app.models import EventPantrySupplement
+
     return session.scalar(
         select(Event)
         .where(Event.id == event_id, Event.household_id == household_id)
@@ -104,6 +106,7 @@ def get_event(session: Session, household_id: str, event_id: str) -> Event | Non
             selectinload(Event.attendees).selectinload(EventAttendee.guest),
             selectinload(Event.meals).selectinload(EventMeal.inline_ingredients),
             selectinload(Event.grocery_items),
+            selectinload(Event.pantry_supplements).selectinload(EventPantrySupplement.pantry_item),
         )
     )
 
