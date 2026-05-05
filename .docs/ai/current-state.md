@@ -8,7 +8,68 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M28 phase 2 ship (event pantry supplements)
+**Date**: 2026-05-05 — M29 build 53 ship (review-before-commit + side AI gen)
+
+**Build 53** opens the M29 milestone (3-build cadence). Solves the
+"AI slop" problem: pre-build-53 the event-meal AI gen and quick-add
+AI gen both auto-saved every draft into the recipes library, so a
+user iterating 3-5 times to get the right recipe ended up with 3-5
+abandoned recipes. Build 53 introduces a single review funnel +
+adds the previously-missing side-recipe AI generation.
+
+**Backend**:
+- New `app/services/recipe_drafting.py` — `generate_recipe_draft_for_dish`
+  (generic per-dish helper, used by event + side routes) and
+  `refine_recipe_draft` (the engine of the iOS refine loop). Reuses
+  M27 `unit_system_directive` + assistant_ai's `extract_json_object`
+  + `run_direct_provider`. **No DB writes anywhere in the loop.**
+- New `POST /api/recipes/draft/refine` route in `app/api/recipes.py`.
+  Body: `{draft, prompt, context_hint}` → returns refined `RecipePayload`.
+- New `POST /api/weeks/{w}/meals/{m}/sides/{s}/ai-recipe` in
+  `app/api/weeks.py`. Returns a draft scaled to the parent meal's
+  servings.
+- `event_ai.generate_recipe_for_meal` slimmed to a thin wrapper
+  around the shared helper so the per-dish event flow goes through
+  the same plumbing.
+- Tests: `tests/test_recipe_draft_refine.py` (3 cases) +
+  `tests/test_side_ai_recipe.py` (2 cases). Existing event-recipe
+  test patched to also stub `recipe_drafting.run_direct_provider`.
+  321/321 backend tests pass.
+
+**iOS**:
+- New `Features/Recipes/RecipeDraftReviewSheet.swift` — the single
+  funnel. Init takes `initialDraft` + `refineContextHint` + `onSave`
+  + optional `onDiscard`. Surfaces a draft summary, a "Refine with
+  AI" prompt+button (with iteration counter footer "refined N
+  times · nothing saved yet"), an "Edit by hand" path that opens
+  `RecipeEditorView`, and Save/Discard buttons. Save is the ONLY
+  persistence path.
+- `EventMealEditorSheet.swift` — `generateRecipeWithAI` no longer
+  auto-saves. Sets a `pendingDraft` state and presents the review
+  sheet; `onSave` runs the existing PATCH-event-meal link.
+- `AIRecipeCreateSheet.swift` (Week quick-add AI) — rewritten as a
+  thin generation shell that hands off to the review sheet. Save
+  button removed; the review sheet's onSave forwards to the
+  caller's `onSaved`.
+- `MealSidesSheet.swift` (the inline `SideEditorSheet`) — new
+  "Generate recipe with AI" section in the side editor. Hint
+  TextField + button → calls
+  `apiClient.generateSideRecipeDraft` → review sheet → on save,
+  PATCHes the side's `recipeId`. Closes the M26 follow-up gap.
+- New API client methods: `generateSideRecipeDraft`,
+  `refineRecipeDraft`. New AppState helper `refineRecipeDraft`.
+- `RecipeDraft` declared `Identifiable` (id derived from recipeId
+  ?? name) so `.sheet(item:)` works for in-flight drafts.
+
+**Build bump**: 52 → 53.
+
+**Pause for dogfood after build 53.** Build 54 will route the
+existing review-first surfaces (web search, variation drafts,
+companion drafts) through `RecipeDraftReviewSheet` to give them
+the refine loop. Build 55 wires the assistant `recipe_draft`
+envelope through the same funnel + polish from 53/54 dogfood.
+
+### Earlier session (build 52 / Fly v78 — M28 phase 2 event pantry supplements)
 
 **Build 52** completes the M28 pantry feature. Phase 1 (build 51)
 added the recurring fold-in. Phase 2 lets events request
