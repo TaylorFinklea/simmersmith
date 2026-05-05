@@ -294,38 +294,25 @@ def generate_recipe_for_meal(
 ) -> dict[str, Any]:
     """Generate a single recipe draft sized for an event dish.
 
-    Reuses the event-menu pipeline's provider resolution + JSON
-    extraction. Returns a dict shaped to fit `RecipePayload` (servings,
-    ingredients, steps, etc.) — the caller decides whether to persist
-    it as a real `Recipe` and link it to the event meal.
+    M29 build 53: this is now a thin wrapper around
+    `recipe_drafting.generate_recipe_draft_for_dish` so the side AI
+    route can use the same plumbing. Builds the guest-constraints
+    block from the event's attendee allergies before delegating.
     """
-    target = _resolve_target(settings, user_settings)
-    prompt = _build_per_dish_prompt(
-        event=event,
-        meal_name=meal_name,
-        servings=servings,
-        user_prompt=user_prompt,
-        user_settings=user_settings,
-    )
-    raw = run_direct_provider(
-        target=target,
+    del session  # session is unused; here for caller compatibility
+    from app.services.recipe_drafting import generate_recipe_draft_for_dish
+
+    attendees = [(row.guest, row.plus_ones) for row in event.attendees if row.guest is not None]
+    guest_block, _ = _describe_guests(attendees)
+    return generate_recipe_draft_for_dish(
         settings=settings,
         user_settings=user_settings,
-        prompt=prompt,
+        dish_name=meal_name,
+        servings=servings,
+        user_prompt=user_prompt,
+        constraints_block=guest_block if attendees else "",
+        context_label=f"the event \"{event.name}\" (occasion: {event.occasion or 'general'})",
     )
-    candidate = extract_json_object(raw)
-    try:
-        payload = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("AI returned invalid JSON for event-meal recipe.") from exc
-    # Light shape coercion — AI sometimes omits empty lists.
-    payload.setdefault("name", meal_name)
-    payload.setdefault("ingredients", [])
-    payload.setdefault("steps", [])
-    payload.setdefault("tags", [])
-    if not payload.get("servings"):
-        payload["servings"] = float(servings)
-    return payload
 
 
 def generate_event_menu(

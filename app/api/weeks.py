@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
@@ -337,6 +337,51 @@ def delete_side_route(
         user_id=current_user.id,
     )
     session.commit()
+
+
+class SideAIRecipeRequest(BaseModel):
+    """M29 build 53 — generate a recipe draft for a meal side. Routed
+    through `RecipeDraftReviewSheet` on iOS, so this endpoint never
+    persists. Caller decides via the existing PATCH side route after
+    Save."""
+
+    prompt: str = ""
+    servings: int = Field(default=0, ge=0, le=200)
+
+
+@router.post("/{week_id}/meals/{meal_id}/sides/{side_id}/ai-recipe")
+def generate_side_recipe_route(
+    week_id: str,
+    meal_id: str,
+    side_id: str,
+    payload: SideAIRecipeRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    from app.services.recipe_drafting import generate_recipe_draft_for_dish
+
+    week, meal, side = _load_side_or_404(
+        session, current_user.household_id, week_id, meal_id, side_id
+    )
+    user_settings = profile_settings_map(session, current_user.id)
+    # Default servings to the parent meal's servings — sides scale
+    # with the main, so this is the right floor when the user
+    # doesn't override.
+    servings = payload.servings or int(meal.servings or 4)
+    try:
+        draft = generate_recipe_draft_for_dish(
+            settings=settings,
+            user_settings=user_settings,
+            dish_name=side.name,
+            servings=servings,
+            user_prompt=payload.prompt,
+            constraints_block="",
+            context_label=f"a side dish for the meal \"{meal.recipe_name}\" (week of {week.week_start.isoformat()})",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return draft
 
 
 @router.get("/{week_id}/changes", response_model=list[WeekChangeBatchOut])

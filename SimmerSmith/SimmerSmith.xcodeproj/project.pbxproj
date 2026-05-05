@@ -123,6 +123,7 @@
 		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
+		F21F3980304ABC29BC2EF021 /* RecipeDraftReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE589C264A925AD63115DCA8 /* RecipeDraftReviewSheet.swift */; };
 		F2F273BE7962431455CF0E2B /* GroceryFeedbackSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C7317E74DF27E9055092A74 /* GroceryFeedbackSheet.swift */; };
 		F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A2F0DB49AA9FE8234318651 /* SubscriptionStore.swift */; };
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
@@ -264,6 +265,7 @@
 		D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPantrySupplementSheet.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSetupView.swift; sourceTree = "<group>"; };
+		DE589C264A925AD63115DCA8 /* RecipeDraftReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDraftReviewSheet.swift; sourceTree = "<group>"; };
 		DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeImportView.swift; sourceTree = "<group>"; };
 		E77574E1813D8C368CBAFF27 /* AssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantView.swift; sourceTree = "<group>"; };
 		E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Vision.swift"; sourceTree = "<group>"; };
@@ -476,6 +478,7 @@
 				14EE7553DFC9652AB1EED953 /* MemoryComposeSheet.swift */,
 				A71822917FBDBA318104CE69 /* MemoryPhotoView.swift */,
 				708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */,
+				DE589C264A925AD63115DCA8 /* RecipeDraftReviewSheet.swift */,
 				14092FA88319FB68CC7C86E4 /* RecipeEditorIngredientResolution.swift */,
 				61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */,
 				BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */,
@@ -860,6 +863,7 @@
 				53D3903682897BECC71E2611 /* PushService.swift in Sources */,
 				72BD0CBA5C14220174E5ECA2 /* RecipeCard.swift in Sources */,
 				2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */,
+				F21F3980304ABC29BC2EF021 /* RecipeDraftReviewSheet.swift in Sources */,
 				925114D0E678B77DE951E987 /* RecipeEditorIngredientResolution.swift in Sources */,
 				1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */,
 				00F86A1EDF7BE61EDC279626 /* RecipeEditorStepsEditor.swift in Sources */,
@@ -938,7 +942,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 52;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1054,7 +1058,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 52;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

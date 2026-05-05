@@ -2028,6 +2028,50 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    /// M29 build 53 — generate a recipe draft for a meal side. Same
+    /// pattern as the per-dish event route: returns a `RecipeDraft`,
+    /// no DB writes. iOS routes through `RecipeDraftReviewSheet`,
+    /// then on Save the existing PATCH side route links the new
+    /// recipe via `recipeId`.
+    public func generateSideRecipeDraft(
+        weekID: String,
+        mealID: String,
+        sideID: String,
+        prompt: String = "",
+        servings: Int = 0
+    ) async throws -> RecipeDraft {
+        struct Body: Encodable {
+            let prompt: String
+            let servings: Int
+        }
+        return try await request(
+            path: "/api/weeks/\(weekID)/meals/\(mealID)/sides/\(sideID)/ai-recipe",
+            method: "POST",
+            body: Body(prompt: prompt, servings: servings)
+        )
+    }
+
+    /// M29 build 53 — refine an existing recipe draft via AI. The
+    /// engine of the review-before-commit funnel. Returns a fresh
+    /// `RecipeDraft`; the iOS sheet replaces the visible draft.
+    /// No DB writes.
+    public func refineRecipeDraft(
+        draft: RecipeDraft,
+        prompt: String,
+        contextHint: String = ""
+    ) async throws -> RecipeDraft {
+        struct Body: Encodable {
+            let draft: RecipeDraft
+            let prompt: String
+            let contextHint: String
+        }
+        return try await request(
+            path: "/api/recipes/draft/refine",
+            method: "POST",
+            body: Body(draft: draft, prompt: prompt, contextHint: contextHint)
+        )
+    }
+
     public func generateEventMenu(
         eventID: String,
         prompt: String = "",

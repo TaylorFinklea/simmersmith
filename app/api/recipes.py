@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -343,6 +344,40 @@ def import_recipe_text_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _with_nutrition_summary(session, recipe)
+
+
+class RecipeDraftRefineRequest(BaseModel):
+    """M29 build 53 — generic draft-refinement request. Caller passes
+    the current draft + their tweak prompt; the response carries the
+    refined draft. No DB persistence; the iOS layer decides when (if
+    ever) to commit."""
+
+    draft: RecipePayload
+    prompt: str = Field(min_length=1, max_length=1000)
+    context_hint: str = ""
+
+
+@router.post("/draft/refine", response_model=RecipePayload)
+def refine_recipe_draft_route(
+    payload: RecipeDraftRefineRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    from app.services.recipe_drafting import refine_recipe_draft
+
+    user_settings = profile_settings_map(session, current_user.id)
+    try:
+        refined = refine_recipe_draft(
+            settings=settings,
+            user_settings=user_settings,
+            draft=payload.draft.model_dump(mode="json"),
+            prompt=payload.prompt,
+            context_hint=payload.context_hint,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return refined
 
 
 @router.post("/ai/suggestion-draft", response_model=RecipeAIDraftOut)

@@ -180,6 +180,10 @@ private struct SideEditorSheet: View {
     @State private var isWorking = false
     @State private var errorMessage: String? = nil
 
+    @State private var aiPrompt: String = ""
+    @State private var isGeneratingAI = false
+    @State private var pendingDraft: RecipeDraft? = nil
+
     init(weekID: String, mealID: String, side: WeekMealSide) {
         self.weekID = weekID
         self.mealID = mealID
@@ -202,6 +206,35 @@ private struct SideEditorSheet: View {
                         }
                     }
                 }
+
+                // M29 build 53 — generate a recipe draft for this side
+                // via AI. Routes through `RecipeDraftReviewSheet` so
+                // the user can refine + review before anything saves.
+                Section {
+                    TextField("Hint (optional, e.g. \"with parmesan\")", text: $aiPrompt, axis: .vertical)
+                        .lineLimit(1...3)
+                    Button {
+                        Task { await generateRecipeWithAI() }
+                    } label: {
+                        HStack {
+                            if isGeneratingAI {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "sparkles")
+                            }
+                            Text(isGeneratingAI ? "Drafting…" : "Generate recipe with AI")
+                        }
+                    }
+                    .disabled(
+                        isGeneratingAI ||
+                        name.trimmingCharacters(in: .whitespaces).isEmpty
+                    )
+                } header: {
+                    Text("Or have AI write a recipe")
+                } footer: {
+                    Text("Draft opens in a review sheet — refine or edit before saving. Nothing lands in your recipes library until you tap Save there.")
+                }
+
                 if let errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(SMColor.destructive)
@@ -222,7 +255,66 @@ private struct SideEditorSheet: View {
                         )
                 }
             }
+            .sheet(item: $pendingDraft) { draft in
+                RecipeDraftReviewSheet(
+                    initialDraft: draft,
+                    refineContextHint: "a side dish for the meal",
+                    onSave: { saved in
+                        Task { await linkSavedDraftToSide(saved) }
+                    }
+                )
+            }
         }
+    }
+
+    private func generateRecipeWithAI() async {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        // Persist the side name change first so the backend route
+        // sees the correct dish name. Cheap PATCH — no grocery
+        // ripple if the name didn't actually change.
+        if trimmed != side.name {
+            var body = SimmerSmithAPIClient.WeekMealSidePatchBody()
+            body.name = trimmed
+            do {
+                _ = try await appState.patchMealSide(
+                    weekID: weekID, mealID: mealID, sideID: side.sideId, body: body
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        isGeneratingAI = true
+        defer { isGeneratingAI = false }
+        errorMessage = nil
+        do {
+            let draft = try await appState.apiClient.generateSideRecipeDraft(
+                weekID: weekID,
+                mealID: mealID,
+                sideID: side.sideId,
+                prompt: aiPrompt,
+                servings: 0
+            )
+            pendingDraft = draft
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func linkSavedDraftToSide(_ saved: RecipeSummary) async {
+        var body = SimmerSmithAPIClient.WeekMealSidePatchBody()
+        body.recipeId = saved.recipeId
+        do {
+            _ = try await appState.patchMealSide(
+                weekID: weekID, mealID: mealID, sideID: side.sideId, body: body
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        recipeID = saved.recipeId
+        await appState.refreshRecipes()
     }
 
     private func save() async {

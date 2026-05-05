@@ -208,6 +208,20 @@ extension AppState {
         return savedRecipe
     }
 
+    /// M29 build 53 — refine an in-flight draft via AI. Returns the
+    /// new draft; caller replaces the visible draft. Never persists.
+    func refineRecipeDraft(
+        currentDraft: RecipeDraft,
+        prompt: String,
+        contextHint: String = ""
+    ) async throws -> RecipeDraft {
+        try await apiClient.refineRecipeDraft(
+            draft: currentDraft,
+            prompt: prompt,
+            contextHint: contextHint
+        )
+    }
+
     /// How to apply an AI substitution: mutate the base recipe in place or
     /// fork a new variation that keeps the original intact.
     enum SubstitutionMode {

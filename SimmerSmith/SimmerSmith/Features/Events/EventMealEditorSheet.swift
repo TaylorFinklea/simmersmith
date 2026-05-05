@@ -25,6 +25,15 @@ struct EventMealEditorSheet: View {
     @State private var aiPrompt: String = ""
     @State private var isGeneratingAI = false
     @State private var aiToast: String? = nil
+    // M29 build 53 — review draft before commit.
+    @State private var pendingDraft: PendingDraft? = nil
+
+    private struct PendingDraft: Identifiable {
+        let id = UUID()
+        let draft: RecipeDraft
+        let mealId: String
+        let contextHint: String
+    }
 
     private let roles = ["starter", "main", "side", "dessert", "beverage", "other"]
 
@@ -149,6 +158,15 @@ struct EventMealEditorSheet: View {
                     await appState.refreshRecipes()
                 }
             }
+            .sheet(item: $pendingDraft) { pending in
+                RecipeDraftReviewSheet(
+                    initialDraft: pending.draft,
+                    refineContextHint: pending.contextHint,
+                    onSave: { saved in
+                        Task { await handleSavedDraft(saved, for: pending.mealId) }
+                    }
+                )
+            }
         }
     }
 
@@ -211,9 +229,10 @@ struct EventMealEditorSheet: View {
         }
     }
 
-    /// Pipeline: ask the server for a recipe draft → persist as a new
-    /// Recipe → link the resulting recipe to this event meal. Refreshes
-    /// the recipes cache so the linked picker shows the new entry.
+    /// M29 build 53 — fetch the AI draft and present the review
+    /// sheet. The draft does NOT persist until the user taps Save in
+    /// the review sheet (or its hand-edit path). On save, the
+    /// `onSave` callback wires `recipeId` onto the event meal.
     private func generateRecipeWithAI(for meal: EventMeal) async {
         isGeneratingAI = true
         defer { isGeneratingAI = false }
@@ -227,10 +246,25 @@ struct EventMealEditorSheet: View {
                 prompt: aiPrompt,
                 servings: servings
             )
-            let saved = try await appState.saveRecipe(draft)
+            pendingDraft = PendingDraft(
+                draft: draft,
+                mealId: meal.mealId,
+                contextHint: "an event meal for \"\(event.name)\""
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Called from the review sheet's `onSave`. By this point the
+    /// recipe is persisted; we just need to attach it to the event
+    /// meal. Refreshes recipes so the picker shows the new entry.
+    private func handleSavedDraft(_ saved: RecipeSummary, for mealId: String) async {
+        let servings = Int(servingsText.trimmingCharacters(in: .whitespaces)) ?? 0
+        do {
             _ = try await appState.updateEventMeal(
                 eventID: event.eventId,
-                mealID: meal.mealId,
+                mealID: mealId,
                 role: role,
                 recipeID: saved.recipeId,
                 recipeName: recipeName,
@@ -240,7 +274,7 @@ struct EventMealEditorSheet: View {
                 clearAssignee: false
             )
             linkedRecipeID = saved.recipeId
-            aiToast = "Linked to new recipe \"\(saved.name)\". Tap Save to keep dish-level edits."
+            aiToast = "Linked to new recipe \"\(saved.name)\"."
             await appState.refreshRecipes()
         } catch {
             errorMessage = error.localizedDescription

@@ -97,7 +97,12 @@ def test_event_meal_ai_recipe_generates_draft(client, monkeypatch) -> None:
     def fake_availability(name, *, settings, user_settings):  # noqa: ARG001
         return (True, "env") if name == "openai" else (False, "unset")
 
+    # M29 build 53: per-dish event AI now delegates to
+    # `recipe_drafting.generate_recipe_draft_for_dish`. Patch both
+    # call sites for back-compat with older tests that targeted
+    # `event_ai` directly.
     monkeypatch.setattr("app.services.event_ai.run_direct_provider", fake_run_direct_provider)
+    monkeypatch.setattr("app.services.recipe_drafting.run_direct_provider", fake_run_direct_provider)
     monkeypatch.setattr("app.services.event_ai.direct_provider_availability", fake_availability)
     monkeypatch.setattr(
         "app.services.event_ai.resolve_direct_model",
