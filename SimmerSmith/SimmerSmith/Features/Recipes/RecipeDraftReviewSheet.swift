@@ -232,15 +232,22 @@ struct RecipeDraftReviewSheet: View {
     }
 
     private func save() async {
-        isSaving = true
-        defer { isSaving = false }
-        errorMessage = nil
-        do {
-            let saved = try await appState.saveRecipe(draft)
-            onSave(saved)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+        // Build 54: dismiss immediately so the user sees instant
+        // progress (the dogfood complaint was "Save took a long
+        // time"). The save runs in the background; errors land in
+        // `appState.lastErrorMessage` which is surfaced globally so
+        // the user is never silently dropped.
+        let snapshot = draft
+        let onSaveCallback = onSave
+        dismiss()
+        Task { [weak appState] in
+            guard let appState else { return }
+            do {
+                let saved = try await appState.saveRecipe(snapshot)
+                onSaveCallback(saved)
+            } catch {
+                appState.lastErrorMessage = "Couldn't save recipe: \(error.localizedDescription)"
+            }
         }
     }
 }

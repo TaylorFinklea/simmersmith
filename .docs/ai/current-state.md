@@ -8,7 +8,50 @@
 
 ## Last Session Summary
 
-**Date**: 2026-05-05 — M29 build 53 ship (review-before-commit + side AI gen)
+**Date**: 2026-05-05 — M29 build 54 ship (dogfood fixes + AI cleanup filters)
+
+**Build 54** addresses TestFlight 53 feedback (intermittent "invalid
+JSON" on AI gen, slow Save, no way to find AI-generated slop, stuck
+Delete) and adds the AI cleanup-filter UI. Originally planned scope
+(routing existing review-first surfaces through `RecipeDraftReviewSheet`)
+deferred to build 55 since they don't auto-save anyway — feedback
+items took priority.
+
+**Backend**:
+- `app/services/recipe_drafting.py`: new `_provider_call_with_json_retry`
+  helper. Both `generate_recipe_draft_for_dish` and
+  `refine_recipe_draft` now retry once on `JSONDecodeError` with a
+  tightened "Return ONLY the JSON object — no markdown fences"
+  reminder before raising 502. Catches the dogfood case where the
+  LLM occasionally wraps its response in fences.
+- New test `test_refine_route_retries_invalid_json_once` in
+  `tests/test_recipe_draft_refine.py`. 320/320 pass.
+
+**iOS**:
+- `AppState+Recipes.swift`: `saveRecipe` no longer awaits the
+  metadata refresh — that's now a fire-and-forget Task. Halves
+  the perceived latency of the Save tap. `deleteRecipe` now pulls
+  a fresh server list right after the 204 lands so a stale local
+  cache can't show a deleted recipe.
+- `RecipeDraftReviewSheet.swift`: tap-to-Save dismisses the sheet
+  IMMEDIATELY and runs the save chain in a follow-up Task. Errors
+  surface via `appState.lastErrorMessage`.
+- `DesignSystem/Components/RecipeListRow.swift`: AI badge
+  (sparkles, purple) on rows whose `source` starts with `ai`.
+- `Features/Recipes/RecipesView.swift`: new `cleanupFilterPills`
+  row with 4 chips: All / AI-generated / Never used / Unused 30+
+  days. When active, swaps editorial sections for a flat list
+  sorted least-recently-used first. New `RecipeCleanupFilter` enum.
+
+**Build bump**: 53 → 54.
+
+**Pause for dogfood after build 54.** Build 55 will route the
+remaining review-first surfaces (web search, recipe variation,
+recipe companion) through `RecipeDraftReviewSheet` to give them
+the refine loop, plus assistant `recipe_draft` envelope refactor
++ polish from 54 dogfood findings.
+
+### Earlier session (build 53 / Fly v79 — M29 review-before-commit + side AI gen)
 
 **Build 53** opens the M29 milestone (3-build cadence). Solves the
 "AI slop" problem: pre-build-53 the event-meal AI gen and quick-add

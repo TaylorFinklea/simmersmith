@@ -96,6 +96,45 @@ def _coerce_draft(payload: dict[str, Any], *, fallback_name: str, fallback_servi
     return payload
 
 
+def _provider_call_with_json_retry(
+    *,
+    target: Any,
+    settings: Settings,
+    user_settings: dict[str, str],
+    prompt: str,
+    label: str,
+) -> dict[str, Any]:
+    """M29 build 54: retry once on invalid JSON.
+
+    The AI occasionally wraps its response in markdown fences or
+    leading prose despite the schema directive. `extract_json_object`
+    handles the common cases, but a stubborn first attempt sometimes
+    fails. We retry once with a tightened reminder before raising —
+    cheap insurance against transient parse failures the user
+    reported on TestFlight 53.
+    """
+    retry_prompt = (
+        prompt
+        + "\n\nIMPORTANT: Your previous response could not be parsed as JSON. "
+        "Return ONLY the JSON object — no markdown fences, no prose, no commentary."
+    )
+    last_error: Exception | None = None
+    for attempt_prompt in (prompt, retry_prompt):
+        raw = run_direct_provider(
+            target=target,
+            settings=settings,
+            user_settings=user_settings,
+            prompt=attempt_prompt,
+        )
+        candidate = extract_json_object(raw)
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+    raise RuntimeError(f"AI returned invalid JSON for {label}.") from last_error
+
+
 def generate_recipe_draft_for_dish(
     *,
     settings: Settings,
@@ -121,17 +160,13 @@ def generate_recipe_draft_for_dish(
         context_label=context_label,
         user_settings=user_settings,
     )
-    raw = run_direct_provider(
+    payload = _provider_call_with_json_retry(
         target=target,
         settings=settings,
         user_settings=user_settings,
         prompt=prompt,
+        label="recipe draft",
     )
-    candidate = extract_json_object(raw)
-    try:
-        payload = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("AI returned invalid JSON for recipe draft.") from exc
     return _coerce_draft(payload, fallback_name=dish_name, fallback_servings=servings)
 
 
@@ -178,15 +213,11 @@ def refine_recipe_draft(
         "- Return ONLY a JSON object matching this schema:\n"
         f"{_SCHEMA_HINT}\n"
     )
-    raw = run_direct_provider(
+    payload = _provider_call_with_json_retry(
         target=target,
         settings=settings,
         user_settings=user_settings,
         prompt=full_prompt,
+        label="refined draft",
     )
-    candidate = extract_json_object(raw)
-    try:
-        payload = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("AI returned invalid JSON for refined draft.") from exc
     return _coerce_draft(payload, fallback_name=fallback_name, fallback_servings=fallback_servings)

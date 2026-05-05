@@ -8,6 +8,10 @@ struct RecipesView: View {
     @State private var searchText = ""
     @State private var selectedMealType: String = ""
     @State private var selectedDifficulty: DifficultyFilter = .any
+    /// M29 build 54 — slop-cleanup filter. When active, swaps
+    /// editorial sections for a flat filtered list so the user can
+    /// audit AI drafts + unused recipes at a glance.
+    @State private var selectedCleanup: RecipeCleanupFilter = .none
     @State private var importLaunchMode: RecipeImportLaunchMode?
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var isGeneratingSuggestion = false
@@ -28,6 +32,7 @@ struct RecipesView: View {
                     searchBar
                     mealTypeFilterPills
                     difficultyFilterPills
+                    cleanupFilterPills
 
                     if isGeneratingSuggestion {
                         aiGeneratingBanner
@@ -35,6 +40,8 @@ struct RecipesView: View {
 
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         searchResults
+                    } else if selectedCleanup != .none {
+                        cleanupResults
                     } else {
                         editorialSections
                     }
@@ -253,6 +260,92 @@ struct RecipesView: View {
                 }
             }
             .padding(.horizontal, SMSpacing.lg)
+        }
+    }
+
+    private var cleanupFilterPills: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                ForEach(RecipeCleanupFilter.allCases, id: \.self) { filter in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedCleanup = (selectedCleanup == filter) ? .none : filter
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if filter != .none {
+                                Image(systemName: filter.iconName)
+                                    .font(.caption2)
+                            }
+                            Text(filter.label)
+                                .font(SMFont.caption)
+                        }
+                        .foregroundStyle(selectedCleanup == filter ? SMColor.primary : SMColor.textSecondary)
+                        .padding(.horizontal, SMSpacing.md)
+                        .padding(.vertical, SMSpacing.sm)
+                        .background(SMColor.surfaceCard)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(selectedCleanup == filter ? SMColor.primary : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, SMSpacing.lg)
+        }
+    }
+
+    /// M29 build 54 — flat filtered list for cleanup mode. Sorted
+    /// least-recently-used first so abandoned AI drafts surface
+    /// before favorites.
+    private var cleanupResults: some View {
+        let results = filteredCleanup
+        return Group {
+            if results.isEmpty {
+                ContentUnavailableView(
+                    "Nothing matches that filter",
+                    systemImage: "sparkles.rectangle.stack",
+                    description: Text("Tap the filter pill again to clear it.")
+                )
+                .padding(.horizontal, SMSpacing.lg)
+            } else if showGalleryView {
+                recipeGalleryGrid(recipes: results)
+            } else {
+                recipeListStack(recipes: results)
+            }
+        }
+    }
+
+    private var filteredCleanup: [RecipeSummary] {
+        let base = appState.recipes
+            .filter { !$0.archived }
+            .filter { matchesMealType($0) }
+            .filter { matchesDifficulty($0) }
+
+        let filtered: [RecipeSummary]
+        switch selectedCleanup {
+        case .none:
+            filtered = base
+        case .aiGenerated:
+            filtered = base.filter { $0.source.hasPrefix("ai") }
+        case .neverUsed:
+            filtered = base.filter { $0.lastUsed == nil }
+        case .unusedRecently:
+            filtered = base.filter { recipe in
+                guard let days = recipe.daysSinceLastUsed else { return true }
+                return days >= 30
+            }
+        }
+
+        // Least-recently-used first puts abandoned drafts at the top
+        // of the cleanup list (the whole point — find them quickly).
+        return filtered.sorted { lhs, rhs in
+            let l = lhs.daysSinceLastUsed ?? Int.max
+            let r = rhs.daysSinceLastUsed ?? Int.max
+            if l != r { return l > r }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
 
@@ -716,6 +809,32 @@ enum DifficultyFilter: String, CaseIterable {
         case .medium: return "Medium"
         case .hard: return "Hard"
         case .kidFriendly: return "Kid-friendly"
+        }
+    }
+}
+
+/// M29 build 54 — surfaces for finding AI slop + abandoned recipes.
+enum RecipeCleanupFilter: String, CaseIterable {
+    case none
+    case aiGenerated
+    case neverUsed
+    case unusedRecently
+
+    var label: String {
+        switch self {
+        case .none: return "All recipes"
+        case .aiGenerated: return "AI-generated"
+        case .neverUsed: return "Never used"
+        case .unusedRecently: return "Unused 30+ days"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .none: return "tray.full"
+        case .aiGenerated: return "sparkles"
+        case .neverUsed: return "tray"
+        case .unusedRecently: return "clock.badge.exclamationmark"
         }
     }
 }

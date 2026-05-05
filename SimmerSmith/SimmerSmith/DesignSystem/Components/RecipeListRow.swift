@@ -33,6 +33,17 @@ struct RecipeListRow: View {
 
             Spacer()
 
+            // M29 build 54: surface AI-generated recipes so cleanup
+            // mode (and casual scanning) can spot them at a glance.
+            // Sources include `ai`, `ai_variation`, `ai_suggestion`,
+            // `ai_web_search`, `ai_companion`.
+            if recipe.source.hasPrefix("ai") {
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+                    .foregroundStyle(SMColor.aiPurple)
+                    .accessibilityLabel("AI-generated")
+            }
+
             if recipe.favorite {
                 Image(systemName: "heart.fill")
                     .font(.caption)

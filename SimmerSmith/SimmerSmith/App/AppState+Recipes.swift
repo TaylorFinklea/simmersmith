@@ -197,14 +197,23 @@ extension AppState {
     }
 
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {
+        // Build 54 perf: only the actual save is on the blocking
+        // path. Metadata refresh (cuisines / templates / tags) ran
+        // serially after every save and dominated the perceived
+        // latency on TestFlight 53. Fire it from a follow-up Task
+        // so callers (review sheet → link-side / link-meal chains)
+        // unblock as soon as the recipe row exists.
         let savedRecipe = try await apiClient.saveRecipe(draft)
         upsertRecipe(savedRecipe)
-        if let metadata = try? await apiClient.fetchRecipeMetadata() {
-            recipeMetadata = metadata
-            try? cacheStore.saveRecipeMetadata(metadata)
-        }
         try? cacheStore.saveRecipes(recipes)
         syncPhase = .synced(.now)
+        Task { [weak self] in
+            guard let self else { return }
+            if let metadata = try? await self.apiClient.fetchRecipeMetadata() {
+                self.recipeMetadata = metadata
+                try? self.cacheStore.saveRecipeMetadata(metadata)
+            }
+        }
         return savedRecipe
     }
 
@@ -297,8 +306,21 @@ extension AppState {
     }
 
     func deleteRecipe(_ recipe: RecipeSummary) async throws {
+        // Build 54 hardening: pull a fresh server list right after the
+        // 204 lands. Belt-and-suspenders against the dogfood case
+        // where a delete *appeared* to succeed but the recipe came
+        // back on next refresh — the server list is now the source
+        // of truth, not the optimistic local mutation.
         try await apiClient.deleteRecipe(recipeID: recipe.recipeId)
         recipes.removeAll { $0.recipeId == recipe.recipeId }
+        do {
+            recipes = try await apiClient.fetchRecipes(includeArchived: false)
+        } catch {
+            // Server fetch is best-effort; the local removal is
+            // already applied so the UI is consistent. Log the
+            // error in lastErrorMessage so dogfooders can see it.
+            lastErrorMessage = "Recipe deleted, but couldn't refresh list: \(error.localizedDescription)"
+        }
         try? cacheStore.saveRecipes(recipes)
         syncPhase = .synced(.now)
     }

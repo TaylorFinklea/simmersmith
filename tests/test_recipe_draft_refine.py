@@ -100,7 +100,10 @@ def test_refine_route_empty_prompt_returns_input_unchanged(client) -> None:
 
 
 def test_refine_route_propagates_provider_error(client, monkeypatch) -> None:
-    """Provider failures bubble as 502."""
+    """Provider failures bubble as 502 — but only after one retry.
+    Build 54: the retry layer attempts a second call before giving
+    up, so we feed two consecutive bad responses to confirm the
+    failure path still raises."""
     monkeypatch.setattr(
         "app.services.recipe_drafting.run_direct_provider",
         lambda *, target, settings, user_settings, prompt: "not valid json {{{",
@@ -120,3 +123,45 @@ def test_refine_route_propagates_provider_error(client, monkeypatch) -> None:
         json={"draft": base, "prompt": "make it sweeter", "context_hint": ""},
     )
     assert resp.status_code == 502
+
+
+def test_refine_route_retries_invalid_json_once(client, monkeypatch) -> None:
+    """Build 54: when the first AI response is unparseable but the
+    retry succeeds, the route returns the refined draft. This is the
+    common case the user reported on TestFlight 53 — the second
+    attempt usually works."""
+    call_count = {"n": 0}
+    refined = {
+        "name": "Spicy chicken tacos",
+        "meal_type": "dinner",
+        "cuisine": "mexican",
+        "servings": 4,
+        "ingredients": [{"ingredient_name": "Chipotle", "quantity": 2, "unit": "tbsp"}],
+        "steps": [{"order_index": 1, "instruction": "Cook."}],
+        "tags": [],
+    }
+
+    def fake_provider(*, target, settings, user_settings, prompt):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return "garbage prefix ```json {nope"
+        return _json.dumps(refined)
+
+    monkeypatch.setattr("app.services.recipe_drafting.run_direct_provider", fake_provider)
+    monkeypatch.setattr(
+        "app.services.event_ai.direct_provider_availability",
+        lambda name, *, settings, user_settings: (True, "env") if name == "openai" else (False, "unset"),
+    )
+    monkeypatch.setattr(
+        "app.services.event_ai.resolve_direct_model",
+        lambda name, *, settings, user_settings: "gpt-test",
+    )
+
+    base = {"name": "Chicken tacos", "ingredients": [], "steps": [], "tags": [], "servings": 4}
+    resp = client.post(
+        "/api/recipes/draft/refine",
+        json={"draft": base, "prompt": "make it spicier", "context_hint": ""},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "Spicy chicken tacos"
+    assert call_count["n"] == 2  # one bad attempt + one retry succeeded
