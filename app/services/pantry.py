@@ -21,7 +21,7 @@ Pre-existing staples (no recurring) are unaffected.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -100,6 +100,7 @@ def add_pantry_item(
     recurring_cadence: str = "none",
     category: str = "",
     categories: list[str] | None = None,
+    frozen_at: datetime | None = None,
     normalized_name_override: str = "",
 ) -> Staple:
     cleaned = (name or "").strip()
@@ -136,6 +137,7 @@ def add_pantry_item(
         recurring_unit=normalize_unit(recurring_unit) if recurring_unit else "",
         recurring_cadence=recurring_cadence if recurring_cadence in {"none", "weekly", "biweekly", "monthly"} else "none",
         category=category_value,
+        frozen_at=frozen_at,
     )
     session.add(item)
     session.flush()
@@ -179,6 +181,10 @@ def update_pantry_item(
     elif "category" in fields and fields["category"] is not None:
         # Legacy single-string path stays accepted for back-compat.
         item.category = str(fields["category"])
+    if fields.get("clear_frozen_at"):
+        item.frozen_at = None
+    elif "frozen_at" in fields and fields["frozen_at"] is not None:
+        item.frozen_at = fields["frozen_at"]
     session.flush()
     return item
 

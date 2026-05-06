@@ -45,6 +45,9 @@ struct WeekView: View {
     // Manage sides on a meal (M26)
     @State private var sidesMeal: WeekMeal?
 
+    // Build 57 — save leftovers from a meal to the freezer.
+    @State private var leftoverSourceMeal: WeekMeal?
+
     // Day nutrition sheet
     @State private var nutritionDay: (dayName: String, date: Date, meals: [WeekMeal], totals: MacroBreakdown)?
 
@@ -207,6 +210,9 @@ struct WeekView: View {
                 Button("Mark as Eating Out") {
                     markEatingOut(meal)
                 }
+                Button("Save leftovers to freezer") {
+                    leftoverSourceMeal = meal
+                }
                 Button("Remove", role: .destructive) {
                     removeMeal(meal)
                 }
@@ -281,6 +287,9 @@ struct WeekView: View {
                     await moveMeal(meal, toDayName: newDayName, date: newDate, slot: newSlot)
                 }
             }
+        }
+        .sheet(item: $leftoverSourceMeal) { meal in
+            SaveLeftoversToFreezerSheet(meal: meal)
         }
         .sheet(item: $sidesMeal) { meal in
             if let week = displayedWeek {

@@ -280,6 +280,38 @@ def test_pantry_update_patches_in_place() -> None:
     assert refreshed.recurring_cadence == "monthly"
 
 
+def test_pantry_frozen_at_round_trips_through_service() -> None:
+    """Build 57: freezer kind. `frozen_at` is the discriminator —
+    NULL means a normal pantry item, set means a freezer item placed
+    at that timestamp. The clear flag (`clear_frozen_at`) on the
+    PATCH path lets the iOS un-freeze toggle wipe the timestamp."""
+    placed = datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc)
+
+    with session_scope() as session:
+        item = add_pantry_item(
+            session,
+            user_id=_uid,
+            household_id=_uid,
+            name="Frozen meatballs",
+            categories=["Freezer"],
+            frozen_at=placed,
+        )
+        assert item.frozen_at == placed
+
+        # Update path preserves frozen_at when not in fields.
+        update_pantry_item(session, item=item, fields={"notes": "homemade"})
+        assert item.frozen_at == placed
+
+        # Bumping frozen_at via PATCH replaces it.
+        bumped = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+        update_pantry_item(session, item=item, fields={"frozen_at": bumped})
+        assert item.frozen_at == bumped
+
+        # clear_frozen_at wipes it (un-freeze).
+        update_pantry_item(session, item=item, fields={"clear_frozen_at": True})
+        assert item.frozen_at is None
+
+
 def test_regen_grocery_includes_pantry_recurring() -> None:
     """`regenerate_grocery_for_week` should run the pantry fold-in,
     so a fresh week (no manual apply call) still ends up with the

@@ -48,6 +48,7 @@ def _payload(item) -> dict[str, object]:
         "category": item.category,
         "categories": parse_categories(item.category),
         "last_applied_at": item.last_applied_at,
+        "frozen_at": item.frozen_at,
         "updated_at": item.updated_at,
     }
 
@@ -80,6 +81,8 @@ def add_pantry_route(
             recurring_unit=payload.recurring_unit,
             recurring_cadence=payload.recurring_cadence,
             category=payload.category,
+            categories=payload.categories or None,
+            frozen_at=payload.frozen_at,
             normalized_name_override=payload.normalized_name,
         )
     except ValueError as exc:

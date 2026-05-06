@@ -30,6 +30,10 @@ struct PantryItemEditorSheet: View {
     @State private var recurringCadence: String = "none"
     @State private var recurringQuantityText: String = ""
     @State private var recurringUnit: String = ""
+    /// Build 57 — freezer kind. When `isFreezerItem` is true, the
+    /// item is a freezer entry and we send `frozenAt` to the server.
+    @State private var isFreezerItem: Bool = false
+    @State private var frozenAt: Date = Date()
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
 
@@ -75,6 +79,7 @@ struct PantryItemEditorSheet: View {
             Form {
                 nameSection
                 categorySection
+                freezerSection
 
                 Section {
                     Toggle("Active", isOn: $isActive)
@@ -294,6 +299,31 @@ struct PantryItemEditorSheet: View {
         customCategoryDraft = ""
     }
 
+    // MARK: - Freezer kind
+
+    @ViewBuilder
+    private var freezerSection: some View {
+        Section {
+            Toggle("Freezer item", isOn: $isFreezerItem)
+                .onChange(of: isFreezerItem) { _, nowOn in
+                    if nowOn {
+                        // Pre-select the Freezer chip and seed today
+                        // as the default placement date.
+                        selectedCategories.insert("Freezer")
+                    }
+                }
+            if isFreezerItem {
+                DatePicker("Frozen on", selection: $frozenAt, displayedComponents: .date)
+            }
+        } header: {
+            Text("Freezer")
+        } footer: {
+            Text(isFreezerItem
+                 ? "Frozen items show up under the Freezer filter and trigger a \"Use soon\" badge after 30 days."
+                 : "Toggle this on if the item lives in the freezer (leftovers, frozen meatballs, etc.).")
+        }
+    }
+
     // MARK: - Lifecycle
 
     private func seed() {
@@ -308,6 +338,8 @@ struct PantryItemEditorSheet: View {
         recurringCadence = item.recurringCadence
         recurringQuantityText = item.recurringQuantity.map { String($0.cleanFormat) } ?? ""
         recurringUnit = item.recurringUnit
+        isFreezerItem = item.frozenAt != nil
+        frozenAt = item.frozenAt ?? Date()
     }
 
     private func save() async {
@@ -346,6 +378,18 @@ struct PantryItemEditorSheet: View {
                 body.recurringQuantity = qty
             }
             if recurringUnit != existing.recurringUnit { body.recurringUnit = recurringUnit }
+            // Freezer kind: only emit the field that changed.
+            // - On→off (was frozen, now not): clearFrozenAt = true
+            // - Off→on or date changed: frozenAt = new value
+            // - No change: send neither
+            switch (existing.frozenAt, isFreezerItem) {
+            case (.some, false):
+                body.clearFrozenAt = true
+            case (let prior, true) where prior != frozenAt:
+                body.frozenAt = frozenAt
+            default:
+                break
+            }
             await appState.patchPantryItem(itemID: existing.pantryItemId, body: body)
         } else {
             await appState.addPantryItem(
@@ -358,7 +402,8 @@ struct PantryItemEditorSheet: View {
                     recurringQuantity: recurringQty,
                     recurringUnit: recurringUnit,
                     recurringCadence: recurringCadence,
-                    categories: categoriesPayload
+                    categories: categoriesPayload,
+                    frozenAt: isFreezerItem ? frozenAt : nil
                 )
             )
         }

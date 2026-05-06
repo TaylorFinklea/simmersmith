@@ -779,6 +779,9 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         /// instead; this stays for back-compat.
         public var category: String
         public var categories: [String]
+        /// Build 57 — set when adding a freezer item. NULL/absent
+        /// means a regular pantry item.
+        public var frozenAt: Date?
 
         public init(
             stapleName: String,
@@ -791,7 +794,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             recurringUnit: String = "",
             recurringCadence: String = "none",
             category: String = "",
-            categories: [String] = []
+            categories: [String] = [],
+            frozenAt: Date? = nil
         ) {
             self.stapleName = stapleName
             self.normalizedName = normalizedName
@@ -804,6 +808,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             self.recurringCadence = recurringCadence
             self.category = category
             self.categories = categories
+            self.frozenAt = frozenAt
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -817,6 +822,7 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             case recurringUnit = "recurring_unit"
             case recurringCadence = "recurring_cadence"
             case category, categories
+            case frozenAt = "frozen_at"
         }
     }
 
@@ -835,6 +841,12 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         /// Build 56+: send `categories` to overwrite the list. nil =
         /// leave alone; `[]` = clear all categories.
         public var categories: [String]?
+        /// Build 57: set to freeze (or rebadge) an item.
+        public var frozenAt: Date?
+        /// Build 57: set true to un-freeze (wipe `frozenAt`). The
+        /// PATCH route accepts either field; this is the explicit
+        /// clear so PATCH bodies don't need to send a sentinel.
+        public var clearFrozenAt: Bool?
 
         public init(
             stapleName: String? = nil,
@@ -848,7 +860,9 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             recurringUnit: String? = nil,
             recurringCadence: String? = nil,
             category: String? = nil,
-            categories: [String]? = nil
+            categories: [String]? = nil,
+            frozenAt: Date? = nil,
+            clearFrozenAt: Bool? = nil
         ) {
             self.stapleName = stapleName
             self.notes = notes
@@ -862,6 +876,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             self.recurringCadence = recurringCadence
             self.category = category
             self.categories = categories
+            self.frozenAt = frozenAt
+            self.clearFrozenAt = clearFrozenAt
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -878,6 +894,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             if let recurringCadence { try c.encode(recurringCadence, forKey: .recurringCadence) }
             if let category { try c.encode(category, forKey: .category) }
             if let categories { try c.encode(categories, forKey: .categories) }
+            if let frozenAt { try c.encode(frozenAt, forKey: .frozenAt) }
+            if let clearFrozenAt { try c.encode(clearFrozenAt, forKey: .clearFrozenAt) }
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -892,6 +910,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             case recurringUnit = "recurring_unit"
             case recurringCadence = "recurring_cadence"
             case category, categories
+            case frozenAt = "frozen_at"
+            case clearFrozenAt = "clear_frozen_at"
         }
     }
 

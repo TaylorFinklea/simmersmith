@@ -2060,11 +2060,29 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
     /// M29 build 56 — multi-value categories (Dairy, Pantry, etc.).
     public let categories: [String]
     public let lastAppliedAt: Date?
+    /// Build 57 — when set, the row is a freezer item placed at this
+    /// timestamp. NULL means a regular pantry item. Drives the iOS
+    /// "Use Soon" filter (≥30 days) and FIFO Freezer view.
+    public let frozenAt: Date?
     public let updatedAt: Date
 
     public var id: String { pantryItemId }
 
     public var hasRecurring: Bool { recurringCadence != "none" }
+
+    public var isFrozen: Bool { frozenAt != nil }
+
+    /// Days since the item went into the freezer. nil for non-frozen
+    /// items. Used to show the "Use Soon" badge once it crosses 30.
+    public var daysSinceFrozen: Int? {
+        guard let frozenAt else { return nil }
+        return Calendar.current.dateComponents([.day], from: frozenAt, to: Date()).day
+    }
+
+    public var isStaleFreezerItem: Bool {
+        guard let days = daysSinceFrozen else { return false }
+        return days >= 30
+    }
 
     /// Convenience: for cached snapshots that only carry `category`,
     /// derive the list. Build 56+ servers always send `categories`.
@@ -2090,6 +2108,7 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
         category: String = "",
         categories: [String] = [],
         lastAppliedAt: Date? = nil,
+        frozenAt: Date? = nil,
         updatedAt: Date = Date()
     ) {
         self.pantryItemId = pantryItemId
@@ -2105,6 +2124,7 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
         self.category = category
         self.categories = categories
         self.lastAppliedAt = lastAppliedAt
+        self.frozenAt = frozenAt
         self.updatedAt = updatedAt
     }
 
@@ -2133,13 +2153,15 @@ public struct PantryItem: Codable, Identifiable, Hashable, Sendable {
                 .filter { !$0.isEmpty }
         }
         lastAppliedAt = try c.decodeIfPresent(Date.self, forKey: .lastAppliedAt)
+        frozenAt = try c.decodeIfPresent(Date.self, forKey: .frozenAt)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
     }
 
     private enum CodingKeys: String, CodingKey {
         case pantryItemId, stapleName, normalizedName, notes, isActive,
              typicalQuantity, typicalUnit, recurringQuantity, recurringUnit,
-             recurringCadence, category, categories, lastAppliedAt, updatedAt
+             recurringCadence, category, categories, lastAppliedAt, frozenAt,
+             updatedAt
     }
 }
 

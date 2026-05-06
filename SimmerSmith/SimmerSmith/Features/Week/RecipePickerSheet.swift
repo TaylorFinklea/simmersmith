@@ -9,9 +9,19 @@ struct RecipePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var isLinking = false
+    /// Build 57 — Quick filter chip mirrors the Recipes tab predicate
+    /// so a user picking dinner at 6pm can narrow to ≤30-min options.
+    @State private var quickOnly = false
 
     private var filteredRecipes: [RecipeSummary] {
-        let active = recipes.filter { !$0.archived }
+        var active = recipes.filter { !$0.archived }
+        if quickOnly {
+            active = active.filter { recipe in
+                if recipe.tags.contains("quick") { return true }
+                let total = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0)
+                return total > 0 && total <= 30
+            }
+        }
         if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
             return active
         }
@@ -53,6 +63,34 @@ struct RecipePickerSheet: View {
                     .padding(SMSpacing.md)
                     .background(SMColor.surfaceCard)
                     .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+                    .padding(.horizontal, SMSpacing.lg)
+                    .padding(.bottom, SMSpacing.sm)
+
+                    HStack(spacing: SMSpacing.sm) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                quickOnly.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.caption2)
+                                Text("Quick (≤30 min)")
+                                    .font(SMFont.caption)
+                            }
+                            .foregroundStyle(quickOnly ? SMColor.primary : SMColor.textSecondary)
+                            .padding(.horizontal, SMSpacing.md)
+                            .padding(.vertical, 6)
+                            .background(SMColor.surfaceCard)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(quickOnly ? SMColor.primary : Color.clear, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
                     .padding(.horizontal, SMSpacing.lg)
                     .padding(.bottom, SMSpacing.md)
 

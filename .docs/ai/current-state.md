@@ -8,6 +8,76 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 57 ship (quick meal tag + freezer pantry kind)
+
+Two pieces of dogfood feedback bundled into one ship: a `quick`
+meal tag for ≤30-minute weeknight recipes, and a freezer kind on
+pantry items with leftover-from-meal capture + a "Use Soon"
+staleness filter. One build, single dogfood pass.
+
+**Backend** (one migration: `staples.frozen_at TIMESTAMPTZ NULL`):
+- `app/models/profile.py`: `Staple.frozen_at: datetime | None`.
+  NULL = regular pantry item; set = freezer item placed at this
+  timestamp. No new model; the discriminator is the timestamp
+  itself.
+- `alembic/versions/20260506_0036_staple_frozen_at.py`: trivial
+  `add_column` migration. No backfill — every existing row is
+  implicitly non-frozen.
+- `app/schemas/profile.py`: `PantryItemOut`/`AddRequest`/`PatchRequest`
+  carry `frozen_at`. PATCH gets a `clear_frozen_at: bool` flag for
+  un-freeze.
+- `app/api/pantry.py`: `_payload` emits `frozen_at`. Add route now
+  forwards `payload.categories` to the service (was a build-56 bug
+  — categories were dropped when only the list field was sent on
+  POST). Add route also forwards `frozen_at`.
+- `app/services/pantry.py`: `add_pantry_item` / `update_pantry_item`
+  accept `frozen_at`. Update path honors `clear_frozen_at` to wipe.
+- `app/services/recipe_drafting.py`: prompt now instructs the AI
+  to add `"quick"` to `tags` when `prep_minutes + cook_minutes ≤
+  30`. Refine prompt re-evaluates after a tweak so a user request
+  like "scale this down" can either earn or drop the tag.
+- New tests: `tests/test_pantry.py` round-trips `frozen_at` +
+  `clear_frozen_at`. `tests/test_recipe_quick_tag.py` verifies the
+  prompt carries the rule, refine re-evaluates, and the API
+  preserves the tag end-to-end. **325/325 pass** (was 321).
+
+**iOS**:
+- `SimmerSmithKit/.../Models/SimmerSmithModels.swift`: `PantryItem`
+  gains `frozenAt: Date?` + helpers (`isFrozen`,
+  `daysSinceFrozen`, `isStaleFreezerItem` ≥30d).
+- API client `PantryItemAddBody.frozenAt`,
+  `PantryItemPatchBody.frozenAt` + `clearFrozenAt` (the explicit
+  un-freeze flag).
+- `Features/Recipes/RecipesView.swift`: new "Quick (≤30 min)"
+  filter pill alongside difficulty + cleanup. Predicate
+  `tags.contains("quick") || (prep+cook ≤ 30)` with a `0+0=0`
+  guard so untimed recipes don't false-positive.
+- `Features/Week/RecipePickerSheet.swift`: same Quick chip on the
+  week meal picker so a user picking dinner at 6pm can narrow
+  fast.
+- `Features/Grocery/PantryItemEditorSheet.swift`: new "Freezer
+  item" toggle + date picker for `frozenAt`. Toggling on
+  pre-selects the Freezer category chip. PATCH path emits the
+  field that changed (`frozenAt` or `clearFrozenAt`).
+- `Features/Grocery/PantryView.swift`: segmented filter (All /
+  Pantry / Freezer / Use Soon). Freezer view sorts FIFO. Use Soon
+  surfaces items frozen ≥30 days. Inline orange "Use soon" badge
+  + a "Frozen Nd ago" line on every freezer row.
+- `Features/Week/SaveLeftoversToFreezerSheet.swift` (new): small
+  form opened from the meal action sheet ("Save leftovers to
+  freezer"). Prefills `<recipe name> leftovers`, today's date,
+  saves a freezer pantry item with `categories=["Freezer"]`.
+  Always available — no gating on a mark-cooked flow.
+
+**Build bump**: 56 → 57.
+
+**Out of scope (deferred):** `WeekMeal.status` / mark-cooked flow,
+quantity-on-hand for freezer items, per-item stale window
+override, home-screen / assistant nudge for stale items, freezer
+inventory in the AI meal planner.
+
+### Earlier session (build 56 — pantry UX upgrade)
+
 **Date**: 2026-05-05 — Build 56 ship (pantry UX: ingredient autocomplete + multi-select categories)
 
 **Build 56** addresses dogfood feedback on the pantry editor: too

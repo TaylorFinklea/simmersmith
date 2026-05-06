@@ -81,6 +81,9 @@ def _build_dish_prompt(
         "- Provide complete ingredient quantities. Avoid bare names like just \"salt\".\n"
         "- `steps[].instruction` must be a numbered cooking step, not a heading.\n"
         "- NEVER include a known allergen from the constraints block above.\n"
+        "- If the realistic total `prep_minutes + cook_minutes` is 30 or fewer, "
+        "include the tag \"quick\" in `tags`. Don't pad the times to dodge it; "
+        "don't claim quick on a recipe that genuinely needs longer.\n"
         "- Return ONLY a JSON object matching this schema:\n"
         f"{_SCHEMA_HINT}\n"
     )
@@ -210,6 +213,8 @@ def refine_recipe_draft(
         "- Recompute ingredient quantities + steps when the tweak "
         "implies it (e.g. \"smaller portion\", \"swap chicken for tofu\").\n"
         "- Keep instructions usable in a real kitchen.\n"
+        "- Re-evaluate the \"quick\" tag after the tweak: include it if "
+        "`prep_minutes + cook_minutes` is 30 or fewer, drop it otherwise.\n"
         "- Return ONLY a JSON object matching this schema:\n"
         f"{_SCHEMA_HINT}\n"
     )

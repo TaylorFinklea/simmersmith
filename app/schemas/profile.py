@@ -45,6 +45,7 @@ class PantryItemOut(BaseModel):
     category: str = ""
     categories: list[str] = Field(default_factory=list)
     last_applied_at: datetime | None = None
+    frozen_at: datetime | None = None
     updated_at: datetime
 
 
@@ -62,6 +63,7 @@ class PantryItemAddRequest(BaseModel):
     # send `category` as a single string.
     category: str = ""
     categories: list[str] = Field(default_factory=list)
+    frozen_at: datetime | None = None
 
 
 class PantryItemPatchRequest(BaseModel):
@@ -77,6 +79,8 @@ class PantryItemPatchRequest(BaseModel):
     recurring_cadence: PantryCadence | None = None
     category: str | None = None
     categories: list[str] | None = None
+    frozen_at: datetime | None = None
+    clear_frozen_at: bool = False
 
 
 GoalType = Literal["lose", "maintain", "gain", "custom"]

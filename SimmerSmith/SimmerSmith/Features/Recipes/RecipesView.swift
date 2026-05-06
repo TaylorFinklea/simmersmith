@@ -8,6 +8,12 @@ struct RecipesView: View {
     @State private var searchText = ""
     @State private var selectedMealType: String = ""
     @State private var selectedDifficulty: DifficultyFilter = .any
+    /// Build 57 — quick meal filter. Predicate is
+    /// `recipe.tags.contains("quick") || prep+cook ≤ 30` (with a
+    /// guard so recipes with no time set don't false-positive).
+    /// AI drafts auto-tag themselves "quick" when they hit the
+    /// threshold; users can also tag manually.
+    @State private var quickOnly: Bool = false
     /// M29 build 54 — slop-cleanup filter. When active, swaps
     /// editorial sections for a flat filtered list so the user can
     /// audit AI drafts + unused recipes at a glance.
@@ -48,6 +54,7 @@ struct RecipesView: View {
                     searchBar
                     mealTypeFilterPills
                     difficultyFilterPills
+                    quickFilterPill
                     cleanupFilterPills
 
                     if isGeneratingSuggestion {
@@ -405,6 +412,35 @@ struct RecipesView: View {
         }
     }
 
+    private var quickFilterPill: some View {
+        HStack(spacing: SMSpacing.sm) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    quickOnly.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill")
+                        .font(.caption2)
+                    Text("Quick (≤30 min)")
+                        .font(SMFont.caption)
+                }
+                .foregroundStyle(quickOnly ? SMColor.primary : SMColor.textSecondary)
+                .padding(.horizontal, SMSpacing.md)
+                .padding(.vertical, SMSpacing.sm)
+                .background(SMColor.surfaceCard)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(quickOnly ? SMColor.primary : Color.clear, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.horizontal, SMSpacing.lg)
+    }
+
     private var cleanupFilterPills: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: SMSpacing.sm) {
@@ -465,6 +501,7 @@ struct RecipesView: View {
             .filter { !$0.archived }
             .filter { matchesMealType($0) }
             .filter { matchesDifficulty($0) }
+            .filter { matchesQuick($0) }
 
         let filtered: [RecipeSummary]
         switch selectedCleanup {
@@ -910,6 +947,7 @@ struct RecipesView: View {
             .filter { !$0.archived }
             .filter { matchesMealType($0) }
             .filter { matchesDifficulty($0) }
+            .filter { matchesQuick($0) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -921,6 +959,7 @@ struct RecipesView: View {
             .filter { !$0.archived }
             .filter { matchesMealType($0) }
             .filter { matchesDifficulty($0) }
+            .filter { matchesQuick($0) }
             .filter { recipe in
                 [
                     recipe.name,
@@ -958,6 +997,17 @@ struct RecipesView: View {
         case .kidFriendly:
             return recipe.kidFriendly
         }
+    }
+
+    /// Build 57 — Quick filter predicate. Manual tag wins so a user
+    /// can mark a 35-minute recipe "quick" if they trust their pace;
+    /// auto path is `prep+cook ≤ 30` with a guard for unset times so
+    /// recipes with no `prepMinutes`/`cookMinutes` don't slip in.
+    private func matchesQuick(_ recipe: RecipeSummary) -> Bool {
+        if !quickOnly { return true }
+        if recipe.tags.contains("quick") { return true }
+        let total = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0)
+        return total > 0 && total <= 30
     }
 
     // MARK: - Actions

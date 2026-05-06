@@ -50,6 +50,11 @@ class Staple(Base):
     # week's grocery list. Lets biweekly/monthly cadences skip weeks
     # without re-applying.
     last_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Build 57 — freezer kind. NULL means a regular pantry item;
+    # set means the item lives in the freezer and was placed there
+    # at this timestamp. Drives the "Use Soon" filter (default 30d
+    # window) and FIFO sort in the iOS pantry list.
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

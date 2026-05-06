@@ -9,11 +9,16 @@ import SimmerSmithKit
 /// land as user-added grocery rows via
 /// `apply_pantry_recurrings` — wired to the regen path AND a
 /// manual "Apply to current week" button below.
+///
+/// Build 57: a segmented filter routes between regular pantry items,
+/// freezer items (frozen_at != nil, sorted oldest-first), and a
+/// "Use Soon" cut showing freezer items frozen ≥30 days.
 struct PantryView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
     @State private var editorContext: PantryEditorContext? = nil
+    @State private var filter: PantryFilter = .all
 
     private struct PantryEditorContext: Identifiable {
         let id: String
@@ -24,17 +29,63 @@ struct PantryView: View {
         }
     }
 
+    enum PantryFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case pantry = "Pantry"
+        case freezer = "Freezer"
+        case useSoon = "Use Soon"
+
+        var id: String { rawValue }
+    }
+
+    private var filteredItems: [PantryItem] {
+        switch filter {
+        case .all:
+            return appState.pantryItems
+        case .pantry:
+            return appState.pantryItems.filter { !$0.isFrozen }
+        case .freezer:
+            // FIFO — oldest in the freezer surfaces first.
+            return appState.pantryItems
+                .filter { $0.isFrozen }
+                .sorted { ($0.frozenAt ?? .distantFuture) < ($1.frozenAt ?? .distantFuture) }
+        case .useSoon:
+            return appState.pantryItems
+                .filter { $0.isStaleFreezerItem }
+                .sorted { ($0.frozenAt ?? .distantFuture) < ($1.frozenAt ?? .distantFuture) }
+        }
+    }
+
     var body: some View {
         List {
+            if !appState.pantryItems.isEmpty {
+                Section {
+                    Picker("Filter", selection: $filter) {
+                        ForEach(PantryFilter.allCases) { f in
+                            Text(f.rawValue).tag(f)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+            }
+
             if appState.pantryItems.isEmpty {
                 ContentUnavailableView(
                     "Nothing in your pantry yet",
                     systemImage: "shippingbox",
                     description: Text("Add things you always have on hand — eggs, flour, milk. They'll be filtered out of meal-driven grocery lists, and you can opt in to a weekly auto-restock for items you buy on a schedule.")
                 )
+            } else if filteredItems.isEmpty {
+                ContentUnavailableView(
+                    emptyTitle,
+                    systemImage: emptyIcon,
+                    description: Text(emptyDescription)
+                )
             } else {
                 Section {
-                    ForEach(appState.pantryItems) { item in
+                    ForEach(filteredItems) { item in
                         Button {
                             editorContext = PantryEditorContext(item)
                         } label: {
@@ -50,9 +101,9 @@ struct PantryView: View {
                         }
                     }
                 } header: {
-                    Text("Pantry items")
+                    Text(sectionHeader)
                 } footer: {
-                    Text("Items here are always assumed to be in stock — they won't auto-add to your grocery list because of meals. Recurring items will still land each cycle.")
+                    Text(sectionFooter)
                 }
             }
 
@@ -87,6 +138,52 @@ struct PantryView: View {
             }
         }
     }
+
+    private var sectionHeader: String {
+        switch filter {
+        case .all: return "Pantry items"
+        case .pantry: return "Shelf-stable"
+        case .freezer: return "Freezer"
+        case .useSoon: return "Use these soon"
+        }
+    }
+
+    private var sectionFooter: String {
+        switch filter {
+        case .all:
+            return "Items here are always assumed to be in stock — they won't auto-add to your grocery list because of meals. Recurring items will still land each cycle."
+        case .pantry:
+            return "Regular pantry items (not frozen). Filtered from meal-driven grocery aggregation."
+        case .freezer:
+            return "Sorted oldest-first. The Use Soon cut highlights anything frozen ≥30 days."
+        case .useSoon:
+            return "Freezer items that have been sitting for 30+ days. Eat them or toss them — your call."
+        }
+    }
+
+    private var emptyTitle: String {
+        switch filter {
+        case .freezer: return "Nothing in the freezer"
+        case .useSoon: return "Nothing aging out"
+        default: return "No items"
+        }
+    }
+
+    private var emptyIcon: String {
+        switch filter {
+        case .freezer: return "snowflake"
+        case .useSoon: return "checkmark.circle"
+        default: return "tray"
+        }
+    }
+
+    private var emptyDescription: String {
+        switch filter {
+        case .freezer: return "Toggle \"Freezer item\" on a pantry entry to add it here, or save leftovers from a meal."
+        case .useSoon: return "Nothing has been in the freezer long enough to surface."
+        default: return "Try a different filter."
+        }
+    }
 }
 
 private struct PantryRow: View {
@@ -95,6 +192,11 @@ private struct PantryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SMSpacing.xs) {
             HStack(alignment: .firstTextBaseline) {
+                if item.isFrozen {
+                    Image(systemName: "snowflake")
+                        .font(.caption)
+                        .foregroundStyle(SMColor.primary)
+                }
                 Text(item.stapleName)
                     .font(SMFont.subheadline)
                     .foregroundStyle(SMColor.textPrimary)
@@ -109,6 +211,20 @@ private struct PantryRow: View {
                         .font(SMFont.caption)
                         .foregroundStyle(SMColor.primary)
                 }
+                if item.isStaleFreezerItem {
+                    Text("Use soon")
+                        .font(SMFont.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange)
+                        .clipShape(Capsule())
+                }
+            }
+            if let frozenLine {
+                Text(frozenLine)
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textSecondary)
             }
             if let typical = quantityLine(qty: item.typicalQuantity, unit: item.typicalUnit, prefix: "Typical buy:") {
                 Text(typical)
@@ -127,6 +243,17 @@ private struct PantryRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var frozenLine: String? {
+        guard let frozenAt = item.frozenAt, let days = item.daysSinceFrozen else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        let dateText = formatter.string(from: frozenAt)
+        if days <= 0 {
+            return "Frozen today (\(dateText))"
+        }
+        return "Frozen \(days)d ago (\(dateText))"
     }
 
     private var cadenceLabel: String {
