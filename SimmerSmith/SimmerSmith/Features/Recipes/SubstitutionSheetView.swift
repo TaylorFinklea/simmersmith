@@ -103,7 +103,6 @@ struct SubstitutionSheetView: View {
             }
             .navigationTitle("Substitute")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(SMColor.surface, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }

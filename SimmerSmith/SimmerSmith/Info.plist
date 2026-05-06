@@ -41,6 +41,15 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>InstrumentSerif-Regular.ttf</string>
+		<string>InstrumentSerif-Italic.ttf</string>
+		<string>Spectral-Regular.ttf</string>
+		<string>Spectral-Italic.ttf</string>
+		<string>Caveat-Variable.ttf</string>
+		<string>Oswald-Variable.ttf</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>LSRequiresIPhoneOS</key>

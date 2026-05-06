@@ -49,37 +49,38 @@ struct RecipeDetailView: View {
                         contentSections(recipe)
                     }
                 }
-                .background(SMColor.surface)
+                .paperBackground()
                 .scrollContentBackground(.hidden)
             } else if isLoading {
                 ZStack {
-                    SMColor.surface.ignoresSafeArea()
+                    Color.clear
                     ProgressView("Loading recipe...")
-                        .tint(SMColor.primary)
-                        .foregroundStyle(SMColor.textSecondary)
+                        .tint(SMColor.ember)
+                        .foregroundStyle(SMColor.inkSoft)
                 }
+                .paperBackground()
             } else {
                 ZStack {
-                    SMColor.surface.ignoresSafeArea()
+                    Color.clear
                     VStack(spacing: SMSpacing.lg) {
                         Image(systemName: "book.closed")
                             .font(.system(size: 48))
-                            .foregroundStyle(SMColor.textTertiary)
+                            .foregroundStyle(SMColor.inkFaint)
                         Text("Recipe Unavailable")
-                            .font(SMFont.headline)
-                            .foregroundStyle(SMColor.textPrimary)
+                            .font(SMFont.serifDisplay(22))
+                            .foregroundStyle(SMColor.ink)
                         Text(errorMessage ?? "The recipe could not be loaded.")
-                            .font(SMFont.body)
-                            .foregroundStyle(SMColor.textSecondary)
+                            .font(SMFont.bodySerif(15))
+                            .foregroundStyle(SMColor.inkSoft)
                             .multilineTextAlignment(.center)
                     }
                     .padding(SMSpacing.xl)
                 }
+                .paperBackground()
             }
         }
         .navigationTitle(recipe?.name ?? "Recipe")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(SMColor.surface, for: .navigationBar)
         .onAppear { publishContext() }
         .onChange(of: recipe?.recipeId) { _, _ in publishContext() }
         .overlay(alignment: .top) {

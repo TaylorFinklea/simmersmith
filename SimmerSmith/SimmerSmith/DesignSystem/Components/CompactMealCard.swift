@@ -1,6 +1,9 @@
 import SwiftUI
 import SimmerSmithKit
 
+/// Compact horizontal meal row — used in week-roster scrollers and
+/// in the small "today's other slots" stack. Caveat slot label,
+/// italic-serif recipe name, ember check on approved.
 struct CompactMealCard: View {
     let meal: WeekMeal
     let onTap: () -> Void
@@ -8,17 +11,17 @@ struct CompactMealCard: View {
     var body: some View {
         Button(action: onTap) {
             HStack(alignment: .top, spacing: SMSpacing.md) {
-                Text(meal.slot.capitalized)
-                    .font(SMFont.label)
-                    .foregroundStyle(SMColor.textTertiary)
+                Text(meal.slot.lowercased())
+                    .font(SMFont.handwritten(13))
+                    .foregroundStyle(SMColor.inkSoft)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(width: 80, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: SMSpacing.xs) {
                     Text(meal.recipeName)
-                        .font(SMFont.subheadline)
-                        .foregroundStyle(SMColor.textPrimary)
+                        .font(SMFont.serifTitle(15))
+                        .foregroundStyle(SMColor.ink)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -30,13 +33,15 @@ struct CompactMealCard: View {
                 if meal.approved {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundStyle(SMColor.success)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
             .padding(.horizontal, SMSpacing.md)
             .padding(.vertical, SMSpacing.sm)
-            .background(SMColor.surfaceCard)
-            .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
+            .background(SMColor.paperAlt)
+            .overlay(
+                Rectangle().stroke(SMColor.rule, lineWidth: 0.5)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -51,13 +56,14 @@ struct SideChipRow: View {
     var body: some View {
         FlowLayout(spacing: SMSpacing.xs) {
             ForEach(sides) { side in
-                Text(side.name)
-                    .font(SMFont.caption)
-                    .foregroundStyle(SMColor.textSecondary)
+                Text(side.name.lowercased())
+                    .font(SMFont.handwritten(12))
+                    .foregroundStyle(SMColor.inkSoft)
                     .padding(.horizontal, SMSpacing.sm)
                     .padding(.vertical, 2)
-                    .background(SMColor.surfaceElevated)
-                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(SMColor.rule, lineWidth: 0.6)
+                    )
             }
         }
     }

@@ -530,7 +530,7 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(SMColor.surface)
+        .paperBackground()
         .navigationBarTitleDisplayMode(.inline)
         .task(id: appState.aiDirectProviderDraft) {
             await appState.refreshAIModels(for: appState.aiDirectProviderDraft)

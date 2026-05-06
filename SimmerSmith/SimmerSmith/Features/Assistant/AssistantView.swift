@@ -10,30 +10,29 @@ struct AssistantView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
-
                 List {
                     if appState.assistantThreads.isEmpty && !appState.assistantExecutionAvailable {
                         ContentUnavailableView(
-                            "Assistant Needs Setup",
+                            "The Smith Needs Setup",
                             systemImage: "sparkles.slash",
                             description: Text(appState.assistantExecutionStatusText)
                         )
                         .listRowBackground(Color.clear)
                     } else if appState.assistantThreads.isEmpty {
                         VStack(spacing: SMSpacing.xl) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 56))
-                                .foregroundStyle(SMColor.aiPurple.opacity(0.8))
+                            FuMark(size: 56, color: SMColor.ink, ember: SMColor.ember)
 
                             VStack(spacing: SMSpacing.sm) {
-                                Text("AI Meal Assistant")
-                                    .font(SMFont.display)
-                                    .foregroundStyle(SMColor.textPrimary)
+                                Text("at the anvil")
+                                    .font(SMFont.handwritten(20, bold: true))
+                                    .foregroundStyle(SMColor.ember)
+                                Text("draft a meal.")
+                                    .font(SMFont.serifDisplay(34))
+                                    .foregroundStyle(SMColor.ink)
 
-                                Text("Ask me to plan meals, create recipes, or answer cooking questions.")
-                                    .font(SMFont.body)
-                                    .foregroundStyle(SMColor.textSecondary)
+                                Text("Ask me to plan meals, forge recipes, or answer cooking questions.")
+                                    .font(SMFont.bodySerifItalic(15))
+                                    .foregroundStyle(SMColor.inkSoft)
                                     .multilineTextAlignment(.center)
                             }
 
@@ -112,8 +111,9 @@ struct AssistantView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .paperBackground()
             }
-            .navigationTitle("Assistant")
+            .navigationTitle("Smith")
             .navigationDestination(for: String.self) { threadID in
                 AssistantThreadView(
                     threadID: threadID,

@@ -69,6 +69,14 @@ struct WeekView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
                 VStack(spacing: SMSpacing.lg) {
+                    FuHero(
+                        eyebrow: weekHeroEyebrow,
+                        title: "this week",
+                        emberAccent: nil,
+                        trailing: nil
+                    )
+                    .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
+
                     weekPicker
 
                     InSeasonStrip(pickedItem: $pickedSeasonalItem)
@@ -85,7 +93,7 @@ struct WeekView: View {
                 .padding(.horizontal, SMSpacing.lg)
                 .padding(.bottom, 80)
             }
-            .background(SMColor.surface)
+            .paperBackground()
             .refreshable {
                 await appState.refreshWeek()
                 await loadAvailableWeeks()
@@ -1344,6 +1352,19 @@ struct WeekView: View {
 
     private func weekPillLabel(for date: Date) -> String {
         Self.weekDateFormatter.string(from: date)
+    }
+
+    /// Build 58: hero header eyebrow. Reads "WEEK 10 · MAR 4" or
+    /// "WEEK OF MAR 4" depending on data availability.
+    private var weekHeroEyebrow: String {
+        if let week = displayedWeek {
+            let weekNumber = Self.weekCalendar.component(.weekOfYear, from: week.weekStart)
+            return "week \(weekNumber) · \(Self.weekDateFormatter.string(from: week.weekStart))"
+        }
+        if let start = displayedWeekStart {
+            return "week of \(Self.weekDateFormatter.string(from: start))"
+        }
+        return "no week yet"
     }
 
     private func displayedWeekRangeLabel() -> String {

@@ -12,12 +12,11 @@ struct EventsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
                 content
             }
+            .paperBackground()
             .navigationTitle("Events")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(SMColor.surface, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

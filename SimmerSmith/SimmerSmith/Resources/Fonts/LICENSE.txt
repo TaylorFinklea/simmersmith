@@ -1,0 +1,14 @@
+Bundled fonts in this directory are distributed under the SIL Open
+Font License v1.1. SimmerSmith ships them per the OFL terms; the
+fonts and their copyrights remain with their original authors:
+
+- Instrument Serif — Copyright 2022 The Instrument Serif Project
+  Authors (https://github.com/Instrument/instrument-serif)
+- Spectral — Copyright 2017 The Spectral Project Authors
+  (https://github.com/productiontype/Spectral)
+- Caveat — Copyright 2014 The Caveat Project Authors
+  (https://github.com/googlefonts/caveat)
+- Oswald — Copyright 2016 The Oswald Project Authors
+  (https://github.com/googlefonts/OswaldFont)
+
+Full OFL 1.1 terms: https://scripts.sil.org/OFL

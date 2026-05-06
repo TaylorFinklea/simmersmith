@@ -1,45 +1,54 @@
 import SwiftUI
 import SimmerSmithKit
 
+/// Smaller fixed-width recipe tile used in horizontal carousels
+/// (Today / Recents / Favourites in WeekView). Same paperAlt
+/// + rule treatment as RecipeCard, smaller image and Caveat
+/// sub-line, no rotation (it sits in a scrolling row).
 struct CompactRecipeCard: View {
     let recipe: RecipeSummary
     let gradientIndex: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: SMSpacing.xs) {
-            RecipeHeaderImage(recipe: recipe)
-                .frame(height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
-                .overlay(alignment: .bottomTrailing) {
-                    if recipe.favorite {
-                        Image(systemName: "heart.fill")
-                            .font(.caption2)
-                            .foregroundStyle(SMColor.favoritePink)
-                            .padding(SMSpacing.xs)
-                    }
-                }
+            ZStack(alignment: .topLeading) {
+                RecipeHeaderImage(recipe: recipe)
+                    .frame(height: 56)
+                    .overlay(
+                        Rectangle().stroke(SMColor.rule, lineWidth: 1)
+                    )
+                FuRecipeNumber(index: gradientIndex + 1)
+                    .padding(4)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(recipe.name)
-                    .font(SMFont.caption)
-                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.serifTitle(13))
+                    .foregroundStyle(SMColor.ink)
                     .lineLimit(2)
 
                 if !recipe.cuisine.isEmpty {
-                    Text(recipe.cuisine)
-                        .font(.system(size: 11))
-                        .foregroundStyle(SMColor.textTertiary)
+                    Text(recipe.cuisine.lowercased())
+                        .font(SMFont.handwritten(12))
+                        .foregroundStyle(SMColor.inkSoft)
                 }
             }
             .padding(.horizontal, SMSpacing.sm)
             .padding(.bottom, SMSpacing.sm)
         }
         .frame(width: 140)
-        .background(SMColor.surfaceCard)
-        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .padding(SMSpacing.xs)
+        .background(SMColor.paperAlt)
         .overlay(
-            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
-                .strokeBorder(SMColor.divider, lineWidth: 0.5)
+            Rectangle().stroke(SMColor.rule, lineWidth: 0.5)
         )
+        .overlay(alignment: .topTrailing) {
+            if recipe.favorite {
+                Image(systemName: "heart.fill")
+                    .font(.caption2)
+                    .foregroundStyle(SMColor.ember)
+                    .padding(4)
+            }
+        }
     }
 }

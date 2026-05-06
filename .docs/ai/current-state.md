@@ -8,6 +8,180 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 58 (Fusion redesign · The Smith's Notebook)
+
+Visual redesign to direction E1 from Claude Design's mockup deck —
+"Fusion · The Smith's Notebook (subtle Forge)". Linen-paper analog
+as the base, ember (`#E8541C`) replacing amber as the accent, hot
+iron treatment used sparingly on cooking + CTAs. Light-paper primary
+following system color scheme; forge dark when iOS is in Dark Mode.
+Native iOS Liquid Glass tab/nav bars and system buttons (Settings
+gear, sheet ×, alert actions, etc.) preserved per user instruction —
+the restyle applies to in-content surfaces only.
+
+**Tokens** (`SimmerSmith/SimmerSmith/DesignSystem/Theme.swift`):
+- Full rewrite. New `Color(light:dark:)` initializer wraps
+  `UIColor { trait in … }` so every token resolves dynamically
+  against `UITraitCollection.userInterfaceStyle`. iOS handles the
+  light/dark switch; no `@Environment(\.colorScheme)` plumbing in
+  views.
+- New tokens: `paper`, `paperAlt`, `plate`, `ink`, `inkSoft`,
+  `inkFaint`, `rule`, `ember`, `emberHot`, `bronze`, `risoBlue`,
+  `risoGreen`, `risoYellow`. Stable public names (`primary`,
+  `accent`, `surface`, `textPrimary`, etc.) are now type aliases
+  pointing at the new tokens (`primary = ember`, `surface = paper`,
+  etc.) — that's why the 59 consumer files didn't all need
+  touching for the palette swap.
+- `SMFont` adds Fusion-native helpers: `serifDisplay(_:)` (Instrument
+  Serif Italic), `serifTitle(_:)` (Instrument Serif Regular),
+  `bodySerif(_:)` / `bodySerifItalic(_:)` (Spectral),
+  `handwritten(_:bold:)` (Caveat), `stencil(_:bold:)` (Oswald),
+  `monoLabel(_:)` (system .monospaced uppercase). Existing
+  semantic aliases (`display`, `headline`, `subheadline`, `body`,
+  `caption`, `label`) are bound to these new families.
+- `SMRadius` flattened: 2/4/8/12 (was 8/12/16/20). Fusion is
+  rectilinear paper-on-paper.
+- **Fonts bundled** — 6 .ttf files (~1.3MB) at
+  `SimmerSmith/SimmerSmith/Resources/Fonts/` (Instrument Serif
+  Regular+Italic static, Spectral Regular+Italic static, Caveat
+  variable, Oswald variable), registered via `UIAppFonts` in
+  `Info.plist`, picked up automatically by xcodegen's recursive
+  source walk. OFL attribution at `Resources/Fonts/LICENSE.txt`.
+  PostScript names verified via `fc-scan`; the Caveat bold path
+  uses `CaveatRoman-Bold` (the variable font ships its bold
+  instance under that PostScript group, not as `Caveat-Bold`).
+
+**Drawing primitives** (new
+`SimmerSmith/SimmerSmith/DesignSystem/Components/FusionPrimitives.swift`,
+~470L):
+- `HandRule`, `HandUnderline`, `HandCheck` — squiggle Path views
+  for paper-style dividers, hero underlines, and ingredient ticks.
+- `Rivet`, `RivetCorners`, `.rivetCorners(...)` — riveted brass /
+  iron corners on hero cards.
+- `PaperGrain`, `PaperBackground`, `.paperBackground()` — linen
+  dot-noise overlay; the standard root background of every Fusion
+  screen body.
+- `FuMark` — anvil + ember brand mark drawn in SwiftUI Canvas (no
+  static asset). Themes with the system; ember glows in Dark Mode.
+- `FuWordmark` — `simmer·smith` in Instrument Serif italic with
+  ember dot, replaces the static `BrandLockup.imageset`.
+- `FuHero` — in-content hero header (mono eyebrow + 38pt italic
+  serif title + ember hand-drawn underline). System nav bar stays
+  Liquid Glass on top; the FuHero is the visual anchor inside the
+  scroll content.
+- `FuPlate`, `FuIndexCard`, `FuWashiTape` — riveted forge plate,
+  paper index card with optional washi-tape strip, washi tape
+  primitive.
+- `FuEmberCTA`, `FuOutlinedPill`, `FuEyebrow`, `FuRecipeNumber` —
+  Caveat ember CTA, outlined-Caveat pill, mono uppercase eyebrow,
+  `№003` recipe number badge.
+
+**Components** (14 files in `DesignSystem/Components/`, public APIs
+unchanged): paper backgrounds, 0.5pt rule borders, rectangular (not
+rounded) edges, italic-serif titles, Caveat sub-lines, ember accents.
+- `SMCard`: paperAlt fill, 0.5pt rule, soft shadow in light only.
+- `CuisinePill`: outlined Caveat (no fill), slight rotation.
+- `TimeBadge`: italic-serif numeral + Caveat unit.
+- `RecipeCard` / `CompactRecipeCard`: paperAlt tile, mono `№NNN`
+  badge, italic-serif title; alternating slight rotations on the
+  grid version.
+- `HeroRecipeCard`: large italic-serif title, hand-drawn ember
+  underline.
+- `RecipeListRow`: italic-serif title, Caveat meta, ember sparkle
+  + ember heart (replacing the AI-purple sparkle).
+- `MacroRing`: ink/ember/risoGreen/bronze macro accents (was
+  primary/aiPurple/orange).
+- `CompactMealCard`: paperAlt tile, italic-serif name, Caveat slot
+  label; sides chips become outlined.
+- `TodayMealCard`: index-card paper treatment with washi-tape +
+  rivet corners + ◆ AT THE FORGE eyebrow + "fire up →" Caveat ember.
+- `MealSlotRow`: Caveat slot, italic-serif name, italic placeholder.
+- `DayCard`: italic-serif day name + ember underline; rows separated
+  by hand rules (was solid divider).
+- `AIFloatingButton`: solid ember disk with ember glow.
+
+**Feature views** (in-content only — chrome stays native):
+- `WeekView` (1381L): "this week" `FuHero` at top of scroll +
+  `paperBackground()`. Today card + day cards inherit the new
+  component look automatically.
+- `RecipesView` (1071L): "the **forge**" hero with ember accent on
+  "forge"; nav title flipped to "Forge"; `paperBackground()`.
+- `RecipeDetailView` (1267L): `paperBackground()`; loading + empty
+  states get italic-serif copy + ember tint. Removed
+  `toolbarBackground(SMColor.surface, …)` so Liquid Glass takes
+  over the nav bar.
+- `GroceryView` + `PantryView`: `paperBackground()`; native List
+  + Liquid Glass nav unchanged.
+- `CookingModeView` (362L): forced forge dark regardless of system
+  mode (`.preferredColorScheme(.dark)`), lamp-lit iron background
+  + ember radial glow seeping from the bottom, **96pt Oswald
+  stencil step number with ember glow** as the marquee element,
+  Spectral 26pt italic instruction text.
+- `AssistantView` (502L): nav title flipped to "Smith"; empty
+  state replaced with `FuMark` + Caveat ember "at the anvil"
+  eyebrow + italic-serif "draft a meal." headline.
+- `EventsView` + `EventDetailView`: `paperBackground()`; removed
+  `toolbarBackground(SMColor.surface, …)` so Liquid Glass takes
+  over.
+- `SignInView`: linen paper with ember radial glow from below,
+  `FuMark` + `FuWordmark` brand lockup, "every recipe forged by
+  hand." Caveat ember eyebrow, italic-serif "Cook with fire." hero,
+  Spectral italic body copy, hand-drawn ember underline. Native
+  Sign In with Apple + Google buttons retained.
+- `SettingsView` (1358L): kept fully native `Form` per user
+  instruction; `paperBackground()` swap. Settings gear stays
+  native.
+- `SubstitutionSheetView`: removed `toolbarBackground(...)`.
+
+**Tab bar** (`MainTabView`):
+- Recipes → **Forge**, Assistant → **Smith**. Other labels
+  unchanged (Week / Grocery / Events).
+- `.tint(SMColor.primary)` → `.tint(SMColor.ember)` (same value,
+  clearer call site).
+- Native SF Symbol icons preserved (calendar / book / cart /
+  party.popper / sparkles).
+- Liquid Glass tab bar chrome untouched per user instruction.
+
+**Brand assets**:
+- `AccentColor.colorset/Contents.json`: pointed at ember
+  (`#E8541C`) so any unstyled native control inherits the new
+  accent.
+- `BrandMark.imageset` and `BrandLockup.imageset` retained on disk
+  for legacy reference; onboarding now renders the wordmark in
+  code via `FuWordmark`.
+
+**Project / verification**:
+- `SimmerSmith/project.yml`: `CURRENT_PROJECT_VERSION` 57 → 58.
+- 325 backend tests pass (`pytest -q`).
+- 26 SimmerSmithKit tests pass (`swift test`).
+- `SimmerSmithTests` unit suite passes.
+- `xcodebuild build` succeeds.
+- 6 `SimmerSmithUITests` failures are pre-existing — they expect a
+  ConnectionSetup form that only shows for signed-out users; the
+  simulator has persisted Apple/Google sign-in. Not a regression.
+- `testTabBarShowsAllMainTabs` passes after the Forge/Smith
+  relabel.
+
+**Out of scope** (explicit deferrals):
+- App icon redesign (HANDOFF flagged the existing mark-only icon
+  as off-center).
+- Custom MealArt vector illustrations per cuisine — recipe photos
+  / gradient placeholders retained.
+- Heavy Forge variant (E2).
+- Animation polish, transitions, motion.
+- Localization audit for the new lowercase brand voice.
+
+**Font sourcing — resolved**:
+- User authorized fetching from `github.com/google/fonts`. Six
+  .ttf files pulled directly from the official Google Fonts
+  upstream repository (OFL-licensed, AGPL-compatible) and bundled
+  into the app at `SimmerSmith/SimmerSmith/Resources/Fonts/`.
+  Total bundle weight: ~1.3MB. Caveat + Oswald shipped as the
+  upstream variable fonts; Instrument Serif + Spectral as static
+  Regular + Italic instances.
+
+---
+
 **Date**: 2026-05-06 — Build 57 ship (quick meal tag + freezer pantry kind)
 
 Two pieces of dogfood feedback bundled into one ship: a `quick`

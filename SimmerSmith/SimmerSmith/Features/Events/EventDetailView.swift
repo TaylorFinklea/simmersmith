@@ -61,10 +61,9 @@ struct EventDetailView: View {
             }
             .padding(SMSpacing.lg)
         }
-        .background(SMColor.surface)
+        .paperBackground()
         .navigationTitle(event?.name ?? "Event")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(SMColor.surface, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if event != nil {

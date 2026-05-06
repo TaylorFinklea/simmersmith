@@ -1,6 +1,9 @@
 import SwiftUI
 import SimmerSmithKit
 
+/// A row inside DayCard for one slot (breakfast / lunch / dinner).
+/// Caveat slot label, italic-serif recipe name, italic placeholder
+/// when empty.
 struct MealSlotRow: View {
     let slot: String
     let recipeName: String?
@@ -8,21 +11,20 @@ struct MealSlotRow: View {
 
     var body: some View {
         HStack(spacing: SMSpacing.md) {
-            Text(slot.capitalized)
-                .font(SMFont.label)
-                .foregroundStyle(SMColor.textTertiary)
+            Text(slot.lowercased())
+                .font(SMFont.handwritten(14))
+                .foregroundStyle(SMColor.inkSoft)
                 .frame(width: 64, alignment: .leading)
 
             if let name = recipeName, !name.isEmpty {
                 Text(name)
-                    .font(SMFont.body)
-                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.serifTitle(15))
+                    .foregroundStyle(SMColor.ink)
                     .lineLimit(1)
             } else {
                 Text("Tap to add")
-                    .font(SMFont.body)
-                    .foregroundStyle(SMColor.textTertiary)
-                    .italic()
+                    .font(SMFont.bodySerifItalic(14))
+                    .foregroundStyle(SMColor.inkFaint)
             }
 
             Spacer()
@@ -30,7 +32,7 @@ struct MealSlotRow: View {
             if isApproved {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(SMColor.success)
+                    .foregroundStyle(SMColor.ember)
             }
         }
         .padding(.vertical, SMSpacing.xs)

@@ -126,7 +126,7 @@ struct GroceryView: View {
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
-                .background(SMColor.surface)
+                .paperBackground()
                 .refreshable {
                     await appState.refreshWeek()
                 }

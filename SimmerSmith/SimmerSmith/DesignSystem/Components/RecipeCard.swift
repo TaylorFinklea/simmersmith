@@ -1,51 +1,71 @@
 import SwiftUI
 import SimmerSmithKit
 
+/// Standard 2-up recipe tile in the Forge grid. PaperAlt fill,
+/// 0.5pt rule border, slight rotation per index, italic-serif
+/// title, Caveat sub-line, optional heart in the top-right.
 struct RecipeCard: View {
     let recipe: RecipeSummary
     let gradientIndex: Int
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: SMSpacing.sm) {
-            RecipeHeaderImage(recipe: recipe)
-                .frame(height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                .overlay(alignment: .bottomLeading) {
-                    if recipe.favorite {
-                        Image(systemName: "heart.fill")
-                            .font(.caption)
-                            .foregroundStyle(SMColor.favoritePink)
-                            .padding(SMSpacing.sm)
-                    }
-                }
+    private var rotation: Double {
+        // Same alternating tilts the JSX mockup uses on the Forge tiles.
+        let tilts: [Double] = [-0.8, 0.6, -0.4, 0.7, -0.6, 0.5]
+        return tilts[gradientIndex % tilts.count]
+    }
 
-            VStack(alignment: .leading, spacing: SMSpacing.xs) {
+    var body: some View {
+        VStack(alignment: .leading, spacing: SMSpacing.xs) {
+            ZStack(alignment: .topLeading) {
+                RecipeHeaderImage(recipe: recipe)
+                    .frame(height: 86)
+                    .overlay(
+                        Rectangle().stroke(SMColor.rule, lineWidth: 1)
+                    )
+                FuRecipeNumber(index: gradientIndex + 1)
+                    .padding(4)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(recipe.name)
-                    .font(SMFont.subheadline)
-                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.serifDisplay(16))
+                    .foregroundStyle(SMColor.ink)
                     .lineLimit(2)
 
-                HStack(spacing: SMSpacing.sm) {
+                HStack(spacing: 4) {
                     if !recipe.cuisine.isEmpty {
-                        Text(recipe.cuisine)
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.textSecondary)
+                        Text(recipe.cuisine.lowercased())
+                            .font(SMFont.handwritten(13))
+                            .foregroundStyle(SMColor.inkSoft)
                     }
                     if let prep = recipe.prepMinutes, prep > 0 {
-                        Label("\(prep)m", systemImage: "clock")
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.textTertiary)
+                        if !recipe.cuisine.isEmpty {
+                            Text("·")
+                                .font(SMFont.handwritten(13))
+                                .foregroundStyle(SMColor.inkSoft)
+                        }
+                        Text("\(prep)m")
+                            .font(SMFont.handwritten(13))
+                            .foregroundStyle(SMColor.inkSoft)
                     }
                 }
             }
             .padding(.horizontal, SMSpacing.sm)
             .padding(.bottom, SMSpacing.sm)
         }
-        .background(SMColor.surfaceCard)
-        .clipShape(RoundedRectangle(cornerRadius: SMRadius.lg, style: .continuous))
+        .padding(SMSpacing.sm)
+        .background(SMColor.paperAlt)
         .overlay(
-            RoundedRectangle(cornerRadius: SMRadius.lg, style: .continuous)
-                .strokeBorder(SMColor.divider, lineWidth: 0.5)
+            Rectangle().stroke(SMColor.rule, lineWidth: 0.5)
         )
+        .overlay(alignment: .topTrailing) {
+            if recipe.favorite {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(SMColor.ember)
+                    .offset(x: 4, y: -8)
+            }
+        }
+        .rotationEffect(.degrees(rotation))
     }
 }

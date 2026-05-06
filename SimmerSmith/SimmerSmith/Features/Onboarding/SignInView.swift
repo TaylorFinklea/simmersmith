@@ -7,22 +7,51 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            SMColor.surface.ignoresSafeArea()
+            // Build 58 — Fusion onboarding. Linen paper with a soft
+            // ember glow seeping in from the bottom, FuMark anvil
+            // mark, "Cook with fire." italic-serif hero.
+            SMColor.paper.ignoresSafeArea()
+            PaperGrain().ignoresSafeArea()
+            RadialGradient(
+                colors: [SMColor.ember.opacity(0.18), .clear],
+                center: UnitPoint(x: 0.5, y: 1.0),
+                startRadius: 0,
+                endRadius: 600
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: SMSpacing.xxl) {
                 Spacer()
 
-                VStack(spacing: SMSpacing.lg) {
-                    Image("BrandLockup")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 240)
+                VStack(alignment: .leading, spacing: SMSpacing.lg) {
+                    HStack(alignment: .center, spacing: SMSpacing.md) {
+                        FuMark(size: 56, color: SMColor.ink, ember: SMColor.ember)
+                        FuWordmark(size: 26, color: SMColor.ink, ember: SMColor.ember)
+                    }
 
-                    Text("AI-powered meal planning.\nPlan your week. Build your list.")
-                        .font(SMFont.headline)
-                        .foregroundStyle(SMColor.textSecondary)
-                        .multilineTextAlignment(.center)
+                    VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                        Text("every recipe forged by hand.")
+                            .font(SMFont.handwritten(18, bold: true))
+                            .foregroundStyle(SMColor.ember)
+
+                        HStack(alignment: .lastTextBaseline, spacing: 0) {
+                            Text("Cook with fire")
+                                .font(SMFont.serifDisplay(48))
+                                .foregroundStyle(SMColor.ink)
+                            Text(".")
+                                .font(SMFont.serifDisplay(48))
+                                .foregroundStyle(SMColor.ember)
+                        }
+                        HandUnderline(color: SMColor.ember, width: 140)
+
+                        Text("AI drafts get hammered, refined, and quenched — only what you forge ends up in your library.")
+                            .font(SMFont.bodySerifItalic(16))
+                            .foregroundStyle(SMColor.inkSoft)
+                            .multilineTextAlignment(.leading)
+                            .padding(.top, SMSpacing.sm)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 

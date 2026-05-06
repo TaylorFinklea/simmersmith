@@ -27,7 +27,17 @@ struct CookingModeView: View {
         let steps = orderedSteps(for: recipe)
 
         ZStack {
-            SMColor.surface.ignoresSafeArea()
+            // Build 58 — CookingMode is the Forge moment. Force the
+            // forge palette regardless of system theme: lamp-lit iron
+            // background with a soft ember glow seeping up from below.
+            Color(hex: 0x15110D).ignoresSafeArea()
+            RadialGradient(
+                colors: [SMColor.ember.opacity(0.18), .clear],
+                center: UnitPoint(x: 0.5, y: 1.1),
+                startRadius: 0,
+                endRadius: 600
+            )
+            .ignoresSafeArea()
 
             if let recipe, !steps.isEmpty {
                 cookingBody(recipe: recipe, steps: steps)
@@ -35,6 +45,7 @@ struct CookingModeView: View {
                 emptyState
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             spokenService.activatePlaybackSession()
@@ -138,9 +149,17 @@ struct CookingModeView: View {
         let step = steps[min(stepIndex, steps.count - 1)]
         return ScrollView {
             VStack(alignment: .leading, spacing: SMSpacing.lg) {
+                // Build 58 — Oswald stencil step number with ember glow.
+                // The Forge takes over: this is the moment cooking
+                // becomes a hot-iron event in the Smith's Notebook.
+                Text(String(format: "%02d", stepIndex + 1))
+                    .font(SMFont.stencil(96, bold: true))
+                    .foregroundStyle(SMColor.ember)
+                    .shadow(color: SMColor.ember.opacity(0.7), radius: 12)
+                    .shadow(color: SMColor.ember.opacity(0.4), radius: 24)
                 Text(step.instruction)
-                    .font(.system(size: 30, weight: .semibold, design: .serif))
-                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.serifDisplay(26))
+                    .foregroundStyle(Color(hex: 0xEAE0CB))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .onLongPressGesture {

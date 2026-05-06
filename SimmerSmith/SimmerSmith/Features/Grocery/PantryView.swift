@@ -120,6 +120,8 @@ struct PantryView: View {
             }
         }
         .navigationTitle("Pantry")
+        .scrollContentBackground(.hidden)
+        .paperBackground()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

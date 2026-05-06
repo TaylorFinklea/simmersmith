@@ -22,7 +22,7 @@ struct MainTabView: View {
                 }
                 .tag(AppState.MainTab.recipes)
                 .tabItem {
-                    Label("Recipes", systemImage: "book")
+                    Label("Forge", systemImage: "book")
                 }
 
                 NavigationStack {
@@ -42,10 +42,10 @@ struct MainTabView: View {
                 AssistantView()
                     .tag(AppState.MainTab.assistant)
                     .tabItem {
-                        Label("Assistant", systemImage: "sparkles")
+                        Label("Smith", systemImage: "sparkles")
                     }
             }
-            .tint(SMColor.primary)
+            .tint(SMColor.ember)
 
             AIAssistantOverlay()
                 .ignoresSafeArea(.keyboard)

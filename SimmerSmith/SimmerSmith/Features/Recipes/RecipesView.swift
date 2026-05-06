@@ -46,11 +46,16 @@ struct RecipesView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            SMColor.surface
-                .ignoresSafeArea()
-
             ScrollView {
                 VStack(spacing: SMSpacing.xl) {
+                    FuHero(
+                        eyebrow: "\(appState.recipes.count) forged",
+                        title: "the ",
+                        emberAccent: "forge",
+                        trailing: nil
+                    )
+                    .padding(.horizontal, -SMSpacing.lg)
+
                     searchBar
                     mealTypeFilterPills
                     difficultyFilterPills
@@ -69,8 +74,10 @@ struct RecipesView: View {
                         editorialSections
                     }
                 }
+                .padding(.horizontal, SMSpacing.lg)
                 .padding(.bottom, isSelecting ? 96 : 24)
             }
+            .paperBackground()
 
             // M29 build 55 — bulk-action bar replaces the old AI FAB
             // (the Assistant tab is the canonical chat entry now;
@@ -79,8 +86,8 @@ struct RecipesView: View {
                 bulkActionBar
             }
         }
-        .navigationTitle("Recipes")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle("Forge")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             aiCoordinator.updateContext(
                 AIPageContext(
