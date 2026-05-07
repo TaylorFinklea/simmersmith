@@ -312,36 +312,88 @@ struct RecipeDetailView: View {
 
     // MARK: - Header Section
 
+    /// Build 64 — Fusion RecipeDetail header. Replaces the dark
+    /// image-with-overlaid-title slab with a centered notebook
+    /// composition: mono eyebrow → italic-serif title → Caveat
+    /// sub-line → circular hero image with an ember-dot annotation
+    /// → dashed stat row (3 numerals).
     private func headerSection(_ recipe: RecipeSummary) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            RecipeHeaderImage(recipe: recipe, isLoading: isRegeneratingImage)
-                .frame(height: 200)
-                .clipped()
+        VStack(alignment: .center, spacing: SMSpacing.md) {
+            FuEyebrow(text: recipe.archived ? "archived recipe" : "recipe")
+                .padding(.top, SMSpacing.lg)
 
-            // Title and metadata overlay
-            VStack(alignment: .leading, spacing: SMSpacing.sm) {
-                if recipe.archived {
-                    Text("ARCHIVED")
-                        .font(SMFont.label)
-                        .foregroundStyle(SMColor.textTertiary)
-                        .padding(.horizontal, SMSpacing.sm)
-                        .padding(.vertical, SMSpacing.xs)
-                        .background(SMColor.surface.opacity(0.6))
-                        .clipShape(Capsule())
-                }
+            Text(recipe.name)
+                .font(SMFont.serifDisplay(38))
+                .foregroundStyle(SMColor.ink)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, SMSpacing.lg)
 
-                Text(recipe.name)
-                    .font(SMFont.display)
-                    .foregroundStyle(SMColor.textPrimary)
-                    .lineLimit(3)
+            if !recipe.subtitleFragments.isEmpty {
+                Text(recipe.subtitleFragments.map { $0.lowercased() }.joined(separator: " · "))
+                    .font(SMFont.handwritten(16))
+                    .foregroundStyle(SMColor.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, SMSpacing.lg)
+            }
 
-                if !recipe.subtitleFragments.isEmpty {
-                    Text(recipe.subtitleFragments.joined(separator: " \u{2022} "))
-                        .font(SMFont.body)
-                        .foregroundStyle(SMColor.textSecondary)
+            // Circular hero with ember-dot annotation. The dot's
+            // shadow-glow is what gives the "smith's mark" feel
+            // without needing a custom illustration.
+            ZStack(alignment: .topTrailing) {
+                RecipeHeaderImage(recipe: recipe, isLoading: isRegeneratingImage)
+                    .frame(width: 200, height: 200)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle().stroke(SMColor.ink, lineWidth: 1.5)
+                    )
+
+                Circle()
+                    .fill(SMColor.ember)
+                    .frame(width: 14, height: 14)
+                    .shadow(color: SMColor.ember.opacity(0.55), radius: 6)
+                    .offset(x: -18, y: 4)
+            }
+            .padding(.vertical, SMSpacing.sm)
+
+            recipeStatRow(recipe)
+                .padding(.horizontal, SMSpacing.lg)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Build 64 — three big numerals in italic-serif with Caveat
+    /// unit labels, framed top + bottom by dashed hairlines. Picks
+    /// the most useful numbers (total time / servings / ingredient
+    /// count) and falls back to "—" when a value is missing.
+    private func recipeStatRow(_ recipe: RecipeSummary) -> some View {
+        let totalMinutes = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0)
+        let stats: [(value: String, label: String)] = [
+            (totalMinutes > 0 ? "\(totalMinutes)" : "—", "minutes"),
+            (recipe.servings.map { "\(Int($0))" } ?? "—", "plates"),
+            ("\(recipe.ingredients.count)",
+             recipe.ingredients.count == 1 ? "ingredient" : "ingredients"),
+        ]
+
+        return VStack(spacing: 0) {
+            DashedRule()
+            HStack(spacing: 0) {
+                ForEach(stats, id: \.label) { stat in
+                    VStack(spacing: 2) {
+                        Text(stat.value)
+                            .font(SMFont.serifDisplay(26))
+                            .foregroundStyle(SMColor.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(stat.label)
+                            .font(SMFont.handwritten(14))
+                            .foregroundStyle(SMColor.inkSoft)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .padding(SMSpacing.xl)
+            .padding(.vertical, 12)
+            DashedRule()
         }
     }
 
@@ -491,14 +543,22 @@ struct RecipeDetailView: View {
         return nil
     }
 
+    /// Build 64 — Fusion outlined pill. Caveat label, ember icon
+    /// when applicable, no fill — sits on paper as a margin tag.
     private func metadataPill(icon: String, text: String) -> some View {
-        Label(text, systemImage: icon)
-            .font(SMFont.caption)
-            .foregroundStyle(SMColor.textSecondary)
-            .padding(.horizontal, SMSpacing.md)
-            .padding(.vertical, SMSpacing.sm)
-            .background(SMColor.surfaceCard)
-            .clipShape(Capsule())
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(SMColor.ember)
+            Text(text.lowercased())
+                .font(SMFont.handwritten(13))
+                .foregroundStyle(SMColor.inkSoft)
+        }
+        .padding(.horizontal, SMSpacing.md)
+        .padding(.vertical, 4)
+        .overlay(
+            Capsule().stroke(SMColor.rule, lineWidth: 0.8)
+        )
     }
 
     // MARK: - Ingredients / Steps Picker
@@ -695,50 +755,71 @@ struct RecipeDetailView: View {
 
     // MARK: - Ingredients
 
+    /// Build 64 — Fusion ingredients list. Caveat ember "ingredients"
+    /// header with hand underline + mono "X IN PANTRY" right eyebrow.
+    /// Each row gets a HandCheck filled when the ingredient is in
+    /// the user's pantry; HandRules between rows replace solid
+    /// dividers. The per-ingredient "wand.and.stars" Menu (substitute
+    /// / avoid / allergy) is kept exactly as-is — pure functionality.
     private func ingredientsSection(_ recipe: RecipeSummary) -> some View {
-        SMCard {
-            VStack(alignment: .leading, spacing: SMSpacing.md) {
-                Text("Ingredients")
-                    .font(SMFont.label)
-                    .foregroundStyle(SMColor.textTertiary)
+        let scaled = recipe.ingredients.map { $0.scaled(by: selectedScale.rawValue) }
+        let inPantryCount = scaled.filter { isInPantry($0) }.count
 
-                ForEach(recipe.ingredients.map { $0.scaled(by: selectedScale.rawValue) }) { ingredient in
-                    HStack(alignment: .top) {
-                        // Quantity + unit left-aligned
-                        HStack(spacing: SMSpacing.xs) {
-                            if let quantity = ingredient.quantity {
-                                Text(quantity.formatted())
-                                    .font(SMFont.body)
-                                    .foregroundStyle(SMColor.primary)
-                            }
-                            if !ingredient.unit.isEmpty {
-                                Text(ingredient.unit)
-                                    .font(SMFont.body)
-                                    .foregroundStyle(SMColor.primary)
-                            }
-                        }
-                        .frame(minWidth: 60, alignment: .leading)
+        return VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                HStack(spacing: SMSpacing.sm) {
+                    Text("ingredients")
+                        .font(SMFont.handwritten(20, bold: true))
+                        .foregroundStyle(SMColor.ember)
+                    HandUnderline(color: SMColor.ember, width: 32)
+                }
+                Spacer()
+                if inPantryCount > 0 {
+                    Text("\(inPantryCount) in pantry")
+                        .font(SMFont.monoLabel(9))
+                        .tracking(1.2)
+                        .foregroundStyle(SMColor.inkSoft)
+                }
+            }
+            .padding(.horizontal, SMSpacing.lg)
+            .padding(.top, SMSpacing.sm)
 
-                        // Name + prep right
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(scaled.enumerated()), id: \.element.id) { idx, ingredient in
+                    let pantry = isInPantry(ingredient)
+                    HStack(alignment: .top, spacing: SMSpacing.md) {
+                        HandCheck(checked: pantry, size: 16)
+                            .padding(.top, 4)
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text(ingredient.ingredientName)
-                                .font(SMFont.body)
-                                .foregroundStyle(SMColor.textPrimary)
-
+                                .font(SMFont.bodySerif(15))
+                                .foregroundStyle(SMColor.ink)
                             if !ingredient.prep.isEmpty {
                                 Text(ingredient.prep)
-                                    .font(SMFont.caption)
-                                    .foregroundStyle(SMColor.textTertiary)
+                                    .font(SMFont.bodySerifItalic(13))
+                                    .foregroundStyle(SMColor.inkSoft)
                             }
                         }
 
                         Spacer()
 
-                        // Per-ingredient AI menu: substitute, never plan
-                        // with this, or mark as allergy. The bottom two
-                        // options need a resolved baseIngredientId so they
-                        // can upsert an IngredientPreference row keyed on
-                        // the catalog entry.
+                        // Quantity + unit on the right, italic-serif numeral + Caveat unit.
+                        HStack(spacing: 4) {
+                            if let quantity = ingredient.quantity {
+                                Text(quantity.formatted())
+                                    .font(SMFont.serifDisplay(15))
+                                    .foregroundStyle(SMColor.inkSoft)
+                            }
+                            if !ingredient.unit.isEmpty {
+                                Text(ingredient.unit)
+                                    .font(SMFont.handwritten(14))
+                                    .foregroundStyle(SMColor.inkSoft)
+                            }
+                        }
+
+                        // Per-ingredient AI menu: substitute, avoid,
+                        // allergy. Functionality identical, ember tint.
                         Menu {
                             Button {
                                 substitutionContext = SubstitutionSheetContext(
@@ -765,18 +846,36 @@ struct RecipeDetailView: View {
                         } label: {
                             Image(systemName: "wand.and.stars")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(SMColor.aiPurple.opacity(0.85))
+                                .foregroundStyle(SMColor.ember.opacity(0.85))
                                 .frame(width: 28, height: 28)
                         }
                         .accessibilityLabel("Options for \(ingredient.ingredientName)")
                     }
+                    .padding(.vertical, 8)
 
-                    if ingredient.id != recipe.ingredients.last?.id {
-                        Divider()
-                            .background(SMColor.divider)
+                    if idx < scaled.count - 1 {
+                        HandRule(color: SMColor.rule, height: 4, lineWidth: 0.7)
                     }
                 }
             }
+            .padding(.horizontal, SMSpacing.lg)
+        }
+    }
+
+    /// Build 64 — best-effort "is this ingredient in the user's
+    /// pantry?" check. PantryItem doesn't carry a base-ingredient
+    /// ID; we use case-insensitive name comparison against the
+    /// pre-normalized pantry name. Not perfect for "milk" vs "whole
+    /// milk" but good enough as a hint while we build a real catalog
+    /// matcher server-side.
+    private func isInPantry(_ ingredient: RecipeIngredient) -> Bool {
+        let needle = ingredient.ingredientName.lowercased()
+        guard !needle.isEmpty else { return false }
+        return appState.pantryItems.contains { item in
+            let hay = item.normalizedName.isEmpty
+                ? item.stapleName.lowercased()
+                : item.normalizedName.lowercased()
+            return hay == needle || hay.contains(needle) || needle.contains(hay)
         }
     }
 

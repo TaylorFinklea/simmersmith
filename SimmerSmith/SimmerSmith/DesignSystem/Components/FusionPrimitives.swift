@@ -39,6 +39,27 @@ struct HandRule: View {
     }
 }
 
+/// A thin dashed hairline. Used on RecipeDetail's stat row top +
+/// bottom edges (the `25 minutes / 4 plates / 1 pan` strip in the
+/// mockup) and any other place a clean dashed rule reads better than
+/// the slightly-wobbly HandRule.
+struct DashedRule: View {
+    var color: Color = SMColor.rule
+    var dash: [CGFloat] = [3, 2]
+    var lineWidth: CGFloat = 0.5
+
+    var body: some View {
+        GeometryReader { geo in
+            Path { p in
+                p.move(to: CGPoint(x: 0, y: lineWidth / 2))
+                p.addLine(to: CGPoint(x: geo.size.width, y: lineWidth / 2))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, dash: dash))
+        }
+        .frame(height: lineWidth)
+    }
+}
+
 /// A short hand-drawn underline used to mark hero titles.
 struct HandUnderline: View {
     var color: Color = SMColor.ember

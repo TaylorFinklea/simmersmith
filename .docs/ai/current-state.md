@@ -8,6 +8,61 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 64 (Fusion RecipeDetail IA)
+
+User signed off on Forge filter collapse and asked to keep moving.
+Build 64 brings the recipe detail screen into the Fusion notebook
+aesthetic.
+
+`Features/Recipes/RecipeDetailView.swift`:
+- `headerSection` rewritten. Was a 200pt-tall background image with
+  the title overlaid in the bottom-left corner. Now centered
+  composition: mono `recipe` (or `archived recipe`) eyebrow → 38pt
+  italic-serif title → Caveat sub-line built from
+  `recipe.subtitleFragments` → **circular** `RecipeHeaderImage`
+  (200×200) inside a 1.5pt ink stroke with an ember-dot annotation
+  (with glow shadow) at the top-right → dashed-rule stat row.
+- New `recipeStatRow(_:)` helper: italic-serif numerals + Caveat
+  unit labels (`minutes`, `plates`, `ingredient[s]`), framed top
+  + bottom by dashed hairlines. Falls back to `—` when a number
+  isn't available.
+- `metadataPill(icon:text:)` restyled to outlined Caveat — no fill,
+  Caveat handwritten label, ember icon, 0.8pt rule capsule border.
+  The wrapping pill row below the stat row reads as paper margin
+  tags now instead of dark chips.
+- `ingredientsSection` rewritten. Was an SMCard slab with solid
+  Divider lines and primary-amber quantity text. Now:
+  - Caveat ember "ingredients" header with HandUnderline + mono
+    "X in pantry" right eyebrow showing the pantry-match count.
+  - Each row: HandCheck on the left (filled with ember when the
+    ingredient matches a pantry item), Spectral name + italic
+    Spectral prep, italic-serif quantity + Caveat unit on the right,
+    AI ember-tinted "wand.and.stars" Menu (substitute / avoid /
+    allergy) preserved unchanged.
+  - HandRules between rows (no solid Divider).
+- New `isInPantry(_:)` helper does a case-insensitive name
+  comparison against `PantryItem.normalizedName` (or stapleName as
+  fallback). Not catalog-precise — that needs server-side
+  resolution — but a real signal for the common case
+  (`"milk"` matches pantry "milk").
+
+`DesignSystem/Components/FusionPrimitives.swift`:
+- New `DashedRule` view — thin dashed hairline used on the
+  RecipeDetail stat row top + bottom. GeometryReader-backed Path
+  stroke so it scales to its container width.
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 63 → 64.
+
+Pending IA builds (queue continues):
+- Build 65: Cooking — ◆ AT THE FORGE top bar, riveted timer plate,
+  Caveat ember CTAs.
+- Build 66: Grocery — pantry washi callout, store-color outlined
+  Caveat tabs, dashed rules.
+- Build 67: Smith — chat surface with washi-taped draft cards.
+
+---
+
 **Date**: 2026-05-06 — Build 63 (Fusion Forge IA · filter collapse)
 
 User signed off on the Week tab + meal action sheet, asked to move
