@@ -48,6 +48,11 @@ struct WeekView: View {
     // Build 57 — save leftovers from a meal to the freezer.
     @State private var leftoverSourceMeal: WeekMeal?
 
+    // Build 61 — past days collapsed by default; track which past
+    // dates the user has expanded. Keyed by `DayKey.server(date)` so
+    // the comparison matches isPastDay/isToday consistency.
+    @State private var expandedPastDays: Set<String> = []
+
     // Day nutrition sheet
     @State private var nutritionDay: (dayName: String, date: Date, meals: [WeekMeal], totals: MacroBreakdown)?
 
@@ -563,6 +568,13 @@ struct WeekView: View {
         }
     }
 
+    /// Build 61 — true when a date is strictly before today's local
+    /// calendar day. Uses YYYY-MM-DD string comparison for safe
+    /// chronological sort across timezones.
+    private func isPastDay(_ date: Date) -> Bool {
+        DayKey.server(date) < DayKey.local(Date())
+    }
+
     @ViewBuilder
     private func daySection(week: WeekSnapshot, date: Date, dayName: String) -> some View {
         let meals = mealsForDate(date, in: week)
@@ -570,28 +582,34 @@ struct WeekView: View {
         let totals = dayMacros(for: date, meals: meals, week: week)
         let showMacros = !totals.isEmpty && (appState.profile?.dietaryGoal != nil || totals.calories > 0)
         let dayNum = Calendar.current.component(.day, from: date)
+        let dayKey = DayKey.server(date)
+        let past = isPastDay(date)
+        let expanded = expandedPastDays.contains(dayKey)
+        let showSlots = !past || expanded
 
-        // Build 59 — Fusion paper-styled day section. Today gets a 2pt
-        // ember spine on the leading edge; day name handwritten + day
-        // numeral italic-serif. AI per-day button + MacroRing remain
-        // (useful affordances Savanne uses), restyled to ember.
+        // Build 61 — bigger Fusion day pillar. Today gets a 3pt ember
+        // spine; past days collapse to the pillar + a summary line and
+        // expand on tap. Today and future days always render slots.
         HStack(alignment: .top, spacing: SMSpacing.md) {
-            // Ember spine on today
+            // Ember spine on today (taller now to match bigger pillar)
             Rectangle()
                 .fill(isToday ? SMColor.ember : Color.clear)
-                .frame(width: 2)
+                .frame(width: 3)
                 .padding(.vertical, 4)
 
-            // Day pillar — handwritten name + italic-serif numeral
+            // Day pillar — handwritten name above italic-serif numeral.
+            // Bigger than build 60: 17pt name + 38pt numeral.
             VStack(spacing: 0) {
                 Text(String(dayName.lowercased().prefix(3)))
-                    .font(SMFont.handwritten(13))
+                    .font(SMFont.handwritten(17, bold: true))
                     .foregroundStyle(isToday ? SMColor.ember : SMColor.inkSoft)
                 Text("\(dayNum)")
-                    .font(SMFont.serifDisplay(22))
-                    .foregroundStyle(isToday ? SMColor.ember : SMColor.ink)
+                    .font(SMFont.serifDisplay(38))
+                    .foregroundStyle(isToday ? SMColor.ember : (past ? SMColor.inkFaint : SMColor.ink))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(width: 36)
+            .frame(width: 54)
             .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: SMSpacing.sm) {
@@ -600,41 +618,82 @@ struct WeekView: View {
                         Text("today")
                             .font(SMFont.handwritten(14, bold: true))
                             .foregroundStyle(SMColor.ember)
+                    } else if past {
+                        // Past-day summary in the header line so a
+                        // collapsed row still reads at a glance.
+                        Text(pastDaySummary(meals: meals))
+                            .font(SMFont.bodySerifItalic(13))
+                            .foregroundStyle(SMColor.inkFaint)
+                            .lineLimit(1)
                     }
 
                     Spacer()
 
-                    Button {
-                        publishFocus(date: date, dayName: dayName)
-                        aiCoordinator.present()
-                    } label: {
-                        Image(systemName: "sparkles")
-                            .font(.caption)
-                            .foregroundStyle(SMColor.ember)
-                            .padding(6)
-                            .overlay(Circle().stroke(SMColor.ember.opacity(0.4), lineWidth: 0.8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Ask AI about \(dayName)")
-
-                    if showMacros {
+                    if past {
+                        // Expand/collapse chevron for past days.
                         Button {
-                            nutritionDay = (dayName: dayName, date: date, meals: meals, totals: totals)
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                if expanded {
+                                    expandedPastDays.remove(dayKey)
+                                } else {
+                                    expandedPastDays.insert(dayKey)
+                                }
+                            }
                         } label: {
-                            MacroRing(macros: totals, goal: appState.profile?.dietaryGoal)
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(SMColor.inkSoft)
+                                .padding(6)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(expanded ? "Collapse \(dayName)" : "Expand \(dayName)")
+                    } else {
+                        Button {
+                            publishFocus(date: date, dayName: dayName)
+                            aiCoordinator.present()
+                        } label: {
+                            Image(systemName: "sparkles")
+                                .font(.caption)
+                                .foregroundStyle(SMColor.ember)
+                                .padding(6)
+                                .overlay(Circle().stroke(SMColor.ember.opacity(0.4), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Ask AI about \(dayName)")
+
+                        if showMacros {
+                            Button {
+                                nutritionDay = (dayName: dayName, date: date, meals: meals, totals: totals)
+                            } label: {
+                                MacroRing(macros: totals, goal: appState.profile?.dietaryGoal)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
 
-                renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
+                if showSlots {
+                    renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
 
-                addSnackAffordance(for: date, dayName: dayName, meals: meals)
+                    addSnackAffordance(for: date, dayName: dayName, meals: meals)
 
-                rebalanceBanner(for: date, dayName: dayName, totals: totals)
+                    rebalanceBanner(for: date, dayName: dayName, totals: totals)
+                }
             }
         }
         .padding(.vertical, SMSpacing.sm)
+    }
+
+    /// Build 61 — past-day collapsed-header summary. Reads as
+    /// "3 meals · 2 done" / "1 meal" / "no meals planned".
+    private func pastDaySummary(meals: [WeekMeal]) -> String {
+        if meals.isEmpty { return "no meals planned" }
+        let cooked = meals.filter { $0.approved }.count
+        let total = meals.count
+        let mealWord = total == 1 ? "meal" : "meals"
+        if cooked == 0 { return "\(total) \(mealWord)" }
+        if cooked == total { return "\(total) \(mealWord) · all done" }
+        return "\(total) \(mealWord) · \(cooked) done"
     }
 
     @ViewBuilder

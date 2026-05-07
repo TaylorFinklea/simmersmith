@@ -8,6 +8,45 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 61 (Week · bigger day pillar + past-day collapse)
+
+User feedback on build 60: bump up the day pillar visual weight,
+collapse past days by default to clear vertical real estate, allow
+expanding any past day on tap.
+
+`Features/Week/WeekView.swift`:
+- New `@State expandedPastDays: Set<String>` keyed by
+  `DayKey.server(date)` tracks which historical days the user has
+  toggled open.
+- New `isPastDay(_:)` helper using YYYY-MM-DD string comparison
+  (timezone-safe) — true for any date strictly before today's
+  local calendar day.
+- `daySection` redesigned:
+  - Pillar grew from 13pt name / 22pt numeral / 36pt wide
+    → 17pt handwritten bold name / 38pt italic-serif numeral /
+    54pt wide. Spine grew 2pt → 3pt on today.
+  - Past days collapse to: pillar + summary line in italic
+    Spectral ("3 meals · 2 done") + chevron-down toggle. Tap
+    to expand → full slots render with smooth ease-in-out.
+  - Today + future days always render slots (chevron not shown).
+  - AI sparkle + MacroRing affordances move to today/future-only
+    rows; past collapsed rows just show the chevron.
+- New `pastDaySummary(meals:)` helper builds the collapsed-row
+  one-liner: "no meals planned" / "1 meal" / "3 meals · 2 done"
+  / "3 meals · all done".
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 60 → 61.
+
+Pending IA builds (queue continues, all renumbered):
+- Build 62: Forge (Recipes) — collapse 5 filter rows to one chip.
+- Build 63: RecipeDetail.
+- Build 64: Cooking.
+- Build 65: Grocery.
+- Build 66: Smith.
+
+---
+
 **Date**: 2026-05-06 — Build 60 (Fusion Week IA · multi-slot restored)
 
 Build 59 was over-aggressive — it collapsed Week to one meal per day
