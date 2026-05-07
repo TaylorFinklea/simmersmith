@@ -8,6 +8,57 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 60 (Fusion Week IA · multi-slot restored)
+
+Build 59 was over-aggressive — it collapsed Week to one meal per day
+and dropped the In-Season strip + snack affordances. User flagged
+that the day rows must keep all configured slots (breakfast / lunch
+/ dinner / etc.), the snack add affordance must come back, the
+In-Season strip belongs at the top of the Week tab, and every empty
+slot needs a quick-add. Build 60 walks the over-aggression back
+while keeping the Fusion paper styling.
+
+`Features/Week/WeekView.swift`:
+- Body: FuHero → **InSeasonStrip** (back) → Tonight TodayMealCard
+  → `daysSection` (multi-slot, restored from build 59's
+  weekRosterSection).
+- `daysSection` header: handwritten "the week" + ember underline
+  (was `Text("This Week")` in subheadline). Weekly calorie pill
+  retained but restyled (ember/risoGreen instead of orange/green
+  filled capsule).
+- `daySection`: leading 2pt ember spine on today (was full-row
+  background tint), day pillar (handwritten 3-letter + italic
+  serif numeral), AI per-day sparkle button restyled to ember
+  outline. MacroRing per-day retained. Each day separated by
+  `HandRule` (was nothing).
+- `renderSlots(...style: .compact)` keeps the existing
+  `CompactMealCard` per filled slot — already restyled in build
+  58.
+- `emptySlotButton`: paper tile with dashed-stroke rule border,
+  Caveat slot label, italic-serif "plan a meal" placeholder,
+  ember `+` on the right (was dark-card filled with system body
+  font).
+- `addSnackAffordance`: small ember Caveat "+ snack" affordance
+  back (build 59 dropped it).
+- The toolbar Menu (week picker, approve-all, jump-to-week) from
+  build 59 stays — it's the right place for chrome that doesn't
+  belong on the scroll surface.
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 59 → 60.
+
+Pending IA builds (queue continues):
+- Build 61: Forge (Recipes) — collapse 5 filter rows to one chip row.
+- Build 62: RecipeDetail — circular hero, dashed stats, my notes,
+  in-pantry HandCheck on ingredients.
+- Build 63: Cooking — ◆ AT THE FORGE top bar, riveted timer plate,
+  Caveat ember CTAs.
+- Build 64: Grocery — pantry washi callout, store-color outlined
+  Caveat tabs, dashed rules.
+- Build 65: Smith — chat surface with washi-taped draft cards.
+
+---
+
 **Date**: 2026-05-06 — Build 59 (Fusion IA · Week roster restructure)
 
 First of a multi-build IA pass after build 58 (which was skin-only)

@@ -70,12 +70,12 @@ struct WeekView: View {
             ScrollView {
                 VStack(spacing: SMSpacing.lg) {
                     // Build 59 — Fusion Week IA. The page reads like a
-                    // smith's planner: hero → tonight index card →
-                    // sparse "the week" list (one dinner per day, hand
-                    // rules between rows, ember spine on today). The
-                    // weekPicker / InSeasonStrip / approveAllBar all
-                    // moved to the toolbar so this scroll surface stays
-                    // a calm "what am I cooking" view.
+                    // smith's planner: hero → in-season produce → tonight
+                    // index card → "the week" with full per-day slots
+                    // (multi-slot, snack support, paper styling, ember
+                    // spine on today). Week picker / approve-all moved
+                    // to the toolbar Menu so the scroll surface stays
+                    // focused on the week content.
                     FuHero(
                         eyebrow: weekHeroEyebrow,
                         title: "this week",
@@ -84,9 +84,11 @@ struct WeekView: View {
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
 
+                    InSeasonStrip(pickedItem: $pickedSeasonalItem)
+
                     if let week = displayedWeek {
                         todayHero(week)
-                        weekRosterSection(week)
+                        daysSection(week)
                     } else {
                         emptyState
                     }
@@ -520,11 +522,18 @@ struct WeekView: View {
     @ViewBuilder
     private func daysSection(_ week: WeekSnapshot) -> some View {
         let days = weekDays(of: week)
-        VStack(alignment: .leading, spacing: SMSpacing.xs) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Build 59 — Fusion paper-styled "the week" header.
+            // Handwritten Caveat label with ember underline + the
+            // weekly calorie pill (kept from build 58 — useful at-a-
+            // glance signal) repositioned into the same row.
             HStack(alignment: .firstTextBaseline) {
-                Text("This Week")
-                    .font(SMFont.headline)
-                    .foregroundStyle(SMColor.textPrimary)
+                HStack(spacing: SMSpacing.sm) {
+                    Text("the week")
+                        .font(SMFont.handwritten(22, bold: true))
+                        .foregroundStyle(SMColor.ink)
+                    HandUnderline(color: SMColor.ember, width: 50)
+                }
 
                 Spacer()
 
@@ -535,19 +544,21 @@ struct WeekView: View {
                     HStack(spacing: SMSpacing.xs) {
                         Image(systemName: inRange ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                             .font(.caption)
-                        Text("Week: \(Int(weekly.calories)) / \(weeklyTarget) cal")
+                        Text("\(Int(weekly.calories)) / \(weeklyTarget) cal")
                             .font(SMFont.caption.monospacedDigit())
                     }
-                    .foregroundStyle(inRange ? SMColor.success : .orange)
-                    .padding(.horizontal, SMSpacing.sm)
-                    .padding(.vertical, SMSpacing.xs)
-                    .background((inRange ? SMColor.success : Color.orange).opacity(0.12), in: Capsule())
+                    .foregroundStyle(inRange ? SMColor.risoGreen : SMColor.ember)
                 }
             }
             .padding(.top, SMSpacing.md)
+            .padding(.bottom, SMSpacing.sm)
 
-            ForEach(days, id: \.date) { day in
+            ForEach(Array(days.enumerated()), id: \.element.date) { idx, day in
                 daySection(week: week, date: day.date, dayName: day.dayName)
+                if idx < days.count - 1 {
+                    HandRule(color: SMColor.rule, height: 5, lineWidth: 0.8)
+                        .padding(.vertical, 4)
+                }
             }
         }
     }
@@ -558,76 +569,93 @@ struct WeekView: View {
         let isToday = DayKey.isToday(date)
         let totals = dayMacros(for: date, meals: meals, week: week)
         let showMacros = !totals.isEmpty && (appState.profile?.dietaryGoal != nil || totals.calories > 0)
+        let dayNum = Calendar.current.component(.day, from: date)
 
-        VStack(alignment: .leading, spacing: SMSpacing.sm) {
-            HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
-                Text(dayName)
-                    .font(SMFont.subheadline)
-                    .foregroundStyle(isToday ? SMColor.textPrimary : SMColor.primary)
+        // Build 59 — Fusion paper-styled day section. Today gets a 2pt
+        // ember spine on the leading edge; day name handwritten + day
+        // numeral italic-serif. AI per-day button + MacroRing remain
+        // (useful affordances Savanne uses), restyled to ember.
+        HStack(alignment: .top, spacing: SMSpacing.md) {
+            // Ember spine on today
+            Rectangle()
+                .fill(isToday ? SMColor.ember : Color.clear)
+                .frame(width: 2)
+                .padding(.vertical, 4)
 
-                Text(DayKey.shortMonthDay(date))
-                    .font(SMFont.caption)
-                    .foregroundStyle(SMColor.textTertiary)
+            // Day pillar — handwritten name + italic-serif numeral
+            VStack(spacing: 0) {
+                Text(String(dayName.lowercased().prefix(3)))
+                    .font(SMFont.handwritten(13))
+                    .foregroundStyle(isToday ? SMColor.ember : SMColor.inkSoft)
+                Text("\(dayNum)")
+                    .font(SMFont.serifDisplay(22))
+                    .foregroundStyle(isToday ? SMColor.ember : SMColor.ink)
+            }
+            .frame(width: 36)
+            .padding(.top, 2)
 
-                if isToday {
-                    Text("Today")
-                        .font(SMFont.caption)
-                        .foregroundStyle(SMColor.primary)
-                        .padding(.horizontal, SMSpacing.xs)
-                        .padding(.vertical, 2)
-                        .background(SMColor.primary.opacity(0.15))
-                        .clipShape(Capsule())
-                }
+            VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: SMSpacing.sm) {
+                    if isToday {
+                        Text("today")
+                            .font(SMFont.handwritten(14, bold: true))
+                            .foregroundStyle(SMColor.ember)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                Button {
-                    publishFocus(date: date, dayName: dayName)
-                    aiCoordinator.present()
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.caption)
-                        .foregroundStyle(SMColor.aiPurple)
-                        .padding(6)
-                        .background(SMColor.aiPurple.opacity(0.12), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Ask AI about \(dayName)")
-
-                if showMacros {
                     Button {
-                        nutritionDay = (dayName: dayName, date: date, meals: meals, totals: totals)
+                        publishFocus(date: date, dayName: dayName)
+                        aiCoordinator.present()
                     } label: {
-                        MacroRing(macros: totals, goal: appState.profile?.dietaryGoal)
+                        Image(systemName: "sparkles")
+                            .font(.caption)
+                            .foregroundStyle(SMColor.ember)
+                            .padding(6)
+                            .overlay(Circle().stroke(SMColor.ember.opacity(0.4), lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Ask AI about \(dayName)")
+
+                    if showMacros {
+                        Button {
+                            nutritionDay = (dayName: dayName, date: date, meals: meals, totals: totals)
+                        } label: {
+                            MacroRing(macros: totals, goal: appState.profile?.dietaryGoal)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+
+                renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
+
+                addSnackAffordance(for: date, dayName: dayName, meals: meals)
+
+                rebalanceBanner(for: date, dayName: dayName, totals: totals)
             }
-            .padding(.top, SMSpacing.xs)
-
-            renderSlots(for: date, dayName: dayName, meals: meals, style: .compact)
-
-            addSnackAffordance(for: date, dayName: dayName, meals: meals)
-
-            rebalanceBanner(for: date, dayName: dayName, totals: totals)
         }
+        .padding(.vertical, SMSpacing.sm)
     }
 
     @ViewBuilder
     private func addSnackAffordance(for date: Date, dayName: String, meals: [WeekMeal]) -> some View {
+        // Build 59 — Fusion snack add. Caveat micro-label "+ snack"
+        // in ember; very low visual weight so it doesn't compete
+        // with the main meal slots.
         let hasSnack = meals.contains { $0.slot.lowercased() == "snack" || $0.slot.lowercased() == "snacks" }
         if !hasSnack {
             Button {
                 quickAddSlot = (dayName: dayName, mealDate: date, slot: "snack")
             } label: {
-                HStack(spacing: SMSpacing.xs) {
-                    Image(systemName: "plus.circle")
-                    Text("Add snack")
+                HStack(spacing: 3) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("snack")
+                        .font(SMFont.handwritten(13))
                 }
-                .font(SMFont.caption)
-                .foregroundStyle(SMColor.textTertiary)
+                .foregroundStyle(SMColor.ember)
                 .padding(.horizontal, SMSpacing.sm)
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Add snack to \(dayName)")
@@ -762,34 +790,35 @@ struct WeekView: View {
     // MARK: - Empty Slot Button
 
     private func emptySlotButton(dayName: String, mealDate: Date, slot: String) -> some View {
+        // Build 59 — Fusion empty slot. Paper tile with dashed rule
+        // border, Caveat slot label, italic-serif "plan a meal"
+        // placeholder, ember plus on the right.
         Button {
             quickAddSlot = (dayName: dayName, mealDate: mealDate, slot: slot)
         } label: {
             HStack(spacing: SMSpacing.md) {
-                Text(slot.capitalized)
-                    .font(SMFont.label)
-                    .foregroundStyle(SMColor.textTertiary)
+                Text(slot.lowercased())
+                    .font(SMFont.handwritten(14))
+                    .foregroundStyle(SMColor.inkSoft)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: 80, alignment: .leading)
+                    .frame(width: 70, alignment: .leading)
 
-                HStack(spacing: SMSpacing.xs) {
-                    Image(systemName: "plus.circle")
-                        .font(.caption)
-                    Text("Add \(slot)")
-                }
-                .font(SMFont.caption)
-                .foregroundStyle(SMColor.textTertiary)
+                Text("plan a meal")
+                    .font(SMFont.bodySerifItalic(14))
+                    .foregroundStyle(SMColor.inkFaint)
 
                 Spacer()
+
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(SMColor.ember)
             }
             .padding(.horizontal, SMSpacing.md)
             .padding(.vertical, SMSpacing.sm)
-            .background(SMColor.surfaceCard.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: SMRadius.sm, style: .continuous)
-                    .strokeBorder(SMColor.divider, lineWidth: 1)
+                Rectangle()
+                    .stroke(SMColor.rule, style: StrokeStyle(lineWidth: 0.6, dash: [3, 2]))
             )
         }
         .buttonStyle(.plain)
