@@ -8,6 +8,69 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 65 (Cooking IA + Forge list fix + RecipeDetail calorie move)
+
+User signed off on RecipeDetail visuals from build 64. Asked for
+three things in build 65:
+1. Move calorie / nutrition out of the RecipeDetail hero metadata
+   strip (it was duplicating the dashed stat row's purpose).
+2. Bring the Cooking screen into Fusion.
+3. Fix the Forge list rows — they were still rendering with solid
+   `Divider()` between rows and a system-style section header,
+   even though the cards themselves were restyled in build 58.
+
+`Features/Recipes/RecipeDetailView.swift`:
+- `metadataPills` no longer includes the calorie chip, servings,
+  prep, or cook (already in the stat row hero). Strip is now just
+  the longer-tail metadata: usage summary, override flags,
+  difficulty, kid-friendly.
+- `nutritionSection` invocation moved out of the top region (was
+  right after the scale picker) and down to after the
+  ingredients/steps content. Full breakdown is still inline (not
+  hidden behind a sheet) but no longer competes with title + stats
+  + tags for top-of-screen attention.
+
+`Features/Recipes/RecipesView.swift`:
+- `recipeListStack` and the editorial `Recently Added` list now
+  use `HandRule` between rows (was solid `Divider()` with system
+  divider tint). List page reads as paper notebook now.
+- `sectionHeader` redesigned: lowercase Caveat handwritten 20pt
+  bold + ember HandUnderline, matches the Week tab's "the week"
+  pattern. Editorial sections (Tonight's Dinner / This Week /
+  Favorites / Recently Added / All Recipes) read as chapters in
+  the same notebook.
+- Selection-mode checkmark icons retinted ember/inkFaint (was
+  primary/textTertiary).
+
+`Features/Cooking/CookingModeView.swift`:
+- `topBar` rewritten:
+  - Three-column header: ✕ close left, `◆ AT THE FORGE` mono
+    ember center (2.4pt tracking), `NN/NN` mono step counter right.
+  - Voice / mute toggles move to a small row underneath, ember
+    when active, ash when off.
+  - Progress hairline at the bottom of the bar is now a 1.5pt
+    ember rule with a soft ember shadow — replaces the system
+    `ProgressView`. Reads as the hot-iron seam from the mockup.
+- `bottomBar` rewritten:
+  - "Ask the smith" pill in the middle (Caveat handwritten with
+    ember sparkles icon, ember capsule outline, low visual weight).
+  - Bottom row: `← back` / `step N` Caveat handwritten on the left
+    (ember-soft when disabled), big slightly-rotated ember CTA on
+    the right (`next →` / `done →` in Caveat 20pt bold on ember
+    background with ember shadow glow).
+- Step area, step number, ember-glow shadow, italic-serif
+  instruction, hammered-iron grain — all unchanged from build 58.
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 64 → 65.
+
+Pending IA builds (queue continues):
+- Build 66: Grocery — pantry washi callout, store-color outlined
+  Caveat tabs, dashed rules.
+- Build 67: Smith — chat surface with washi-taped draft cards.
+
+---
+
 **Date**: 2026-05-06 — Build 64 (Fusion RecipeDetail IA)
 
 User signed off on Forge filter collapse and asked to keep moving.

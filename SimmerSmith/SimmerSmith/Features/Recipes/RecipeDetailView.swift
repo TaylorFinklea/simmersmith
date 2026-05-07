@@ -421,11 +421,6 @@ struct RecipeDetailView: View {
             // Scale picker
             scaleSection
 
-            // Calories (full nutrition section)
-            if let nutritionSummary = recipe.nutritionSummary {
-                nutritionSection(recipe, nutritionSummary: nutritionSummary)
-            }
-
             // Variations
             if !variantRecipes(for: recipe).isEmpty {
                 variationsSection(recipe)
@@ -458,6 +453,15 @@ struct RecipeDetailView: View {
                         }
                     }
                 }
+            }
+
+            // Build 65 — nutrition moved out of the hero strip and
+            // down here, after the ingredients/steps content. The
+            // full breakdown is still inline (not behind a sheet)
+            // but it stops competing for attention with title +
+            // stat row + tags at the top.
+            if let nutritionSummary = recipe.nutritionSummary {
+                nutritionSection(recipe, nutritionSummary: nutritionSummary)
             }
 
             // Pairings (M12)
@@ -493,20 +497,13 @@ struct RecipeDetailView: View {
     // MARK: - Metadata Pills
 
     private func metadataPills(_ recipe: RecipeSummary) -> some View {
+        // Build 65 — calorie pill removed from this top metadata
+        // strip. The full nutrition section moved to below the
+        // ingredients/steps so the hero stays focused on time +
+        // plates + ingredients. Servings + prep + cook are already
+        // in the dashed stat row above; this strip is now for the
+        // softer-tail metadata only.
         WrappingHStack(spacing: SMSpacing.sm) {
-            if let servings = recipe.servings {
-                metadataPill(icon: "person.2", text: "\(servings.formatted()) servings")
-            }
-            if let prepMinutes = recipe.prepMinutes {
-                metadataPill(icon: "timer", text: "\(prepMinutes)m prep")
-            }
-            if let cookMinutes = recipe.cookMinutes {
-                metadataPill(icon: "flame", text: "\(cookMinutes)m cook")
-            }
-            if let calorieChipText = calorieChipText(for: recipe) {
-                metadataPill(icon: "flame.circle", text: calorieChipText)
-            }
-
             metadataPill(icon: "clock.arrow.circlepath", text: recipe.usageSummary)
 
             if !recipe.overrideFields.isEmpty {

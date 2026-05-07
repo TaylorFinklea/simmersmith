@@ -91,51 +91,79 @@ struct CookingModeView: View {
 
     // MARK: - Top bar
 
+    /// Build 65 — Fusion Cooking top bar. Three columns:
+    ///   ✕ close (left) | ◆ AT THE FORGE (center) | step counter (right)
+    /// Mic + speaker controls move below the eyebrow row so the very
+    /// top stays as quiet as the mockup. Progress hairline drawn
+    /// underneath as a thin rule.
     private func topBar(recipe: RecipeSummary, total: Int) -> some View {
-        HStack(spacing: SMSpacing.md) {
-            VStack(alignment: .leading, spacing: SMSpacing.xs) {
-                Text(recipe.name)
-                    .font(SMFont.label)
-                    .foregroundStyle(SMColor.textTertiary)
-                    .lineLimit(1)
-                Text("Step \(stepIndex + 1) of \(total)")
-                    .font(SMFont.subheadline)
-                    .foregroundStyle(SMColor.textPrimary)
-            }
-            Spacer()
-            Button {
-                Task { await toggleVoiceCommands() }
-            } label: {
-                Image(systemName: voiceService.isListening ? "mic.fill" : "mic.slash.fill")
-                    .font(.title2)
-                    .foregroundStyle(voiceService.isListening ? SMColor.success : SMColor.textTertiary)
-            }
-            .accessibilityLabel(voiceService.isListening ? "Stop voice commands" : "Start voice commands")
+        VStack(spacing: SMSpacing.xs) {
+            HStack(alignment: .center) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xEAE0CB))
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel("Exit cooking mode")
 
-            Button {
-                spokenService.isMuted.toggle()
-            } label: {
-                Image(systemName: spokenService.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.title2)
-                    .foregroundStyle(spokenService.isMuted ? SMColor.textTertiary : SMColor.primary)
-            }
-            .accessibilityLabel(spokenService.isMuted ? "Unmute step readout" : "Mute step readout")
+                Spacer()
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(SMColor.textSecondary)
+                Text("◆ AT THE FORGE")
+                    .font(SMFont.monoLabel(10))
+                    .tracking(2.4)
+                    .foregroundStyle(SMColor.ember)
+
+                Spacer()
+
+                Text(String(format: "%02d/%02d", stepIndex + 1, total))
+                    .font(SMFont.monoLabel(11))
+                    .tracking(1.2)
+                    .foregroundStyle(Color(hex: 0x8F8576))
             }
-            .accessibilityLabel("Exit cooking mode")
+
+            // Quiet row of voice + mute toggles. Out of the way but
+            // still one-tap reachable for hands-on cooking.
+            HStack(spacing: SMSpacing.lg) {
+                Spacer()
+                Button {
+                    Task { await toggleVoiceCommands() }
+                } label: {
+                    Image(systemName: voiceService.isListening ? "mic.fill" : "mic.slash.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(voiceService.isListening ? SMColor.ember : Color(hex: 0x8F8576))
+                }
+                .accessibilityLabel(voiceService.isListening ? "Stop voice commands" : "Start voice commands")
+
+                Button {
+                    spokenService.isMuted.toggle()
+                } label: {
+                    Image(systemName: spokenService.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(spokenService.isMuted ? Color(hex: 0x8F8576) : SMColor.ember)
+                }
+                .accessibilityLabel(spokenService.isMuted ? "Unmute step readout" : "Mute step readout")
+            }
         }
+        .padding(.bottom, SMSpacing.md)
         .overlay(alignment: .bottom) {
-            ProgressView(value: progressFraction(total: total))
-                .tint(SMColor.primary)
-                .padding(.top, SMSpacing.lg)
+            // Ember progress seam — replaces the system ProgressView.
+            // Reads as the hot-iron hairline from the mockup.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color(hex: 0x33302A))
+                        .frame(height: 1)
+                    Rectangle()
+                        .fill(SMColor.ember)
+                        .frame(width: geo.size.width * progressFraction(total: total), height: 1.5)
+                        .shadow(color: SMColor.ember.opacity(0.7), radius: 4)
+                }
+            }
+            .frame(height: 1.5)
         }
-        .padding(.bottom, SMSpacing.lg)
     }
 
     private func progressFraction(total: Int) -> Double {
@@ -232,38 +260,52 @@ struct CookingModeView: View {
 
     // MARK: - Bottom bar
 
+    /// Build 65 — Fusion Cooking bottom bar. Caveat ember `← prev`
+    /// step indicator on the left, slightly-rotated ember `plate up →`
+    /// CTA on the right (becomes "done →" on the last step). "Ask
+    /// the smith" call moves into a small ember chip above the row,
+    /// quiet enough to not compete with the next-step CTA.
     private func bottomBar(recipe: RecipeSummary, steps: [RecipeStep]) -> some View {
         let isLastStep = stepIndex >= steps.count - 1
         let step = steps[min(stepIndex, steps.count - 1)]
+        let prevStepName = stepIndex > 0 ? "step \(stepIndex)" : nil
+        let nextLabel = isLastStep ? "done →" : "next →"
 
         return VStack(spacing: SMSpacing.md) {
             Button {
                 Task { await launchAssistant(recipe: recipe, step: step) }
             } label: {
-                Label("Ask assistant", systemImage: "bubble.left.and.text.bubble.right")
-                    .font(SMFont.subheadline)
-                    .foregroundStyle(SMColor.aiPurple)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, SMSpacing.md)
-                    .background(SMColor.aiPurple.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11))
+                    Text("ask the smith")
+                        .font(SMFont.handwritten(15))
+                }
+                .foregroundStyle(SMColor.ember)
+                .padding(.horizontal, SMSpacing.md)
+                .padding(.vertical, 6)
+                .overlay(
+                    Capsule().stroke(SMColor.ember.opacity(0.5), lineWidth: 0.8)
+                )
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: SMSpacing.md) {
+            HStack(alignment: .center) {
                 Button {
                     retreat()
                 } label: {
-                    Label("Previous", systemImage: "chevron.left")
-                        .font(SMFont.subheadline)
-                        .foregroundStyle(stepIndex > 0 ? SMColor.textPrimary : SMColor.textTertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, SMSpacing.lg)
-                        .background(SMColor.surfaceCard)
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.left")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(prevStepName ?? "back")
+                            .font(SMFont.handwritten(15))
+                    }
+                    .foregroundStyle(stepIndex > 0 ? Color(hex: 0x8F8576) : Color(hex: 0x6B6356))
                 }
                 .buttonStyle(.plain)
                 .disabled(stepIndex == 0)
+
+                Spacer()
 
                 Button {
                     if isLastStep {
@@ -273,15 +315,14 @@ struct CookingModeView: View {
                         advance(total: steps.count)
                     }
                 } label: {
-                    Label(isLastStep ? "Done" : "Next",
-                          systemImage: isLastStep ? "checkmark" : "chevron.right")
-                        .labelStyle(.titleAndIcon)
-                        .font(SMFont.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, SMSpacing.lg)
-                        .background(SMColor.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    Text(nextLabel)
+                        .font(SMFont.handwritten(20, bold: true))
+                        .foregroundStyle(Color(hex: 0x1A0E0A))
+                        .padding(.horizontal, SMSpacing.lg)
+                        .padding(.vertical, 12)
+                        .background(SMColor.ember)
+                        .shadow(color: SMColor.ember.opacity(0.6), radius: 14)
+                        .rotationEffect(.degrees(-1))
                 }
                 .buttonStyle(.plain)
             }

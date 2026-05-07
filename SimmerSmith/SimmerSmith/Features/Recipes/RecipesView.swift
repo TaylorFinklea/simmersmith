@@ -610,8 +610,7 @@ struct RecipesView: View {
                             .buttonStyle(.plain)
 
                             if index < recentlyAddedRecipes.count - 1 {
-                                Divider()
-                                    .foregroundStyle(SMColor.divider)
+                                HandRule(color: SMColor.rule, height: 4, lineWidth: 0.7)
                             }
                         }
                     }
@@ -647,6 +646,9 @@ struct RecipesView: View {
     ]
 
     private func recipeListStack(recipes: [RecipeSummary]) -> some View {
+        // Build 65 — Fusion list: HandRule between rows (no solid
+        // Divider) so the list reads as a notebook page rather than
+        // a system table.
         LazyVStack(spacing: 0) {
             ForEach(Array(recipes.enumerated()), id: \.element.id) { index, recipe in
                 if isSelecting {
@@ -659,8 +661,8 @@ struct RecipesView: View {
                                   : "circle")
                                 .font(.title3)
                                 .foregroundStyle(selectedRecipeIDs.contains(recipe.recipeId)
-                                                 ? SMColor.primary
-                                                 : SMColor.textTertiary)
+                                                 ? SMColor.ember
+                                                 : SMColor.inkFaint)
                             RecipeListRow(recipe: recipe, gradientIndex: index)
                         }
                     }
@@ -675,8 +677,7 @@ struct RecipesView: View {
                 }
 
                 if index < recipes.count - 1 {
-                    Divider()
-                        .foregroundStyle(SMColor.divider)
+                    HandRule(color: SMColor.rule, height: 4, lineWidth: 0.7)
                 }
             }
         }
@@ -721,10 +722,15 @@ struct RecipesView: View {
     // MARK: - Section Header
 
     private func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(SMFont.headline)
-                .foregroundStyle(SMColor.textPrimary)
+        // Build 65 — Fusion notebook section header. Caveat
+        // handwritten + ember underline matches the Week tab's
+        // "the week" pattern so the editorial sections read as
+        // chapters in the same notebook.
+        HStack(spacing: SMSpacing.sm) {
+            Text(title.lowercased())
+                .font(SMFont.handwritten(20, bold: true))
+                .foregroundStyle(SMColor.ink)
+            HandUnderline(color: SMColor.ember, width: 36)
             Spacer()
         }
         .padding(.horizontal, SMSpacing.lg)
