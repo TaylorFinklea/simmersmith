@@ -8,6 +8,53 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 62 (Fusion meal action sheet)
+
+User flagged the meal-tap menu as the next surface to bring into
+the Fusion aesthetic. The native `.confirmationDialog` was working
+fine functionally but read as iOS-system rather than paper-on-paper.
+
+New `Features/Week/MealActionSheet.swift` (~210L):
+- `.sheet(item: $selectedMealForAction)` replaces the
+  `.confirmationDialog`. Native sheet chrome (drag indicator,
+  swipe-down-to-dismiss, presentation detents) preserved per the
+  user's instruction to keep system UI affordances.
+- Header: `FuIndexCard` with washi-tape strip, Caveat eyebrow
+  (`<day> · <slot>`), italic Instrument Serif meal name (24pt),
+  optional "✓ done" Caveat ember chip when approved.
+- Action rows in 5 groups separated by `HandRule`:
+  1. Recipe (when `meal.recipeId != nil`): view recipe (primary
+     ember), rate this meal.
+  2. Edit (always): edit name, edit notes, manage sides.
+  3. Move / Link: move to…; link to recipe + create recipe with
+     the smith (primary ember) when no recipe is linked.
+  4. Status: approve/unapprove, ate out tonight, save leftovers
+     to freezer.
+  5. Destructive: remove (red).
+- Each row = SF Symbol icon (24pt column) + Spectral 16pt label.
+  `ActionRole` enum drives icon/text tint: `normal` (inkSoft +
+  ink), `primary` (ember + ink + ember `→` arrow on the right),
+  `destructive` (red on red).
+- Sheet owns no model state; every action is a closure callback
+  back to `WeekView` so the existing per-action machinery (rename
+  text + state, AI create, eating-out, etc.) keeps working
+  unchanged.
+- `WeekView` body: confirmationDialog block (~58L) replaced with
+  a single `.sheet(item:)` that passes 12 callbacks into
+  `MealActionSheet`. Net read: cleaner, more direct.
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 61 → 62.
+
+Pending IA builds (queue continues, all renumbered):
+- Build 63: Forge (Recipes) — collapse 5 filter rows to one chip.
+- Build 64: RecipeDetail.
+- Build 65: Cooking.
+- Build 66: Grocery.
+- Build 67: Smith.
+
+---
+
 **Date**: 2026-05-06 — Build 61 (Week · bigger day pillar + past-day collapse)
 
 User feedback on build 60: bump up the day pillar visual weight,

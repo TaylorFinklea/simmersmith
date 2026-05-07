@@ -177,64 +177,51 @@ struct WeekView: View {
                 .accessibilityLabel("Settings")
             }
         }
-        .confirmationDialog(
-            selectedMealForAction?.recipeName ?? "Meal",
-            isPresented: Binding(
-                get: { selectedMealForAction != nil },
-                set: { if !$0 { selectedMealForAction = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let meal = selectedMealForAction {
-                if meal.recipeId != nil {
-                    Button("View Recipe") {
-                        navigatingToRecipeID = meal.recipeId
-                    }
-                    Button("Rate This Meal") {
-                        feedbackMeal = meal
-                    }
-                }
-                Button("Edit Name") {
+        // Build 62 — Fusion-styled meal action sheet. Replaces the
+        // native confirmationDialog so the menu reads in the same
+        // paper aesthetic as the rest of the redesign. Native sheet
+        // chrome (drag indicator, swipe-down dismiss) preserved.
+        .sheet(item: $selectedMealForAction) { meal in
+            MealActionSheet(
+                meal: meal,
+                onViewRecipe: {
+                    navigatingToRecipeID = meal.recipeId
+                },
+                onRate: {
+                    feedbackMeal = meal
+                },
+                onEditName: {
                     renameText = meal.recipeName
                     renamingMeal = meal
-                }
-                Button("Edit Notes") {
+                },
+                onEditNotes: {
                     editingMeal = meal
-                }
-                Button("Manage Sides") {
+                },
+                onManageSides: {
                     sidesMeal = meal
-                }
-                Button("Move to...") {
+                },
+                onMove: {
                     movingMeal = meal
-                }
-                if meal.recipeId == nil {
-                    Button("Link to Recipe") {
-                        linkRecipeMeal = meal
-                    }
-                    Button("Create Recipe with AI") {
-                        aiCreateMeal = meal
-                    }
-                }
-                if meal.approved {
-                    Button("Unapprove") {
-                        Task { await toggleMealApproval(meal, approved: false) }
-                    }
-                } else {
-                    Button("Approve") {
-                        Task { await toggleMealApproval(meal, approved: true) }
-                    }
-                }
-                Button("Mark as Eating Out") {
+                },
+                onLinkRecipe: {
+                    linkRecipeMeal = meal
+                },
+                onCreateWithAI: {
+                    aiCreateMeal = meal
+                },
+                onToggleApproval: {
+                    Task { await toggleMealApproval(meal, approved: !meal.approved) }
+                },
+                onMarkEatingOut: {
                     markEatingOut(meal)
-                }
-                Button("Save leftovers to freezer") {
+                },
+                onSaveLeftovers: {
                     leftoverSourceMeal = meal
-                }
-                Button("Remove", role: .destructive) {
+                },
+                onRemove: {
                     removeMeal(meal)
                 }
-                Button("Cancel", role: .cancel) {}
-            }
+            )
         }
         .navigationDestination(item: $navigatingToRecipeID) { recipeID in
             RecipeDetailView(recipeID: recipeID)

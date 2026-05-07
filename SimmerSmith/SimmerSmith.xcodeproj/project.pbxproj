@@ -18,6 +18,7 @@
 		0E81A9AC529997B1C13A07D9 /* LocalNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35EEF81A482382B24772C218 /* LocalNotificationService.swift */; };
 		0FF942A918598DDFAE82210E /* RecipeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */; };
 		101DDAF6BD607A2286C9E460 /* DayNutritionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */; };
+		13BA53C1033643416A1DA664 /* MealActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428FF67BEF93DC70F402D516 /* MealActionSheet.swift */; };
 		1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */; };
 		277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA42101A03628D82ADE249C /* SimmerSmithKit */; };
 		27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */; };
@@ -196,6 +197,7 @@
 		36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePickerSheet.swift; sourceTree = "<group>"; };
 		3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Push.swift"; sourceTree = "<group>"; };
 		41C73D583ED87BFE61E47C9D /* WeekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekView.swift; sourceTree = "<group>"; };
+		428FF67BEF93DC70F402D516 /* MealActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealActionSheet.swift; sourceTree = "<group>"; };
 		42FB8215B29EE1469EE3AA1E /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		49A10F1ED3FB047CF6466481 /* IngredientsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsView.swift; sourceTree = "<group>"; };
 		4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Aliases.swift"; sourceTree = "<group>"; };
@@ -568,6 +570,7 @@
 				62F1F6BBBA32D70674A08939 /* AIRecipeCreateSheet.swift */,
 				90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */,
 				0A70D406D118627C375D6B64 /* InSeasonStrip.swift */,
+				428FF67BEF93DC70F402D516 /* MealActionSheet.swift */,
 				A6D99BDCE7DF25F031B23486 /* MealMoveSheet.swift */,
 				F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */,
 				75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */,
@@ -898,6 +901,7 @@
 				0E81A9AC529997B1C13A07D9 /* LocalNotificationService.swift in Sources */,
 				B11F36C1CC7CE592858BA603 /* MacroRing.swift in Sources */,
 				5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */,
+				13BA53C1033643416A1DA664 /* MealActionSheet.swift in Sources */,
 				9726A5E160270D61C79C1AFF /* MealMoveSheet.swift in Sources */,
 				EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */,
 				FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */,
@@ -994,7 +998,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 61;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1110,7 +1114,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 61;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
