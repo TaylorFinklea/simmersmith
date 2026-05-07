@@ -69,6 +69,13 @@ struct WeekView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
                 VStack(spacing: SMSpacing.lg) {
+                    // Build 59 — Fusion Week IA. The page reads like a
+                    // smith's planner: hero → tonight index card →
+                    // sparse "the week" list (one dinner per day, hand
+                    // rules between rows, ember spine on today). The
+                    // weekPicker / InSeasonStrip / approveAllBar all
+                    // moved to the toolbar so this scroll surface stays
+                    // a calm "what am I cooking" view.
                     FuHero(
                         eyebrow: weekHeroEyebrow,
                         title: "this week",
@@ -77,15 +84,9 @@ struct WeekView: View {
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
 
-                    weekPicker
-
-                    InSeasonStrip(pickedItem: $pickedSeasonalItem)
-
                     if let week = displayedWeek {
-                        approveAllBar(week)
                         todayHero(week)
-                        daysSection(week)
-                        groceryBar(week)
+                        weekRosterSection(week)
                     } else {
                         emptyState
                     }
@@ -147,25 +148,26 @@ struct WeekView: View {
         .onChange(of: displayedWeekStart) { _, _ in publishContext() }
         .navigationTitle("")
         .toolbar {
+            // Build 59 — Fusion Week IA. The toolbar absorbs the
+            // controls that used to take up scroll real estate
+            // (week picker, approve-all, in-season). Keeps the
+            // scroll surface focused on "what am I cooking".
             ToolbarItem(placement: .topBarLeading) {
-                Text("SimmerSmith")
-                    .font(SMFont.headline)
-                    .foregroundStyle(SMColor.primary)
+                weekToolbarMenu
             }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: SMSpacing.lg) {
-                    Button { showingActivity = true } label: {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    .accessibilityLabel("View week activity")
-
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape")
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    .accessibilityLabel("Settings")
+                Button { showingActivity = true } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .foregroundStyle(SMColor.textSecondary)
                 }
+                .accessibilityLabel("View week activity")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+                .accessibilityLabel("Settings")
             }
         }
         .confirmationDialog(
@@ -1352,6 +1354,246 @@ struct WeekView: View {
 
     private func weekPillLabel(for date: Date) -> String {
         Self.weekDateFormatter.string(from: date)
+    }
+
+    // MARK: - Build 59: Fusion Week IA helpers
+
+    /// Build 59: toolbar menu that absorbs the week picker, jump-to-
+    /// week list, "snap to current week", approve-all, and in-season
+    /// strip — all controls that used to live inline in the scroll.
+    /// Replaces `weekPicker` / `approveAllBar` / `InSeasonStrip` as
+    /// scroll-surface elements.
+    @ViewBuilder
+    private var weekToolbarMenu: some View {
+        Menu {
+            Section {
+                Button {
+                    navigateToPreviousWeek()
+                } label: {
+                    Label("Previous week", systemImage: "chevron.left")
+                }
+                .disabled(navigationAnchor == nil)
+
+                Button {
+                    navigateToNextWeek()
+                } label: {
+                    Label("Next week", systemImage: "chevron.right")
+                }
+                .disabled(navigationAnchor == nil)
+
+                if !isViewingCurrentWeek {
+                    Button {
+                        snapToCurrentWeek()
+                    } label: {
+                        Label("Jump to this week", systemImage: "arrow.uturn.backward")
+                    }
+                }
+            }
+
+            if let week = displayedWeek {
+                Section {
+                    let needsApproval = week.meals.contains { !$0.approved }
+                    Button {
+                        Task { await approveAllMeals(week) }
+                    } label: {
+                        Label(needsApproval ? "Approve all meals" : "All meals approved", systemImage: "checkmark.seal")
+                    }
+                    .disabled(!needsApproval || isApprovingAll)
+                }
+            }
+
+            if !availableWeeks.isEmpty {
+                Section("Jump to week") {
+                    ForEach(availableWeeks.prefix(8)) { week in
+                        Button {
+                            selectWeek(week)
+                        } label: {
+                            Label(weekPillLabel(for: week.weekStart), systemImage: isWeekSelected(week) ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                FuWordmark(size: 16)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(SMColor.inkSoft)
+            }
+        }
+    }
+
+    /// Build 59: sparse "the week" roster — one row per day showing
+    /// the dinner (or first non-snack meal) with a Caveat sub-line
+    /// of sides/notes and either ✓ done or cook minutes on the right.
+    /// Today gets an ember spine on the left; rows separated by hand
+    /// rules. Tap a row to open the existing meal action sheet for
+    /// that meal (or to quick-add a meal if the slot is empty).
+    @ViewBuilder
+    private func weekRosterSection(_ week: WeekSnapshot) -> some View {
+        let days = weekDays(of: week)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: SMSpacing.sm) {
+                Text("the week")
+                    .font(SMFont.handwritten(22, bold: true))
+                    .foregroundStyle(SMColor.ink)
+                HandUnderline(color: SMColor.ember, width: 50)
+            }
+            .padding(.top, SMSpacing.lg)
+            .padding(.bottom, SMSpacing.sm)
+
+            ForEach(Array(days.enumerated()), id: \.element.date) { idx, day in
+                weekRosterRow(week: week, date: day.date, dayName: day.dayName)
+                if idx < days.count - 1 {
+                    HandRule(color: SMColor.rule, height: 5, lineWidth: 0.8)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func weekRosterRow(week: WeekSnapshot, date: Date, dayName: String) -> some View {
+        let meals = mealsForDate(date, in: week)
+        let primary = featuredMeal(in: meals)
+        let isToday = DayKey.isToday(date)
+        let dayNum = Calendar.current.component(.day, from: date)
+
+        Button {
+            if let primary {
+                selectedMealForAction = primary
+            } else {
+                quickAddSlot = (dayName: dayName, mealDate: date, slot: defaultSlotName())
+            }
+        } label: {
+            HStack(alignment: .center, spacing: SMSpacing.md) {
+                // Ember spine on today
+                Rectangle()
+                    .fill(isToday ? SMColor.ember : Color.clear)
+                    .frame(width: 2)
+                    .padding(.vertical, 2)
+
+                // Day pillar — handwritten name + italic-serif numeral
+                VStack(spacing: 0) {
+                    Text(dayName.lowercased().prefix(3).description)
+                        .font(SMFont.handwritten(13))
+                        .foregroundStyle(isToday ? SMColor.ember : SMColor.inkSoft)
+                    Text("\(dayNum)")
+                        .font(SMFont.serifDisplay(22))
+                        .foregroundStyle(isToday ? SMColor.ember : SMColor.ink)
+                }
+                .frame(width: 36)
+
+                // Meal text
+                VStack(alignment: .leading, spacing: 2) {
+                    if let primary {
+                        Text(primary.recipeName)
+                            .font(SMFont.serifTitle(17))
+                            .foregroundStyle(SMColor.ink)
+                            .lineLimit(1)
+                            .multilineTextAlignment(.leading)
+                        let sub = rosterSubline(for: primary)
+                        if !sub.isEmpty {
+                            Text(sub)
+                                .font(SMFont.handwritten(13))
+                                .foregroundStyle(SMColor.inkSoft)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text("plan a meal")
+                            .font(SMFont.bodySerifItalic(15))
+                            .foregroundStyle(SMColor.inkFaint)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Trailing — done or cook minutes
+                Group {
+                    if let primary, primary.approved {
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("done")
+                                .font(SMFont.handwritten(13))
+                        }
+                        .foregroundStyle(SMColor.ember)
+                    } else if let primary, let mins = rosterCookMinutes(for: primary), mins > 0 {
+                        Text("\(mins)m")
+                            .font(SMFont.handwritten(14))
+                            .foregroundStyle(SMColor.inkSoft)
+                    } else if primary == nil {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(SMColor.ember)
+                    } else {
+                        Color.clear.frame(width: 0)
+                    }
+                }
+            }
+            .padding(.vertical, SMSpacing.sm)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Pick the meal to feature on a day's roster row. Prefer dinner;
+    /// fall back to the first non-snack slot; fall back to anything.
+    private func featuredMeal(in meals: [WeekMeal]) -> WeekMeal? {
+        if let dinner = meals.first(where: { $0.slot.lowercased() == "dinner" }) {
+            return dinner
+        }
+        if let nonSnack = meals.first(where: { $0.slot.lowercased() != "snack" && $0.slot.lowercased() != "snacks" }) {
+            return nonSnack
+        }
+        return meals.first
+    }
+
+    /// Build the Caveat sub-line for a roster row. Prefers sides
+    /// (joined by " · "), falls back to the first meaningful chunk
+    /// of notes, falls back to empty.
+    private func rosterSubline(for meal: WeekMeal) -> String {
+        if !meal.sides.isEmpty {
+            return meal.sides.map { $0.name.lowercased() }.joined(separator: " · ")
+        }
+        if !meal.notes.isEmpty {
+            let trimmed = meal.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let firstLine = trimmed.split(separator: "\n").first {
+                return String(firstLine).lowercased()
+            }
+        }
+        return ""
+    }
+
+    /// Total cooking time (prep + cook) for the linked recipe, if any.
+    /// Returns nil when the recipe isn't on hand or both fields are 0.
+    private func rosterCookMinutes(for meal: WeekMeal) -> Int? {
+        guard let id = meal.recipeId,
+              let recipe = appState.recipes.first(where: { $0.recipeId == id }) else {
+            return nil
+        }
+        let total = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0)
+        return total > 0 ? total : nil
+    }
+
+    /// Default slot used when tapping an empty roster row. Picks
+    /// "dinner" if the user hasn't customized default_slots, else
+    /// the first non-snack configured slot.
+    private func defaultSlotName() -> String {
+        configuredSlots.first { $0.lowercased() != "snack" && $0.lowercased() != "snacks" } ?? "dinner"
+    }
+
+    /// Build 59: bulk-approve every unapproved meal on the displayed
+    /// week. Surfaced via the toolbar Menu (replaces the old inline
+    /// approveAllBar). Sets `isApprovingAll` so the menu disables
+    /// while the request is in flight. Reuses the existing
+    /// per-meal toggleMealApproval helper instead of duplicating
+    /// the MealUpdateRequest serialization.
+    private func approveAllMeals(_ week: WeekSnapshot) async {
+        let unapproved = week.meals.filter { !$0.approved }
+        guard !unapproved.isEmpty else { return }
+        isApprovingAll = true
+        defer { isApprovingAll = false }
+        for meal in unapproved {
+            await toggleMealApproval(meal, approved: true)
+        }
     }
 
     /// Build 58: hero header eyebrow. Reads "WEEK 10 · MAR 4" or

@@ -8,6 +8,57 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 59 (Fusion IA · Week roster restructure)
+
+First of a multi-build IA pass after build 58 (which was skin-only)
+landed. User flagged that the mockup spec implies real layout
+changes, not just a palette + typography swap. Plan: ship one IA
+restructure per build, in priority order, smoke-test between.
+
+Build 59 covers Week:
+- `Features/Week/WeekView.swift`:
+  - Body simplified to: FuHero → Tonight TodayMealCard →
+    `weekRosterSection`. The previous inline `weekPicker`,
+    `InSeasonStrip`, `approveAllBar`, and `groceryBar` are
+    removed from the scroll surface.
+  - New `weekToolbarMenu` (top-leading) collapses week
+    navigation (prev / next / jump-to-week list / snap-to-current)
+    and the bulk approve-all action into a single Menu under the
+    `simmer·smith` wordmark + chevron. The InSeasonStrip + grocery
+    bar are dropped — InSeason discovery moves to a future build,
+    Grocery is its own tab anyway.
+  - New `weekRosterSection` renders one row per day (handwritten
+    day name + italic-serif numeral pillar + featured-meal title
+    + Caveat sub-line + ✓ done OR cook minutes on the right).
+    Today gets a 2pt ember vertical spine on the left edge.
+    `HandRule` separates rows. Tap a row → existing meal action
+    sheet (or quick-add if the slot is empty).
+  - New helpers: `featuredMeal(in:)` (prefers dinner →
+    first-non-snack → first), `rosterSubline(for:)` (sides → notes
+    first-line → empty), `rosterCookMinutes(for:)` (recipe prep+cook,
+    nil if 0/0), `defaultSlotName()`, `approveAllMeals(_:)`.
+- The old `daysSection` / `daySection` / `addSnackAffordance` /
+  `rebalanceBanner` / `approveAllBar` / `groceryBar` / `weekPicker`
+  helpers stay in the file but are no longer called. Left in place
+  for now in case Savanne wants the macro ring / per-day calorie
+  banner / approve-all bar back; will be deleted once dogfood
+  confirms the sparser IA holds.
+
+Verification: `xcodebuild build` succeeds. No backend, no schema,
+no test changes. `project.yml` `CURRENT_PROJECT_VERSION` 58 → 59.
+
+Pending IA builds (queued):
+- Build 60: Forge (Recipes) — collapse 5 filter rows to one chip row.
+- Build 61: RecipeDetail — circular hero, dashed stats, my notes,
+  in-pantry HandCheck on ingredients.
+- Build 62: Cooking — ◆ AT THE FORGE top bar, riveted timer plate,
+  Caveat ember CTAs.
+- Build 63: Grocery — pantry washi callout, store-color outlined
+  Caveat tabs, dashed rules.
+- Build 64: Smith — chat surface with washi-taped draft cards.
+
+---
+
 **Date**: 2026-05-06 — Build 58 (Fusion redesign · The Smith's Notebook)
 
 Visual redesign to direction E1 from Claude Design's mockup deck —
