@@ -8,6 +8,68 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-06 — Build 63 (Fusion Forge IA · filter collapse)
+
+User signed off on the Week tab + meal action sheet, asked to move
+to the next tab. Build 63 collapses the 5 inline filter rows on
+RecipesView into:
+
+1. System `.searchable` in the Liquid Glass nav bar (replaces the
+   custom `searchBar` view + isSearchFocused state).
+2. A single `mealTypeFilterPills` row at the top of scroll —
+   restyled as Fusion outlined Caveat chips with alternating ±0.6°
+   rotations.
+3. A new `RecipeFilterSheet` (paper-backed bottom sheet) presented
+   from a Filters toolbar button. Holds difficulty, quick (≤30 min)
+   toggle, and cleanup filters as outlined Caveat chip rows
+   separated by HandRules. Reset / Done in the toolbar.
+4. An inline "active filters" Caveat ember summary row appears
+   under the meal-type chips when ≥1 advanced filter is active —
+   shows e.g. `easy · quick (≤30 min)` followed by an `xmark.circle`
+   to clear all in one tap.
+5. Filter button on the toolbar gets an ember count badge when
+   filters are active.
+
+`Features/Recipes/RecipesView.swift`:
+- Body: removed inline `searchBar`, `difficultyFilterPills`,
+  `quickFilterPill`, `cleanupFilterPills`. Added `mealTypeFilterPills`
+  + conditional `activeFiltersSummary` between the FuHero and the
+  results.
+- Removed dead view definitions (`searchBar`, `difficultyFilterPills`,
+  `quickFilterPill`, `cleanupFilterPills`) — ~110L deleted.
+- New `@State showingFilterSheet`, new helpers `filterBadgeCount`
+  + `activeFiltersSummary`.
+- `mealTypeFilterPills` now renders inside a horizontal ScrollView
+  using `FuOutlinedPill` so chips can overflow on smaller devices.
+- Added `.searchable(text: $searchText, placement:
+  .navigationBarDrawer(displayMode: .automatic), prompt: …)` —
+  Liquid Glass search.
+- Added `.sheet(isPresented: $showingFilterSheet) { RecipeFilterSheet(...) }`.
+- Toolbar gains a `line.3.horizontal.decrease.circle` Filters
+  button with an ember count badge offset to the top-right.
+
+`Features/Recipes/RecipeFilterSheet.swift` (new, ~165L):
+- NavigationStack with a paper-backed scroll, a washi-taped index-
+  card title plate ("narrow the forge" + active count eyebrow),
+  three outlined-Caveat-chip sections (difficulty / speed / cleanup)
+  separated by HandRules. Native toolbar Reset / Done. `.medium`
+  + `.large` presentation detents.
+- Bound to RecipesView's @State so dismissing keeps selections;
+  Reset clears them.
+- Local `DifficultyFilter.shortLabel` extension converts "Any
+  difficulty" → "any" etc. so chips fit on one row.
+
+Verification: `xcodebuild build` succeeds. No backend / schema /
+test changes. `project.yml` `CURRENT_PROJECT_VERSION` 62 → 63.
+
+Pending IA builds (queue continues):
+- Build 64: RecipeDetail.
+- Build 65: Cooking.
+- Build 66: Grocery.
+- Build 67: Smith.
+
+---
+
 **Date**: 2026-05-06 — Build 62 (Fusion meal action sheet)
 
 User flagged the meal-tap menu as the next surface to bring into

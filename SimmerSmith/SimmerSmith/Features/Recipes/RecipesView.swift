@@ -43,6 +43,12 @@ struct RecipesView: View {
     @State private var showingIngredientScanner = false
     @State private var showingWebRecipeSearch = false
     @FocusState private var isSearchFocused: Bool
+    /// Build 63 — Fusion Forge IA. Filters that previously took up
+    /// 4 inline rows (difficulty, quick, cleanup) collapse into a
+    /// single sheet. Search uses system `.searchable` so it sits
+    /// in the Liquid Glass nav bar instead of a custom rounded
+    /// search bar inside the scroll.
+    @State private var showingFilterSheet = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -56,11 +62,16 @@ struct RecipesView: View {
                     )
                     .padding(.horizontal, -SMSpacing.lg)
 
-                    searchBar
+                    // Build 63 — meal type stays as the visible chip
+                    // row (most-used filter). Search lives in the nav
+                    // bar via `.searchable` (Liquid Glass). Other
+                    // filters collapse behind the Filters toolbar
+                    // button.
                     mealTypeFilterPills
-                    difficultyFilterPills
-                    quickFilterPill
-                    cleanupFilterPills
+
+                    if filterBadgeCount > 0 {
+                        activeFiltersSummary
+                    }
 
                     if isGeneratingSuggestion {
                         aiGeneratingBanner
@@ -88,6 +99,16 @@ struct RecipesView: View {
         }
         .navigationTitle("Forge")
         .navigationBarTitleDisplayMode(.inline)
+        // Build 63 — system searchable replaces the custom searchBar
+        // view. Liquid Glass + native cancel button preserved.
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search recipes, tags, memories")
+        .sheet(isPresented: $showingFilterSheet) {
+            RecipeFilterSheet(
+                difficulty: $selectedDifficulty,
+                quickOnly: $quickOnly,
+                cleanup: $selectedCleanup
+            )
+        }
         .onAppear {
             aiCoordinator.updateContext(
                 AIPageContext(
@@ -112,6 +133,31 @@ struct RecipesView: View {
                         .foregroundStyle(SMColor.textPrimary)
                 }
             } else {
+                // Build 63 — Filters button replaces the inline filter
+                // rows. Badge count = number of advanced filters
+                // active (difficulty / quick / cleanup). Meal-type
+                // chip row stays inline above the grid since it's the
+                // most-used filter.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingFilterSheet = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle\(filterBadgeCount > 0 ? ".fill" : "")")
+                                .foregroundStyle(SMColor.ember)
+                            if filterBadgeCount > 0 {
+                                Text("\(filterBadgeCount)")
+                                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                                    .foregroundStyle(SMColor.paper)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(SMColor.ember, in: Capsule())
+                                    .offset(x: 8, y: -8)
+                            }
+                        }
+                    }
+                    .accessibilityLabel(filterBadgeCount > 0 ? "Filters · \(filterBadgeCount) active" : "Filters")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -255,47 +301,6 @@ struct RecipesView: View {
 
     // MARK: - Search Bar
 
-    private var searchBar: some View {
-        HStack(spacing: SMSpacing.sm) {
-            HStack(spacing: SMSpacing.sm) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(SMColor.textTertiary)
-                    .font(.system(size: 16))
-
-                TextField("Search recipes, tags, memories", text: $searchText)
-                    .font(SMFont.body)
-                    .foregroundStyle(SMColor.textPrimary)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .focused($isSearchFocused)
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(SMColor.textTertiary)
-                    }
-                }
-            }
-            .padding(.horizontal, SMSpacing.md)
-            .padding(.vertical, SMSpacing.md)
-            .background(SMColor.surfaceCard)
-            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-
-            if isSearchFocused {
-                Button("Cancel") {
-                    searchText = ""
-                    isSearchFocused = false
-                }
-                .font(SMFont.body)
-                .foregroundStyle(SMColor.primary)
-            }
-        }
-        .padding(.horizontal, SMSpacing.lg)
-        .padding(.top, SMSpacing.sm)
-    }
-
     // MARK: - Meal Type Filter Pills
 
     private static let mealTypeFilters: [(label: String, value: String)] = [
@@ -305,34 +310,6 @@ struct RecipesView: View {
         ("Dinner", "dinner"),
         ("Snack", "snack"),
     ]
-
-    private var difficultyFilterPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: SMSpacing.sm) {
-                ForEach(DifficultyFilter.allCases, id: \.self) { filter in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedDifficulty = filter
-                        }
-                    } label: {
-                        Text(filter.label)
-                            .font(SMFont.caption)
-                            .foregroundStyle(selectedDifficulty == filter ? SMColor.primary : SMColor.textSecondary)
-                            .padding(.horizontal, SMSpacing.md)
-                            .padding(.vertical, SMSpacing.sm)
-                            .background(SMColor.surfaceCard)
-                            .clipShape(Capsule())
-                            .overlay(
-                                Capsule()
-                                    .stroke(selectedDifficulty == filter ? SMColor.primary : Color.clear, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, SMSpacing.lg)
-        }
-    }
 
     private var bulkActionBar: some View {
         VStack(spacing: 0) {
@@ -419,69 +396,6 @@ struct RecipesView: View {
         }
     }
 
-    private var quickFilterPill: some View {
-        HStack(spacing: SMSpacing.sm) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    quickOnly.toggle()
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "bolt.fill")
-                        .font(.caption2)
-                    Text("Quick (≤30 min)")
-                        .font(SMFont.caption)
-                }
-                .foregroundStyle(quickOnly ? SMColor.primary : SMColor.textSecondary)
-                .padding(.horizontal, SMSpacing.md)
-                .padding(.vertical, SMSpacing.sm)
-                .background(SMColor.surfaceCard)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(quickOnly ? SMColor.primary : Color.clear, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            Spacer()
-        }
-        .padding(.horizontal, SMSpacing.lg)
-    }
-
-    private var cleanupFilterPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: SMSpacing.sm) {
-                ForEach(RecipeCleanupFilter.allCases, id: \.self) { filter in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedCleanup = (selectedCleanup == filter) ? .none : filter
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            if filter != .none {
-                                Image(systemName: filter.iconName)
-                                    .font(.caption2)
-                            }
-                            Text(filter.label)
-                                .font(SMFont.caption)
-                        }
-                        .foregroundStyle(selectedCleanup == filter ? SMColor.primary : SMColor.textSecondary)
-                        .padding(.horizontal, SMSpacing.md)
-                        .padding(.vertical, SMSpacing.sm)
-                        .background(SMColor.surfaceCard)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(selectedCleanup == filter ? SMColor.primary : Color.clear, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, SMSpacing.lg)
-        }
-    }
-
     /// M29 build 54 — flat filtered list for cleanup mode. Sorted
     /// least-recently-used first so abandoned AI drafts surface
     /// before favorites.
@@ -536,29 +450,73 @@ struct RecipesView: View {
     }
 
     private var mealTypeFilterPills: some View {
-        HStack(spacing: SMSpacing.sm) {
-            ForEach(Self.mealTypeFilters, id: \.value) { filter in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        selectedMealType = filter.value
-                    }
-                } label: {
-                    Text(filter.label)
-                        .font(SMFont.caption)
-                        .foregroundStyle(selectedMealType == filter.value ? SMColor.primary : SMColor.textSecondary)
-                        .padding(.horizontal, SMSpacing.md)
-                        .padding(.vertical, SMSpacing.sm)
-                        .background(SMColor.surfaceCard)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(selectedMealType == filter.value ? SMColor.primary : Color.clear, lineWidth: 1)
+        // Build 63 — Fusion outlined Caveat chips with slight
+        // rotations. Horizontal scroll keeps long lists readable on
+        // smaller devices.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: SMSpacing.sm) {
+                ForEach(Array(Self.mealTypeFilters.enumerated()), id: \.element.value) { idx, filter in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedMealType = filter.value
+                        }
+                    } label: {
+                        FuOutlinedPill(
+                            label: filter.label,
+                            color: SMColor.ember,
+                            filled: selectedMealType == filter.value,
+                            rotation: idx.isMultiple(of: 2) ? -0.6 : 0.6
                         )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.horizontal, SMSpacing.lg)
+            .padding(.vertical, 4)
         }
-        .padding(.horizontal, SMSpacing.lg)
+    }
+
+    /// Build 63 — counts how many of the advanced filters
+    /// (difficulty / quick / cleanup) are non-default. Drives the
+    /// filter-button badge.
+    private var filterBadgeCount: Int {
+        var n = 0
+        if selectedDifficulty != .any { n += 1 }
+        if quickOnly { n += 1 }
+        if selectedCleanup != .none { n += 1 }
+        return n
+    }
+
+    /// Build 63 — small Caveat ember row showing the active advanced
+    /// filters when at least one is on. Tap to clear them all.
+    @ViewBuilder
+    private var activeFiltersSummary: some View {
+        let parts: [String] = [
+            selectedDifficulty == .any ? nil : selectedDifficulty.label.lowercased(),
+            quickOnly ? "quick (≤30 min)" : nil,
+            selectedCleanup == .none ? nil : selectedCleanup.label.lowercased()
+        ].compactMap { $0 }
+
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                selectedDifficulty = .any
+                quickOnly = false
+                selectedCleanup = .none
+            }
+        } label: {
+            HStack(spacing: SMSpacing.sm) {
+                Text(parts.joined(separator: " · "))
+                    .font(SMFont.handwritten(14))
+                    .foregroundStyle(SMColor.ember)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(SMColor.ember)
+                Spacer()
+            }
+            .padding(.horizontal, SMSpacing.lg)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear \(parts.count) active filter\(parts.count == 1 ? "" : "s")")
     }
 
     // MARK: - Search Results
