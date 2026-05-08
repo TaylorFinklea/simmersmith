@@ -42,6 +42,19 @@ struct GroceryView: View {
             if let week = appState.currentWeek, !week.groceryItems.isEmpty {
                 List {
                     Section {
+                        FuHero(
+                            eyebrow: groceryHeroEyebrow(week: week),
+                            title: "the ",
+                            emberAccent: "haul"
+                        )
+                        .padding(.horizontal, -SMSpacing.lg)
+                        .padding(.vertical, SMSpacing.sm)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+
+                    Section {
                         if weekTotal > 0 {
                             HStack {
                                 Label("Estimated Total", systemImage: "dollarsign.circle")
@@ -50,7 +63,7 @@ struct GroceryView: View {
                                 Spacer()
                                 Text(String(format: "$%.2f", weekTotal))
                                     .font(SMFont.headline)
-                                    .foregroundStyle(SMColor.primary)
+                                    .foregroundStyle(SMColor.ember)
                             }
                         }
 
@@ -367,6 +380,15 @@ struct GroceryView: View {
         } catch {
             appState.lastErrorMessage = "Dedupe failed: \(error.localizedDescription)"
         }
+    }
+
+    private func groceryHeroEyebrow(week: WeekSnapshot) -> String {
+        let items = week.groceryItems.count
+        let unchecked = week.groceryItems.filter { !appState.isGroceryChecked($0.groceryItemId) }.count
+        if unchecked == 0 {
+            return "all picked up · \(items) items"
+        }
+        return "\(unchecked) of \(items) left"
     }
 
     private func displayQuantity(for item: GroceryItem) -> String {

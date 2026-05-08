@@ -42,6 +42,14 @@ struct CookingModeView: View {
             )
             .ignoresSafeArea()
 
+            // Build 79 — hammered-iron grain. Static noise overlay
+            // (deterministic seed) with a light ember tint so the
+            // background reads as forged metal, not flat dark.
+            HammeredGrain()
+                .blendMode(.overlay)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
             if let recipe, !steps.isEmpty {
                 cookingBody(recipe: recipe, steps: steps)
             } else {

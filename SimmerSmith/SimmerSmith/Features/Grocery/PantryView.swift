@@ -71,6 +71,19 @@ struct PantryView: View {
     @ViewBuilder
     private var pantryList: some View {
         List {
+            Section {
+                FuHero(
+                    eyebrow: pantryHeroEyebrow,
+                    title: "the ",
+                    emberAccent: "pantry"
+                )
+                .padding(.horizontal, -SMSpacing.lg)
+                .padding(.vertical, SMSpacing.sm)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
             if !appState.pantryItems.isEmpty {
                 Section {
                     Picker("Filter", selection: $filter) {
@@ -170,6 +183,16 @@ struct PantryView: View {
     private var pantryPrimary: TopBarPrimaryAction {
         _ = appState.topBarConfigRevision
         return appState.topBarPrimary(for: .pantry)
+    }
+
+    private var pantryHeroEyebrow: String {
+        let total = appState.pantryItems.count
+        if total == 0 { return "what's on hand" }
+        let frozen = appState.pantryItems.filter { $0.isFrozen }.count
+        let stale = appState.pantryItems.filter { $0.isStaleFreezerItem }.count
+        if stale > 0 { return "\(total) items · \(stale) to use soon" }
+        if frozen > 0 { return "\(total) items · \(frozen) frozen" }
+        return "\(total) items on hand"
     }
 
     private var sectionHeader: String {

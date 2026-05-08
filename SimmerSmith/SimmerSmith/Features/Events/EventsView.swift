@@ -96,6 +96,19 @@ struct EventsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List {
+                Section {
+                    FuHero(
+                        eyebrow: eventsHeroEyebrow,
+                        title: "the ",
+                        emberAccent: "table"
+                    )
+                    .padding(.horizontal, -SMSpacing.lg)
+                    .padding(.vertical, SMSpacing.sm)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+
                 ForEach(appState.eventSummaries) { summary in
                     Button {
                         selectedEventID = summary.eventId
@@ -112,6 +125,14 @@ struct EventsView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }
+    }
+
+    private var eventsHeroEyebrow: String {
+        let upcoming = appState.eventSummaries.filter { ($0.eventDate ?? .distantPast) >= Date() }.count
+        if upcoming == 0 {
+            return "no events on the calendar"
+        }
+        return "\(upcoming) upcoming"
     }
 
     private func delete(at offsets: IndexSet) async {

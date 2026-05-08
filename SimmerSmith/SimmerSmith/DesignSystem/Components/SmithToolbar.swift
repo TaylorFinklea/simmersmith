@@ -27,3 +27,19 @@ extension View {
         modifier(SmithToolbarBackground())
     }
 }
+
+/// Section header in the Smith's Notebook voice — Caveat handwritten,
+/// ember tint, lowercase, system uppercasing suppressed. Use as a
+/// `Section { ... } header: { SmithSectionHeader("server") }`.
+struct SmithSectionHeader: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(SMFont.handwritten(16, bold: true))
+            .foregroundStyle(SMColor.ember)
+            .textCase(nil)
+    }
+}

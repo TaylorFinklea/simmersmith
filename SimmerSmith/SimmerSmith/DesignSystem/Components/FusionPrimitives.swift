@@ -223,6 +223,37 @@ struct PaperGrain: View {
     }
 }
 
+/// Build 79 — hammered-iron grain for the CookingMode forge moment.
+/// Coarser than `PaperGrain` (2–3px ember/black flecks) so the dark
+/// background reads as forged metal that's been worked. Static —
+/// uses a deterministic linear congruential generator seeded by the
+/// canvas index so the texture is identical between renders.
+struct HammeredGrain: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let count = Int((size.width * size.height) / 600)
+            var seed: UInt32 = 0x4A9F_7C13
+            func next() -> Double {
+                seed = seed &* 1_664_525 &+ 1_013_904_223
+                return Double(seed) / Double(UInt32.max)
+            }
+            for _ in 0..<count {
+                let x = next() * size.width
+                let y = next() * size.height
+                let r = 0.4 + next() * 1.4
+                // Mostly dark flecks; ~20% are warm ember sparks.
+                let isEmber = next() < 0.2
+                let dot = isEmber
+                    ? Color(red: 0.91, green: 0.33, blue: 0.11, opacity: 0.18)
+                    : Color(white: 1, opacity: 0.05)
+                let rect = CGRect(x: x, y: y, width: r, height: r)
+                ctx.fill(Path(ellipseIn: rect), with: .color(dot))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 /// View modifier that applies the paper page background with grain.
 /// Use as the root background of any Fusion screen body.
 struct PaperBackground: ViewModifier {

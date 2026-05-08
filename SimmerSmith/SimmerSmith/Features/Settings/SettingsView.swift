@@ -16,7 +16,7 @@ struct SettingsView: View {
         @Bindable var appState = appState
 
         Form {
-            Section("Server") {
+            Section {
                 TextField("Server URL", text: $appState.serverURLDraft)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
@@ -29,9 +29,11 @@ struct SettingsView: View {
                     Task { await appState.saveConnectionDetails() }
                 }
                 .buttonStyle(.borderedProminent)
+            } header: {
+                SmithSectionHeader("server")
             }
 
-            Section("Sync") {
+            Section {
                 Text(appState.syncStatusText)
                     .foregroundStyle(SMColor.textSecondary)
 
@@ -51,6 +53,8 @@ struct SettingsView: View {
                 Button("Refresh Now") {
                     Task { await appState.refreshAll() }
                 }
+            } header: {
+                SmithSectionHeader("sync")
             }
 
             HouseholdSection()
@@ -59,7 +63,7 @@ struct SettingsView: View {
 
             TopBarSection()
 
-            Section("AI") {
+            Section {
                 if let capabilities = appState.aiCapabilities {
                     if let target = capabilities.defaultTarget {
                         LabeledContent("Default route") {
@@ -169,9 +173,11 @@ struct SettingsView: View {
                 .onChange(of: appState.unitSystemDraft) { _, newValue in
                     Task { await appState.saveUnitSystem(newValue) }
                 }
+            } header: {
+                SmithSectionHeader("ai")
             }
 
-            Section("Recipe images") {
+            Section {
                 Text("New recipes get an AI-generated header image automatically. Pick the model that draws them — you can switch any time.")
                     .font(.footnote)
                     .foregroundStyle(SMColor.textSecondary)
@@ -206,11 +212,13 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(SMColor.textSecondary)
                 }
+            } header: {
+                SmithSectionHeader("recipe images")
             }
 
             NotificationsSection()
 
-            Section("Templates") {
+            Section {
                 LabeledContent("Recipe templates") {
                     Text("\(appState.recipeTemplateCount)")
                         .foregroundStyle(SMColor.textSecondary)
@@ -224,9 +232,11 @@ struct SettingsView: View {
                     Text("Template library syncs with recipe metadata.")
                         .foregroundStyle(SMColor.textSecondary)
                 }
+            } header: {
+                SmithSectionHeader("templates")
             }
 
-            Section("Grocery") {
+            Section {
                 NavigationLink {
                     StoreSelectionView()
                 } label: {
@@ -245,6 +255,8 @@ struct SettingsView: View {
                         }
                     }
                 }
+            } header: {
+                SmithSectionHeader("grocery")
             }
 
             Section {
@@ -262,13 +274,13 @@ struct SettingsView: View {
                         == (appState.profile?.settings["user_region"] ?? "")
                 )
             } header: {
-                Text("Location")
+                SmithSectionHeader("location")
             } footer: {
                 Text("Used for the in-season produce snapshot on the Week tab. Free-form — try \"Kansas, USA\" or \"Northern California\".")
                     .font(.footnote)
             }
 
-            Section("Nutrition") {
+            Section {
                 NavigationLink {
                     DietaryGoalView()
                 } label: {
@@ -287,9 +299,11 @@ struct SettingsView: View {
                         }
                     }
                 }
+            } header: {
+                SmithSectionHeader("nutrition")
             }
 
-            Section("Subscription") {
+            Section {
                 if appState.isTrialPro {
                     VStack(alignment: .leading, spacing: SMSpacing.xs) {
                         HStack {
@@ -352,9 +366,11 @@ struct SettingsView: View {
                     }
                     .foregroundStyle(SMColor.aiPurple)
                 }
+            } header: {
+                SmithSectionHeader("subscription")
             }
 
-            Section("Ingredient Preferences") {
+            Section {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")
                         .foregroundStyle(SMColor.textSecondary)
@@ -422,9 +438,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Add Ingredient Preference", systemImage: "plus.circle")
                 }
+            } header: {
+                SmithSectionHeader("ingredient preferences")
             }
 
-            Section("Ingredients") {
+            Section {
                 Text("Manage canonical ingredients, product variations, nutrition, and household preferences from one dedicated catalog area.")
                     .foregroundStyle(SMColor.textSecondary)
 
@@ -486,12 +504,12 @@ struct SettingsView: View {
                     Label("Add guest", systemImage: "person.badge.plus")
                 }
             } header: {
-                Text("Guests")
+                SmithSectionHeader("guests")
             } footer: {
                 Text("Your reusable guest list for the Events tab. Age group + allergies shape menu generation.")
             }
 
-            Section("Notifications") {
+            Section {
                 Button("Enable Meal Reminders") {
                     Task {
                         let granted = await NotificationManager.shared.requestPermission()
@@ -506,9 +524,11 @@ struct SettingsView: View {
                     NotificationManager.shared.cancelAllReminders()
                 }
                 .foregroundStyle(SMColor.textSecondary)
+            } header: {
+                SmithSectionHeader("notifications")
             }
 
-            Section("Data") {
+            Section {
                 Button("Clear Local Cache", role: .destructive) {
                     appState.clearLocalCache()
                 }
@@ -516,6 +536,8 @@ struct SettingsView: View {
                 Button("Reset Connection", role: .destructive) {
                     appState.resetConnection()
                 }
+            } header: {
+                SmithSectionHeader("data")
             }
 
             Section {
@@ -1188,7 +1210,7 @@ private struct HouseholdSection: View {
     @State private var didLoadRenameDraft = false
 
     var body: some View {
-        Section("Household") {
+        Section {
             if let household = appState.currentHousehold {
                 if household.isOwner {
                     TextField("Household name", text: $renameDraft, prompt: Text("e.g. The Smiths"))
@@ -1263,6 +1285,8 @@ private struct HouseholdSection: View {
                 Text("Loading household…")
                     .foregroundStyle(SMColor.textTertiary)
             }
+        } header: {
+            SmithSectionHeader("household")
         }
         .onAppear {
             guard !didLoadRenameDraft else { return }
@@ -1307,7 +1331,7 @@ private struct GrocerySection: View {
     @State private var permissionStatus: EKAuthorizationStatus = .notDetermined
 
     var body: some View {
-        Section("Grocery") {
+        Section {
             Toggle("Sync to Apple Reminders", isOn: Binding(
                 get: { appState.reminderListIdentifier != nil },
                 set: { newValue in
@@ -1354,6 +1378,8 @@ private struct GrocerySection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+        } header: {
+            SmithSectionHeader("grocery sync")
         }
         .task { await refreshState() }
         .sheet(isPresented: $showingPicker, onDismiss: { Task { await refreshState() } }) {
