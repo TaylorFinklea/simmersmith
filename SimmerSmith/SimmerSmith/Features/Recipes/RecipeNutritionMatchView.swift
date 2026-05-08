@@ -66,6 +66,8 @@ struct RecipeNutritionMatchView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Match Nutrition")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search foods")
@@ -74,8 +76,10 @@ struct RecipeNutritionMatchView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .task {
                 await loadItems()
             }

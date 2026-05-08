@@ -69,13 +69,17 @@ struct GroceryArchiveSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Removed Items")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .task { await load() }
         }
     }

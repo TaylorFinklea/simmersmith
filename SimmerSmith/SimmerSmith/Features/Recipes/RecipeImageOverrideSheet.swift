@@ -57,11 +57,14 @@ struct RecipeImageOverrideSheet: View {
                     Section { Text(errorMessage).foregroundStyle(.red) }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Use my own photo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -73,9 +76,11 @@ struct RecipeImageOverrideSheet: View {
                             Text("Save")
                         }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaveDisabled)
                 }
             }
+            .smithToolbar()
             .task(id: selectedPhoto) {
                 await loadSelectedPhoto()
             }

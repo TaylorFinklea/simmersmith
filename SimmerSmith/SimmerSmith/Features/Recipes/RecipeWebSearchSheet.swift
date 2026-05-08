@@ -44,18 +44,23 @@ struct RecipeWebSearchSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Find recipe online")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 if draft != nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("New search") { reset() }
+                            .foregroundStyle(SMColor.ember)
                     }
                 }
             }
+            .smithToolbar()
         }
     }
 

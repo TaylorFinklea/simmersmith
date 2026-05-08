@@ -59,8 +59,10 @@ struct RecipeWebImportView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
     }
 

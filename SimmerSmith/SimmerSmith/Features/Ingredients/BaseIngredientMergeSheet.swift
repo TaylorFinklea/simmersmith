@@ -29,19 +29,24 @@ struct BaseIngredientMergeSheet: View {
 
                 mergeTargetsSection
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Merge Ingredient")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isMerging ? "Merging…" : "Merge") {
                         Task { await merge() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isMerging || selectedTargetID == nil)
                 }
             }
+            .smithToolbar()
             .task {
                 if candidates.isEmpty {
                     await loadCandidates()

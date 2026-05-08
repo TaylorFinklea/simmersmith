@@ -17,7 +17,7 @@ struct PaywallSheet: View {
         NavigationStack {
             ZStack {
                 LinearGradient(
-                    colors: [SMColor.aiPurple.opacity(0.35), SMColor.surface],
+                    colors: [SMColor.ember.opacity(0.18), SMColor.paper],
                     startPoint: .top, endPoint: .bottom
                 )
                 .ignoresSafeArea()
@@ -72,9 +72,10 @@ struct PaywallSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.large])
     }

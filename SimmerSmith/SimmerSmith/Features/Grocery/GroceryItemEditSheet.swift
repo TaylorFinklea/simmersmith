@@ -84,17 +84,22 @@ struct GroceryItemEditSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Edit Item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
+                        .foregroundStyle(SMColor.ember)
                         .disabled(isSaving)
                 }
             }
+            .smithToolbar()
             .sheet(isPresented: $showingLinker) {
                 IngredientLinkPickerSheet(item: item) { _ in
                     // Linker writes to the server + AppState; bounce

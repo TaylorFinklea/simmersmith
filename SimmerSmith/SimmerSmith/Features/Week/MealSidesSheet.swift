@@ -121,13 +121,17 @@ struct MealSidesSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Sides")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .sheet(item: $editingSide) { side in
                 SideEditorSheet(weekID: weekID, mealID: mealID, side: side)
             }
@@ -241,20 +245,25 @@ private struct SideEditorSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Edit side")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
+                        .foregroundStyle(SMColor.ember)
                         .disabled(
                             isWorking ||
                             name.trimmingCharacters(in: .whitespaces).isEmpty
                         )
                 }
             }
+            .smithToolbar()
             .sheet(item: $pendingDraft) { draft in
                 RecipeDraftReviewSheet(
                     initialDraft: draft,

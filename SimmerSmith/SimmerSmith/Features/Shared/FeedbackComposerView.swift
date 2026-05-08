@@ -37,18 +37,23 @@ struct FeedbackComposerView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await submit() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving)
                 }
             }
+            .smithToolbar()
         }
     }
 

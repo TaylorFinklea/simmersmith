@@ -50,19 +50,24 @@ struct SaveLeftoversToFreezerSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Save leftovers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .smithToolbar()
             .onAppear {
                 if name.isEmpty {
                     let base = meal.recipeName.trimmingCharacters(in: .whitespaces)

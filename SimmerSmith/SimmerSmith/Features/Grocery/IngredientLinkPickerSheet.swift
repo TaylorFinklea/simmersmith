@@ -125,13 +125,17 @@ struct IngredientLinkPickerSheet: View {
                         .padding(.bottom, 8)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Link Ingredient")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .task {
                 if query.isEmpty {
                     query = item.ingredientName

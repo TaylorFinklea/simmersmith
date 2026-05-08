@@ -126,14 +126,16 @@ struct CookingTimerChip: View {
                 .buttonStyle(.plain)
             }
             .padding(SMSpacing.xl)
-            .background(SMColor.surface)
+            .paperBackground()
             .navigationTitle("Custom timer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showingCustomPicker = false }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.medium])
     }

@@ -428,11 +428,14 @@ struct IngredientReviewQueueView: View {
                     .listStyle(.insetGrouped)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Review Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -442,10 +445,12 @@ struct IngredientReviewQueueView: View {
                             ProgressView()
                         } else {
                             Image(systemName: "arrow.clockwise")
+                                .foregroundStyle(SMColor.ember)
                         }
                     }
                 }
             }
+            .smithToolbar()
             .task {
                 if appState.recipes.isEmpty || appState.currentWeek == nil {
                     await refreshQueue()

@@ -44,7 +44,7 @@ struct OnboardingInterviewView: View {
                 if step > 0 {
                     Button { withAnimation { step -= 1 } } label: {
                         Image(systemName: "chevron.left")
-                            .foregroundStyle(SMColor.textSecondary)
+                            .foregroundStyle(SMColor.ember)
                     }
                 }
             }
@@ -55,6 +55,7 @@ struct OnboardingInterviewView: View {
                 .foregroundStyle(SMColor.textTertiary)
             }
         }
+        .smithToolbar()
     }
 
     // MARK: - Steps

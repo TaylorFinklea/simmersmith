@@ -88,16 +88,20 @@ struct EventPantrySupplementSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(supplement == nil ? "Add supplement" : "Edit supplement")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(
                         isSaving ||
                         pantryItemId.isEmpty ||
@@ -105,6 +109,7 @@ struct EventPantrySupplementSheet: View {
                     )
                 }
             }
+            .smithToolbar()
             .onAppear(perform: seed)
         }
     }

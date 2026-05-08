@@ -34,12 +34,14 @@ struct AIRecipeCreateSheet: View {
                     breadcrumbView
                 }
             }
+            .paperBackground()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.large])
         .task {

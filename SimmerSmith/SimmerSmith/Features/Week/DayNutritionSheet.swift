@@ -36,15 +36,16 @@ struct DayNutritionSheet: View {
                 }
                 .padding(SMSpacing.lg)
             }
-            .background(SMColor.surface)
+            .paperBackground()
             .navigationTitle("Nutrition")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(SMColor.primary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.medium, .large])
     }

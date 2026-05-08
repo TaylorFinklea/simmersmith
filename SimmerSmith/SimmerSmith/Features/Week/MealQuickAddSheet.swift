@@ -39,7 +39,7 @@ struct MealQuickAddSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: SMSpacing.lg) {
@@ -123,14 +123,15 @@ struct MealQuickAddSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveFreeformIfValid() }
-                        .foregroundStyle(canSaveFreeform ? SMColor.primary : SMColor.textTertiary)
+                        .foregroundStyle(canSaveFreeform ? SMColor.ember : SMColor.textTertiary)
                         .disabled(!canSaveFreeform || isSaving)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.large])
     }

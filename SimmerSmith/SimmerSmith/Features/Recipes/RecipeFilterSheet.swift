@@ -91,6 +91,7 @@ struct RecipeFilterSheet: View {
                         .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }

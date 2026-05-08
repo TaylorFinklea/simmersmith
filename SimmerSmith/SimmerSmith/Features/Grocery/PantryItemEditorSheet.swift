@@ -128,19 +128,24 @@ struct PantryItemEditorSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(item == nil ? "Add pantry item" : "Edit pantry item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .smithToolbar()
             .onAppear(perform: seed)
             .onChange(of: name) { _, newValue in
                 scheduleSearch(for: newValue)

@@ -114,19 +114,24 @@ struct GroceryFeedbackSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Feedback")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving)
                 }
             }
+            .smithToolbar()
             .sheet(isPresented: $showingLinker) {
                 IngredientLinkPickerSheet(item: item) { _ in
                     // Linker fires onLinked + dismisses itself. Bounce

@@ -120,13 +120,16 @@ struct BarcodeLookupSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 if lookupResult != nil || errorMessage != nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Scan again") { reset() }
+                            .foregroundStyle(SMColor.ember)
                     }
                 }
             }
+            .smithToolbar()
         }
     }
 

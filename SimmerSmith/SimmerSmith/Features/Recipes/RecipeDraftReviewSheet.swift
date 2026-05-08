@@ -102,6 +102,8 @@ struct RecipeDraftReviewSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Review draft")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -115,9 +117,11 @@ struct RecipeDraftReviewSheet: View {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .smithToolbar()
             .sheet(isPresented: $presentingHandEditor) {
                 RecipeEditorView(
                     title: "Edit before saving",

@@ -63,7 +63,10 @@ struct ConnectionSetupView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .paperBackground()
         .navigationTitle("Connect")
+        .smithToolbar()
     }
 
     private func isPlainHTTPURL(_ text: String) -> Bool {

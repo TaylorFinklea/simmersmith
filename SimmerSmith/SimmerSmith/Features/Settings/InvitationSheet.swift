@@ -66,14 +66,16 @@ struct InvitationSheet: View {
 
                 Spacer()
             }
-            .background(SMColor.surface)
+            .paperBackground()
             .navigationTitle("Invite a member")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.medium, .large])
     }
@@ -141,14 +143,16 @@ struct JoinHouseholdSheet: View {
 
                 Spacer()
             }
-            .background(SMColor.surface)
+            .paperBackground()
             .navigationTitle("Join a household")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.medium])
     }

@@ -71,11 +71,14 @@ struct MemoryComposeSheet: View {
                     Section { Text(errorMessage).foregroundStyle(.red) }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("New memory")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -87,9 +90,11 @@ struct MemoryComposeSheet: View {
                             Text("Save")
                         }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaveDisabled)
                 }
             }
+            .smithToolbar()
             .task(id: selectedPhoto) {
                 await loadSelectedPhoto()
             }

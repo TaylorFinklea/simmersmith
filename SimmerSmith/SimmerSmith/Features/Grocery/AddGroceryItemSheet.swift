@@ -34,17 +34,22 @@ struct AddGroceryItemSheet: View {
                         .lineLimit(2...4)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Add to Grocery")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") { Task { await save() } }
+                        .foregroundStyle(SMColor.ember)
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
                 }
             }
+            .smithToolbar()
         }
     }
 

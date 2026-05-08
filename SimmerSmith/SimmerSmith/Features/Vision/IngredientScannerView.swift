@@ -51,17 +51,22 @@ struct IngredientScannerView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Identify ingredient")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 if result != nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Scan again") { reset() }
+                            .foregroundStyle(SMColor.ember)
                     }
                 }
             }
+            .smithToolbar()
         }
         .task(id: selectedPhoto) {
             guard let selectedPhoto else { return }

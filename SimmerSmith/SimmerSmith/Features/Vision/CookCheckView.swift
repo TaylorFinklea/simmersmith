@@ -57,18 +57,23 @@ struct CookCheckSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Cook check")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 if result != nil || errorMessage != nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Try another") { reset() }
+                            .foregroundStyle(SMColor.ember)
                     }
                 }
             }
+            .smithToolbar()
         }
         .task(id: selectedPhoto) {
             guard let selectedPhoto else { return }

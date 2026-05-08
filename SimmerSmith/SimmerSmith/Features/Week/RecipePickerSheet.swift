@@ -36,7 +36,7 @@ struct RecipePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     VStack(spacing: SMSpacing.sm) {
@@ -166,9 +166,10 @@ struct RecipePickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.large])
         .onAppear {

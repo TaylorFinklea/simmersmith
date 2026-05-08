@@ -134,6 +134,8 @@ struct RecipeWeekAssignmentView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(recipes.count == 1 ? "Add to Week" : "Plan Recipes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -141,14 +143,17 @@ struct RecipeWeekAssignmentView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await saveAssignments() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || isLoadingWeek || hasDuplicateAssignments)
                 }
             }
+            .smithToolbar()
             .task(id: normalizedWeekStart.timeIntervalSinceReferenceDate) {
                 await loadTargetWeek()
             }

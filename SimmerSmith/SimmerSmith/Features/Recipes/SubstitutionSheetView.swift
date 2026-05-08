@@ -30,7 +30,7 @@ struct SubstitutionSheetView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: SMSpacing.lg) {
@@ -106,9 +106,10 @@ struct SubstitutionSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .confirmationDialog(
                 pendingChoice.map { "Swap with \($0.name)?" } ?? "",
                 isPresented: Binding(

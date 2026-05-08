@@ -34,7 +34,7 @@ struct MealMoveSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: SMSpacing.lg) {
@@ -140,9 +140,10 @@ struct MealMoveSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.large])
     }

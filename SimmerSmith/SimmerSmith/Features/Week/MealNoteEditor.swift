@@ -18,7 +18,7 @@ struct MealNoteEditor: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 VStack(spacing: SMSpacing.lg) {
                     Text(meal.recipeName)
@@ -45,7 +45,7 @@ struct MealNoteEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -55,10 +55,11 @@ struct MealNoteEditor: View {
                             dismiss()
                         }
                     }
-                    .foregroundStyle(SMColor.primary)
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.medium])
     }

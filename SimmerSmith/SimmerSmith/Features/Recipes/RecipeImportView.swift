@@ -126,12 +126,16 @@ struct RecipeImportView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Import Recipe")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
             .task {
                 guard !didTriggerPreferredAction else { return }
                 didTriggerPreferredAction = true
@@ -720,18 +724,23 @@ private struct RecipeTextReviewView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Review Scan")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isImporting ? "Importing…" : "Import Draft") {
                         Task { await importDraft() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isImporting)
                 }
             }
+            .smithToolbar()
         }
     }
 
