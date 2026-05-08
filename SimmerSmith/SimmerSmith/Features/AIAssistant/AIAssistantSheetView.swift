@@ -11,7 +11,7 @@ struct AIAssistantSheetView: View {
 
         NavigationStack {
             ZStack {
-                SMColor.surface.ignoresSafeArea()
+                SMColor.paper.ignoresSafeArea()
 
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -76,15 +76,16 @@ struct AIAssistantSheetView: View {
                         coordinator.startNewConversation()
                     } label: {
                         Image(systemName: "square.and.pencil")
-                            .foregroundStyle(SMColor.primary)
+                            .foregroundStyle(SMColor.ember)
                     }
                     .accessibilityLabel("New conversation")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { coordinator.dismiss() }
-                        .foregroundStyle(SMColor.textSecondary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
         .presentationDetents([.fraction(1.0 / 3.0), .medium, .large])
         .presentationBackgroundInteraction(.enabled(upThrough: .fraction(1.0 / 3.0)))

@@ -19,8 +19,11 @@ struct CookingModeView: View {
     @State private var cookCheckContext: CookCheckSheetContext?
     @State private var errorMessage: String?
     @State private var spokenService = SpokenStepService.shared
-    @State private var voiceService = VoiceCommandService.shared
-    @State private var isVoiceStopAlertPresented = false
+    /// Build 67 — voice commands disabled (CoreAudio IPC + dispatch
+    /// queue assert crash on iPhone 15 Pro). The mic icon stays as
+    /// part of the visual composition; tapping it shows a
+    /// "coming soon" alert instead of starting the engine.
+    @State private var showingVoiceComingSoonAlert = false
 
     var body: some View {
         let recipe = appState.recipes.first { $0.recipeId == recipeID }
@@ -57,21 +60,14 @@ struct CookingModeView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             spokenService.stop()
-            voiceService.stop()
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
         }
-        .task {
-            for await command in voiceService.commands {
-                handleVoiceCommand(command, steps: steps)
-            }
-        }
-        .alert("Stop cooking?", isPresented: $isVoiceStopAlertPresented) {
-            Button("Stay", role: .cancel) {}
-            Button("Stop", role: .destructive) { dismiss() }
+        .alert("Voice commands coming soon", isPresented: $showingVoiceComingSoonAlert) {
+            Button("OK", role: .cancel) {}
         } message: {
-            Text("Heard \"stop\". Exit cooking mode?")
+            Text("Hands-free \"next / back / stop\" is in the works. For now, tap the buttons below to advance steps.")
         }
     }
 
@@ -126,16 +122,19 @@ struct CookingModeView: View {
 
             // Quiet row of voice + mute toggles. Out of the way but
             // still one-tap reachable for hands-on cooking.
+            // Build 67 — mic stays visually present but taps open a
+            // "coming soon" alert; the underlying engine is disabled
+            // pending a CoreAudio threading rework.
             HStack(spacing: SMSpacing.lg) {
                 Spacer()
                 Button {
-                    Task { await toggleVoiceCommands() }
+                    showingVoiceComingSoonAlert = true
                 } label: {
-                    Image(systemName: voiceService.isListening ? "mic.fill" : "mic.slash.fill")
+                    Image(systemName: "mic.slash.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(voiceService.isListening ? SMColor.ember : Color(hex: 0x8F8576))
+                        .foregroundStyle(Color(hex: 0x8F8576))
                 }
-                .accessibilityLabel(voiceService.isListening ? "Stop voice commands" : "Start voice commands")
+                .accessibilityLabel("Voice commands (coming soon)")
 
                 Button {
                     spokenService.isMuted.toggle()
@@ -214,17 +213,6 @@ struct CookingModeView: View {
                         }
                     }
                     .padding(.top, SMSpacing.sm)
-                }
-
-                if voiceService.isListening, let heard = voiceService.lastHeard, !heard.isEmpty {
-                    Label(heard, systemImage: "waveform")
-                        .font(SMFont.caption)
-                        .foregroundStyle(SMColor.textSecondary)
-                        .lineLimit(2)
-                        .padding(.horizontal, SMSpacing.md)
-                        .padding(.vertical, SMSpacing.sm)
-                        .background(SMColor.surfaceCard)
-                        .clipShape(Capsule())
                 }
 
                 CookingTimerChip()
@@ -363,17 +351,25 @@ struct CookingModeView: View {
     }
 
     private func launchAssistant(recipe: RecipeSummary, step: RecipeStep) async {
+        // Build 66 — dismiss the full-screen cooking cover *first* so
+        // the user immediately sees the Smith tab open, then run the
+        // network round-trip to create the assistant thread. The old
+        // order made the button feel broken on slow networks because
+        // the cover only dismissed after the await returned.
         let prefill = "I'm cooking \(recipe.name) and on step \(stepIndex + 1): \"\(step.instruction)\". "
+        let recipeID = recipe.recipeId
+        let title = recipe.name
+        appState.selectedTab = .assistant
+        dismiss()
         do {
             try await appState.beginAssistantLaunch(
                 initialText: prefill,
-                title: recipe.name,
-                attachedRecipeID: recipe.recipeId,
+                title: title,
+                attachedRecipeID: recipeID,
                 intent: "cooking_step_help"
             )
-            dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            appState.lastErrorMessage = error.localizedDescription
         }
     }
 
@@ -389,34 +385,4 @@ struct CookingModeView: View {
         spokenService.speak(step.instruction)
     }
 
-    private func toggleVoiceCommands() async {
-        if voiceService.isListening {
-            voiceService.stop()
-            return
-        }
-        let granted = await voiceService.requestAuthorization()
-        guard granted else {
-            errorMessage = "Voice commands need microphone and speech-recognition permission. You can enable them in Settings."
-            return
-        }
-        do {
-            try voiceService.start()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func handleVoiceCommand(_ command: VoiceCommand, steps: [RecipeStep]) {
-        switch command {
-        case .next:
-            advance(total: steps.count)
-        case .previous:
-            retreat()
-        case .repeat:
-            speakCurrentStep(steps: steps)
-        case .stop:
-            isVoiceStopAlertPresented = true
-        }
-    }
 }

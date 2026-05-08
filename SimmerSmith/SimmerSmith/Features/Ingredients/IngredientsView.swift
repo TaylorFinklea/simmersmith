@@ -40,6 +40,8 @@ struct IngredientsView: View {
             )
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .paperBackground()
         .navigationTitle("Ingredients")
         .searchable(text: $searchText, prompt: "Search ingredients, brands, UPCs")
         .toolbar {
@@ -51,9 +53,11 @@ struct IngredientsView: View {
                     editorContext = BaseIngredientEditorContext()
                 } label: {
                     Label("New Ingredient", systemImage: "plus")
+                        .foregroundStyle(SMColor.ember)
                 }
             }
         }
+        .smithToolbar()
         .sheet(item: $editorContext) { context in
             BaseIngredientEditorSheet(context: context) { _ in
                 Task { await loadIngredients() }
@@ -117,6 +121,8 @@ struct IngredientDetailView: View {
 
     var body: some View {
         List { listContent }
+        .scrollContentBackground(.hidden)
+        .paperBackground()
         .navigationTitle(detail?.ingredient.name ?? "Ingredient")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -136,6 +142,7 @@ struct IngredientDetailView: View {
                 }
             }
         }
+        .smithToolbar()
         .confirmationDialog(
             "Archive Ingredient?",
             isPresented: $archiveConfirmationPresented,
@@ -484,19 +491,24 @@ struct BaseIngredientEditorSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(context.ingredient == nil ? "New Ingredient" : "Edit Ingredient")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .smithToolbar()
         }
     }
 
@@ -697,19 +709,24 @@ struct IngredientVariationEditorSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(context.variation == nil ? "New Product" : "Edit Product")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .smithToolbar()
         }
     }
 

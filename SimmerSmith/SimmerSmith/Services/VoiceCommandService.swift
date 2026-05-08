@@ -90,8 +90,15 @@ final class VoiceCommandService: NSObject {
         guard let recognizer, recognizer.isAvailable else {
             throw VoiceCommandError.recognizerUnavailable
         }
-        try configureAudioSession()
-        try startRecognition()
+        do {
+            try configureAudioSession()
+            try startRecognition()
+        } catch {
+            // Best-effort cleanup so a half-started engine doesn't
+            // leave the input route in a bad state for the next try.
+            teardownRecognition()
+            throw error
+        }
         isListening = true
         lastError = nil
         scheduleRestartTimer()
@@ -117,11 +124,24 @@ final class VoiceCommandService: NSObject {
     private func startRecognition() throws {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
+        // Build 66 — `requiresOnDeviceRecognition = true` previously
+        // crashed the app when the on-device model wasn't downloaded
+        // yet. Prefer on-device when available but allow the server
+        // path so the mic keeps working out of the box.
+        if #available(iOS 13.0, *) {
+            request.requiresOnDeviceRecognition = recognizer?.supportsOnDeviceRecognition ?? false
+        }
         self.request = request
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
+        // Build 66 — guard against a 0-channel / 0-rate input format
+        // (happens if the audio session category is wrong or the
+        // route hasn't initialized). `installTap` crashes hard
+        // when handed an invalid format.
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            throw VoiceCommandError.recognizerUnavailable
+        }
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
             request?.append(buffer)

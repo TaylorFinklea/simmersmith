@@ -57,6 +57,19 @@ struct PantryView: View {
     }
 
     var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            pantryList
+
+            // Build 70 — configurable FAB. Default = ➕ Add pantry item.
+            TabPrimaryFAB(page: .pantry, contextHint: "from Pantry", actions: [
+                .add: { editorContext = PantryEditorContext() },
+                .refresh: { Task { await appState.loadPantryItems() } }
+            ])
+        }
+    }
+
+    @ViewBuilder
+    private var pantryList: some View {
         List {
             if !appState.pantryItems.isEmpty {
                 Section {
@@ -122,15 +135,28 @@ struct PantryView: View {
         .navigationTitle("Pantry")
         .scrollContentBackground(.hidden)
         .paperBackground()
+        // Build 70 — top bar holds existing + button + ✨ sparkle.
+        // Configurable primary moved to the FAB.
+        // Build 71 — hide whichever item is already the FAB.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    editorContext = PantryEditorContext()
-                } label: {
-                    Image(systemName: "plus")
+            if pantryPrimary != .add {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        editorContext = PantryEditorContext()
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundStyle(SMColor.ember)
+                    }
+                    .accessibilityLabel("Add pantry item")
+                }
+            }
+            if pantryPrimary != .sparkle {
+                ToolbarItem(placement: .topBarTrailing) {
+                    TopBarSparkleButton(contextHint: "from Pantry")
                 }
             }
         }
+        .smithToolbar()
         .sheet(item: $editorContext) { ctx in
             PantryItemEditorSheet(item: ctx.item)
         }
@@ -139,6 +165,11 @@ struct PantryView: View {
                 await appState.loadPantryItems()
             }
         }
+    }
+
+    private var pantryPrimary: TopBarPrimaryAction {
+        _ = appState.topBarConfigRevision
+        return appState.topBarPrimary(for: .pantry)
     }
 
     private var sectionHeader: String {

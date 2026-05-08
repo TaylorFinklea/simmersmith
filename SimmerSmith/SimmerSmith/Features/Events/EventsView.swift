@@ -11,23 +11,38 @@ struct EventsView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            ZStack(alignment: .bottomTrailing) {
                 content
+
+                // Build 70 — configurable FAB. Default = ➕ New event.
+                TabPrimaryFAB(page: .events, contextHint: "from Events", actions: [
+                    .add: { isCreating = true }
+                ])
             }
             .paperBackground()
             .navigationTitle("Events")
             .navigationBarTitleDisplayMode(.inline)
+            // Build 70 — top bar holds existing + button + ✨ sparkle.
+            // Build 71 — hide whichever item is already the FAB.
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isCreating = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .foregroundStyle(SMColor.primary)
+                if eventsPrimary != .add {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isCreating = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .foregroundStyle(SMColor.ember)
+                        }
+                        .accessibilityLabel("New event")
                     }
-                    .accessibilityLabel("New event")
+                }
+                if eventsPrimary != .sparkle {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        TopBarSparkleButton(contextHint: "from Events")
+                    }
                 }
             }
+            .smithToolbar()
             .sheet(isPresented: $isCreating) {
                 EventCreateSheet { created in
                     selectedEventID = created.eventId
@@ -44,6 +59,11 @@ struct EventsView: View {
             .task { await appState.refreshEvents() }
             .refreshable { await appState.refreshEvents() }
         }
+    }
+
+    private var eventsPrimary: TopBarPrimaryAction {
+        _ = appState.topBarConfigRevision
+        return appState.topBarPrimary(for: .events)
     }
 
     @ViewBuilder

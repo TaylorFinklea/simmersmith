@@ -9,7 +9,7 @@ struct AssistantView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ZStack {
+            ZStack(alignment: .bottomTrailing) {
                 List {
                     if appState.assistantThreads.isEmpty && !appState.assistantExecutionAvailable {
                         ContentUnavailableView(
@@ -112,20 +112,10 @@ struct AssistantView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .paperBackground()
-            }
-            .navigationTitle("Smith")
-            .navigationDestination(for: String.self) { threadID in
-                AssistantThreadView(
-                    threadID: threadID,
-                    launchContext: launchContexts[threadID]
-                )
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    BrandToolbarBadge()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
+
+                // Build 70 — configurable FAB. Default = 📝 New chat.
+                TabPrimaryFAB(page: .smith, contextHint: "from Smith", actions: [
+                    .newChat: {
                         Task {
                             do {
                                 let thread = try await appState.createAssistantThread()
@@ -141,14 +131,34 @@ struct AssistantView: View {
                                 appState.lastErrorMessage = error.localizedDescription
                             }
                         }
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .foregroundStyle(SMColor.primary)
                     }
-                    .accessibilityLabel("New chat thread")
-                    .disabled(!appState.assistantExecutionAvailable)
+                ])
+            }
+            .navigationTitle("Smith")
+            .navigationDestination(for: String.self) { threadID in
+                AssistantThreadView(
+                    threadID: threadID,
+                    launchContext: launchContexts[threadID]
+                )
+            }
+            // Build 70 — top bar holds new-chat button + ✨ sparkle.
+            // Build 71 — hide whichever item is already the FAB.
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    BrandToolbarBadge()
+                }
+                if smithPrimary != .newChat {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        newChatButton
+                    }
+                }
+                if smithPrimary != .sparkle {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        TopBarSparkleButton(contextHint: "from Smith")
+                    }
                 }
             }
+            .smithToolbar()
             .task {
                 await appState.refreshAssistantThreads()
                 handleLaunchContextIfNeeded()
@@ -157,6 +167,11 @@ struct AssistantView: View {
                 handleLaunchContextIfNeeded()
             }
         }
+    }
+
+    private var smithPrimary: TopBarPrimaryAction {
+        _ = appState.topBarConfigRevision
+        return appState.topBarPrimary(for: .smith)
     }
 
     private var emptyStatePrompts: [String] {
@@ -171,6 +186,31 @@ struct AssistantView: View {
         guard let launchContext = appState.consumeAssistantLaunchContext() else { return }
         launchContexts[launchContext.threadID] = launchContext
         path = [launchContext.threadID]
+    }
+
+    private var newChatButton: some View {
+        Button {
+            Task {
+                do {
+                    let thread = try await appState.createAssistantThread()
+                    launchContexts[thread.threadId] = AppState.AssistantLaunchContext(
+                        threadID: thread.threadId,
+                        initialText: "",
+                        attachedRecipeID: nil,
+                        attachedRecipeDraft: nil,
+                        intent: "general"
+                    )
+                    path = [thread.threadId]
+                } catch {
+                    appState.lastErrorMessage = error.localizedDescription
+                }
+            }
+        } label: {
+            Image(systemName: "square.and.pencil")
+                .foregroundStyle(SMColor.ember)
+        }
+        .accessibilityLabel("New chat thread")
+        .disabled(!appState.assistantExecutionAvailable)
     }
 }
 

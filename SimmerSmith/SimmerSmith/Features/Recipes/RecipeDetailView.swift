@@ -33,6 +33,9 @@ struct RecipeDetailView: View {
     /// review sheet (refine loop + edit-by-hand + save) instead of
     /// straight to `RecipeEditorView`.
     @State private var pendingReviewDraft: PendingReviewDraft? = nil
+    /// Build 66 — nutrition moves into a sheet behind a tappable
+    /// calorie pill so it doesn't take up the bottom of every recipe.
+    @State private var showingNutritionSheet = false
 
     private struct PendingReviewDraft: Identifiable {
         let id = UUID()
@@ -216,6 +219,7 @@ struct RecipeDetailView: View {
                 }
             }
         }
+        .smithToolbar()
         .task(id: recipeID) {
             await loadRecipe()
         }
@@ -267,6 +271,30 @@ struct RecipeDetailView: View {
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
+        }
+        .sheet(isPresented: $showingNutritionSheet) {
+            if let recipe, let nutrition = recipe.nutritionSummary {
+                NavigationStack {
+                    ScrollView {
+                        nutritionSection(recipe, nutritionSummary: nutrition)
+                            .padding(.horizontal, SMSpacing.lg)
+                            .padding(.vertical, SMSpacing.lg)
+                    }
+                    .paperBackground()
+                    .scrollContentBackground(.hidden)
+                    .navigationTitle("Nutrition")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingNutritionSheet = false }
+                                .foregroundStyle(SMColor.ember)
+                        }
+                    }
+                    .smithToolbar()
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
         .fullScreenCover(isPresented: $isCookingModePresented) {
             CookingModeView(recipeID: recipeID, onCompleted: showCookingCompletionToast)
@@ -455,15 +483,6 @@ struct RecipeDetailView: View {
                 }
             }
 
-            // Build 65 — nutrition moved out of the hero strip and
-            // down here, after the ingredients/steps content. The
-            // full breakdown is still inline (not behind a sheet)
-            // but it stops competing for attention with title +
-            // stat row + tags at the top.
-            if let nutritionSummary = recipe.nutritionSummary {
-                nutritionSection(recipe, nutritionSummary: nutritionSummary)
-            }
-
             // Pairings (M12)
             RecipePairingsCard(recipeID: recipe.recipeId)
 
@@ -497,13 +516,21 @@ struct RecipeDetailView: View {
     // MARK: - Metadata Pills
 
     private func metadataPills(_ recipe: RecipeSummary) -> some View {
-        // Build 65 — calorie pill removed from this top metadata
-        // strip. The full nutrition section moved to below the
-        // ingredients/steps so the hero stays focused on time +
-        // plates + ingredients. Servings + prep + cook are already
-        // in the dashed stat row above; this strip is now for the
-        // softer-tail metadata only.
+        // Build 66 — calorie pill back at the top, tappable to open
+        // the full nutrition modal (sheet). Other softer-tail
+        // metadata stays inline; the full breakdown is no longer
+        // taking up real estate at the bottom of every recipe.
         WrappingHStack(spacing: SMSpacing.sm) {
+            if let calorieText = calorieChipText(for: recipe) {
+                Button {
+                    showingNutritionSheet = true
+                } label: {
+                    metadataPill(icon: "flame", text: calorieText)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Open nutrition details")
+            }
+
             metadataPill(icon: "clock.arrow.circlepath", text: recipe.usageSummary)
 
             if !recipe.overrideFields.isEmpty {
@@ -1347,7 +1374,7 @@ private struct RecipeCompanionOptionsView: View {
                 }
                 .padding(SMSpacing.lg)
             }
-            .background(SMColor.surface)
+            .paperBackground()
             .scrollContentBackground(.hidden)
             .navigationTitle(context.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -1356,9 +1383,10 @@ private struct RecipeCompanionOptionsView: View {
                     Button("Close") {
                         dismiss()
                     }
-                    .foregroundStyle(SMColor.textSecondary)
+                    .foregroundStyle(SMColor.ember)
                 }
             }
+            .smithToolbar()
         }
     }
 }

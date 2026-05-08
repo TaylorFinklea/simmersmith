@@ -367,6 +367,8 @@ struct RecipeEditorView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -374,14 +376,17 @@ struct RecipeEditorView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await saveRecipe() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving || draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .smithToolbar()
             .task {
                 if appState.recipeMetadata == nil {
                     await appState.refreshRecipeMetadata()

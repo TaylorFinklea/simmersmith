@@ -21,6 +21,23 @@ struct GroceryView: View {
     var dismissable: Bool = false
 
     var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            content
+
+            // Build 70 — configurable FAB. Default = ➕ Add item.
+            // Sparkle / Refresh / Regenerate / Review available
+            // via Settings → Top bar → Grocery.
+            TabPrimaryFAB(page: .grocery, contextHint: "from Grocery", actions: [
+                .add: { showingAddSheet = true },
+                .refresh: { Task { await appState.refreshWeek() } },
+                .regenerate: { Task { await regenerate() } },
+                .review: { showingReviewQueue = true }
+            ])
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         Group {
             if let week = appState.currentWeek, !week.groceryItems.isEmpty {
                 List {
@@ -146,6 +163,10 @@ struct GroceryView: View {
                 )
             )
         }
+        // Build 68 — overhauled top bar. Trailing visible items
+        // collapse to: [optional Done] [overflow ⋯ menu] [primary]
+        // [✨ sparkle]. Refresh / regenerate / dedupe / review queue /
+        // barcode scan / pantry shortcut all push into the ⋯ menu.
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Grocery")
@@ -155,75 +176,32 @@ struct GroceryView: View {
             if dismissable {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(SMColor.primary)
+                        .foregroundStyle(SMColor.ember)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingAddSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add item")
+                groceryOverflowMenu
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        Task { await regenerate() }
-                    } label: {
-                        Label("Regenerate from meals", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    Button {
-                        Task { await dedupe() }
-                    } label: {
-                        Label("Dedupe duplicates", systemImage: "rectangle.stack.badge.minus")
-                    }
-                    Button {
-                        showingArchive = true
-                    } label: {
-                        Label("Show removed items", systemImage: "tray")
-                    }
-                    NavigationLink {
-                        PantryView()
-                    } label: {
-                        Label("Pantry", systemImage: "shippingbox")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("More grocery actions")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await appState.refreshWeek() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Refresh grocery list")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingReviewQueue = true
-                } label: {
-                    Image(systemName: groceryReviewCount == 0 ? "list.bullet.clipboard" : "exclamationmark.circle")
-                }
-                .accessibilityLabel(
-                    groceryReviewCount == 0
-                        ? "Ingredient review queue"
-                        : "Ingredient review queue, \(groceryReviewCount) items need review"
-                )
-            }
-            if !krogerLocationId.isEmpty {
+            // Build 71 — dedupe: hide whichever item matches the
+            // user's selected FAB action.
+            if groceryPrimary != .add {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingBarcodeScanner = true
+                        showingAddSheet = true
                     } label: {
-                        Image(systemName: "barcode.viewfinder")
+                        Image(systemName: "plus")
+                            .foregroundStyle(SMColor.ember)
                     }
-                    .accessibilityLabel("Scan barcode for product info")
+                    .accessibilityLabel("Add item")
+                }
+            }
+            if groceryPrimary != .sparkle {
+                ToolbarItem(placement: .topBarTrailing) {
+                    TopBarSparkleButton(contextHint: "from Grocery")
                 }
             }
         }
+        .smithToolbar()
         .sheet(item: $selectedItem) { item in
             GroceryFeedbackSheet(item: item)
                 .environment(appState)
@@ -246,6 +224,67 @@ struct GroceryView: View {
         .sheet(isPresented: $showingBarcodeScanner) {
             BarcodeLookupSheet()
         }
+    }
+
+    /// Build 71 — used to hide the matching top-bar button when
+    /// the user has selected that action as the FAB.
+    private var groceryPrimary: TopBarPrimaryAction {
+        _ = appState.topBarConfigRevision
+        return appState.topBarPrimary(for: .grocery)
+    }
+
+    /// Build 68 — secondary actions collapse into a single ⋯ menu.
+    /// Mirrors the previous toolbar layout's full set so nothing is
+    /// lost; the visible top bar just isn't 5+ icons wide anymore.
+    private var groceryOverflowMenu: some View {
+        Menu {
+            Button {
+                Task { await appState.refreshWeek() }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            Button {
+                Task { await regenerate() }
+            } label: {
+                Label("Regenerate from meals", systemImage: "arrow.triangle.2.circlepath")
+            }
+            Button {
+                Task { await dedupe() }
+            } label: {
+                Label("Dedupe duplicates", systemImage: "rectangle.stack.badge.minus")
+            }
+            Button {
+                showingReviewQueue = true
+            } label: {
+                if groceryReviewCount == 0 {
+                    Label("Review queue", systemImage: "list.bullet.clipboard")
+                } else {
+                    Label("Review queue (\(groceryReviewCount))", systemImage: "exclamationmark.circle")
+                }
+            }
+            if !krogerLocationId.isEmpty {
+                Button {
+                    showingBarcodeScanner = true
+                } label: {
+                    Label("Scan barcode", systemImage: "barcode.viewfinder")
+                }
+            }
+            Divider()
+            Button {
+                showingArchive = true
+            } label: {
+                Label("Show removed items", systemImage: "tray")
+            }
+            NavigationLink {
+                PantryView()
+            } label: {
+                Label("Pantry", systemImage: "shippingbox")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundStyle(SMColor.ember)
+        }
+        .accessibilityLabel("More grocery actions")
     }
 
     private var mealCount: Int { appState.currentWeek?.meals.count ?? 0 }

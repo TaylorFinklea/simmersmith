@@ -107,6 +107,22 @@ struct WeekView: View {
                 await loadAvailableWeeks()
                 await appState.forceRefreshSeasonalProduce()
             }
+
+            // Build 70 — configurable FAB. Default = ✨ Sparkle (open
+            // Smith with Week context). Quick add or refresh as
+            // alternatives.
+            TabPrimaryFAB(page: .week, contextHint: "from Week", actions: [
+                .quickAdd: {
+                    let today = Date()
+                    let dayName = today.formatted(.dateTime.weekday(.wide))
+                    quickAddSlot = (
+                        dayName: dayName,
+                        mealDate: today,
+                        slot: defaultSlotName()
+                    )
+                },
+                .refresh: { Task { await appState.refreshWeek() } }
+            ])
         }
         .task {
             await appState.refreshSeasonalProduceIfStale()
@@ -169,6 +185,9 @@ struct WeekView: View {
                 }
                 .accessibilityLabel("View week activity")
             }
+            // Build 70 — Week has no top-bar sparkle (per spec); per-
+            // day inline sparkles cover AI calls. Configurable
+            // primary moved to the FAB.
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingSettings = true } label: {
                     Image(systemName: "gearshape")
@@ -177,6 +196,7 @@ struct WeekView: View {
                 .accessibilityLabel("Settings")
             }
         }
+        .smithToolbar()
         // Build 62 — Fusion-styled meal action sheet. Replaces the
         // native confirmationDialog so the menu reads in the same
         // paper aesthetic as the rest of the redesign. Native sheet
@@ -584,19 +604,19 @@ struct WeekView: View {
                 .frame(width: 3)
                 .padding(.vertical, 4)
 
-            // Day pillar — handwritten name above italic-serif numeral.
-            // Bigger than build 60: 17pt name + 38pt numeral.
+            // Build 66 — flipped sizes: italic-serif day name on top
+            // (the big anchor), small handwritten date numeral below.
             VStack(spacing: 0) {
                 Text(String(dayName.lowercased().prefix(3)))
-                    .font(SMFont.handwritten(17, bold: true))
-                    .foregroundStyle(isToday ? SMColor.ember : SMColor.inkSoft)
-                Text("\(dayNum)")
-                    .font(SMFont.serifDisplay(38))
+                    .font(SMFont.serifDisplay(32))
                     .foregroundStyle(isToday ? SMColor.ember : (past ? SMColor.inkFaint : SMColor.ink))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                Text("\(dayNum)")
+                    .font(SMFont.handwritten(15, bold: true))
+                    .foregroundStyle(isToday ? SMColor.ember : SMColor.inkSoft)
             }
-            .frame(width: 54)
+            .frame(width: 60)
             .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: SMSpacing.sm) {

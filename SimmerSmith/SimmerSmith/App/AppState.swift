@@ -146,6 +146,11 @@ final class AppState {
     var syncPhase: SyncPhase = .idle
     var lastErrorMessage: String?
     var selectedTab: MainTab = .week
+    /// Build 68 — bumped whenever the user changes a per-tab top-bar
+    /// primary action in Settings. Views that build toolbars read this
+    /// (via @Observable) so the SwiftUI graph re-renders without
+    /// needing each consumer to subscribe to UserDefaults directly.
+    var topBarConfigRevision: UInt32 = 0
     var assistantLaunchContext: AssistantLaunchContext?
     var assistantSendingThreadIDs: Set<String> = []
     var assistantErrorByThreadID: [String: String] = [:]

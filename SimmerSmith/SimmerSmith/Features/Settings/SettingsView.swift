@@ -57,6 +57,8 @@ struct SettingsView: View {
 
             GrocerySection()
 
+            TopBarSection()
+
             Section("AI") {
                 if let capabilities = appState.aiCapabilities {
                     if let target = capabilities.defaultTarget {
@@ -556,15 +558,14 @@ struct SettingsView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("Settings")
-                    .font(SMFont.headline)
-                    .foregroundStyle(SMColor.textPrimary)
+                FuWordmark(size: 18)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { dismiss() }
-                    .foregroundStyle(SMColor.primary)
+                    .foregroundStyle(SMColor.ember)
             }
         }
+        .smithToolbar()
     }
 
     private var apiKeyStatusText: String {
@@ -585,6 +586,40 @@ struct SettingsView: View {
             imageBackfillToast = "Generated \(result.generated) image\(result.generated == 1 ? "" : "s"). Skipped \(result.skipped), failed \(result.failed)."
         } catch {
             imageBackfillToast = "Backfill failed: \(error.localizedDescription)"
+        }
+    }
+}
+
+// MARK: - Top bar (Build 68)
+
+/// One picker per tab. The user picks which action the per-page
+/// "primary" slot in the top bar runs. Defaults match the page's
+/// natural primary; sparkle is always available across pages so the
+/// rightmost top-bar slot can be set to AI even when the page has
+/// other natural actions.
+private struct TopBarSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            ForEach(TopBarPage.allCases) { page in
+                Picker(
+                    page.displayLabel,
+                    selection: Binding(
+                        get: { appState.topBarPrimary(for: page) },
+                        set: { appState.setTopBarPrimary($0, for: page) }
+                    )
+                ) {
+                    ForEach(page.availableActions, id: \.self) { action in
+                        Label(action.settingsLabel, systemImage: action.systemImage)
+                            .tag(action)
+                    }
+                }
+            }
+        } header: {
+            Text("Top bar")
+        } footer: {
+            Text("Each tab's top-bar primary action. ✨ Ask the Smith always sits on the far right of every tab except Week.")
         }
     }
 }

@@ -31,16 +31,19 @@ struct ActivityView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
                 .refreshable {
                     await appState.refreshWeek()
                 }
             }
         }
+        .paperBackground()
         .navigationTitle("Activity")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 BrandToolbarBadge()
             }
         }
+        .smithToolbar()
     }
 }

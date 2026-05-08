@@ -46,9 +46,6 @@ struct MainTabView: View {
                     }
             }
             .tint(SMColor.ember)
-
-            AIAssistantOverlay()
-                .ignoresSafeArea(.keyboard)
         }
         .environment(coordinator)
     }

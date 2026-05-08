@@ -86,6 +86,7 @@ struct EventDetailView: View {
                 }
             }
         }
+        .smithToolbar()
         .task { await loadIfNeeded() }
         .refreshable { await load() }
         .sheet(item: $mealEditorContext) { context in
@@ -715,19 +716,24 @@ private struct AttendeePickerSheet: View {
                     Text(errorMessage).foregroundStyle(.red)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
             .navigationTitle("Guests")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundStyle(SMColor.ember)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await save() }
                     }
+                    .foregroundStyle(SMColor.ember)
                     .disabled(isSaving)
                 }
             }
+            .smithToolbar()
             .onAppear {
                 selected = Set(event.attendees.map(\.guestId))
                 if appState.guests.isEmpty {

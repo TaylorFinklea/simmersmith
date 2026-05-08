@@ -49,6 +49,11 @@ struct RecipesView: View {
     /// in the Liquid Glass nav bar instead of a custom rounded
     /// search bar inside the scroll.
     @State private var showingFilterSheet = false
+    /// Build 72 — search now lives behind a magnifying-glass icon in
+    /// the top bar (or the configurable FAB if the user picks Search
+    /// as primary). Toggling this animates a paper-styled TextField
+    /// in below the hero.
+    @State private var showSearchField = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -62,11 +67,16 @@ struct RecipesView: View {
                     )
                     .padding(.horizontal, -SMSpacing.lg)
 
+                    // Build 72 — manual search field, only present
+                    // when toggled. Replaces the always-visible
+                    // .searchable drawer.
+                    if showSearchField {
+                        forgeSearchField
+                    }
+
                     // Build 63 — meal type stays as the visible chip
-                    // row (most-used filter). Search lives in the nav
-                    // bar via `.searchable` (Liquid Glass). Other
-                    // filters collapse behind the Filters toolbar
-                    // button.
+                    // row (most-used filter). Other filters collapse
+                    // behind the Filters toolbar button.
                     mealTypeFilterPills
 
                     if filterBadgeCount > 0 {
@@ -81,6 +91,13 @@ struct RecipesView: View {
                         searchResults
                     } else if selectedCleanup != .none {
                         cleanupResults
+                    } else if showGalleryView {
+                        // Build 66 — Gallery is now a true alternate
+                        // layout: flat 2-up paper-tile grid of all
+                        // recipes, no editorial sections. List view
+                        // keeps the editorial structure (Tonight, This
+                        // Week, Favorites, Recently Added, All).
+                        galleryAllRecipes
                     } else {
                         editorialSections
                     }
@@ -90,18 +107,36 @@ struct RecipesView: View {
             }
             .paperBackground()
 
-            // M29 build 55 — bulk-action bar replaces the old AI FAB
-            // (the Assistant tab is the canonical chat entry now;
-            // recipe-suggestion was moved into the toolbar + menu).
+            // Build 70 — configurable FAB. Default = ➕ Add (rich menu
+            // for new recipe / AI suggestion / imports / select).
+            // User can swap to Sparkle / Filter / Gallery in
+            // Settings → Top bar → Forge.
+            if !isSelecting {
+                TabPrimaryFAB(page: .forge, contextHint: "from Forge", actions: [
+                    .add: {
+                        editorContext = RecipeEditorSheetContext(
+                            title: "New Recipe",
+                            draft: RecipeDraft(name: "", mealType: "dinner")
+                        )
+                    },
+                    .filter: { showingFilterSheet = true },
+                    .gallery: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showGalleryView.toggle()
+                        }
+                    },
+                    .search: { activateSearch() }
+                ])
+            }
+
             if isSelecting {
                 bulkActionBar
             }
         }
         .navigationTitle("Forge")
         .navigationBarTitleDisplayMode(.inline)
-        // Build 63 — system searchable replaces the custom searchBar
-        // view. Liquid Glass + native cancel button preserved.
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search recipes, tags, memories")
+        // Build 73 — paper-toned Smith's Notebook toolbar.
+        .smithToolbar()
         .sheet(isPresented: $showingFilterSheet) {
             RecipeFilterSheet(
                 difficulty: $selectedDifficulty,
@@ -133,100 +168,66 @@ struct RecipesView: View {
                         .foregroundStyle(SMColor.textPrimary)
                 }
             } else {
-                // Build 63 — Filters button replaces the inline filter
-                // rows. Badge count = number of advanced filters
-                // active (difficulty / quick / cleanup). Meal-type
-                // chip row stays inline above the grid since it's the
-                // most-used filter.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingFilterSheet = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "line.3.horizontal.decrease.circle\(filterBadgeCount > 0 ? ".fill" : "")")
+                // Build 72 — Search lives behind a magnifying-glass
+                // icon in the top bar. Tapping toggles the inline
+                // search field (and focuses it).
+                if forgePrimary != .search {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            activateSearch()
+                        } label: {
+                            Image(systemName: showSearchField ? "magnifyingglass.circle.fill" : "magnifyingglass")
                                 .foregroundStyle(SMColor.ember)
-                            if filterBadgeCount > 0 {
-                                Text("\(filterBadgeCount)")
-                                    .font(.system(size: 9, weight: .bold).monospacedDigit())
-                                    .foregroundStyle(SMColor.paper)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(SMColor.ember, in: Capsule())
-                                    .offset(x: 8, y: -8)
+                        }
+                        .accessibilityLabel(showSearchField ? "Hide search" : "Search recipes")
+                    }
+                }
+                // Build 63 — Filters button replaces the inline filter
+                // rows. Build 71 — hide whichever item matches the
+                // user's selected FAB action so the same action never
+                // shows in both places.
+                if forgePrimary != .filter {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingFilterSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "line.3.horizontal.decrease.circle\(filterBadgeCount > 0 ? ".fill" : "")")
+                                    .foregroundStyle(SMColor.ember)
+                                if filterBadgeCount > 0 {
+                                    Text("\(filterBadgeCount)")
+                                        .font(.system(size: 9, weight: .bold).monospacedDigit())
+                                        .foregroundStyle(SMColor.paper)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(SMColor.ember, in: Capsule())
+                                        .offset(x: 8, y: -8)
+                                }
                             }
                         }
-                    }
-                    .accessibilityLabel(filterBadgeCount > 0 ? "Filters · \(filterBadgeCount) active" : "Filters")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showGalleryView.toggle()
-                        }
-                    } label: {
-                        Image(systemName: showGalleryView ? "square.grid.2x2.fill" : "list.bullet")
-                            .foregroundStyle(SMColor.primary)
+                        .accessibilityLabel(filterBadgeCount > 0 ? "Filters · \(filterBadgeCount) active" : "Filters")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            editorContext = RecipeEditorSheetContext(
-                                title: "New Recipe",
-                                draft: RecipeDraft(name: "", mealType: "dinner")
-                            )
-                        } label: {
-                            Label("New recipe", systemImage: "square.and.pencil")
-                        }
-                        // M29 build 55 — moved from the (removed) AI FAB.
-                        Button {
-                            showingAISuggestionSheet = true
-                        } label: {
-                            Label("AI suggestion", systemImage: "sparkles")
-                        }
-                        Divider()
-                        Button {
-                            importLaunchMode = .url
-                        } label: {
-                            Label("Import from URL", systemImage: "link")
-                        }
-                        Button {
-                            importLaunchMode = .camera
-                        } label: {
-                            Label("Import from Camera", systemImage: "camera")
-                        }
-                        Button {
-                            importLaunchMode = .photo
-                        } label: {
-                            Label("Import from Photo", systemImage: "photo")
-                        }
-                        Button {
-                            importLaunchMode = .pdf
-                        } label: {
-                            Label("Import from PDF", systemImage: "doc.richtext")
-                        }
-                        Divider()
-                        Button {
-                            showingWebRecipeSearch = true
-                        } label: {
-                            Label("Find recipe online", systemImage: "magnifyingglass.circle")
-                        }
-                        Button {
-                            showingIngredientScanner = true
-                        } label: {
-                            Label("Identify ingredient", systemImage: "viewfinder.circle")
-                        }
-                        Divider()
+                if forgePrimary != .gallery {
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {
-                                isSelecting = true
+                                showGalleryView.toggle()
                             }
                         } label: {
-                            Label("Select recipes", systemImage: "checkmark.circle")
+                            Image(systemName: showGalleryView ? "square.grid.2x2.fill" : "list.bullet")
+                                .foregroundStyle(SMColor.primary)
                         }
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(SMColor.primary)
+                    }
+                }
+                if forgePrimary != .add {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        forgeAddMenu
+                    }
+                }
+                if forgePrimary != .sparkle {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        TopBarSparkleButton(contextHint: "from Forge")
                     }
                 }
             }
@@ -297,6 +298,133 @@ struct RecipesView: View {
                 appState.recipesPrefilledSearch = nil
             }
         }
+    }
+
+    // MARK: - Top-bar add menu
+
+    /// Build 71 — read once per render so the conditional
+    /// toolbar items above stay consistent with the FAB.
+    private var forgePrimary: TopBarPrimaryAction {
+        _ = appState.topBarConfigRevision
+        return appState.topBarPrimary(for: .forge)
+    }
+
+    /// Build 72 — paper-toned manual search field. Replaces the
+    /// system `.searchable` drawer so search can be hidden behind
+    /// a magnifying-glass icon and selectable as the FAB primary.
+    private var forgeSearchField: some View {
+        HStack(spacing: SMSpacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(SMColor.ember)
+            TextField("Search recipes, tags, memories", text: $searchText)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+                .textFieldStyle(.plain)
+                .foregroundStyle(SMColor.textPrimary)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+            Button("Done") {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showSearchField = false
+                    searchText = ""
+                }
+                isSearchFocused = false
+            }
+            .font(SMFont.caption.weight(.semibold))
+            .foregroundStyle(SMColor.ember)
+        }
+        .padding(.horizontal, SMSpacing.md)
+        .padding(.vertical, SMSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: SMRadius.md)
+                .fill(SMColor.paperAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: SMRadius.md)
+                        .stroke(SMColor.rule, lineWidth: 0.5)
+                )
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func activateSearch() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showSearchField = true
+        }
+        // Slight delay so the field is mounted before we focus it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            isSearchFocused = true
+        }
+    }
+
+    private var forgeAddMenu: some View {
+        Menu {
+            Button {
+                editorContext = RecipeEditorSheetContext(
+                    title: "New Recipe",
+                    draft: RecipeDraft(name: "", mealType: "dinner")
+                )
+            } label: {
+                Label("New recipe", systemImage: "square.and.pencil")
+            }
+            // M29 build 55 — moved from the (removed) AI FAB.
+            Button {
+                showingAISuggestionSheet = true
+            } label: {
+                Label("AI suggestion", systemImage: "sparkles")
+            }
+            Divider()
+            Button {
+                importLaunchMode = .url
+            } label: {
+                Label("Import from URL", systemImage: "link")
+            }
+            Button {
+                importLaunchMode = .camera
+            } label: {
+                Label("Import from Camera", systemImage: "camera")
+            }
+            Button {
+                importLaunchMode = .photo
+            } label: {
+                Label("Import from Photo", systemImage: "photo")
+            }
+            Button {
+                importLaunchMode = .pdf
+            } label: {
+                Label("Import from PDF", systemImage: "doc.richtext")
+            }
+            Divider()
+            Button {
+                showingWebRecipeSearch = true
+            } label: {
+                Label("Find recipe online", systemImage: "magnifyingglass.circle")
+            }
+            Button {
+                showingIngredientScanner = true
+            } label: {
+                Label("Identify ingredient", systemImage: "viewfinder.circle")
+            }
+            Divider()
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isSelecting = true
+                }
+            } label: {
+                Label("Select recipes", systemImage: "checkmark.circle")
+            }
+        } label: {
+            Image(systemName: "plus.circle.fill")
+                .foregroundStyle(SMColor.ember)
+        }
+        .accessibilityLabel("Add recipe")
     }
 
     // MARK: - Search Bar
@@ -682,6 +810,19 @@ struct RecipesView: View {
             }
         }
         .padding(.horizontal, SMSpacing.lg)
+    }
+
+    /// Build 66 — Gallery is the alternate top-level layout (toggled
+    /// from the toolbar). Shows all non-archived recipes in a flat
+    /// 2-up paper-tile grid, no editorial sections — that's the
+    /// whole point of toggling.
+    @ViewBuilder
+    private var galleryAllRecipes: some View {
+        if allRecipes.isEmpty {
+            emptyState
+        } else {
+            recipeGalleryGrid(recipes: allRecipes)
+        }
     }
 
     private func recipeGalleryGrid(recipes: [RecipeSummary]) -> some View {
