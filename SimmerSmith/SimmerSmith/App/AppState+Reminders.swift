@@ -242,8 +242,20 @@ extension AppState {
 
         // 1. Reminders that we know about: detect check-state diffs and
         //    push them back to the server.
+        //
+        // Build 80 — bail mid-loop when iOS revokes our background
+        // budget (or the timeout in BackgroundSyncService fires). Each
+        // iteration can do up to two network round-trips, so a long
+        // grocery list can easily push past iOS's 30s BGAppRefresh
+        // budget; without these checks the cancel from the BG task
+        // expiration handler is a no-op and iOS SIGKILLs the process.
         var seenServerIDs: Set<String> = []
         for reminder in reminders {
+            if Task.isCancelled {
+                print("[AppState+Reminders] pull cancelled — bailing after \(seenServerIDs.count) of \(reminders.count) reminders")
+                GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
+                return
+            }
             let reminderID = reminder.calendarItemIdentifier
             // Title-based recovery: if a reminder isn't in our mapping
             // but its title matches an existing server item, treat it

@@ -77,14 +77,26 @@ final class BackgroundSyncService {
             return
         }
 
+        // Build 80 — race the sync against a hard 25s timeout. iOS gives
+        // BGAppRefresh ~30s before SIGKILL; we self-cancel at 25 so the
+        // grocery loop in handleReminderStoreChange exits cleanly via
+        // its Task.isCancelled checks instead of getting killed mid-
+        // network-call.
         let work = Task { @MainActor in
-            await appState.handleReminderStoreChange()
+            let syncTask = Task { @MainActor in
+                await appState.handleReminderStoreChange()
+            }
+            let timeoutTask = Task {
+                try? await Task.sleep(for: .seconds(25))
+                syncTask.cancel()
+            }
+            await syncTask.value
+            timeoutTask.cancel()
             task.setTaskCompleted(success: true)
         }
 
-        // iOS gives BGAppRefresh a budget of ~30s. If we're nearing
-        // expiration the system will call this to let us bail
-        // gracefully without crashing.
+        // Backstop: if iOS expires us before our 25s timer fires, cancel
+        // the whole tree. The cancel cascades into syncTask.
         task.expirationHandler = {
             work.cancel()
             task.setTaskCompleted(success: false)
