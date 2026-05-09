@@ -19,6 +19,16 @@ struct CompactRecipeCard: View {
                     )
                 FuRecipeNumber(index: gradientIndex + 1)
                     .padding(4)
+                if recipe.source.hasPrefix("ai") {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(SMColor.aiPurple.opacity(0.92), in: Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(3)
+                        .accessibilityLabel("AI-drafted recipe")
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {

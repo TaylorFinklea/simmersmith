@@ -98,6 +98,7 @@ struct RecipeEditorView: View {
                         Text("Breakfast").tag("breakfast")
                         Text("Lunch").tag("lunch")
                         Text("Snack").tag("snack")
+                        Text("Dessert").tag("dessert")
                         Text("Other").tag("")
                     }
 

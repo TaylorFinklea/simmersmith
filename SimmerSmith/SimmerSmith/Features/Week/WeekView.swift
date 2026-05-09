@@ -83,13 +83,19 @@ struct WeekView: View {
                     // focused on the week content.
                     FuHero(
                         eyebrow: weekHeroEyebrow,
-                        title: "this week",
-                        emberAccent: nil,
+                        title: weekHeroTitle,
+                        emberAccent: weekHeroEmberAccent,
                         trailing: nil
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
 
-                    InSeasonStrip(pickedItem: $pickedSeasonalItem)
+                    // Build 81 — Savanne: in-season takes up too much
+                    // space on the current week. Hide here, surface
+                    // it on Grocery instead. Future weeks (when the
+                    // user is planning ahead) keep it as a planning aid.
+                    if !isViewingCurrentWeek {
+                        InSeasonStrip(pickedItem: $pickedSeasonalItem)
+                    }
 
                     if let week = displayedWeek {
                         todayHero(week)
@@ -1702,6 +1708,35 @@ struct WeekView: View {
             return "week of \(Self.weekDateFormatter.string(from: start))"
         }
         return "no week yet"
+    }
+
+    /// Build 81 — hero title is "this week" only when actually viewing
+    /// the current ISO week. Future weeks read "next week", "in 2 weeks",
+    /// or "the week of MAR 4". Past weeks read "last week" / etc.
+    /// Savanne reported future weeks were stuck saying "this week".
+    private var weekHeroTitle: String {
+        guard let start = displayedWeekStart ?? appState.currentWeek?.weekStart else {
+            return "this week"
+        }
+        let cal = Self.weekCalendar
+        let today = cal.startOfDay(for: Date())
+        let currentWeekStart = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        let displayedWeekDay = cal.startOfDay(for: start)
+        let weeks = cal.dateComponents([.weekOfYear], from: currentWeekStart, to: displayedWeekDay).weekOfYear ?? 0
+        switch weeks {
+        case 0: return "this week"
+        case 1: return "next week"
+        case -1: return "last week"
+        case 2...: return "in \(weeks) weeks"
+        case ...(-2): return "\(-weeks) weeks ago"
+        default: return "this week"
+        }
+    }
+
+    private var weekHeroEmberAccent: String? {
+        // Only highlight the dot in "this week" — keeps the look quiet
+        // for arbitrary date labels.
+        nil
     }
 
     private func displayedWeekRangeLabel() -> String {

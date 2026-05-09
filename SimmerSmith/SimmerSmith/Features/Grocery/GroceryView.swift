@@ -14,6 +14,9 @@ struct GroceryView: View {
     @State private var showingBarcodeScanner = false
     @State private var isRegenerating = false
     @State private var showingArchive = false
+    /// Build 81 — InSeasonStrip relocated from WeekView per Savanne
+    /// feedback. Surfaces "what's in season now" while shopping.
+    @State private var pickedSeasonalItem: InSeasonItem?
 
     /// True when this view is presented as a sheet from the Week tab —
     /// shows a Done button to dismiss. False when used as the Grocery
@@ -52,6 +55,21 @@ struct GroceryView: View {
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
+                    }
+
+                    // Build 81 — Savanne wanted in-season produce
+                    // visible while shopping, off the Week page. Hidden
+                    // when AppState has no seasonal produce data yet
+                    // (empty region, AI errored, etc.).
+                    if !appState.seasonalProduce.isEmpty {
+                        Section {
+                            InSeasonStrip(pickedItem: $pickedSeasonalItem)
+                                .padding(.horizontal, -SMSpacing.lg)
+                                .padding(.vertical, SMSpacing.xs)
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                        }
                     }
 
                     Section {
@@ -215,6 +233,10 @@ struct GroceryView: View {
             }
         }
         .smithToolbar()
+        .sheet(item: $pickedSeasonalItem) { item in
+            InSeasonDetailSheet(item: item)
+                .environment(appState)
+        }
         .sheet(item: $selectedItem) { item in
             GroceryFeedbackSheet(item: item)
                 .environment(appState)

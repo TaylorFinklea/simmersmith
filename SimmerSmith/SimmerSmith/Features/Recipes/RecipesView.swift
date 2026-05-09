@@ -437,6 +437,7 @@ struct RecipesView: View {
         ("Lunch", "lunch"),
         ("Dinner", "dinner"),
         ("Snack", "snack"),
+        ("Dessert", "dessert"),
     ]
 
     private var bulkActionBar: some View {

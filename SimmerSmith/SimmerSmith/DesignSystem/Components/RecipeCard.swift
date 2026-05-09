@@ -24,6 +24,19 @@ struct RecipeCard: View {
                     )
                 FuRecipeNumber(index: gradientIndex + 1)
                     .padding(4)
+                if recipe.source.hasPrefix("ai") {
+                    // Build 81 — Savanne wants a marker on AI-drafted
+                    // recipes so she can tell at a glance which were
+                    // generated. Sparkle pinned top-right of the image.
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(SMColor.aiPurple.opacity(0.92), in: Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(4)
+                        .accessibilityLabel("AI-drafted recipe")
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {

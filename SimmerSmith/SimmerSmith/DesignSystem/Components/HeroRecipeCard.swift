@@ -14,6 +14,17 @@ struct HeroRecipeCard: View {
                 .overlay(
                     Rectangle().stroke(SMColor.rule, lineWidth: 1)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if recipe.source.hasPrefix("ai") {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(SMColor.aiPurple.opacity(0.92), in: Circle())
+                            .padding(SMSpacing.sm)
+                            .accessibilityLabel("AI-drafted recipe")
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if recipe.favorite {
                         Image(systemName: "heart.fill")
