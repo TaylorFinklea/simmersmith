@@ -68,6 +68,10 @@ struct RecipeEditorView: View {
     @State private var ingredientSuggestions: [BaseIngredient] = []
     @State private var focusedIngredientID: String?
     @State private var ingredientSearchTask: Task<Void, Never>?
+    /// Build 83 — per-recipe MealIcon override picked in the editor.
+    /// Persisted to RecipeIconOverrides.shared in saveRecipe() once
+    /// the saved RecipeSummary surfaces the (possibly new) recipeId.
+    @State private var pickedIcon: MealIcon
 
     init(
         title: String,
@@ -82,6 +86,7 @@ struct RecipeEditorView: View {
         _prepMinutesText = State(initialValue: initialDraft.prepMinutes.map(String.init) ?? "")
         _cookMinutesText = State(initialValue: initialDraft.cookMinutes.map(String.init) ?? "")
         _nutritionSummary = State(initialValue: initialDraft.nutritionSummary)
+        _pickedIcon = State(initialValue: .auto)
     }
 
     var body: some View {
@@ -158,6 +163,10 @@ struct RecipeEditorView: View {
                     } label: {
                         Label("Add tag", systemImage: "tag")
                     }
+                }
+
+                Section("Icon") {
+                    iconPickerGrid
                 }
 
                 Section("Assistant") {
@@ -388,6 +397,11 @@ struct RecipeEditorView: View {
                 }
             }
             .smithToolbar()
+            .onAppear {
+                if let id = draft.recipeId {
+                    pickedIcon = RecipeIconOverrides.shared.explicitChoice(for: id)
+                }
+            }
             .task {
                 if appState.recipeMetadata == nil {
                     await appState.refreshRecipeMetadata()
@@ -435,6 +449,72 @@ struct RecipeEditorView: View {
             } message: {
                 Text("This adds the option to the shared recipe list so it can be reused everywhere.")
             }
+        }
+    }
+
+    /// Build 83 — hand-drawn meal icon picker. "auto" tile shows
+    /// whatever the auto-detect would pick for the current draft, so
+    /// the user can preview the default at a glance.
+    @ViewBuilder
+    private var iconPickerGrid: some View {
+        let autoChoice = MealIcon.autoDetect(
+            name: draft.name,
+            mealType: draft.mealType,
+            cuisine: draft.cuisine,
+            tags: draft.tags
+        )
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Pick a glyph for this recipe. ‘auto’ guesses from the recipe name and meal type.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 12),
+                    count: 5
+                ),
+                spacing: 12
+            ) {
+                iconTile(.auto, preview: autoChoice)
+                ForEach(MealIcon.pickable, id: \.self) { icon in
+                    iconTile(icon, preview: icon)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func iconTile(
+        _ icon: MealIcon,
+        preview rendered: MealIcon
+    ) -> some View {
+        let isSelected = pickedIcon == icon
+        VStack(spacing: 4) {
+            ZStack {
+                LinearGradient(
+                    colors: [SMColor.ember, SMColor.bronze],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                MealIconView(icon: rendered, color: .white.opacity(0.94))
+                    .padding(8)
+            }
+            .frame(width: 48, height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? SMColor.ember : SMColor.rule, lineWidth: isSelected ? 2 : 0.5)
+            )
+            Text(icon == .auto ? "auto" : icon.label)
+                .font(SMFont.handwritten(11))
+                .foregroundStyle(isSelected ? SMColor.ember : SMColor.inkSoft)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            pickedIcon = icon
         }
     }
 
@@ -639,6 +719,10 @@ struct RecipeEditorView: View {
 
         do {
             let saved = try await appState.saveRecipe(prepared)
+            // Build 83 — write the user's picked icon under the
+            // saved recipe id (works for both fresh creates and
+            // edits, since `saved.recipeId` is final).
+            RecipeIconOverrides.shared.set(pickedIcon, for: saved.recipeId)
             onSaved(saved)
             dismiss()
         } catch {

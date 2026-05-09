@@ -17,13 +17,9 @@ struct RecipeHeaderImage: View {
     var isLoading: Bool = false
 
     var body: some View {
-        // Build 82 — Savanne reported the broccoli carrot icon
-        // overflowed its row. The fixed 40pt SF Symbol blew past the
-        // 44pt list-row frame because some symbols (carrot, cake)
-        // have taller bounding boxes than fork.knife. Switch to
-        // resizable + scaledToFit so the icon scales with whatever
-        // size the call site asks for, and clip the container so
-        // nothing ever escapes.
+        // Build 83 — replaced SF Symbol path with hand-drawn MealIcon
+        // glyphs. Resolves the icon via RecipeIconOverrides.shared so
+        // a per-recipe pick wins, falling back to auto-detect.
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             ZStack {
@@ -37,13 +33,9 @@ struct RecipeHeaderImage: View {
                     .opacity(0.18)
                     .blendMode(.overlay)
 
-                Image(systemName: iconName)
-                    .resizable()
-                    .scaledToFit()
-                    .fontWeight(.medium)
-                    .foregroundStyle(.white.opacity(0.92))
-                    .shadow(color: palette.end.opacity(0.6), radius: side * 0.05)
-                    .padding(side * 0.28)
+                MealIconView(icon: resolvedIcon, color: .white.opacity(0.94))
+                    .padding(side * 0.18)
+                    .shadow(color: palette.end.opacity(0.5), radius: side * 0.04)
 
                 if isLoading {
                     Rectangle().fill(Color.black.opacity(0.25))
@@ -58,53 +50,15 @@ struct RecipeHeaderImage: View {
         }
     }
 
+    private var resolvedIcon: MealIcon {
+        RecipeIconOverrides.shared.icon(for: recipe)
+    }
+
     // MARK: - Category derivation
 
     private struct Palette {
         let start: Color
         let end: Color
-    }
-
-    private var iconName: String {
-        let name = recipe.name.lowercased()
-        let mealType = recipe.mealType.lowercased()
-        let cuisine = recipe.cuisine.lowercased()
-        let tags = recipe.tags.map { $0.lowercased() }
-
-        if mealType == "breakfast" { return "sun.max.fill" }
-        if mealType == "dessert" || name.contains("cake") || name.contains("cookie") || name.contains("brownie") || name.contains("pie") {
-            return "birthday.cake.fill"
-        }
-        if mealType == "snack" { return "popcorn.fill" }
-
-        if name.contains("soup") || name.contains("stew") || name.contains("chili") || name.contains("broth") {
-            return "cup.and.saucer.fill"
-        }
-        if name.contains("salad") || name.contains("slaw") {
-            return "leaf.fill"
-        }
-        if name.contains("fish") || name.contains("salmon") || name.contains("tuna") || name.contains("shrimp") || name.contains("seafood") || name.contains("cod") {
-            return "fish.fill"
-        }
-        if name.contains("pizza") {
-            return "circle.grid.2x2.fill"
-        }
-        if name.contains("sandwich") || name.contains("burger") || name.contains("wrap") || name.contains("taco") || name.contains("burrito") {
-            return "fork.knife"
-        }
-        if name.contains("pasta") || name.contains("noodle") || name.contains("spaghetti") || name.contains("lasagna") {
-            return "fork.knife"
-        }
-
-        if tags.contains("vegetarian") || tags.contains("vegan") || cuisine.contains("vegetarian") {
-            return "carrot.fill"
-        }
-
-        if cuisine.contains("mexican") || cuisine.contains("indian") || tags.contains("spicy") {
-            return "flame.fill"
-        }
-
-        return "fork.knife"
     }
 
     private var palette: Palette {
