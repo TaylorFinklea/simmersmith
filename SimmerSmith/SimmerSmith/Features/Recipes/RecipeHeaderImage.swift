@@ -17,31 +17,44 @@ struct RecipeHeaderImage: View {
     var isLoading: Bool = false
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [palette.start, palette.end],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        // Build 82 — Savanne reported the broccoli carrot icon
+        // overflowed its row. The fixed 40pt SF Symbol blew past the
+        // 44pt list-row frame because some symbols (carrot, cake)
+        // have taller bounding boxes than fork.knife. Switch to
+        // resizable + scaledToFit so the icon scales with whatever
+        // size the call site asks for, and clip the container so
+        // nothing ever escapes.
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            ZStack {
+                LinearGradient(
+                    colors: [palette.start, palette.end],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
 
-            // Subtle paper grain overlay reads as drawn-on-paper rather
-            // than flat color.
-            PaperGrain()
-                .opacity(0.18)
-                .blendMode(.overlay)
+                PaperGrain()
+                    .opacity(0.18)
+                    .blendMode(.overlay)
 
-            Image(systemName: iconName)
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .shadow(color: palette.end.opacity(0.6), radius: 6)
+                Image(systemName: iconName)
+                    .resizable()
+                    .scaledToFit()
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(color: palette.end.opacity(0.6), radius: side * 0.05)
+                    .padding(side * 0.28)
 
-            if isLoading {
-                Rectangle().fill(Color.black.opacity(0.25))
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white)
-                    .scaleEffect(1.4)
+                if isLoading {
+                    Rectangle().fill(Color.black.opacity(0.25))
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(1.4)
+                }
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
         }
     }
 
