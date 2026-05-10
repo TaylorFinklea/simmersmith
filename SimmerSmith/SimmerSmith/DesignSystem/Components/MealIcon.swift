@@ -874,34 +874,53 @@ private enum MealIconPaths {
         ]
     }
 
-    // MARK: chicken — drumstick: round meat + narrow handle + bone
+    // MARK: chicken — whole roasted bird silhouette
+    // (Build 84 — replaced the drumstick which read as phallic at
+    // small sizes. The whole-bird silhouette has an asymmetric
+    // oval body with two short leg bumps and a wing curve, none of
+    // which line up that way.)
     static func chicken(_ rect: CGRect) -> [Layer] {
-        var drum = Path()
-        // Round meaty top
-        drum.addEllipse(in: CGRect(
-            x: rect.minX + rect.width * 0.20,
-            y: rect.minY + rect.height * 0.16,
-            width: rect.width * 0.50,
-            height: rect.height * 0.50
-        ))
-        // Handle narrowing down
-        var handle = Path()
-        handle.move(to: pt(rect, 0.56, 0.58))
-        handle.addLine(to: pt(rect, 0.84, 0.86))
-        handle.move(to: pt(rect, 0.66, 0.50))
-        handle.addLine(to: pt(rect, 0.92, 0.78))
-        // Bone end (small circle at tip)
-        var bone = Path()
-        bone.addEllipse(in: CGRect(
-            x: rect.minX + rect.width * 0.78,
-            y: rect.minY + rect.height * 0.74,
-            width: rect.width * 0.16,
-            height: rect.height * 0.16
-        ))
+        // Plump body, slightly egg-shaped (wider at base)
+        var body = Path()
+        body.move(to: pt(rect, 0.18, 0.52))
+        body.addCurve(
+            to: pt(rect, 0.82, 0.52),
+            control1: pt(rect, 0.22, 0.18),
+            control2: pt(rect, 0.78, 0.18)
+        )
+        body.addCurve(
+            to: pt(rect, 0.18, 0.52),
+            control1: pt(rect, 0.86, 0.74),
+            control2: pt(rect, 0.14, 0.74)
+        )
+        // Two leg bumps poking down out of the bottom
+        var legs = Path()
+        // Left leg
+        legs.move(to: pt(rect, 0.36, 0.70))
+        legs.addCurve(
+            to: pt(rect, 0.46, 0.70),
+            control1: pt(rect, 0.34, 0.92),
+            control2: pt(rect, 0.48, 0.92)
+        )
+        // Right leg
+        legs.move(to: pt(rect, 0.54, 0.70))
+        legs.addCurve(
+            to: pt(rect, 0.64, 0.70),
+            control1: pt(rect, 0.52, 0.92),
+            control2: pt(rect, 0.66, 0.92)
+        )
+        // Wing curve detail on the body
+        var wing = Path()
+        wing.move(to: pt(rect, 0.30, 0.42))
+        wing.addCurve(
+            to: pt(rect, 0.52, 0.56),
+            control1: pt(rect, 0.36, 0.50),
+            control2: pt(rect, 0.44, 0.56)
+        )
         return [
-            Layer(path: drum, fill: false),
-            Layer(path: handle, fill: false),
-            Layer(path: bone, fill: false),
+            Layer(path: body, fill: false),
+            Layer(path: legs, fill: false),
+            Layer(path: wing, fill: false),
         ]
     }
 
