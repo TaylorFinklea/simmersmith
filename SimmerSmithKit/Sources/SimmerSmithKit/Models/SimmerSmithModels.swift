@@ -873,6 +873,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
     public var steps: [RecipeStep]
     public var nutritionSummary: NutritionSummary?
     public var imageUrl: String?
+    /// Build 85: per-recipe hand-drawn meal-glyph key. "" = auto.
+    public var iconKey: String
 
     public init(
         recipeId: String? = nil,
@@ -898,7 +900,8 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         ingredients: [RecipeIngredient] = [],
         steps: [RecipeStep] = [],
         nutritionSummary: NutritionSummary? = nil,
-        imageUrl: String? = nil
+        imageUrl: String? = nil,
+        iconKey: String = ""
     ) {
         self.recipeId = recipeId
         self.recipeTemplateId = recipeTemplateId
@@ -924,6 +927,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         self.steps = steps
         self.nutritionSummary = nutritionSummary
         self.imageUrl = imageUrl
+        self.iconKey = iconKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -951,6 +955,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         case steps
         case nutritionSummary
         case imageUrl = "imageUrl"
+        case iconKey
     }
 
     public init(from decoder: Decoder) throws {
@@ -979,6 +984,7 @@ public struct RecipeDraft: Codable, Hashable, Sendable {
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        iconKey = try container.decodeIfPresent(String.self, forKey: .iconKey) ?? ""
     }
 }
 
@@ -1810,6 +1816,8 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
     public let steps: [RecipeStep]
     public let nutritionSummary: NutritionSummary?
     public let imageUrl: String?
+    /// Build 85: per-recipe hand-drawn meal-glyph key. "" = auto.
+    public let iconKey: String
 
     public var id: String { recipeId }
 
@@ -1848,6 +1856,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         case steps
         case nutritionSummary
         case imageUrl = "imageUrl"
+        case iconKey
     }
 
     public init(from decoder: Decoder) throws {
@@ -1886,6 +1895,7 @@ public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
         steps = try container.decodeIfPresent([RecipeStep].self, forKey: .steps) ?? []
         nutritionSummary = try container.decodeIfPresent(NutritionSummary.self, forKey: .nutritionSummary)
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        iconKey = try container.decodeIfPresent(String.self, forKey: .iconKey) ?? ""
     }
 }
 

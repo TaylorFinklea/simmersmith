@@ -86,7 +86,12 @@ struct RecipeEditorView: View {
         _prepMinutesText = State(initialValue: initialDraft.prepMinutes.map(String.init) ?? "")
         _cookMinutesText = State(initialValue: initialDraft.cookMinutes.map(String.init) ?? "")
         _nutritionSummary = State(initialValue: initialDraft.nutritionSummary)
-        _pickedIcon = State(initialValue: .auto)
+        // Build 85: seed picker from server-supplied iconKey if it
+        // came in on the draft, fall back to .auto otherwise.
+        // .onAppear still consults RecipeIconOverrides as a local
+        // fallback for picks that haven't synced to server yet.
+        let initialIcon = MealIcon(rawValue: initialDraft.iconKey) ?? .auto
+        _pickedIcon = State(initialValue: initialIcon)
     }
 
     var body: some View {
@@ -398,7 +403,11 @@ struct RecipeEditorView: View {
             }
             .smithToolbar()
             .onAppear {
-                if let id = draft.recipeId {
+                // Build 85: prefer the draft.iconKey supplied by the
+                // server. Only fall back to RecipeIconOverrides if
+                // the draft has no server-provided value yet (i.e.
+                // a local-only pick that hasn't synced).
+                if pickedIcon == .auto, let id = draft.recipeId {
                     pickedIcon = RecipeIconOverrides.shared.explicitChoice(for: id)
                 }
             }
@@ -715,7 +724,10 @@ struct RecipeEditorView: View {
         errorMessage = nil
         defer { isSaving = false }
 
-        let prepared = preparedDraft()
+        var prepared = preparedDraft()
+        // Build 85: stamp the picker selection onto the outgoing
+        // payload so the server stores the per-recipe glyph.
+        prepared.iconKey = pickedIcon == .auto ? "" : pickedIcon.rawValue
 
         do {
             let saved = try await appState.saveRecipe(prepared)

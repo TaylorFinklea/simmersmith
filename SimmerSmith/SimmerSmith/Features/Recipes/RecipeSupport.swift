@@ -155,7 +155,8 @@ extension RecipeSummary {
             lastUsed: lastUsed,
             ingredients: ingredients,
             steps: steps,
-            nutritionSummary: nutritionSummary
+            nutritionSummary: nutritionSummary,
+            iconKey: iconKey
         )
     }
 
@@ -180,7 +181,8 @@ extension RecipeSummary {
             lastUsed: nil,
             ingredients: ingredients,
             steps: steps,
-            nutritionSummary: nutritionSummary
+            nutritionSummary: nutritionSummary,
+            iconKey: iconKey
         )
     }
 

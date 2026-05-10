@@ -35,9 +35,16 @@ final class RecipeIconOverrides {
         }
     }
 
-    /// Resolve the icon for a recipe: explicit override if any, else
-    /// auto-detected from the recipe's mealType / cuisine / name.
+    /// Resolve the icon for a recipe. Build 85 priority order:
+    /// 1. Server-supplied `recipe.iconKey` (canonical, syncs across
+    ///    devices via household).
+    /// 2. Local UserDefaults override (pre-sync pick, kept until the
+    ///    one-time migration pushes it up).
+    /// 3. Auto-detect from name/mealType/cuisine/tags.
     func icon(for recipe: RecipeSummary) -> MealIcon {
+        if let parsed = MealIcon(rawValue: recipe.iconKey), parsed != .auto {
+            return parsed
+        }
         if
             let raw = overrides[recipe.recipeId],
             let parsed = MealIcon(rawValue: raw),

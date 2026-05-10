@@ -13,9 +13,51 @@ extension AppState {
             }
             try? cacheStore.saveRecipes(recipes)
             syncPhase = .synced(.now)
+            // Build 85: migrate any per-device picks taken on
+            // builds 83/84 (UserDefaults) onto the server now that
+            // we have authoritative `recipes` to scope by.
+            Task { [weak self] in await self?.migrateLocalIconOverridesIfNeeded() }
         } catch {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
+        }
+    }
+
+    /// One-time migration: takes everything in
+    /// `RecipeIconOverrides.shared.overrides` and PATCHes the
+    /// corresponding server recipe so household members see the
+    /// same glyph. Each successful upload clears the local entry.
+    /// Recipes whose server iconKey is already set are skipped (the
+    /// server is canonical). Recipes that no longer exist locally
+    /// are dropped from UserDefaults.
+    private func migrateLocalIconOverridesIfNeeded() async {
+        let overrides = RecipeIconOverrides.shared.overrides
+        guard !overrides.isEmpty else { return }
+        for (recipeId, iconKey) in overrides {
+            guard let summary = recipes.first(where: { $0.recipeId == recipeId }) else {
+                // Recipe gone — drop the stale entry.
+                RecipeIconOverrides.shared.set(.auto, for: recipeId)
+                continue
+            }
+            if !summary.iconKey.isEmpty {
+                // Server already has a value — local is stale, drop it.
+                RecipeIconOverrides.shared.set(.auto, for: recipeId)
+                continue
+            }
+            var draft = summary.editingDraft()
+            draft.iconKey = iconKey
+            do {
+                _ = try await apiClient.saveRecipe(draft)
+                RecipeIconOverrides.shared.set(.auto, for: recipeId)
+            } catch {
+                // Leave local alone; we'll retry on the next launch.
+            }
+        }
+        // Refresh once after the loop so the in-memory recipes carry
+        // the new iconKeys without requiring another full reload.
+        if let refreshed = try? await apiClient.fetchRecipes(includeArchived: true) {
+            recipes = refreshed
+            try? cacheStore.saveRecipes(refreshed)
         }
     }
 
