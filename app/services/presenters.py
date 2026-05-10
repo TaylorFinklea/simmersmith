@@ -180,6 +180,7 @@ def recipe_payload(
         "steps": data["steps"],
         "nutrition_summary": nutrition_summary.as_payload(),
         "image_url": image_url,
+        "icon_key": recipe.icon_key,
     }
 
 

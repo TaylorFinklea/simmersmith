@@ -121,6 +121,10 @@ class RecipePayload(BaseModel):
     steps: list[RecipeStepPayload] = Field(default_factory=list)
     nutrition_summary: NutritionSummaryOut | None = None
     image_url: str | None = None
+    # Build 85: per-recipe hand-drawn glyph key. "" = auto-detect.
+    # Legal values are owned by the iOS MealIcon enum; server keeps
+    # this opaque so we can grow the catalog without coordinating.
+    icon_key: str = ""
 
 
 class RecipeOut(RecipePayload):

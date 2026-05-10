@@ -263,6 +263,8 @@ def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str, hou
     if payload.difficulty_score is not None:
         recipe.difficulty_score = payload.difficulty_score
     recipe.kid_friendly = payload.kid_friendly
+    # Build 85: client-provided meal-icon override (empty = auto).
+    recipe.icon_key = payload.icon_key
     recipe.override_payload_json = (
         json.dumps(variant_override_payload(base_recipe, payload), sort_keys=True)
         if base_recipe is not None

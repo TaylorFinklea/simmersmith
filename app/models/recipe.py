@@ -46,6 +46,11 @@ class Recipe(Base):
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     memories: Mapped[str] = mapped_column(Text, default="", nullable=False)
     override_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    # Build 85: hand-drawn meal glyph picked by the iOS user. Opaque
+    # to the server — the legal value space is owned by the iOS
+    # ``MealIcon`` enum. Empty string means "auto-detect" on the
+    # client. Migration 20260509_0037.
+    icon_key: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
     last_used: Mapped[date | None] = mapped_column(Date, nullable=True)
     # AI-inferred 1-5 difficulty score; NULL until inferred. Backed by a CHECK
     # constraint in migration 20260425_0021.

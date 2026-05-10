@@ -582,6 +582,51 @@ def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) 
     assert all(item["recipe_id"] != recipe["recipe_id"] for item in deleted_list_response.json())
 
 
+def test_recipe_save_round_trips_icon_key(client) -> None:
+    """Build 85: per-recipe hand-drawn glyph key persists through save/get."""
+    create_response = client.post(
+        "/api/recipes",
+        json={
+            "name": "Pancake Stack",
+            "meal_type": "breakfast",
+            "servings": 2,
+            "ingredients": [],
+            "steps": [{"instruction": "Cook pancakes."}],
+            "icon_key": "pancakes",
+        },
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()
+    assert created["icon_key"] == "pancakes"
+
+    fetched = client.get(f"/api/recipes/{created['recipe_id']}").json()
+    assert fetched["icon_key"] == "pancakes"
+
+    # Empty default for recipes that don't pick one
+    plain = client.post(
+        "/api/recipes",
+        json={
+            "name": "No icon recipe",
+            "meal_type": "dinner",
+            "ingredients": [],
+            "steps": [{"instruction": "Cook."}],
+        },
+    ).json()
+    assert plain["icon_key"] == ""
+
+    # Updating an existing recipe to a new icon — same POST endpoint,
+    # the embedded `recipe_id` in the payload routes it to update.
+    updated = client.post(
+        "/api/recipes",
+        json={
+            **{k: v for k, v in created.items() if k not in {"updated_at", "archived_at"}},
+            "icon_key": "muffin",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["icon_key"] == "muffin"
+
+
 def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_metadata(
     client, monkeypatch
 ) -> None:
