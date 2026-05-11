@@ -605,7 +605,12 @@ struct WeekView: View {
         let isToday = DayKey.isToday(date)
         let totals = dayMacros(for: date, meals: meals, week: week)
         let showMacros = !totals.isEmpty && (appState.profile?.dietaryGoal != nil || totals.calories > 0)
-        let dayNum = Calendar.current.component(.day, from: date)
+        // Build 89: server `meal_date` decodes to UTC midnight. Using
+        // `Calendar.current` here yanked the day-of-month one day
+        // earlier for any user west of UTC (Taylor in CDT saw "Mon 10"
+        // for a week that actually starts Mon May 11). `DayKey.utcCalendar`
+        // matches the server's date semantics.
+        let dayNum = DayKey.utcCalendar.component(.day, from: date)
         let dayKey = DayKey.server(date)
         let past = isPastDay(date)
         let expanded = expandedPastDays.contains(dayKey)
@@ -1611,7 +1616,12 @@ struct WeekView: View {
         let meals = mealsForDate(date, in: week)
         let primary = featuredMeal(in: meals)
         let isToday = DayKey.isToday(date)
-        let dayNum = Calendar.current.component(.day, from: date)
+        // Build 89: server `meal_date` decodes to UTC midnight. Using
+        // `Calendar.current` here yanked the day-of-month one day
+        // earlier for any user west of UTC (Taylor in CDT saw "Mon 10"
+        // for a week that actually starts Mon May 11). `DayKey.utcCalendar`
+        // matches the server's date semantics.
+        let dayNum = DayKey.utcCalendar.component(.day, from: date)
 
         Button {
             if let primary {
