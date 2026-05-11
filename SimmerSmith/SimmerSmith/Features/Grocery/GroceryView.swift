@@ -21,6 +21,11 @@ struct GroceryView: View {
     /// Build 87 — plan-shopping sheet entry.
     @State private var showingPlanShopping = false
 
+    /// Build 92 — Taylor dogfood: hide completed items while
+    /// shopping so the list only shows what's left. Per-device,
+    /// sticks across launches.
+    @AppStorage("simmersmith.grocery.hideCompleted") private var hideCompleted = false
+
     /// True when this view is presented as a sheet from the Week tab —
     /// shows a Done button to dismiss. False when used as the Grocery
     /// tab root, where the tab bar handles navigation.
@@ -89,6 +94,27 @@ struct GroceryView: View {
                         }
 
                         fetchPricesRow(week: week)
+
+                        // Build 92 — Hide-completed filter. Shown
+                        // only when there's at least one checked
+                        // item so it doesn't add chrome on an
+                        // untouched list.
+                        if completedItemCount > 0 || hideCompleted {
+                            Toggle(isOn: $hideCompleted) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "checkmark.circle")
+                                        .foregroundStyle(SMColor.success)
+                                    Text("Hide completed")
+                                        .font(SMFont.subheadline)
+                                        .foregroundStyle(SMColor.textPrimary)
+                                    if completedItemCount > 0 {
+                                        Text("(\(completedItemCount))")
+                                            .font(SMFont.caption)
+                                            .foregroundStyle(SMColor.textTertiary)
+                                    }
+                                }
+                            }
+                        }
 
                         // Build 87 — Plan Shopping entry. Replaces
                         // the old auto-populate behavior; the user
@@ -497,12 +523,24 @@ struct GroceryView: View {
     }
 
     private func groupedItems(for week: WeekSnapshot) -> [(category: String, items: [GroceryItem])] {
-        let grouped = Dictionary(grouping: week.groceryItems) { item in
+        // Build 92: when `hideCompleted` is on, drop checked rows
+        // before grouping so empty categories collapse entirely.
+        let source = hideCompleted
+            ? week.groceryItems.filter { !appState.isGroceryChecked($0.groceryItemId) }
+            : week.groceryItems
+        let grouped = Dictionary(grouping: source) { item in
             item.category.isEmpty ? "Unsorted" : item.category
         }
         return grouped
             .map { key, value in (key, value.sorted { $0.ingredientName.localizedCaseInsensitiveCompare($1.ingredientName) == .orderedAscending }) }
             .sorted { $0.category.localizedCaseInsensitiveCompare($1.category) == .orderedAscending }
+    }
+
+    /// Build 92: count of items currently hidden by the filter
+    /// (always zero when the filter is off). Drives the toggle row's
+    /// "(N hidden)" suffix.
+    private var completedItemCount: Int {
+        (appState.currentWeek?.groceryItems ?? []).filter { appState.isGroceryChecked($0.groceryItemId) }.count
     }
 
     private var groceryReviewCount: Int {
