@@ -41,6 +41,18 @@ def reset_database() -> None:
     run_migrations()
     with session_scope() as session:
         seed_defaults(session)
+        # Build 87: auto-grocery is gated and defaults OFF in
+        # production. Pre-existing tests assume the old "edit a meal
+        # → grocery list rebuilds" behavior, so flip the gate ON for
+        # the test environment by default. Build 87 tests that
+        # explicitly cover the OFF path toggle this back themselves.
+        from app.services.drafts import upsert_profile_settings
+
+        upsert_profile_settings(
+            session,
+            get_settings().local_user_id,
+            {"auto_grocery_from_meals": "1"},
+        )
     yield
     reset_db_state()
     if db_path.exists():

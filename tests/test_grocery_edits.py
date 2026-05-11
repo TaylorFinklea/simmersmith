@@ -34,8 +34,10 @@ from app.models._base import new_id, utcnow
 from app.schemas import DraftFromAIRequest, MealDraftPayload, RecipeIngredientPayload, RecipePayload
 from app.services.drafts import apply_ai_draft
 from app.services.events import create_event, add_event_meal
+from app.services.drafts import upsert_profile_settings
 from app.services.grocery import (
     add_user_grocery_item,
+    auto_regenerate_grocery_for_week,
     regenerate_grocery_for_week,
     set_grocery_item_checked,
     update_grocery_item,
@@ -687,3 +689,231 @@ def test_grocery_delta_endpoint_returns_only_changed_items(client: TestClient) -
     # predates the cursor.
     assert len(body["items"]) == 1
     assert body["server_time"] is not None
+
+
+# ---------------------------------------------------------------------
+# Build 87: auto-grocery gating + plan-shopping + clear-auto + store_label
+# ---------------------------------------------------------------------
+
+def test_auto_grocery_defaults_off_meal_add_does_not_populate_grocery(client: TestClient) -> None:
+    """The new build-87 default is OFF — adding meals must NOT auto-add
+    grocery rows. The plan-shopping flow is the user's path now.
+    """
+    household_id = _household_id_for(USER_A_ID)
+    week_start = date(2026, 5, 4)
+    with session_scope() as session:
+        week = create_or_get_week(
+            session, user_id=USER_A_ID, household_id=household_id, week_start=week_start, notes=""
+        )
+        # Drive the gated path directly so the unit test isn't tangled
+        # in the full /api/weeks/draft-from-ai flow.
+        payload = DraftFromAIRequest(
+            prompt="seed",
+            recipes=[
+                RecipePayload(
+                    recipe_id="seed",
+                    name="Seed",
+                    meal_type="dinner",
+                    servings=4,
+                    ingredients=[
+                        RecipeIngredientPayload(
+                            ingredient_name="Cabbage", quantity=1, unit="head"
+                        ),
+                    ],
+                ),
+            ],
+            meal_plan=[
+                MealDraftPayload(
+                    day_name="Monday",
+                    meal_date=week_start,
+                    slot="dinner",
+                    recipe_id="seed",
+                    recipe_name="Seed",
+                    servings=4,
+                ),
+            ],
+        )
+        apply_ai_draft(session, week, payload)
+        # The wrapper used by drafts.py / sides.py
+        auto_regenerate_grocery_for_week(session, USER_A_ID, household_id, week)
+        week_id = week.id
+
+    items = _grocery_items(week_id, household_id)
+    assert items == []
+
+
+def test_auto_grocery_when_enabled_populates_via_wrapper(client: TestClient) -> None:
+    household_id = _household_id_for(USER_A_ID)
+    with session_scope() as session:
+        upsert_profile_settings(session, USER_A_ID, {"auto_grocery_from_meals": "1"})
+
+    week_start = date(2026, 5, 11)
+    with session_scope() as session:
+        week = create_or_get_week(
+            session, user_id=USER_A_ID, household_id=household_id, week_start=week_start, notes=""
+        )
+        payload = DraftFromAIRequest(
+            prompt="seed",
+            recipes=[
+                RecipePayload(
+                    recipe_id="seed-2",
+                    name="Seed Two",
+                    meal_type="dinner",
+                    servings=4,
+                    ingredients=[
+                        RecipeIngredientPayload(
+                            ingredient_name="Onion", quantity=2, unit="ea"
+                        ),
+                    ],
+                ),
+            ],
+            meal_plan=[
+                MealDraftPayload(
+                    day_name="Monday",
+                    meal_date=week_start,
+                    slot="dinner",
+                    recipe_id="seed-2",
+                    recipe_name="Seed Two",
+                    servings=4,
+                ),
+            ],
+        )
+        apply_ai_draft(session, week, payload)
+        auto_regenerate_grocery_for_week(session, USER_A_ID, household_id, week)
+        week_id = week.id
+
+    items = _grocery_items(week_id, household_id)
+    names = {item.ingredient_name for item in items}
+    assert "Onion" in names
+
+
+def test_plan_shopping_endpoint_excludes_items_already_on_grocery_list(client: TestClient) -> None:
+    household_id = _household_id_for(USER_A_ID)
+    week = _seed_week_with_recipe(
+        user_id=USER_A_ID,
+        household_id=household_id,
+        recipe_id="plan-shop",
+        ingredient_name="Garlic",
+        quantity=4,
+        unit="clove",
+    )
+    week_id = week.id
+
+    # Right after seed, all the meal's ingredients are on the grocery list.
+    resp = client.get(
+        f"/api/weeks/{week_id}/grocery/plan-shopping", headers=_headers(USER_A_ID)
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    plan_names = {row["ingredient_name"] for row in body["items"]}
+    assert "Garlic" not in plan_names, "already on grocery list, should not appear in plan"
+
+    # Soft-delete the row — plan should NOT re-suggest it (the user
+    # deliberately removed it).
+    item = next(item for item in _grocery_items(week_id, household_id) if item.ingredient_name == "Garlic")
+    client.patch(
+        f"/api/weeks/{week_id}/grocery/items/{item.id}",
+        json={"removed": True},
+        headers=_headers(USER_A_ID),
+    )
+    resp = client.get(
+        f"/api/weeks/{week_id}/grocery/plan-shopping", headers=_headers(USER_A_ID)
+    )
+    body = resp.json()
+    plan_names = {row["ingredient_name"] for row in body["items"]}
+    assert "Garlic" not in plan_names, "tombstoned items must not reappear in plan-shopping"
+
+
+def test_quick_add_persists_store_label_and_normalized_name(client: TestClient) -> None:
+    household_id = _household_id_for(USER_A_ID)
+    week = _seed_week_with_recipe(
+        user_id=USER_A_ID,
+        household_id=household_id,
+        recipe_id="qa",
+        ingredient_name="Tomatoes",
+        quantity=3,
+        unit="ea",
+    )
+    week_id = week.id
+
+    resp = client.post(
+        f"/api/weeks/{week_id}/grocery/items/quick-add",
+        json={
+            "name": "Basil",
+            "normalized_name": "basil",
+            "quantity": 1,
+            "quantity_text": "",
+            "unit": "bunch",
+            "category": "produce",
+            "store_label": "Kroger",
+        },
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ingredient_name"] == "Basil"
+    assert body["normalized_name"] == "basil"
+    assert body["store_label"] == "Kroger"
+    assert body["is_user_added"] is True
+
+
+def test_clear_auto_deletes_auto_rows_but_keeps_user_added(client: TestClient) -> None:
+    household_id = _household_id_for(USER_A_ID)
+    week = _seed_week_with_recipe(
+        user_id=USER_A_ID,
+        household_id=household_id,
+        recipe_id="clear-test",
+        ingredient_name="Lettuce",
+        quantity=1,
+        unit="head",
+    )
+    week_id = week.id
+
+    # User-added row that must survive
+    resp = client.post(
+        f"/api/weeks/{week_id}/grocery/items",
+        json={"name": "Paper Towels", "quantity": 1, "unit": "pkg"},
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200
+
+    resp = client.post(
+        f"/api/weeks/{week_id}/grocery/clear-auto", headers=_headers(USER_A_ID)
+    )
+    assert resp.status_code == 200, resp.text
+
+    items = _grocery_items(week_id, household_id)
+    names = {item.ingredient_name for item in items}
+    assert "Lettuce" not in names, "auto row must be cleared"
+    assert "Paper Towels" in names, "user-added row must survive clear-auto"
+
+
+def test_patch_store_label_round_trips(client: TestClient) -> None:
+    household_id = _household_id_for(USER_A_ID)
+    week = _seed_week_with_recipe(
+        user_id=USER_A_ID,
+        household_id=household_id,
+        recipe_id="store-test",
+        ingredient_name="Bread",
+        quantity=1,
+        unit="loaf",
+    )
+    week_id = week.id
+    item = next(item for item in week.grocery_items if item.ingredient_name == "Bread")
+
+    resp = client.patch(
+        f"/api/weeks/{week_id}/grocery/items/{item.id}",
+        json={"store_label": "Aldi"},
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["store_label"] == "Aldi"
+
+    # Clearing — pass empty string.
+    resp = client.patch(
+        f"/api/weeks/{week_id}/grocery/items/{item.id}",
+        json={"store_label": ""},
+        headers=_headers(USER_A_ID),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["store_label"] == ""

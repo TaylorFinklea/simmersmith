@@ -210,6 +210,11 @@ class GroceryItem(Base):
     # refresh `total_quantity` because event lifecycle is owned by
     # `merge_event_into_week` / `unmerge_event_from_week`.
     event_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Build 87: optional per-item store annotation. Free text picked by
+    # the iOS user (suggested from existing store sections); when set,
+    # the Reminders sync appends it to the EKReminder. Empty = no pref.
+    # Migration 20260510_0038.
+    store_label: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Recipe, Week, WeekMeal, WeekMealSide
-from app.services.grocery import regenerate_grocery_for_week
+from app.services.grocery import auto_regenerate_grocery_for_week
 from app.services.weeks import invalidate_week
 
 
@@ -67,7 +67,8 @@ def add_side(
     )
     session.add(side)
     session.flush()
-    regenerate_grocery_for_week(session, user_id, household_id, week)
+    # Build 87: gated by auto_grocery_from_meals (default off).
+    auto_regenerate_grocery_for_week(session, user_id, household_id, week)
     return side
 
 
@@ -102,7 +103,8 @@ def update_side(
         side.sort_order = int(fields["sort_order"])
     invalidate_week(session, week)
     session.flush()
-    regenerate_grocery_for_week(session, user_id, household_id, week)
+    # Build 87: gated by auto_grocery_from_meals (default off).
+    auto_regenerate_grocery_for_week(session, user_id, household_id, week)
     return side
 
 
@@ -117,4 +119,5 @@ def delete_side(
     invalidate_week(session, week)
     session.delete(side)
     session.flush()
-    regenerate_grocery_for_week(session, user_id, household_id, week)
+    # Build 87: gated by auto_grocery_from_meals (default off).
+    auto_regenerate_grocery_for_week(session, user_id, household_id, week)

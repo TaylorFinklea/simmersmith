@@ -119,6 +119,7 @@ from app.schemas.vision import (
 from app.schemas.grocery import (
     GroceryItemAddRequest,
     GroceryItemPatchRequest,
+    GroceryItemQuickAddRequest,
     GroceryListDeltaOut,
 )
 from app.schemas.week import (
@@ -132,6 +133,8 @@ from app.schemas.week import (
     GroceryItemOut,
     MealDraftPayload,
     MealUpdatePayload,
+    PlanShoppingItemOut,
+    PlanShoppingOut,
     PricingImportItem,
     PricingImportRequest,
     PricingResponse,
@@ -186,7 +189,10 @@ __all__ = [
     "GroceryItemAddRequest",
     "GroceryItemOut",
     "GroceryItemPatchRequest",
+    "GroceryItemQuickAddRequest",
     "GroceryListDeltaOut",
+    "PlanShoppingItemOut",
+    "PlanShoppingOut",
     "HealthResponse",
     "IngredientIdentificationOut",
     "IngredientMergeRequest",

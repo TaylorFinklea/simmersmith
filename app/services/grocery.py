@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     GroceryItem,
+    ProfileSetting,
     Recipe,
     RecipeIngredient,
     Staple,
@@ -415,6 +416,86 @@ def _grocery_item_from_row(week_id: str, row: dict[str, Any]) -> GroceryItem:
     )
 
 
+def plan_shopping_for_week(
+    session: Session, user_id: str, household_id: str, week: Week
+) -> list[dict[str, Any]]:
+    """Build 87: projection of "what you still need this week".
+
+    Aggregates meal ingredients via ``build_grocery_rows_for_week``,
+    then subtracts items already present on the week's grocery list
+    (matched by aggregation key). Pantry staples are already filtered
+    out upstream. Soft-removed tombstones still count as "on the list"
+    — the user deliberately removed them, so re-suggesting would be
+    noise.
+
+    Returned shape mirrors a row from ``build_grocery_rows_for_week``
+    (the iOS ``PlanShoppingItemOut`` schema is a subset). No
+    persistence — derived on each call so it stays in sync with meal
+    edits without a regen cascade.
+    """
+    rows = build_grocery_rows_for_week(session, user_id, household_id, week)
+
+    existing_keys: set[tuple[str, str, str, str]] = set()
+    for item in session.scalars(
+        select(GroceryItem).where(GroceryItem.week_id == week.id)
+    ).all():
+        existing_keys.add(_key_for_item(item))
+
+    projection: list[dict[str, Any]] = []
+    for row in rows:
+        key = _key_for_row(row)
+        if key in existing_keys:
+            continue
+        projection.append(
+            {
+                "ingredient_name": row["ingredient_name"],
+                "normalized_name": row["normalized_name"],
+                "total_quantity": row["total_quantity"],
+                "unit": row["unit"],
+                "quantity_text": row["quantity_text"],
+                "category": row["category"],
+                "source_meals": row["source_meals"],
+                "notes": row["notes"],
+            }
+        )
+    return projection
+
+
+def auto_grocery_enabled(session: Session, user_id: str) -> bool:
+    """Build 87: read the per-user ``auto_grocery_from_meals`` flag.
+    Default is "0" (off) — adding meals does NOT touch the grocery
+    list. Users who want the old behavior flip the Settings toggle
+    which writes "1" via ``upsert_profile_settings``.
+
+    Manual user-triggered regen via ``regenerate_grocery_for_week``
+    callers in ``app.api.weeks.regenerate_grocery`` bypass this check;
+    only the implicit meal-edit callers in ``drafts.py`` / ``sides.py``
+    are gated.
+    """
+    setting = session.get(ProfileSetting, (user_id, "auto_grocery_from_meals"))
+    if setting is None:
+        return False
+    return (setting.value or "0").strip() == "1"
+
+
+def auto_regenerate_grocery_for_week(
+    session: Session, user_id: str, household_id: str, week: Week
+) -> list[GroceryItem]:
+    """Build 87: gated wrapper. Callers in the meal-edit path (drafts,
+    sides) use this so adding a meal only auto-builds the grocery list
+    when the user has flipped on ``auto_grocery_from_meals``.
+
+    Returns the current grocery list either way — when disabled, it
+    just returns the existing rows untouched so callers that snapshot
+    the week post-write still see a coherent state.
+    """
+    if not auto_grocery_enabled(session, user_id):
+        return list(
+            session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
+        )
+    return regenerate_grocery_for_week(session, user_id, household_id, week)
+
+
 def regenerate_grocery_for_week(session: Session, user_id: str, household_id: str, week: Week) -> list[GroceryItem]:
     """Smart-merge regeneration. Preserves user-added items, removed-
     item tombstones, override fields, household-shared check state,
@@ -506,27 +587,70 @@ def add_user_grocery_item(
     unit: str,
     notes: str,
     category: str = "",
+    store_label: str = "",
+    quantity_text: str = "",
+    normalized_name_override: str = "",
 ) -> GroceryItem:
     """Insert a manually-added grocery item on the week. Smart-merge
     regeneration never deletes or rewrites these rows.
+
+    Build 87: accepts ``store_label`` (per-item store annotation) and
+    a couple of pre-resolved fields (``quantity_text`` ,
+    ``normalized_name_override``) used by the quick-add endpoint —
+    when iOS hands back a plan-shopping row the projection already
+    has the right normalized name + display text and we shouldn't
+    re-derive them.
     """
     invalidate_week(session, week)
     cleaned_name = name.strip()
     if not cleaned_name:
         raise ValueError("name required")
+    normalized = (normalized_name_override or "").strip() or normalize_name(cleaned_name)
     item = GroceryItem(
         week_id=week.id,
         ingredient_name=cleaned_name,
-        normalized_name=normalize_name(cleaned_name),
+        normalized_name=normalized,
         total_quantity=quantity,
         unit=normalize_unit(unit) if unit else "",
+        quantity_text=quantity_text or "",
         category=category or "",
         notes=notes or "",
+        store_label=(store_label or "").strip(),
         is_user_added=True,
     )
     session.add(item)
     session.flush()
     return item
+
+
+def clear_auto_grocery_rows(session: Session, *, week: Week) -> int:
+    """Build 87: delete every auto-generated grocery row on this week.
+
+    Preserves three classes of rows:
+      * ``is_user_added=True``  — user typed it in.
+      * ``event_quantity > 0``  — contributed by a merged event;
+        managed by ``event_grocery`` flows.
+      * ``is_user_removed=True`` — tombstone the user already cleared.
+
+    Used by the iOS one-shot migration that lands with build 87 so
+    existing weeks get a clean slate for the new plan-shopping flow.
+    Returns the count of deleted rows.
+    """
+    invalidate_week(session, week)
+    cleared = 0
+    for item in list(
+        session.scalars(select(GroceryItem).where(GroceryItem.week_id == week.id)).all()
+    ):
+        if item.is_user_added:
+            continue
+        if item.event_quantity is not None and item.event_quantity > 0:
+            continue
+        if item.is_user_removed:
+            continue
+        session.delete(item)
+        cleared += 1
+    session.flush()
+    return cleared
 
 
 def update_grocery_item(
@@ -567,6 +691,9 @@ def update_grocery_item(
         item.normalized_name = normalize_name(item.ingredient_name)
     if "removed" in fields:
         item.is_user_removed = bool(fields["removed"])
+    if "store_label" in fields:
+        # Build 87: store annotation. Empty string clears it.
+        item.store_label = (fields["store_label"] or "").strip()[:40]
     # M24+: catalog linking. Setting `base_ingredient_id` flips the
     # row to "locked" so smart-merge respects the link; passing
     # `None` unlinks (returns the row to "unresolved" so the auto

@@ -48,6 +48,8 @@ def grocery_item_payload(item: GroceryItem) -> dict[str, object]:
         "checked_at": item.checked_at,
         "checked_by_user_id": item.checked_by_user_id,
         "event_quantity": item.event_quantity,
+        # Build 87: per-item store annotation (Kroger / Aldi / free).
+        "store_label": item.store_label,
         "updated_at": item.updated_at,
         "retailer_prices": [
             {
@@ -398,6 +400,7 @@ def week_payload(week: Week | None, *, session: Session | None = None) -> dict[s
                 "checked_at": item.checked_at,
                 "checked_by_user_id": item.checked_by_user_id,
                 "event_quantity": item.event_quantity,
+                "store_label": item.store_label,
                 "updated_at": item.updated_at,
                 "retailer_prices": [
                     {

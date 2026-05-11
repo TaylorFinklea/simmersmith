@@ -60,6 +60,12 @@ DEFAULT_PROFILE_SETTINGS = {
     # foreground banners automatically, so this is only visible when
     # the user has the app backgrounded.
     "push_assistant_done": "1",
+    # Build 87: gate the automatic week → grocery regeneration. When
+    # "0" (default), adding/editing meals no longer rebuilds the
+    # grocery list — the user opens the plan-shopping sheet and adds
+    # items by hand. The manual POST /api/weeks/{id}/regenerate_grocery
+    # endpoint always runs regardless. Stored as "1"/"0".
+    "auto_grocery_from_meals": "0",
 }
 
 DEFAULT_STAPLES = [

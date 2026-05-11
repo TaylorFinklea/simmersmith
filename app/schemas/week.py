@@ -209,8 +209,32 @@ class GroceryItemOut(BaseModel):
     checked_at: datetime | None = None
     checked_by_user_id: str | None = None
     event_quantity: float | None = None
+    # Build 87: optional store annotation (Kroger / Aldi / free-typed).
+    # Empty when unset.
+    store_label: str = ""
     updated_at: datetime
     retailer_prices: list[RetailerPriceOut] = Field(default_factory=list)
+
+
+class PlanShoppingItemOut(BaseModel):
+    """Build 87: a single row in the "what you still need this week"
+    projection. Aggregated from meal ingredients, with pantry staples
+    and items already on the grocery list filtered out. Not persisted —
+    derived on each GET so it stays current with meal edits.
+    """
+    ingredient_name: str
+    normalized_name: str
+    total_quantity: float | None = None
+    unit: str = ""
+    quantity_text: str = ""
+    category: str = ""
+    source_meals: str = ""
+    notes: str = ""
+
+
+class PlanShoppingOut(BaseModel):
+    week_id: str
+    items: list[PlanShoppingItemOut] = Field(default_factory=list)
 
 
 class MacroBreakdownOut(BaseModel):

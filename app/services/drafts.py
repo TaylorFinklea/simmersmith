@@ -20,7 +20,11 @@ from app.models import (
 )
 from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
 from app.services.change_history import ai_baseline_changes, build_change_event, record_change_batch
-from app.services.grocery import normalize_name, regenerate_grocery_for_week
+from app.services.grocery import (
+    auto_regenerate_grocery_for_week,
+    normalize_name,
+    regenerate_grocery_for_week,
+)
 from app.services.ingredient_catalog import resolve_ingredient, resolve_ingredient_payloads
 from app.services.managed_lists import sync_items
 from app.services.recipe_templates import default_template, get_template
@@ -410,7 +414,8 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     session.add(ai_run)
     session.flush()
 
-    regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
+    # Build 87: gated. Default off — see auto_grocery_enabled().
+    auto_regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
     session.flush()
     baseline_meals = list(
         session.scalars(select(WeekMeal).where(WeekMeal.week_id == week.id).order_by(WeekMeal.meal_date, WeekMeal.sort_order))
@@ -573,7 +578,8 @@ def update_week_meals(session: Session, week: Week, updates: list[MealUpdatePayl
             ),
             changes=changes,
         )
-        regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
+        # Build 87: gated. Default off — see auto_grocery_enabled().
+        auto_regenerate_grocery_for_week(session, week.user_id, week.household_id, week)
     else:
         week.updated_at = utcnow()
     session.flush()

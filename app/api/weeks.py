@@ -17,6 +17,7 @@ from app.schemas import (
     ExportRunOut,
     FeedbackEntryPayload,
     GroceryItemAddRequest,
+    GroceryItemQuickAddRequest,
     GroceryItemOut,
     GroceryItemPatchRequest,
     GroceryListDeltaOut,
@@ -29,6 +30,7 @@ from app.schemas import (
     WeekMealSideAddRequest,
     WeekMealSideOut,
     WeekMealSidePatchRequest,
+    PlanShoppingOut,
     WeekOut,
     WeekSummaryOut,
 )
@@ -45,7 +47,9 @@ from app.services.exports import create_export_run, export_runs_payload
 from app.services.feedback import feedback_response_payload, upsert_feedback_entries
 from app.services.grocery import (
     add_user_grocery_item,
+    clear_auto_grocery_rows,
     dedupe_week_grocery,
+    plan_shopping_for_week,
     regenerate_grocery_for_week,
     set_grocery_item_checked,
     update_grocery_item,
@@ -496,6 +500,41 @@ def regenerate_grocery(week_id: str, session: Session = Depends(get_session), cu
     return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}
 
 
+@router.get("/{week_id}/grocery/plan-shopping", response_model=PlanShoppingOut)
+def get_plan_shopping(
+    week_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Build 87: projection of "what you still need this week".
+
+    Derived live from meals - pantry staples - items already on the
+    week's grocery list. Not persisted.
+    """
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    items = plan_shopping_for_week(session, current_user.id, current_user.household_id, week)
+    return {"week_id": week.id, "items": items}
+
+
+@router.post("/{week_id}/grocery/clear-auto", response_model=WeekOut)
+def clear_auto_grocery(
+    week_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Build 87: delete every auto-generated grocery row on this week
+    that the user hasn't touched. Preserves ``is_user_added`` rows,
+    event-merged rows, and tombstones. Used by the iOS one-shot
+    migration to give the new plan-shopping flow a clean slate.
+    """
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    cleared = clear_auto_grocery_rows(session, week=week)
+    logger.info("clear_auto_grocery week=%s cleared=%s", week.id, cleared)
+    session.commit()
+    session.expire_all()
+    return week_payload(get_week(session, current_user.household_id, week.id), session=session) or {}
+
+
 @router.post("/{week_id}/grocery/dedupe", response_model=WeekOut)
 def dedupe_grocery(
     week_id: str,
@@ -555,6 +594,41 @@ def add_grocery_item_route(
             unit=payload.unit,
             notes=payload.notes,
             category=payload.category,
+            store_label=payload.store_label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    session.refresh(item)
+    return grocery_item_payload(item)
+
+
+@router.post("/{week_id}/grocery/items/quick-add", response_model=GroceryItemOut)
+def quick_add_grocery_item_route(
+    week_id: str,
+    payload: GroceryItemQuickAddRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Build 87: one-shot add from the plan-shopping sheet. iOS posts
+    the projection row plus an optional store_label and the server
+    persists it as a user-added grocery row. Distinct from the regular
+    add endpoint because the projection row already carries normalized
+    name + quantity_text so we shouldn't re-derive them.
+    """
+    week = load_week_or_404(session, current_user.household_id, week_id)
+    try:
+        item = add_user_grocery_item(
+            session,
+            week=week,
+            name=payload.name,
+            quantity=payload.quantity,
+            unit=payload.unit,
+            notes=payload.notes,
+            category=payload.category,
+            store_label=payload.store_label,
+            quantity_text=payload.quantity_text,
+            normalized_name_override=payload.normalized_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -22,6 +22,28 @@ class GroceryItemAddRequest(BaseModel):
     unit: str = ""
     notes: str = ""
     category: str = ""
+    # Build 87: optional per-item store annotation (Kroger / Aldi /
+    # free-typed). Empty = no preference.
+    store_label: str = ""
+
+
+class GroceryItemQuickAddRequest(BaseModel):
+    """Build 87: one-shot add from the plan-shopping sheet. Carries
+    the aggregated row plus an optional store. Differs from
+    ``GroceryItemAddRequest`` only in carrying the resolved category
+    + quantity_text + normalized_name straight from the projection so
+    iOS doesn't re-derive them.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    normalized_name: str = ""
+    quantity: float | None = None
+    quantity_text: str = ""
+    unit: str = ""
+    category: str = ""
+    notes: str = ""
+    store_label: str = ""
 
 
 class GroceryItemPatchRequest(BaseModel):
@@ -46,6 +68,8 @@ class GroceryItemPatchRequest(BaseModel):
     removed: Optional[bool] = None
     base_ingredient_id: Optional[str] = None
     ingredient_variation_id: Optional[str] = None
+    # Build 87: PATCH the store annotation. Empty string clears it.
+    store_label: Optional[str] = None
 
 
 class GroceryListDeltaOut(BaseModel):
