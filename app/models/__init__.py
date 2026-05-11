@@ -28,6 +28,7 @@ from app.models.push import PushDevice
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.recipe_image import RecipeImage
 from app.models.recipe_memory import RecipeMemory
+from app.models.server_setting import ServerSetting
 from app.models.user import User
 from app.models.week import (
     ExportItem,
@@ -83,6 +84,7 @@ __all__ = [
     "RecipeStep",
     "RecipeTemplate",
     "RetailerPrice",
+    "ServerSetting",
     "Staple",
     "Subscription",
     "UsageCounter",

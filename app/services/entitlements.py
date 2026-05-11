@@ -27,14 +27,23 @@ GATED_ACTIONS = {
     ACTION_RECIPE_IMPORT,
 }
 
-# Starting defaults. These are the numbers the spec suggested; they live in
-# one place so we can tune them server-side without re-shipping the iOS app.
+# Module-level baseline kept for any legacy callers. The live values
+# come from ``app.services.server_settings.free_tier_limits(session)``
+# so the admin site can tune them without redeploying.
 FREE_TIER_LIMITS: dict[str, int] = {
     ACTION_AI_GENERATE: 1,
     ACTION_PRICING_FETCH: 1,
     ACTION_REBALANCE_DAY: 0,
     ACTION_RECIPE_IMPORT: 5,
 }
+
+
+def _effective_limits(session: Session) -> dict[str, int]:
+    # Inline import to avoid a circular dependency at module load time
+    # (entitlements is imported very early by the FastAPI app graph).
+    from app.services.server_settings import free_tier_limits
+
+    return free_tier_limits(session)
 
 
 @dataclass(frozen=True)
@@ -89,19 +98,29 @@ def is_open_mode(settings: Settings | None = None) -> bool:
     return not bool(settings.jwt_secret) and not bool(settings.api_token.strip())
 
 
-def is_trial_pro(settings: Settings | None = None) -> bool:
+def is_trial_pro(
+    settings: Settings | None = None,
+    *,
+    session: Session | None = None,
+) -> bool:
     """The temporary "free Pro for everyone during beta" switch.
 
-    Controlled by the `SIMMERSMITH_TRIAL_MODE_ENABLED` env var on the
-    backend. Separate from real paid Pro so the iOS client can render
-    promotional copy instead of the usual "you're subscribed" row.
+    Build 94: also consults the ``server_settings.trial_mode_enabled``
+    DB override when a session is supplied. Falls back to the
+    ``SIMMERSMITH_TRIAL_MODE_ENABLED`` env var otherwise. Separate
+    from real paid Pro so the iOS client can render promotional copy
+    instead of the usual "you're subscribed" row.
     """
     settings = settings or get_settings()
+    if session is not None:
+        from app.services.server_settings import trial_mode_enabled
+
+        return trial_mode_enabled(session, settings)
     return bool(settings.trial_mode_enabled)
 
 
 def is_pro(session: Session, user_id: str, *, now: datetime | None = None, settings: Settings | None = None) -> bool:
-    if is_trial_pro(settings):
+    if is_trial_pro(settings, session=session):
         return True
     sub = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
     if sub is None:
@@ -134,7 +153,7 @@ def current_usage(
     *,
     now: datetime | None = None,
 ) -> UsageSummary:
-    limit = FREE_TIER_LIMITS.get(action, 0)
+    limit = _effective_limits(session).get(action, 0)
     period = _period_key(now)
     row = _counter_row(session, user_id, action, period)
     used = row.count if row is not None else 0
@@ -187,7 +206,7 @@ def increment_usage(
     there's no UsageCounter row to write to.
     """
     if action not in GATED_ACTIONS:
-        return UsageSummary(action=action, limit=FREE_TIER_LIMITS.get(action, 0), used=0)
+        return UsageSummary(action=action, limit=_effective_limits(session).get(action, 0), used=0)
     if is_open_mode(settings):
         return current_usage(session, user_id, action, now=now)
 
@@ -208,7 +227,7 @@ def increment_usage(
     session.flush()
     return UsageSummary(
         action=action,
-        limit=FREE_TIER_LIMITS.get(action, 0),
+        limit=_effective_limits(session).get(action, 0),
         used=row.count,
     )
 
