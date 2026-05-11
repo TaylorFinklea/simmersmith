@@ -110,8 +110,12 @@ def test_counters_scope_per_action_and_month(enforced_mode) -> None:  # noqa: AR
         assert current_usage(session, TEST_USER_ID, ACTION_PRICING_FETCH).used == 0
 
 
-def test_usage_counter_idempotent_when_pro(enforced_mode) -> None:  # noqa: ARG001
-    """Pro users do not accrue counts (yet)."""
+def test_usage_counter_accrues_for_pro_users(enforced_mode) -> None:  # noqa: ARG001
+    """Build 93: pro users now accrue counts so the user-facing AI
+    usage view and the admin dashboard can show real numbers. The
+    paywall in ``ensure_action_allowed`` still bypasses for pro/trial
+    — only the count is universal.
+    """
     with session_scope() as session:
         future = datetime.now(timezone.utc) + timedelta(days=30)
         session.add(
@@ -127,7 +131,9 @@ def test_usage_counter_idempotent_when_pro(enforced_mode) -> None:  # noqa: ARG0
         session.commit()
         increment_usage(session, TEST_USER_ID, ACTION_AI_GENERATE)
         rows = session.scalars(select(UsageCounter)).all()
-        assert rows == []
+        assert len(rows) == 1
+        assert rows[0].action == ACTION_AI_GENERATE
+        assert rows[0].count == 1
 
 
 def test_expired_subscription_does_not_count_as_pro(enforced_mode) -> None:  # noqa: ARG001

@@ -178,15 +178,17 @@ def increment_usage(
 ) -> UsageSummary:
     """Bump the counter for a successful gated action.
 
-    Pro users and open-mode environments do not accrue counts — we still
-    want a record eventually for analytics, but that's a later phase. For
-    now, free-tier counters drive the paywall and nothing else.
+    Build 93: always accrue counts so the user (and the admin
+    dashboard) can see real AI usage regardless of pro/trial status.
+    The paywall logic in ``ensure_action_allowed`` still bypasses for
+    pro/trial users — only the count is universal.
+
+    Non-gated actions and open-mode environments still no-op since
+    there's no UsageCounter row to write to.
     """
     if action not in GATED_ACTIONS:
         return UsageSummary(action=action, limit=FREE_TIER_LIMITS.get(action, 0), used=0)
     if is_open_mode(settings):
-        return current_usage(session, user_id, action, now=now)
-    if is_pro(session, user_id, now=now):
         return current_usage(session, user_id, action, now=now)
 
     period = _period_key(now)
