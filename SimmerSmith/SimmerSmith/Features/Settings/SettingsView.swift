@@ -11,6 +11,13 @@ struct SettingsView: View {
     @State private var isCreatingGuest: Bool = false
     @State private var isBackfillingImages = false
     @State private var imageBackfillToast: String?
+    /// Build 91 — Reminders picker presentation lives at the SettingsView
+    /// level (not inside GrocerySection) because iOS 26 dismisses a
+    /// sheet-attached-to-a-Section within ~1s if the Section re-renders
+    /// during presentation (the async permission grant + state refresh
+    /// in the old Toggle.set was the trigger). Hosting the sheet on the
+    /// top-level NavigationStack body avoids that race.
+    @State private var showingReminderPicker = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -59,7 +66,7 @@ struct SettingsView: View {
 
             HouseholdSection()
 
-            GrocerySection()
+            GrocerySection(presentReminderPicker: { showingReminderPicker = true })
 
             TopBarSection()
 
@@ -574,6 +581,12 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $isCreatingGuest) {
             GuestEditorSheet(guest: nil)
+        }
+        // Build 91 — Reminders list picker hoisted from GrocerySection.
+        // See showingReminderPicker comment on the @State declaration.
+        .sheet(isPresented: $showingReminderPicker) {
+            ReminderListPickerSheet()
+                .environment(appState)
         }
         .task {
             if appState.guests.isEmpty {
@@ -1350,9 +1363,14 @@ private struct HouseholdSection: View {
 
 private struct GrocerySection: View {
     @Environment(AppState.self) private var appState
-    @State private var showingPicker = false
+    /// Build 91 — picker sheet host is the SettingsView body, not us.
+    /// Section-attached sheets are torn down when the Section
+    /// re-renders during the async permission grant, which is what
+    /// caused the "picker flashes then dismisses" bug.
+    let presentReminderPicker: () -> Void
     @State private var selectedListName: String = ""
     @State private var permissionStatus: EKAuthorizationStatus = .notDetermined
+    @State private var isConnecting = false
 
     var body: some View {
         Section {
@@ -1372,22 +1390,34 @@ private struct GrocerySection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Sync to Apple Reminders", isOn: Binding(
-                get: { appState.reminderListIdentifier != nil },
-                set: { newValue in
-                    Task { await handleToggle(newValue) }
+            // Build 91 — explicit Connect / Disconnect buttons replace
+            // the old Toggle. The toggle's binding round-trip (set
+            // newValue → async permission grant → showingPicker = true
+            // → SwiftUI rebuilds the Toggle's parent Section → sheet
+            // gets dismissed within ~1s on iOS 26) was an unfixable
+            // race with the section-attached sheet. Explicit buttons
+            // have no binding feedback loop, and the picker sheet
+            // lives on the SettingsView body now, so it survives any
+            // GrocerySection re-render.
+            if appState.reminderListIdentifier == nil {
+                Button {
+                    Task { await connect() }
+                } label: {
+                    HStack {
+                        Label(
+                            isConnecting ? "Connecting…" : "Connect to Apple Reminders",
+                            systemImage: "checklist"
+                        )
+                        Spacer()
+                    }
                 }
-            ))
-
-            if let listID = appState.reminderListIdentifier {
-                LabeledContent("Reminders list") {
-                    Text(selectedListName.isEmpty ? "—" : selectedListName)
+                .disabled(isConnecting)
+            } else {
+                LabeledContent("Apple Reminders") {
+                    Text(selectedListName.isEmpty ? "Connected" : selectedListName)
                         .foregroundStyle(.secondary)
                 }
-                Button("Change list") { showingPicker = true }
-            }
-
-            if appState.reminderListIdentifier != nil {
+                Button("Change list") { presentReminderPicker() }
                 Button {
                     Task {
                         // Pull first (catches items added directly in
@@ -1398,6 +1428,12 @@ private struct GrocerySection: View {
                     }
                 } label: {
                     Label("Sync now", systemImage: "arrow.clockwise")
+                }
+                Button(role: .destructive) {
+                    appState.clearReminderList()
+                    Task { await refreshState() }
+                } label: {
+                    Label("Disconnect", systemImage: "link.slash")
                 }
             }
 
@@ -1422,29 +1458,22 @@ private struct GrocerySection: View {
             SmithSectionHeader("grocery sync")
         }
         .task { await refreshState() }
-        .sheet(isPresented: $showingPicker, onDismiss: { Task { await refreshState() } }) {
-            ReminderListPickerSheet()
-                .environment(appState)
+        .onChange(of: appState.reminderListIdentifier) { _, _ in
+            Task { await refreshState() }
         }
     }
 
-    private func handleToggle(_ enabled: Bool) async {
-        if enabled {
-            let granted = await appState.requestRemindersAccess()
-            if !granted {
-                await refreshState()
-                return
-            }
-            // If the user hasn't picked a list yet, prompt the picker.
-            if appState.reminderListIdentifier == nil {
-                showingPicker = true
-            } else {
-                await appState.syncGroceryToReminders()
-            }
-        } else {
-            appState.clearReminderList()
-        }
+    private func connect() async {
+        isConnecting = true
+        defer { isConnecting = false }
+        let granted = await appState.requestRemindersAccess()
         await refreshState()
+        guard granted else { return }
+        if appState.reminderListIdentifier == nil {
+            presentReminderPicker()
+        } else {
+            await appState.syncGroceryToReminders()
+        }
     }
 
     private func refreshState() async {
