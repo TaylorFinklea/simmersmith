@@ -44,11 +44,17 @@ struct TabPrimaryFAB: View {
     }
 
     private func handle(_ action: TopBarPrimaryAction) {
-        // Sparkle is universal — every page wants the same "open Smith
-        // with page context" behavior. Other actions delegate to the
-        // host's closures so each tab can dispatch into its own state.
+        // Sparkle: the host can override with its own handler (e.g.
+        // Week presents the contextual popup sheet for the displayed
+        // week instead of switching tabs). If no override is supplied,
+        // fall back to the universal "open Smith with page context"
+        // behavior so other pages keep working.
         if action == .sparkle {
-            Task { await openSmith() }
+            if let handler = actions[.sparkle] {
+                handler()
+            } else {
+                Task { await openSmith() }
+            }
             return
         }
         actions[action]?()

@@ -120,10 +120,18 @@ struct WeekView: View {
                 await appState.forceRefreshSeasonalProduce()
             }
 
-            // Build 70 — configurable FAB. Default = ✨ Sparkle (open
-            // Smith with Week context). Quick add or refresh as
-            // alternatives.
+            // Build 70 — configurable FAB. Default = ✨ Sparkle.
+            // Build 90: Savanne dogfood — when the user has Sparkle as
+            // the Week FAB, tapping it pops the contextual AI sheet
+            // scoped to the *displayed* week (mirrors the per-day
+            // inline sparkle behavior) instead of switching tabs to
+            // Smith. Other tabs keep the default "open Smith"
+            // behavior for now.
             TabPrimaryFAB(page: .week, contextHint: "from Week", actions: [
+                .sparkle: {
+                    publishContext()
+                    aiCoordinator.present()
+                },
                 .quickAdd: {
                     let today = Date()
                     let dayName = today.formatted(.dateTime.weekday(.wide))
