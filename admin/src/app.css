@@ -1,0 +1,34 @@
+@import 'tailwindcss';
+
+/* SimmerSmith Forge palette mirrored from iOS DesignSystem/Theme.swift so
+   the admin site reads as a sibling of the iOS app rather than generic
+   admin chrome. Dark-only since the audience is one operator. */
+:root {
+    color-scheme: dark;
+}
+
+@theme {
+    --color-paper: #15110d;
+    --color-paper-alt: #1c1814;
+    --color-ink: #f4eee2;
+    --color-ink-soft: #c8bdaa;
+    --color-ink-faint: #82786a;
+    --color-rule: #2e2620;
+    --color-ember: #e8541c;
+    --color-ember-hot: #ff7a3b;
+    --color-success: #5fa874;
+    --color-destructive: #d65555;
+}
+
+body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: ui-serif, Georgia, 'Times New Roman', serif;
+}
+
+/* Hand-drawn ember rule under page headers, matching the iOS hero. */
+.hand-rule {
+    height: 2px;
+    background: var(--color-ember);
+    border-radius: 1px;
+}

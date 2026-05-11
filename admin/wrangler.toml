@@ -1,0 +1,17 @@
+name = "simmersmith-admin"
+main = ".svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_als"]
+
+[assets]
+binding = "ASSETS"
+directory = ".svelte-kit/cloudflare"
+
+# SIMMERSMITH_ADMIN_TOKEN is set as a Worker secret via
+# `wrangler secret put SIMMERSMITH_ADMIN_TOKEN` so the bearer token
+# the SvelteKit server-side fetchers use never ships in the bundle.
+# The same token must match SIMMERSMITH_API_TOKEN on the FastAPI
+# backend (Fly).
+
+[vars]
+SIMMERSMITH_API_BASE = "https://simmersmith.fly.dev"
