@@ -1132,6 +1132,13 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
+    /// Build 88: trigger the server-side resolver backfill for the
+    /// caller's household. Returns counts of fixed-up rows per
+    /// category. Idempotent — repeated calls just return zero.
+    public func reresolveUnresolvedIngredients() async throws -> [String: Int] {
+        try await request(path: "/api/recipes/reresolve", method: "POST", body: EmptyBody())
+    }
+
     public func fetchRecipes(includeArchived: Bool = false) async throws -> [RecipeSummary] {
         let suffix = includeArchived ? "?include_archived=true" : ""
         return try await request(path: "/api/recipes\(suffix)")

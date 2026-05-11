@@ -220,4 +220,29 @@ extension AppState {
         UserDefaults.standard.set(true, forKey: key)
         await clearAutoGroceryForCurrentWeek()
     }
+
+    /// Build 88: idempotent migration. Asks the server to re-resolve
+    /// every ``resolution_status="unresolved"`` row in the household
+    /// — fixes the iOS-Codable-default bug that was leaving every
+    /// recipe ingredient pinned at "unresolved" even when the
+    /// resolver matched a base ingredient. Same once-per-device
+    /// pattern as build 87.
+    func runBuild88IngredientReresolveIfNeeded() async {
+        let key = "simmersmith.build88.reresolvedIngredients"
+        if UserDefaults.standard.bool(forKey: key) { return }
+        UserDefaults.standard.set(true, forKey: key)
+        guard hasSavedConnection else { return }
+        do {
+            _ = try await apiClient.reresolveUnresolvedIngredients()
+            // Refresh so the iOS view picks up the updated
+            // resolution_status / base_ingredient_id on each row.
+            await refreshRecipes()
+            await refreshWeek()
+        } catch {
+            // Swallow — the flag is set so we won't retry. If it failed
+            // the rows stay "unresolved" until the user saves them
+            // again (which the build 88 server fix now handles).
+            lastErrorMessage = error.localizedDescription
+        }
+    }
 }

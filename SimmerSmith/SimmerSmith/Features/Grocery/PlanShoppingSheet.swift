@@ -151,6 +151,27 @@ struct PlanShoppingSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Build 88 — Taylor: same swipe affordance as the grocery row
+        // so adding "I already have this" to pantry is one gesture.
+        // The pantry row stays in the plan list (the user can still
+        // tap to add to grocery if they want both); a second affordance
+        // shows below.
+        .swipeActions(edge: .leading) {
+            Button("To Pantry", systemImage: "archivebox") {
+                Task {
+                    await appState.quickAddIngredientToPantry(
+                        name: planItem.ingredientName,
+                        category: planItem.category,
+                        unit: planItem.unit,
+                        normalizedNameHint: planItem.normalizedName
+                    )
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        planItems.removeAll { $0.id == planItem.id }
+                    }
+                }
+            }
+            .tint(SMColor.ember)
+        }
     }
 
     @ViewBuilder

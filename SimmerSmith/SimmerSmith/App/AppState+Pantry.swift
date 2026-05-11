@@ -27,6 +27,42 @@ extension AppState {
         }
     }
 
+    /// Build 88: quick-add an ingredient to the pantry from a grocery
+    /// or plan-shopping row. Skips if a pantry item with the same
+    /// normalized name already exists. Returns `true` when a new row
+    /// was created so callers can show "Added to pantry" feedback.
+    @discardableResult
+    func quickAddIngredientToPantry(
+        name: String,
+        category: String = "",
+        unit: String = "",
+        normalizedNameHint: String = ""
+    ) async -> Bool {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedName.isEmpty else { return false }
+        let normalized = normalizedNameHint.isEmpty
+            ? cleanedName.lowercased()
+            : normalizedNameHint.lowercased()
+        if pantryItems.isEmpty {
+            await loadPantryItems()
+        }
+        if pantryItems.contains(where: {
+            $0.normalizedName.lowercased() == normalized
+                || $0.stapleName.lowercased() == cleanedName.lowercased()
+        }) {
+            return false
+        }
+        let body = SimmerSmithAPIClient.PantryItemAddBody(
+            stapleName: cleanedName,
+            normalizedName: normalized,
+            category: category,
+            categories: category.isEmpty ? [] : [category]
+        )
+        let before = pantryItems.count
+        await addPantryItem(body)
+        return pantryItems.count > before
+    }
+
     func patchPantryItem(itemID: String, body: SimmerSmithAPIClient.PantryItemPatchBody) async {
         do {
             let updated = try await apiClient.patchPantryItem(itemID: itemID, body: body)

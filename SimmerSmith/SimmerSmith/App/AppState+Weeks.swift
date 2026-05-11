@@ -39,6 +39,10 @@ extension AppState {
             // regardless of whether the server call succeeds so a
             // transient network error doesn't loop forever.
             Task { [weak self] in await self?.runBuild87GroceryMigrationIfNeeded() }
+            // Build 88: one-shot ingredient re-resolve to fix the
+            // "Unresolved" pill that was stuck on every recipe
+            // ingredient due to the iOS-Codable default.
+            Task { [weak self] in await self?.runBuild88IngredientReresolveIfNeeded() }
         } catch {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)

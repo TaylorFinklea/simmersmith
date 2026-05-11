@@ -204,6 +204,24 @@ struct GroceryView: View {
                                     }
                                     .tint(.blue)
                                 }
+                                .swipeActions(edge: .leading) {
+                                    // Build 88 — Taylor: quick way to add a
+                                    // grocery item to the pantry. Swipe-right
+                                    // (leading) for "Pantry" so the existing
+                                    // trailing destructive Remove stays
+                                    // discoverable.
+                                    Button("To Pantry", systemImage: "archivebox") {
+                                        Task {
+                                            await appState.quickAddIngredientToPantry(
+                                                name: item.ingredientName,
+                                                category: item.category,
+                                                unit: item.effectiveUnit,
+                                                normalizedNameHint: item.normalizedName
+                                            )
+                                        }
+                                    }
+                                    .tint(SMColor.ember)
+                                }
                             }
                         }
                     }
