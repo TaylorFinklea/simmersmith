@@ -1,43 +1,28 @@
 import SwiftUI
 import SimmerSmithKit
 
-/// Floating sparkle button + sheet. Attach as an overlay on the root
-/// container so every tab gets access.
+/// Build 86 — popup-sheet host for the AI assistant.
+///
+/// Mounted once at the root (MainTabView). Owns nothing visible itself;
+/// just observes `AIAssistantCoordinator.isSheetPresented` and presents
+/// `AIAssistantSheetView` as a sheet when contextual sparkle buttons
+/// (per-day in Week, per-page in Forge/Grocery/Recipe Detail) call
+/// `coordinator.present()`.
+///
+/// The old floating sparkle FAB this view used to render is gone — the
+/// dedicated Smith tab replaces it, and per-page TopBarSparkleButton +
+/// inline day sparkles cover contextual access.
 struct AIAssistantOverlay: View {
     @Environment(AIAssistantCoordinator.self) private var coordinator
 
     var body: some View {
         @Bindable var coord = coordinator
 
-        ZStack(alignment: .bottomTrailing) {
-            Color.clear
-
-            if !coordinator.hideFloatingButton {
-                Button {
-                    coordinator.toggle()
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(
-                            LinearGradient(
-                                colors: [SMColor.primary, SMColor.aiPurple],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            in: Circle()
-                        )
-                        .shadow(color: SMColor.aiPurple.opacity(0.4), radius: 12, y: 4)
-                }
-                .accessibilityLabel("Open AI assistant")
-                .padding(.trailing, SMSpacing.xl)
-                .padding(.bottom, 96)
+        Color.clear
+            .allowsHitTesting(false)
+            .sheet(isPresented: $coord.isSheetPresented) {
+                AIAssistantSheetView()
+                    .environment(coordinator)
             }
-        }
-        .sheet(isPresented: $coord.isSheetPresented) {
-            AIAssistantSheetView()
-                .environment(coordinator)
-        }
     }
 }

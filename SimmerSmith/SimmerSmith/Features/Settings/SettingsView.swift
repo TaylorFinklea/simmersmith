@@ -63,6 +63,8 @@ struct SettingsView: View {
 
             TopBarSection()
 
+            ForgeSection()
+
             Section {
                 if let capabilities = appState.aiCapabilities {
                     if let target = capabilities.defaultTarget {
@@ -642,6 +644,28 @@ private struct TopBarSection: View {
             Text("Top bar")
         } footer: {
             Text("Each tab's top-bar primary action. ✨ Ask the Smith always sits on the far right of every tab except Week.")
+        }
+    }
+}
+
+// MARK: - Forge (Build 86)
+
+/// Per-device Forge-page preferences. Backed by `@AppStorage` so they
+/// stick across launches without a server round-trip. The
+/// `simmersmith.forge.*` UserDefaults keys are the source of truth —
+/// `RecipesView` reads them directly via its own `@AppStorage` so the
+/// toggle takes effect without a state hop through AppState.
+private struct ForgeSection: View {
+    @AppStorage("simmersmith.forge.showRecentlyAdded") private var showRecentlyAdded = true
+
+    var body: some View {
+        Section {
+            Toggle("Show Recently Added", isOn: $showRecentlyAdded)
+        } header: {
+            SmithSectionHeader("forge")
+        } footer: {
+            Text("When off, the Forge tab hides the Recently Added rail. The list view still shows all your recipes below.")
+                .font(.footnote)
         }
     }
 }

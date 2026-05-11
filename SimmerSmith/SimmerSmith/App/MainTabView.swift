@@ -46,6 +46,13 @@ struct MainTabView: View {
                     }
             }
             .tint(SMColor.ember)
+
+            // Build 86 — re-mount the assistant overlay so per-day
+            // sparkle buttons in Week (and per-page sparkle buttons
+            // elsewhere) re-open the popup sheet instead of silently
+            // toggling coordinator state.
+            AIAssistantOverlay()
+                .ignoresSafeArea(.keyboard)
         }
         .environment(coordinator)
     }

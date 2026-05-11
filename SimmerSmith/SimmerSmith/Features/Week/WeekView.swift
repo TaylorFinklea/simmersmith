@@ -88,6 +88,9 @@ struct WeekView: View {
                         trailing: nil
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
+                    .contentShape(Rectangle())
+                    .gesture(weekHeroSwipeGesture)
+                    .accessibilityHint("Swipe left for next week, right for previous week.")
 
                     // Build 81 — Savanne: in-season takes up too much
                     // space on the current week. Hide here, surface
@@ -1394,6 +1397,24 @@ struct WeekView: View {
     private func navigateToPreviousWeek() { navigateRelative(weeks: -1) }
 
     private func navigateToNextWeek() { navigateRelative(weeks: 1) }
+
+    /// Build 86 — Savanne dogfood: horizontal swipe across the Fusion
+    /// hero jumps a week. Left = next, right = previous. The 60pt
+    /// horizontal threshold + 2:1 horizontal-vs-vertical ratio keep
+    /// vertical scroll dominant and require an intentional drag.
+    private var weekHeroSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > 60, abs(dx) > abs(dy) * 2 else { return }
+                if dx < 0 {
+                    navigateToNextWeek()
+                } else {
+                    navigateToPreviousWeek()
+                }
+            }
+    }
 
     /// Calendar-app navigation: jump ±7 days from the displayed week and
     /// ensure-or-create the target week's server record. Server-side

@@ -55,6 +55,11 @@ struct RecipesView: View {
     /// in below the hero.
     @State private var showSearchField = false
 
+    /// Build 86 — Savanne dogfood: the Recently Added rail can be
+    /// hidden via Settings → Forge. Per-device preference, no server
+    /// round-trip needed.
+    @AppStorage("simmersmith.forge.showRecentlyAdded") private var showRecentlyAdded = true
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
@@ -724,8 +729,9 @@ struct RecipesView: View {
                 }
             }
 
-            // 4. Recently Added vertical list
-            if !recentlyAddedRecipes.isEmpty {
+            // 4. Recently Added vertical list (Build 86: respects
+            // Settings → Forge → "Show Recently Added").
+            if showRecentlyAdded && !recentlyAddedRecipes.isEmpty {
                 VStack(spacing: SMSpacing.sm) {
                     sectionHeader("Recently Added")
 
@@ -1048,8 +1054,15 @@ struct RecipesView: View {
     }
 
     private var recentlyAddedRecipes: [RecipeSummary] {
+        // Build 86 — Savanne dogfood: meal-type / difficulty / quick
+        // filters on the Forge page must also narrow the Recently
+        // Added rail, not just the "All Recipes" list. Without this
+        // the rail surfaces breakfasts while filtering Dinners.
         appState.recipes
             .filter { !$0.archived }
+            .filter { matchesMealType($0) }
+            .filter { matchesDifficulty($0) }
+            .filter { matchesQuick($0) }
             .sorted { $0.updatedAt > $1.updatedAt }
             .prefix(8)
             .map { $0 }
