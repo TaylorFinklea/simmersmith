@@ -186,6 +186,8 @@ struct SettingsView: View {
                 SmithSectionHeader("ai")
             }
 
+            AIUsageSection()
+
             Section {
                 Text("New recipes get an AI-generated header image automatically. Pick the model that draws them — you can switch any time.")
                     .font(.footnote)
@@ -658,6 +660,75 @@ private struct TopBarSection: View {
         } footer: {
             Text("Each tab's top-bar primary action. ✨ Ask the Smith always sits on the far right of every tab except Week.")
         }
+    }
+}
+
+// MARK: - AI Usage (Build 93)
+
+/// Build 93 — user-facing AI usage breakdown. Reads
+/// ``profile.usage`` which now accrues for every user (pro + trial
+/// + free) so the user can see real numbers regardless of paywall
+/// status. The list is sorted by `used` descending so the most-used
+/// action surfaces first.
+private struct AIUsageSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            if usageRows.isEmpty {
+                Text("No AI activity yet this month. Generating a week plan, importing a recipe, or rebalancing a day shows up here.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(usageRows, id: \.action) { row in
+                    LabeledContent(actionLabel(row.action)) {
+                        Text(usageText(for: row))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            }
+        } header: {
+            SmithSectionHeader("ai usage (this month)")
+        } footer: {
+            if appState.profile?.isTrial == true {
+                Text("You're on the free Pro trial — no caps apply right now. Counts are shown for visibility.")
+                    .font(.footnote)
+            } else if appState.profile?.isPro == true {
+                Text("You're a SimmerSmith Pro subscriber. No caps; counts are tracked for visibility.")
+                    .font(.footnote)
+            } else {
+                Text("Free-tier limits reset on the first of the month.")
+                    .font(.footnote)
+            }
+        }
+    }
+
+    private var usageRows: [UsageSummary] {
+        (appState.profile?.usage ?? [])
+            .filter { $0.used > 0 || $0.limit > 0 }
+            .sorted { lhs, rhs in
+                if lhs.used != rhs.used { return lhs.used > rhs.used }
+                return lhs.action < rhs.action
+            }
+    }
+
+    private func actionLabel(_ action: String) -> String {
+        switch action {
+        case "ai_generate": return "AI plans"
+        case "pricing_fetch": return "Price fetches"
+        case "rebalance_day": return "Day rebalances"
+        case "recipe_import": return "Recipe imports"
+        default: return action.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func usageText(for row: UsageSummary) -> String {
+        let isUnlimited = appState.profile?.isPro == true || appState.profile?.isTrial == true
+        if isUnlimited {
+            return "\(row.used) used"
+        }
+        return "\(row.used) of \(row.limit)"
     }
 }
 
