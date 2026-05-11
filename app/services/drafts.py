@@ -103,10 +103,26 @@ def summarized_steps(step_payloads: list[dict[str, object]]) -> str:
 
 
 def resolution_status_override(ingredient: object) -> str | None:
+    """Read an inbound caller-supplied ``resolution_status`` and decide
+    whether to honor it as an override on the server resolver.
+
+    Build 88: ignore inbound ``"unresolved"``. The iOS ``RecipeIngredient``
+    Swift struct defaults ``resolutionStatus = "unresolved"``, so every
+    Codable round-trip emits the field — and the previous behavior
+    (preserve any value in ``model_fields_set``) forced the server
+    resolver's final status back to ``"unresolved"`` even when it had
+    just matched a base ingredient or variation (Black pepper, Butter,
+    every recipe). Caller-supplied ``"locked"`` / ``"resolved"`` /
+    ``"suggested"`` still flow through as intentional overrides — those
+    require an explicit user action (the catalog picker) so we trust
+    them.
+    """
     fields_set = getattr(ingredient, "model_fields_set", set())
     if "resolution_status" not in fields_set:
         return None
     value = str(getattr(ingredient, "resolution_status", "") or "").strip()
+    if value == "unresolved":
+        return None
     return value or None
 
 

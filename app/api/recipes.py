@@ -47,7 +47,7 @@ from app.schemas import (
 )
 from app.services.ai import profile_settings_map, resolve_ai_execution_target
 from app.services.drafts import resolution_status_override, upsert_recipe
-from app.services.ingredient_catalog import resolve_ingredient
+from app.services.ingredient_catalog import resolve_ingredient, reresolve_unresolved_for_household
 from app.services.managed_lists import create_item, metadata_payload
 from app.services.nutrition import (
     calculate_recipe_nutrition,
@@ -106,6 +106,24 @@ def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePa
         ).as_payload()
     )
     return recipe
+
+
+@router.post("/reresolve")
+def reresolve_recipes_route(
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, int]:
+    """Build 88: backfill helper. Re-runs the ingredient resolver on
+    every row in the household whose ``resolution_status`` is
+    ``"unresolved"``. Fixes the iOS-side bug where the Codable
+    default forced "unresolved" to be preserved even when the server
+    actually matched a base ingredient. Idempotent.
+    """
+    counts = reresolve_unresolved_for_household(
+        session, household_id=current_user.household_id, user_id=current_user.id
+    )
+    session.commit()
+    return counts
 
 
 @router.get("", response_model=list[RecipeOut])

@@ -242,6 +242,125 @@ def resolve_ingredient_payloads(
     ]
 
 
+def reresolve_unresolved_for_household(
+    session: Session,
+    *,
+    household_id: str,
+    user_id: str,
+) -> dict[str, int]:
+    """Build 88: backfill helper. Walks every ingredient row in the
+    household whose ``resolution_status == "unresolved"`` and runs it
+    through ``resolve_ingredient`` *without* an override. Resolved
+    rows get their ``base_ingredient_id``, ``ingredient_variation_id``,
+    and ``resolution_status`` updated.
+
+    Idempotent: an already-resolved row is skipped, and a row that
+    re-resolves to the same status still gets a clean write. Safe to
+    re-run.
+
+    Covers three tables:
+      * ``recipe_ingredients`` — for every recipe in the household
+      * ``week_meal_ingredients`` — inline ingredients on week meals
+      * ``grocery_items`` — auto-aggregated grocery rows
+
+    Returns ``{"recipe": N, "week_meal": M, "grocery": K, "still_unresolved": U}``
+    so callers can surface a "fixed N items" toast.
+    """
+    from app.models import Recipe, Week
+
+    counts = {"recipe": 0, "week_meal": 0, "grocery": 0, "still_unresolved": 0}
+
+    recipe_ids = list(
+        session.scalars(select(Recipe.id).where(Recipe.household_id == household_id)).all()
+    )
+    if recipe_ids:
+        recipe_ings = list(
+            session.scalars(
+                select(RecipeIngredient).where(
+                    RecipeIngredient.recipe_id.in_(recipe_ids),
+                    RecipeIngredient.resolution_status == "unresolved",
+                )
+            ).all()
+        )
+        for ing in recipe_ings:
+            resolved = resolve_ingredient(
+                session,
+                ingredient_name=ing.ingredient_name,
+                normalized_name=ing.normalized_name,
+                unit=ing.unit,
+                category=ing.category,
+                notes=ing.notes,
+            )
+            ing.base_ingredient_id = resolved.base_ingredient_id
+            ing.ingredient_variation_id = resolved.ingredient_variation_id
+            ing.resolution_status = resolved.resolution_status
+            if resolved.resolution_status == "unresolved":
+                counts["still_unresolved"] += 1
+            else:
+                counts["recipe"] += 1
+
+    week_ids = list(
+        session.scalars(select(Week.id).where(Week.household_id == household_id)).all()
+    )
+    if week_ids:
+        from app.models import WeekMeal
+
+        week_meal_ings = list(
+            session.scalars(
+                select(WeekMealIngredient)
+                .join(WeekMeal, WeekMealIngredient.week_meal_id == WeekMeal.id)
+                .where(
+                    WeekMeal.week_id.in_(week_ids),
+                    WeekMealIngredient.resolution_status == "unresolved",
+                )
+            ).all()
+        )
+        for ing in week_meal_ings:
+            resolved = resolve_ingredient(
+                session,
+                ingredient_name=ing.ingredient_name,
+                normalized_name=ing.normalized_name,
+                unit=ing.unit,
+                category=ing.category,
+                notes=ing.notes,
+            )
+            ing.base_ingredient_id = resolved.base_ingredient_id
+            ing.ingredient_variation_id = resolved.ingredient_variation_id
+            ing.resolution_status = resolved.resolution_status
+            if resolved.resolution_status == "unresolved":
+                counts["still_unresolved"] += 1
+            else:
+                counts["week_meal"] += 1
+
+        grocery_rows = list(
+            session.scalars(
+                select(GroceryItem).where(
+                    GroceryItem.week_id.in_(week_ids),
+                    GroceryItem.resolution_status == "unresolved",
+                )
+            ).all()
+        )
+        for row in grocery_rows:
+            resolved = resolve_ingredient(
+                session,
+                ingredient_name=row.ingredient_name,
+                normalized_name=row.normalized_name,
+                unit=row.unit,
+                category=row.category,
+                notes=row.notes,
+            )
+            row.base_ingredient_id = resolved.base_ingredient_id
+            row.ingredient_variation_id = resolved.ingredient_variation_id
+            row.resolution_status = resolved.resolution_status
+            if resolved.resolution_status == "unresolved":
+                counts["still_unresolved"] += 1
+            else:
+                counts["grocery"] += 1
+
+    session.flush()
+    return counts
+
+
 def ensure_catalog_defaults(session: Session) -> None:
     nutrition_items = session.scalars(select(NutritionItem).order_by(NutritionItem.name)).all()
     for item in nutrition_items:

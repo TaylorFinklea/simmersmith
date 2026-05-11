@@ -627,6 +627,119 @@ def test_recipe_save_round_trips_icon_key(client) -> None:
     assert updated.json()["icon_key"] == "muffin"
 
 
+def test_recipe_save_with_inbound_unresolved_status_still_resolves_when_catalog_matches(client) -> None:
+    """Build 88 regression test. iOS Codable emits
+    ``resolution_status="unresolved"`` for every newly-created
+    RecipeIngredient (Swift struct default). The old override logic
+    preserved that value, so the server resolver's actual match for a
+    common ingredient like "Black pepper" got clobbered back to
+    "unresolved" — every recipe save left items in the "Unresolved"
+    pill state. Verifies the override now ignores "unresolved" and
+    lets the resolver win when it found a base ingredient.
+    """
+    # Seed a base ingredient that the resolver will match by name.
+    base_resp = client.post(
+        "/api/ingredients",
+        json={"name": "Black pepper", "category": "Seasoning"},
+    )
+    assert base_resp.status_code == 200
+    base = base_resp.json()
+
+    recipe_resp = client.post(
+        "/api/recipes",
+        json={
+            "name": "Test Pepper Recipe",
+            "meal_type": "dinner",
+            "servings": 2,
+            "ingredients": [
+                {
+                    "ingredient_name": "Black pepper",
+                    "quantity": 1.0,
+                    "unit": "tsp",
+                    # Simulate the iOS Codable default — the original
+                    # bug was the server honoring this value as a
+                    # locked-in override.
+                    "resolution_status": "unresolved",
+                },
+            ],
+            "steps": [{"instruction": "Sprinkle."}],
+        },
+    )
+    assert recipe_resp.status_code == 200, recipe_resp.text
+    saved = recipe_resp.json()
+    ingredient = saved["ingredients"][0]
+    assert ingredient["resolution_status"] != "unresolved", (
+        "iOS-default 'unresolved' must not pin the final status when "
+        "the resolver matched a base ingredient"
+    )
+    assert ingredient["base_ingredient_id"] == base["base_ingredient_id"]
+
+
+def test_reresolve_endpoint_backfills_unresolved_recipe_ingredients(client) -> None:
+    """Build 88: POST /api/recipes/reresolve walks the household's
+    unresolved RecipeIngredient/WeekMealIngredient/GroceryItem rows
+    and re-runs them through the resolver. Idempotent.
+    """
+    # Stamp the base catalog so the resolver has something to match.
+    client.post(
+        "/api/ingredients",
+        json={"name": "Garlic", "category": "Produce"},
+    )
+
+    # Use the legacy add path to bypass the now-fixed save flow and
+    # stash an unresolved row directly via raw DB. Simpler: do it
+    # through the recipe save endpoint with the OLD-style override
+    # pre-bypass, since the override fix is the thing under test.
+    # The /api/recipes save with explicit unresolved is now correct
+    # already — we use the broken state by manually patching the
+    # DB row through the session_scope helper.
+    from app.db import session_scope
+    from app.models import RecipeIngredient
+
+    save = client.post(
+        "/api/recipes",
+        json={
+            "name": "Backfill Probe",
+            "meal_type": "dinner",
+            "servings": 2,
+            "ingredients": [
+                {"ingredient_name": "Garlic", "quantity": 1, "unit": "clove"},
+            ],
+            "steps": [{"instruction": "Mince."}],
+        },
+    )
+    assert save.status_code == 200
+    recipe_id = save.json()["recipe_id"]
+
+    # Force the row back to unresolved as if it had been saved by an
+    # older buggy build.
+    with session_scope() as session:
+        ingredient = session.scalars(
+            __import__("sqlalchemy").select(RecipeIngredient).where(
+                RecipeIngredient.recipe_id == recipe_id
+            )
+        ).first()
+        assert ingredient is not None
+        ingredient.resolution_status = "unresolved"
+        ingredient.base_ingredient_id = None
+        ingredient.ingredient_variation_id = None
+
+    resp = client.post("/api/recipes/reresolve")
+    assert resp.status_code == 200, resp.text
+    counts = resp.json()
+    assert counts["recipe"] >= 1, counts
+
+    # Verify the row got fixed.
+    refreshed = client.get(f"/api/recipes/{recipe_id}").json()
+    assert refreshed["ingredients"][0]["resolution_status"] != "unresolved"
+
+    # Idempotent: a second run leaves zero in the "recipe" bucket.
+    resp2 = client.post("/api/recipes/reresolve")
+    assert resp2.status_code == 200
+    counts2 = resp2.json()
+    assert counts2["recipe"] == 0
+
+
 def test_recipe_import_from_url_returns_clean_recipe_draft_and_preserves_source_metadata(
     client, monkeypatch
 ) -> None:
