@@ -56,6 +56,9 @@ struct WeekView: View {
     // Day nutrition sheet
     @State private var nutritionDay: (dayName: String, date: Date, meals: [WeekMeal], totals: MacroBreakdown)?
 
+    /// Build 87 — plan-shopping sheet from the Week hero.
+    @State private var showingPlanShopping = false
+
     // Rebalance-this-day
     @State private var rebalancingDayKey: String?
 
@@ -85,7 +88,7 @@ struct WeekView: View {
                         eyebrow: weekHeroEyebrow,
                         title: weekHeroTitle,
                         emberAccent: weekHeroEmberAccent,
-                        trailing: nil
+                        trailing: AnyView(planShoppingTrailing)
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
                     .contentShape(Rectangle())
@@ -138,6 +141,11 @@ struct WeekView: View {
         }
         .sheet(item: $pickedSeasonalItem) { item in
             InSeasonDetailSheet(item: item)
+        }
+        // Build 87 — plan-shopping sheet entry from Week.
+        .sheet(isPresented: $showingPlanShopping) {
+            PlanShoppingSheet()
+                .environment(appState)
         }
         .overlay(alignment: .top) {
             if isPlanningChatActive {
@@ -1397,6 +1405,31 @@ struct WeekView: View {
     private func navigateToPreviousWeek() { navigateRelative(weeks: -1) }
 
     private func navigateToNextWeek() { navigateRelative(weeks: 1) }
+
+    /// Build 87 — small "plan" pill in the FuHero trailing slot that
+    /// opens the PlanShoppingSheet. Replaces the now-disabled implicit
+    /// "meal → grocery list" auto-population.
+    @ViewBuilder
+    private var planShoppingTrailing: some View {
+        Button {
+            showingPlanShopping = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "cart.badge.plus")
+                    .font(.caption)
+                Text("plan")
+                    .font(SMFont.handwritten(14, bold: true))
+            }
+            .foregroundStyle(SMColor.ember)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().stroke(SMColor.ember.opacity(0.4), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Plan shopping for this week")
+    }
 
     /// Build 86 — Savanne dogfood: horizontal swipe across the Fusion
     /// hero jumps a week. Left = next, right = previous. The 60pt

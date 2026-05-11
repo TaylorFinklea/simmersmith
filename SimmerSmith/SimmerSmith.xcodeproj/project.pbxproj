@@ -20,6 +20,7 @@
 		101DDAF6BD607A2286C9E460 /* DayNutritionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */; };
 		13BA53C1033643416A1DA664 /* MealActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428FF67BEF93DC70F402D516 /* MealActionSheet.swift */; };
 		1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */; };
+		2354476C225CC94770264296 /* PlanShoppingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CDB6D617C91225A968D9C2 /* PlanShoppingSheet.swift */; };
 		2574F70842AC8D974E1F50BA /* TopBarSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DE206A0D3BDED10E390103 /* TopBarSettings.swift */; };
 		277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA42101A03628D82ADE249C /* SimmerSmithKit */; };
 		27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */; };
@@ -115,6 +116,7 @@
 		C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ED1C25DB773F9DBF319A2F /* AppState.swift */; };
 		C7292ED82D21A1FE61CB34F7 /* TopBarSparkleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD56BA601E455FD7458AD43 /* TopBarSparkleButton.swift */; };
 		C7B1ED4CA5FD1D8EE5EC238F /* WrappingHStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */; };
+		C90B01FDC95A67D89BCF39D0 /* StoreChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */; };
 		C9EA34D9C2ECB8D439EE011C /* GroceryReminderMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948ABB7833B8C8B3E7ACAC20 /* GroceryReminderMapping.swift */; };
 		CB15A6E13F707BD7201DB2B5 /* SimmerSmithAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3537D9BBBEB3EF263877815A /* SimmerSmithAppDelegate.swift */; };
 		CE023FB5F5FA60C88D456E04 /* AppState+Aliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */; };
@@ -248,6 +250,7 @@
 		7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientScannerView.swift; sourceTree = "<group>"; };
 		7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Seasonal.swift"; sourceTree = "<group>"; };
 		7F6AC90F65369FDFDE3B64F6 /* SMCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCard.swift; sourceTree = "<group>"; };
+		80CDB6D617C91225A968D9C2 /* PlanShoppingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanShoppingSheet.swift; sourceTree = "<group>"; };
 		826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DietaryGoalView.swift; sourceTree = "<group>"; };
 		8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseIngredientMergeSheet.swift; sourceTree = "<group>"; };
 		8C7317E74DF27E9055092A74 /* GroceryFeedbackSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryFeedbackSheet.swift; sourceTree = "<group>"; };
@@ -295,6 +298,7 @@
 		D518A1171D63ABFD56E8F391 /* AIAssistantCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantCoordinator.swift; sourceTree = "<group>"; };
 		D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPantrySupplementSheet.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreChip.swift; sourceTree = "<group>"; };
 		DC228E5F386CA12839147F04 /* Spectral-Italic.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Spectral-Italic.ttf"; sourceTree = "<group>"; };
 		DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSetupView.swift; sourceTree = "<group>"; };
 		DE589C264A925AD63115DCA8 /* RecipeDraftReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDraftReviewSheet.swift; sourceTree = "<group>"; };
@@ -618,6 +622,8 @@
 				B11211BF532BA99470BA0A30 /* IngredientLinkPickerSheet.swift */,
 				6485B4F246B99307DF48773D /* PantryItemEditorSheet.swift */,
 				66E66D6C949E92294D4B03EC /* PantryView.swift */,
+				80CDB6D617C91225A968D9C2 /* PlanShoppingSheet.swift */,
+				D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */,
 			);
 			path = Grocery;
 			sourceTree = "<group>";
@@ -941,6 +947,7 @@
 				3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */,
 				FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */,
 				CFE7B0CFDDC854D99448FF99 /* PhotoCompression.swift in Sources */,
+				2354476C225CC94770264296 /* PlanShoppingSheet.swift in Sources */,
 				53D3903682897BECC71E2611 /* PushService.swift in Sources */,
 				72BD0CBA5C14220174E5ECA2 /* RecipeCard.swift in Sources */,
 				2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */,
@@ -975,6 +982,7 @@
 				CB15A6E13F707BD7201DB2B5 /* SimmerSmithAppDelegate.swift in Sources */,
 				2E1B9FFB5BEA40BB24E62408 /* SmithToolbar.swift in Sources */,
 				FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */,
+				C90B01FDC95A67D89BCF39D0 /* StoreChip.swift in Sources */,
 				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
 				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
 				FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */,
@@ -1030,7 +1038,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 87;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1146,7 +1154,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 87;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

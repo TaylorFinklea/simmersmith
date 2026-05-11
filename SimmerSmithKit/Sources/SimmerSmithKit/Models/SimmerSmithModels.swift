@@ -1954,6 +1954,10 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
     /// `totalQuantity` (week-meal portion) + `eventQuantity` (event
     /// portion). User override still wins when set.
     public let eventQuantity: Double?
+    /// Build 87: optional per-item store annotation (Kroger / Aldi /
+    /// free-typed). Empty when unset. Reminders sync appends this to
+    /// the EKReminder notes when present.
+    public let storeLabel: String
     public let updatedAt: Date
     public let retailerPrices: [RetailerPrice]
 
@@ -1998,6 +2002,7 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         case checkedAt
         case checkedByUserId
         case eventQuantity
+        case storeLabel
         case updatedAt
         case retailerPrices
     }
@@ -2028,6 +2033,7 @@ public struct GroceryItem: Codable, Identifiable, Hashable, Sendable {
         checkedAt = try container.decodeIfPresent(Date.self, forKey: .checkedAt)
         checkedByUserId = try container.decodeIfPresent(String.self, forKey: .checkedByUserId)
         eventQuantity = try container.decodeIfPresent(Double.self, forKey: .eventQuantity)
+        storeLabel = try container.decodeIfPresent(String.self, forKey: .storeLabel) ?? ""
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         retailerPrices = try container.decodeIfPresent([RetailerPrice].self, forKey: .retailerPrices) ?? []
     }
@@ -2045,6 +2051,85 @@ public struct GroceryListDelta: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case weekId
         case serverTime
+        case items
+    }
+}
+
+/// Build 87 — projection row from `GET /api/weeks/{id}/grocery/plan-shopping`.
+/// Represents one ingredient the user still needs this week. Subset
+/// of `GroceryItem`'s aggregated fields — no checked state, no
+/// override columns, no retailer prices. Not persistable; the user
+/// converts a row to a real `GroceryItem` via quick-add.
+public struct PlanShoppingItem: Codable, Hashable, Identifiable, Sendable {
+    public let ingredientName: String
+    public let normalizedName: String
+    public let totalQuantity: Double?
+    public let unit: String
+    public let quantityText: String
+    public let category: String
+    public let sourceMeals: String
+    public let notes: String
+
+    /// Stable identity for `ForEach` — the (normalized_name, unit,
+    /// quantity_text) tuple is exactly the aggregation key the server
+    /// uses, so it's unique within a single response.
+    public var id: String { "\(normalizedName)|\(unit)|\(quantityText)" }
+
+    public init(
+        ingredientName: String,
+        normalizedName: String,
+        totalQuantity: Double? = nil,
+        unit: String = "",
+        quantityText: String = "",
+        category: String = "",
+        sourceMeals: String = "",
+        notes: String = ""
+    ) {
+        self.ingredientName = ingredientName
+        self.normalizedName = normalizedName
+        self.totalQuantity = totalQuantity
+        self.unit = unit
+        self.quantityText = quantityText
+        self.category = category
+        self.sourceMeals = sourceMeals
+        self.notes = notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ingredientName = try c.decode(String.self, forKey: .ingredientName)
+        normalizedName = try c.decodeIfPresent(String.self, forKey: .normalizedName) ?? ""
+        totalQuantity = try c.decodeIfPresent(Double.self, forKey: .totalQuantity)
+        unit = try c.decodeIfPresent(String.self, forKey: .unit) ?? ""
+        quantityText = try c.decodeIfPresent(String.self, forKey: .quantityText) ?? ""
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        sourceMeals = try c.decodeIfPresent(String.self, forKey: .sourceMeals) ?? ""
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ingredientName
+        case normalizedName
+        case totalQuantity
+        case unit
+        case quantityText
+        case category
+        case sourceMeals
+        case notes
+    }
+}
+
+public struct PlanShoppingResponse: Codable, Sendable {
+    public let weekId: String
+    public let items: [PlanShoppingItem]
+
+    public init(weekId: String, items: [PlanShoppingItem]) {
+        self.weekId = weekId
+        self.items = items
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case weekId
         case items
     }
 }

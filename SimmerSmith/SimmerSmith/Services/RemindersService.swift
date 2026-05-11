@@ -193,8 +193,16 @@ final class RemindersService {
     /// subsequent lines are meal context and any user-curated notes.
     /// The M23 cart-automation skill reads qty/unit from this body —
     /// the parser is updated to scan the first numeric line.
+    ///
+    /// Build 87: when the grocery item has a `storeLabel` set, prefix
+    /// the body with "At <store>" so the user can spot the store at a
+    /// glance in the Reminders preview.
     private func remindersBody(for item: GroceryItem) -> String {
         var lines: [String] = []
+        let store = item.storeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !store.isEmpty {
+            lines.append("At \(store)")
+        }
         let qty = item.effectiveQuantity
         let unit = item.effectiveUnit.trimmingCharacters(in: .whitespaces)
         var qtyLine = ""

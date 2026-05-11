@@ -574,13 +574,49 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public let unit: String
         public let notes: String
         public let category: String
+        /// Build 87: optional per-item store annotation.
+        public let storeLabel: String
 
-        public init(name: String, quantity: Double? = nil, unit: String = "", notes: String = "", category: String = "") {
+        public init(name: String, quantity: Double? = nil, unit: String = "", notes: String = "", category: String = "", storeLabel: String = "") {
             self.name = name
             self.quantity = quantity
             self.unit = unit
             self.notes = notes
             self.category = category
+            self.storeLabel = storeLabel
+        }
+    }
+
+    /// Build 87: payload for `POST /api/weeks/{id}/grocery/items/quick-add`.
+    /// Mirrors `PlanShoppingItem` plus a `storeLabel`.
+    public struct GroceryItemQuickAddBody: Encodable, Sendable {
+        public let name: String
+        public let normalizedName: String
+        public let quantity: Double?
+        public let quantityText: String
+        public let unit: String
+        public let category: String
+        public let notes: String
+        public let storeLabel: String
+
+        public init(
+            name: String,
+            normalizedName: String = "",
+            quantity: Double? = nil,
+            quantityText: String = "",
+            unit: String = "",
+            category: String = "",
+            notes: String = "",
+            storeLabel: String = ""
+        ) {
+            self.name = name
+            self.normalizedName = normalizedName
+            self.quantity = quantity
+            self.quantityText = quantityText
+            self.unit = unit
+            self.category = category
+            self.notes = notes
+            self.storeLabel = storeLabel
         }
     }
 
@@ -596,6 +632,8 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public var removed: Bool?
         public var baseIngredientId: PatchValue<String>?
         public var ingredientVariationId: PatchValue<String>?
+        /// Build 87: store annotation. `.set("")` clears it server-side.
+        public var storeLabel: PatchValue<String>?
 
         public init() {}
 
@@ -609,12 +647,14 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
             if let removed { try c.encode(removed, forKey: .removed) }
             try baseIngredientId?.encode(to: &c, forKey: .baseIngredientId)
             try ingredientVariationId?.encode(to: &c, forKey: .ingredientVariationId)
+            try storeLabel?.encode(to: &c, forKey: .storeLabel)
         }
 
         private enum CodingKeys: String, CodingKey {
             case name, quantity, unit, notes, category, removed
             case baseIngredientId = "base_ingredient_id"
             case ingredientVariationId = "ingredient_variation_id"
+            case storeLabel = "store_label"
         }
     }
 
@@ -643,6 +683,28 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func addGroceryItem(weekID: String, body: GroceryItemAddBody) async throws -> GroceryItem {
         try await request(path: "/api/weeks/\(weekID)/grocery/items", method: "POST", body: body)
+    }
+
+    /// Build 87: convert a `PlanShoppingItem` projection row to a real,
+    /// user-added `GroceryItem` row on the week. Server uses the
+    /// supplied `normalized_name` and `quantity_text` directly so the
+    /// roundtrip stays consistent with the aggregation key.
+    public func quickAddGroceryItem(weekID: String, body: GroceryItemQuickAddBody) async throws -> GroceryItem {
+        try await request(path: "/api/weeks/\(weekID)/grocery/items/quick-add", method: "POST", body: body)
+    }
+
+    /// Build 87: GET the live projection of meal ingredients not yet
+    /// on the week's grocery list (and not in pantry). Used by the
+    /// PlanShoppingSheet on iOS.
+    public func planShopping(weekID: String) async throws -> PlanShoppingResponse {
+        try await request(path: "/api/weeks/\(weekID)/grocery/plan-shopping", method: "GET")
+    }
+
+    /// Build 87: one-shot delete of all auto-generated grocery rows on
+    /// this week. Used by the iOS first-launch migration so existing
+    /// weeks get a clean slate for the new plan-shopping flow.
+    public func clearAutoGrocery(weekID: String) async throws -> WeekSnapshot {
+        try await request(path: "/api/weeks/\(weekID)/grocery/clear-auto", method: "POST", body: EmptyBody())
     }
 
     // MARK: - Meal sides (M26 Phase 2)

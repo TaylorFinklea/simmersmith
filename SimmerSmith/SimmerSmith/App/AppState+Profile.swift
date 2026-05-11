@@ -50,4 +50,23 @@ extension AppState {
         let raw = (profile.settings["unit_system"] ?? "").lowercased()
         unitSystemDraft = (raw == "metric") ? "metric" : "us"
     }
+
+    /// Build 87: per-household "auto-populate grocery from meals"
+    /// preference. Defaults OFF on the server. Existing users who
+    /// liked the old behavior flip this back on in Settings → Grocery.
+    var autoGroceryFromMeals: Bool {
+        (profile?.settings["auto_grocery_from_meals"] ?? "0").trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+    }
+
+    func saveAutoGroceryFromMeals(_ enabled: Bool) async {
+        guard hasSavedConnection else { return }
+        do {
+            let value = enabled ? "1" : "0"
+            let updated = try await apiClient.updateProfile(settings: ["auto_grocery_from_meals": value])
+            profile = updated
+            try? cacheStore.saveProfile(updated)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
 }

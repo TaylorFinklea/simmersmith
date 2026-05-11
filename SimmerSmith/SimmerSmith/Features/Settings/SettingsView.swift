@@ -1356,6 +1356,22 @@ private struct GrocerySection: View {
 
     var body: some View {
         Section {
+            // Build 87 — Savanne/Taylor dogfood: the old "edit a meal,
+            // grocery list auto-rebuilds" behavior is OFF by default
+            // now. Adding meals leaves the list alone; the user opens
+            // the plan-shopping sheet (Week or Grocery → "Plan
+            // Shopping") and adds items they actually need. Flip this
+            // back on to restore the old auto-add.
+            Toggle("Auto-populate from meals", isOn: Binding(
+                get: { appState.autoGroceryFromMeals },
+                set: { newValue in
+                    Task { await appState.saveAutoGroceryFromMeals(newValue) }
+                }
+            ))
+            Text("When on, planning a meal automatically adds its ingredients to the grocery list. When off (the default), the list stays untouched — open Plan Shopping to add what you actually need.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Toggle("Sync to Apple Reminders", isOn: Binding(
                 get: { appState.reminderListIdentifier != nil },
                 set: { newValue in

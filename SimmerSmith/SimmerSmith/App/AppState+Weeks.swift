@@ -31,6 +31,14 @@ extension AppState {
                 NotificationManager.shared.scheduleMealReminders(for: week.meals)
                 NotificationManager.shared.scheduleGroceryReminder(itemCount: week.groceryItems.count)
             }
+
+            // Build 87: one-shot migration. The first time this device
+            // refreshes a week on build 87 we clear all auto-generated
+            // grocery rows so the new plan-shopping flow starts from a
+            // clean slate. Fire-and-forget — the flag is set
+            // regardless of whether the server call succeeds so a
+            // transient network error doesn't loop forever.
+            Task { [weak self] in await self?.runBuild87GroceryMigrationIfNeeded() }
         } catch {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)

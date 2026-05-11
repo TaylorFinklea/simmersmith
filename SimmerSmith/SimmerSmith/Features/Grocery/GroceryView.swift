@@ -18,6 +18,9 @@ struct GroceryView: View {
     /// feedback. Surfaces "what's in season now" while shopping.
     @State private var pickedSeasonalItem: InSeasonItem?
 
+    /// Build 87 — plan-shopping sheet entry.
+    @State private var showingPlanShopping = false
+
     /// True when this view is presented as a sheet from the Week tab —
     /// shows a Done button to dismiss. False when used as the Grocery
     /// tab root, where the tab bar handles navigation.
@@ -86,6 +89,33 @@ struct GroceryView: View {
                         }
 
                         fetchPricesRow(week: week)
+
+                        // Build 87 — Plan Shopping entry. Replaces
+                        // the old auto-populate behavior; the user
+                        // taps here to see needed-but-not-yet-on-the-
+                        // list items and add only what they want.
+                        Button {
+                            showingPlanShopping = true
+                        } label: {
+                            HStack(spacing: SMSpacing.md) {
+                                Image(systemName: "cart.badge.plus")
+                                    .foregroundStyle(SMColor.ember)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Plan Shopping")
+                                        .font(SMFont.subheadline.weight(.semibold))
+                                        .foregroundStyle(SMColor.textPrimary)
+                                    Text("Add what you still need from this week's meals.")
+                                        .font(.caption)
+                                        .foregroundStyle(SMColor.textSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(SMColor.textTertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     ForEach(groupedItems(for: week), id: \.category) { section in
@@ -138,6 +168,12 @@ struct GroceryView: View {
                                                 .font(.caption)
                                                 .foregroundStyle(.orange)
                                         }
+                                        // Build 87 — per-item store annotation.
+                                        // Always shown so the user can assign
+                                        // a store post-add (the chip reads
+                                        // "set store" when empty).
+                                        StoreChip(item: item)
+                                            .padding(.top, 2)
                                         if let price = bestPrice(for: item) {
                                             HStack(spacing: 4) {
                                                 Text(price.productName.isEmpty ? price.retailer.capitalized : price.productName)
@@ -259,6 +295,11 @@ struct GroceryView: View {
         .sheet(isPresented: $showingBarcodeScanner) {
             BarcodeLookupSheet()
         }
+        // Build 87 — plan-shopping sheet from the Grocery tab.
+        .sheet(isPresented: $showingPlanShopping) {
+            PlanShoppingSheet()
+                .environment(appState)
+        }
     }
 
     /// Build 71 — used to hide the matching top-bar button when
@@ -341,17 +382,28 @@ struct GroceryView: View {
 
             VStack(spacing: SMSpacing.sm) {
                 if appState.currentWeek != nil && mealCount > 0 {
+                    // Build 87 — primary path is now plan-shopping,
+                    // not whole-list regeneration. Tap to review and
+                    // add only what you actually need.
+                    Button {
+                        showingPlanShopping = true
+                    } label: {
+                        Label("Plan Shopping", systemImage: "cart.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SMColor.ember)
+
                     Button {
                         Task { await regenerate() }
                     } label: {
                         Label(
-                            isRegenerating ? "Regenerating…" : "Regenerate from this week's meals",
+                            isRegenerating ? "Regenerating…" : "Add everything from meals",
                             systemImage: "arrow.triangle.2.circlepath"
                         )
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(SMColor.primary)
+                    .buttonStyle(.bordered)
                     .disabled(isRegenerating)
                 }
                 Button {
