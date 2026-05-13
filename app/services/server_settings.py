@@ -38,10 +38,24 @@ _FREE_TIER_LIMITS_DEFAULT: dict[str, int] = {
     "recipe_import": 5,
 }
 
+# Build 95: per-action dollar cost used by the admin dashboard to
+# estimate spend. These are *rough* guesses based on the public
+# OpenAI / Anthropic price sheets for the actions' typical token
+# usage — the operator can tune them from the admin settings page
+# as model pricing or our prompts shift. Zero or missing entries
+# treat the action as free in the estimate.
+_USAGE_COST_DEFAULT: dict[str, float] = {
+    "ai_generate": 0.012,
+    "pricing_fetch": 0.0,
+    "rebalance_day": 0.008,
+    "recipe_import": 0.004,
+}
+
 KEY_FREE_TIER_LIMITS = "free_tier_limits"
 KEY_OPENAI_MODEL = "ai_openai_model"
 KEY_ANTHROPIC_MODEL = "ai_anthropic_model"
 KEY_TRIAL_MODE = "trial_mode_enabled"
+KEY_USAGE_COST_USD = "usage_cost_usd"
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +144,33 @@ def trial_mode_enabled(session: Session, settings: Settings | None = None) -> bo
     return bool((settings or get_settings()).trial_mode_enabled)
 
 
+def usage_cost_usd(session: Session) -> dict[str, float]:
+    """Per-action dollar cost used for spend estimates. Always returns
+    a complete dict, merging defaults with any operator overrides so
+    unknown keys in the override don't drop known defaults."""
+    raw = get_value(session, KEY_USAGE_COST_USD)
+    if not raw:
+        return dict(_USAGE_COST_DEFAULT)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return dict(_USAGE_COST_DEFAULT)
+    result = dict(_USAGE_COST_DEFAULT)
+    for key, value in (parsed or {}).items():
+        if not isinstance(key, str):
+            continue
+        try:
+            result[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def set_usage_cost_usd(session: Session, rates: dict[str, float]) -> None:
+    cleaned = {str(key): float(value) for key, value in rates.items()}
+    set_value(session, KEY_USAGE_COST_USD, json.dumps(cleaned, sort_keys=True))
+
+
 # ---------------------------------------------------------------------------
 # Admin-side snapshot
 # ---------------------------------------------------------------------------
@@ -146,6 +187,7 @@ def admin_snapshot(session: Session, settings: Settings | None = None) -> dict[s
     raw_openai = (get_value(session, KEY_OPENAI_MODEL) or "").strip()
     raw_anthropic = (get_value(session, KEY_ANTHROPIC_MODEL) or "").strip()
     raw_trial = (get_value(session, KEY_TRIAL_MODE) or "").strip()
+    raw_costs = get_value(session, KEY_USAGE_COST_USD)
     return {
         "free_tier_limits": {
             "value": free_tier_limits(session),
@@ -166,5 +208,10 @@ def admin_snapshot(session: Session, settings: Settings | None = None) -> dict[s
             "value": trial_mode_enabled(session, s),
             "default": bool(s.trial_mode_enabled),
             "overridden": bool(raw_trial),
+        },
+        "usage_cost_usd": {
+            "value": usage_cost_usd(session),
+            "default": dict(_USAGE_COST_DEFAULT),
+            "overridden": bool(raw_costs),
         },
     }
