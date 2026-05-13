@@ -140,6 +140,58 @@
         </form>
     </div>
 
+    <!-- Usage cost rates -->
+    <div class="bg-paper-alt border border-rule rounded p-5 mb-8">
+        <div class="flex items-baseline justify-between mb-3">
+            <h3 class="text-xl italic">Usage cost rates</h3>
+            <span class={fieldBadge(s.usage_cost_usd.overridden)}>
+                {s.usage_cost_usd.overridden ? 'override' : 'default'}
+            </span>
+        </div>
+        <p class="text-xs text-ink-soft mb-4">
+            Dollars per event for the admin spend estimate on Usage and the user list.
+            Tune these as model pricing or our prompt sizes shift. Floats; use 0 for free
+            actions.
+        </p>
+        <form method="post" action="?/save-costs" class="space-y-3">
+            {#each Object.entries(s.usage_cost_usd.value) as [action, rate]}
+                <div class="flex items-center gap-3">
+                    <label for="cost-{action}" class="text-sm flex-1 text-ink-soft">
+                        {action.replaceAll('_', ' ')}
+                    </label>
+                    <input
+                        id="cost-{action}"
+                        name="cost:{action}"
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={rate}
+                        class="w-28 bg-paper border border-rule rounded px-2 py-1 text-right font-mono"
+                    />
+                    <span class="text-xs text-ink-faint w-20">
+                        default ${s.usage_cost_usd.default[action] ?? 0}
+                    </span>
+                </div>
+            {/each}
+            <div class="flex gap-2 pt-2">
+                <button
+                    type="submit"
+                    class="px-4 py-2 rounded bg-ember text-paper font-medium hover:bg-ember-hot"
+                >
+                    Save rates
+                </button>
+                <button
+                    type="submit"
+                    name="reset"
+                    value="1"
+                    class="px-4 py-2 rounded border border-rule text-ink-soft hover:text-ink"
+                >
+                    Reset to defaults
+                </button>
+            </div>
+        </form>
+    </div>
+
     <!-- Trial mode -->
     <div class="bg-paper-alt border border-rule rounded p-5 mb-8">
         <div class="flex items-baseline justify-between mb-3">

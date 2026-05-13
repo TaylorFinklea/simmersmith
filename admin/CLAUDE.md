@@ -13,17 +13,22 @@ backend on Fly using a bearer token loaded from a Worker secret. The
 token never crosses to the browser; all data lookups happen in
 `+page.server.ts` server-load functions.
 
-## v1 scope
+## Scope
 
 - `/` — Usage dashboard (totals + per-user breakdown for the current
-  or chosen month).
-- `/users` — User list with monthly usage + subscription status.
-- `/settings` — Editable free-tier limits, default AI models, and
-  trial-mode toggle. Edits PATCH `/api/admin/settings` on the
-  backend; the values land in the `server_settings` Postgres table.
-
-No write actions on the usage or users page yet — both are
-read-only.
+  or chosen month, with an estimated-spend column).
+- `/users` — User list with monthly usage + subscription status +
+  estimated spend. Rows link to `/users/[id]`.
+- `/users/[id]` — Per-user diagnostic page (build 95): profile,
+  subscription detail, two-month usage breakdown with cost, recipe /
+  week / push device counts. Operator actions: **grant Pro** (writes
+  an admin-source `subscriptions` row with `apple_original_transaction_id=NULL`)
+  and **revoke** (sets `status="revoked"`). Admin grants survive
+  until an Apple webhook replaces them.
+- `/settings` — Editable free-tier limits, default AI models, the
+  trial-mode toggle, and per-action **usage cost rates** powering the
+  spend estimates. Edits PATCH `/api/admin/settings`; values land in
+  the `server_settings` Postgres table.
 
 ## Stack
 
@@ -116,12 +121,22 @@ Record them here so they can be re-applied if the Worker is rebuilt:
 
 ## Where the data comes from
 
-- `/api/admin/usage` — month-aggregated `usage_counters` rows.
-- `/api/admin/users` — `users` table + the user's
-  `usage_counters` total for the current month.
-- `/api/admin/settings` — read/write the `server_settings` table.
+- `/api/admin/usage` — month-aggregated `usage_counters` rows + the
+  cost estimate (`usage_cost_usd × counter` per action).
+- `/api/admin/users` — `users` table + the user's `usage_counters`
+  total + cost estimate + subscription source (`apple` vs `admin`).
+- `/api/admin/users/{user_id}` — single-user snapshot for the detail
+  page: profile, subscription, two-month usage with costs, inventory
+  counts.
+- `/api/admin/users/{user_id}/subscription` — POST `{action,...}` to
+  grant Pro or revoke. See `app/api/admin.py` for the body schema.
+- `/api/admin/settings` — read/write the `server_settings` table
+  including the editable per-action cost rates
+  (`KEY_USAGE_COST_USD`).
 
-The schema migration for `server_settings` is
-`alembic/versions/20260511_0039_server_settings.py`. Defaults are
-hard-coded in `app/services/server_settings.py`; the table only
-holds overrides.
+Schema migrations: `server_settings` ships in
+`alembic/versions/20260511_0039_server_settings.py`; the build 95
+subscription columns (nullable Apple txn id + `admin_note`) ship in
+`20260512_0040_subscriptions_admin_grant.py`. Defaults for tunable
+values are hard-coded in `app/services/server_settings.py`; the
+table only stores overrides.

@@ -88,5 +88,35 @@ export const actions: Actions = {
             return fail(502, { message: err instanceof Error ? err.message : 'error' });
         }
         return { ok: true };
+    },
+
+    'save-costs': async ({ request, platform }) => {
+        const form = await request.formData();
+        const reset = form.get('reset') === '1';
+        if (reset) {
+            try {
+                await adminApi.patchSettings(platform, { usage_cost_usd: null });
+            } catch (err) {
+                return fail(502, { message: err instanceof Error ? err.message : 'error' });
+            }
+            return { ok: true };
+        }
+
+        const rates: Record<string, number> = {};
+        for (const [key, value] of form.entries()) {
+            if (!key.startsWith('cost:')) continue;
+            const action = key.slice('cost:'.length);
+            const parsed = Number.parseFloat(String(value));
+            if (!Number.isFinite(parsed) || parsed < 0) {
+                return fail(400, { message: `Invalid cost for ${action}` });
+            }
+            rates[action] = parsed;
+        }
+        try {
+            await adminApi.patchSettings(platform, { usage_cost_usd: rates });
+        } catch (err) {
+            return fail(502, { message: err instanceof Error ? err.message : 'error' });
+        }
+        return { ok: true };
     }
 };

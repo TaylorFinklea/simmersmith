@@ -14,6 +14,10 @@
     function label(action: string) {
         return actionLabels[action] ?? action.replaceAll('_', ' ');
     }
+
+    function money(n: number) {
+        return `$${n.toFixed(2)}`;
+    }
 </script>
 
 <section>
@@ -39,13 +43,17 @@
     {#if Object.keys(usage.totals).length === 0}
         <p class="text-ink-soft mb-8">No activity recorded for this month yet.</p>
     {:else}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             {#each Object.entries(usage.totals) as [action, total]}
                 <div class="bg-paper-alt border border-rule rounded p-4">
                     <div class="text-xs text-ink-soft uppercase tracking-wider">{label(action)}</div>
                     <div class="text-3xl mt-1 font-mono">{total}</div>
                 </div>
             {/each}
+        </div>
+        <div class="mb-10 text-sm text-ink-soft">
+            Estimated spend this month:
+            <span class="text-ember font-mono ml-1">{money(usage.estimated_cost_usd)}</span>
         </div>
     {/if}
 
@@ -61,24 +69,30 @@
                         {#each Object.keys(usage.totals) as action}
                             <th class="py-2 px-2 text-right">{label(action)}</th>
                         {/each}
-                        <th class="py-2 pl-4 text-right">Total</th>
+                        <th class="py-2 px-4 text-right">Total</th>
+                        <th class="py-2 pl-4 text-right">Est. spend</th>
                     </tr>
                 </thead>
                 <tbody>
                     {#each usage.by_user as user}
-                        <tr class="border-t border-rule">
+                        <tr class="border-t border-rule hover:bg-paper-alt/60">
                             <td class="py-2 pr-4">
-                                <div class="text-ink">{user.email || '(no email)'}</div>
-                                {#if user.display_name}
-                                    <div class="text-xs text-ink-faint">{user.display_name}</div>
-                                {/if}
+                                <a href="/users/{user.user_id}" class="hover:text-ember">
+                                    <div class="text-ink">{user.email || '(no email)'}</div>
+                                    {#if user.display_name}
+                                        <div class="text-xs text-ink-faint">{user.display_name}</div>
+                                    {/if}
+                                </a>
                             </td>
                             {#each Object.keys(usage.totals) as action}
                                 <td class="py-2 px-2 text-right font-mono">
                                     {user.totals[action] ?? 0}
                                 </td>
                             {/each}
-                            <td class="py-2 pl-4 text-right font-mono text-ember">{user.total}</td>
+                            <td class="py-2 px-4 text-right font-mono text-ember">{user.total}</td>
+                            <td class="py-2 pl-4 text-right font-mono text-ink-soft">
+                                {money(user.estimated_cost_usd)}
+                            </td>
                         </tr>
                     {/each}
                 </tbody>

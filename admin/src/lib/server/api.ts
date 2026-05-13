@@ -68,12 +68,14 @@ async function call<T>(
 export interface UsageSummary {
     period: string;
     totals: Record<string, number>;
+    estimated_cost_usd: number;
     by_user: Array<{
         user_id: string;
         email: string;
         display_name: string;
         totals: Record<string, number>;
         total: number;
+        estimated_cost_usd: number;
     }>;
 }
 
@@ -85,9 +87,52 @@ export interface UsersResponse {
         display_name: string;
         created_at: string;
         monthly_usage: number;
+        estimated_cost_usd: number;
         subscription_status: string;
         subscription_product: string;
+        subscription_source: '' | 'apple' | 'admin';
     }>;
+}
+
+export interface SubscriptionPayload {
+    status: string;
+    product_id: string;
+    source: 'apple' | 'admin';
+    current_period_starts_at: string;
+    current_period_ends_at: string;
+    auto_renew: boolean;
+    cancelled_at: string | null;
+    admin_note: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface PeriodUsage {
+    period: string;
+    totals: Record<string, number>;
+    total: number;
+    estimated_cost_usd: number;
+}
+
+export interface UserDetail {
+    user: {
+        id: string;
+        email: string;
+        display_name: string;
+        created_at: string;
+        has_apple_sign_in: boolean;
+        has_google_sign_in: boolean;
+    };
+    subscription: SubscriptionPayload | null;
+    usage: {
+        this_period: PeriodUsage;
+        previous_period: PeriodUsage;
+    };
+    inventory: {
+        recipes: number;
+        weeks: number;
+        active_push_devices: number;
+    };
 }
 
 export interface SettingsField<T> {
@@ -101,12 +146,29 @@ export interface AdminSettings {
     ai_openai_model: SettingsField<string>;
     ai_anthropic_model: SettingsField<string>;
     trial_mode_enabled: SettingsField<boolean>;
+    usage_cost_usd: SettingsField<Record<string, number>>;
 }
+
+export type SubscriptionAction =
+    | { action: 'grant_pro'; until: string; note?: string; product_id?: string }
+    | { action: 'revoke' };
 
 export const adminApi = {
     usage: (platform: Platform | undefined, period?: string) =>
         call<UsageSummary>(platform, `/api/admin/usage${period ? `?period=${period}` : ''}`),
     users: (platform: Platform | undefined) => call<UsersResponse>(platform, '/api/admin/users'),
+    user: (platform: Platform | undefined, userId: string) =>
+        call<UserDetail>(platform, `/api/admin/users/${encodeURIComponent(userId)}`),
+    subscriptionOverride: (
+        platform: Platform | undefined,
+        userId: string,
+        body: SubscriptionAction
+    ) =>
+        call<{ subscription: SubscriptionPayload }>(
+            platform,
+            `/api/admin/users/${encodeURIComponent(userId)}/subscription`,
+            { method: 'POST', body: JSON.stringify(body) }
+        ),
     settings: (platform: Platform | undefined) => call<AdminSettings>(platform, '/api/admin/settings'),
     patchSettings: (
         platform: Platform | undefined,
@@ -115,6 +177,7 @@ export const adminApi = {
             ai_openai_model: string | null;
             ai_anthropic_model: string | null;
             trial_mode_enabled: boolean | null;
+            usage_cost_usd: Record<string, number> | null;
         }>
     ) =>
         call<AdminSettings>(platform, '/api/admin/settings', {
