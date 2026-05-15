@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route
+from ._helpers import _call_route, _current_user_id
 
 from app.api.weeks import (
     apply_draft,
@@ -26,7 +26,6 @@ from app.api.weeks import (
 )
 from app.api.exports import complete_export, export_apple_reminders_payload, export_detail
 from app.auth import CurrentUser
-from app.config import get_settings
 from app.db import session_scope
 from app.schemas import (
     DraftFromAIRequest,
@@ -40,7 +39,7 @@ from app.schemas import (
 
 
 def _mcp_user() -> CurrentUser:
-    return CurrentUser(id=get_settings().local_user_id)
+    return CurrentUser(id=_current_user_id())
 
 
 @mcp.tool(description="List recent weeks.")

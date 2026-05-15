@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from . import mcp
-from ._helpers import _json_ready, _settings
+from ._helpers import _current_user_id, _json_ready, _settings
 
 from app.db import session_scope
 from app.models import AIRun, AssistantMessage
@@ -34,7 +34,7 @@ from app.services.recipes import get_recipe
 
 @mcp.tool(description="List assistant threads.")
 def assistant_list_threads() -> list[dict[str, Any]]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _json_ready(
             [assistant_thread_summary_payload(thread) for thread in list_threads(session, user_id)]
@@ -43,7 +43,7 @@ def assistant_list_threads() -> list[dict[str, Any]]:
 
 @mcp.tool(description="Create a new assistant thread.")
 def assistant_create_thread(title: str = "") -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = AssistantThreadCreateRequest(title=title)
         thread = create_thread(session, user_id, title=payload.title)
@@ -52,7 +52,7 @@ def assistant_create_thread(title: str = "") -> dict[str, Any]:
 
 @mcp.tool(description="Get a single assistant thread with all messages.")
 def assistant_get_thread(thread_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         thread = get_thread(session, user_id, thread_id)
         if thread is None:
@@ -62,7 +62,7 @@ def assistant_get_thread(thread_id: str) -> dict[str, Any]:
 
 @mcp.tool(description="Archive an assistant thread.")
 def assistant_archive_thread(thread_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         thread = get_thread(session, user_id, thread_id)
         if thread is None:
@@ -80,7 +80,7 @@ def assistant_respond(
     attached_recipe_draft: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     settings = _settings()
-    user_id = settings.local_user_id
+    user_id = _current_user_id()
     request = AssistantRespondRequest(
         text=text,
         attached_recipe_id=attached_recipe_id,

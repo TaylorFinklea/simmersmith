@@ -23,6 +23,7 @@ from app.models.event import (
 from app.models.household import Household, HouseholdInvitation, HouseholdMember
 from app.models.household_setting import HouseholdSetting
 from app.models.image_usage import ImageGenUsage
+from app.models.oauth import OAuthAuthorizeRequest, OAuthClient
 from app.models.profile import DietaryGoal, PreferenceSignal, ProfileSetting, Staple
 from app.models.push import PushDevice
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
@@ -73,6 +74,8 @@ __all__ = [
     "IngredientVariation",
     "ManagedListItem",
     "NutritionItem",
+    "OAuthAuthorizeRequest",
+    "OAuthClient",
     "PreferenceSignal",
     "PricingRun",
     "ProfileSetting",

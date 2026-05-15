@@ -9,8 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 
+from app.config import get_settings
 from app.db import session_scope
-from app.main import healthcheck
 from app.services.bootstrap import run_migrations, seed_defaults
 
 from ._helpers import _json_ready
@@ -59,7 +59,7 @@ mcp = FastMCP(
 
 @mcp.tool(description="Get SimmerSmith health and AI capability status.")
 async def health() -> dict[str, Any]:
-    return _json_ready(await healthcheck())
+    return _json_ready({"status": "ok"})
 
 
 # Import tool modules so @mcp.tool decorators register all tools.
@@ -112,4 +112,39 @@ def main() -> None:
     mcp.run(transport="stdio")
 
 
-__all__ = ["mcp", "main", "lifespan", "parse_args", "StaticBearerTokenVerifier"]
+def build_http_app():
+    """Return an ASGI app that serves the SimmerSmith MCP over Streamable
+    HTTP with OAuth-JWT bearer auth. Mounted on the FastAPI app at
+    ``/mcp`` so SimmerSmith's existing process can host both the REST
+    surface and the MCP surface from one origin.
+
+    The JWT verifier sets the ``_current_user_id_var`` ContextVar so
+    domain modules scope their queries to the OAuth-authenticated
+    user. The stdio path (``main()``) is unaffected and keeps using
+    the implicit ``local_user_id`` fall-through in ``_helpers``.
+    """
+    # Lazy import — the FastAPI app loads this module at startup and
+    # ``auth.py`` pulls in ``app.services.oauth`` which depends on
+    # configured settings.
+    from .auth import JWTTokenVerifier
+
+    settings = get_settings()
+    issuer = getattr(settings, "oauth_issuer", "") or "https://simmersmith.fly.dev"
+    auth = AuthSettings(
+        issuer_url=issuer,
+        resource_server_url=f"{issuer}/mcp",
+        required_scopes=[],
+    )
+    http_mcp = FastMCP(
+        name=mcp.name,
+        instructions=mcp.instructions,
+        tools=mcp._tool_manager.list_tools(),
+        streamable_http_path="/",
+        lifespan=lifespan,
+        auth=auth,
+        token_verifier=JWTTokenVerifier(),
+    )
+    return http_mcp.streamable_http_app()
+
+
+__all__ = ["mcp", "main", "lifespan", "parse_args", "StaticBearerTokenVerifier", "build_http_app"]

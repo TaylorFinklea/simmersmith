@@ -8,6 +8,83 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-15 — Builds 96 + 97 (gpt-5.5 chat fix + M24 Remote OAuth MCP)
+
+Shipped two backend builds in one session:
+
+**Build 96 — fix(ai): strip temperature/max_tokens on gpt-5.5+ chat
+completions.** Build 93 flipped the default OpenAI model to
+`gpt-5.5` but every chat/completions caller (`assistant_ai`,
+`vision_ai`, `week_planner`) still shipped `temperature: 0.x` — the
+new reasoning-class models return HTTP 400 on any non-default
+temperature. Production symptom: AI Assistant + week generation +
+vision flows all dead with `Client error '400 Bad Request' for url
+'https://api.openai.com/v1/chat/completions'`. Fix:
+`provider_models.openai_chat_body(model, base)` drops `temperature`
+and renames `max_tokens` → `max_completion_tokens` when the model
+matches the reasoning-class prefix list (`o1`, `o3`, `o4`,
+`gpt-5.5`); standard models pass through unchanged. 4 call sites
+refactored; 16 new unit tests. Pre-existing AI services (event,
+pairing, recipe-difficulty, recipe-drafting, seasonal) flow
+through the fixed `run_direct_provider` so they're covered
+transitively.
+
+**Build 97 — feat(mcp): M24 Remote OAuth MCP server.** Hosts the
+existing 55-tool `app/mcp/` surface at `simmersmith.fly.dev/mcp`
+behind OAuth 2.1 + PKCE. New surface:
+
+- `OAuthClient` + `OAuthAuthorizeRequest` tables (alembic 0041).
+- `app/services/oauth.py` — auth-code minting, PKCE verification
+  (S256 only), single-use code semantics, stateless JWT access
+  tokens (aud="mcp", 30-day TTL, signed with the existing
+  `SIMMERSMITH_JWT_SECRET`).
+- `app/api/oauth.py` — `/.well-known/oauth-authorization-server`
+  (RFC 8414 metadata), `/oauth/register` (RFC 7591 DCR),
+  `/oauth/authorize` (HTML approval page), `/oauth/token` (code
+  exchange).
+- `app/mcp/auth.py::JWTTokenVerifier` — validates bearer tokens,
+  sets per-request `_current_user_id_var` ContextVar.
+- `app/mcp/__init__.py::build_http_app()` — returns a FastMCP
+  streamable-HTTP ASGI app with the JWT verifier wired up. Mounted
+  on FastAPI in `app/main.py` at `/mcp`.
+- User-scoping refactor: every `_settings().local_user_id` and
+  `get_settings().local_user_id` call across `app/mcp/{assistant,
+  weeks,recipes,ingredients,profile}.py` rewritten to
+  `_current_user_id()`. Falls through to `local_user_id` when the
+  ContextVar is unset, so the existing stdio MCP path
+  (`scripts/run_simmersmith_mcp.py`) keeps working without
+  authentication.
+
+V1 user-auth limitation: the `/oauth/authorize` HTML page asks for
+the user's `SIMMERSMITH_API_TOKEN` (matches `settings.api_token` →
+approves as `settings.local_user_id`). Works for Taylor. Apple /
+Google web sign-in for true multi-user is M24.1 — the OAuth
+surface itself doesn't change; only the authorize page's HTML.
+
+17 new OAuth tests cover metadata shape, DCR round-trip, authorize
+input validation, end-to-end flow, PKCE verifier mismatch, code
+replay, unapproved-code rejection, session-JWT-replay rejection
+(aud="mcp" enforcement), expired-token rejection, wrong-secret
+rejection. Full pytest sweep: 384 passing (was 367 + 17 new).
+`ruff check` clean on all new files.
+
+**Files changed** (build 96 + 97 combined): 18 new / modified
+under `app/`, `tests/`. New `alembic/versions/20260515_0041_*`.
+`AGENTS.md` MCP-surface line corrected (47 → 55 tools, OAuth host
+mention). Two updated commits: `1964ed5` (build 96), `9b712b1`
+(docs sync), build 97 in this commit.
+
+**Validation**: 384 / 384 pytest pass. `ruff check` clean on
+changed files. App imports cleanly via `python -c "from app.main
+import app"`. Stdio MCP unchanged. End-to-end UAT requires a Fly
+deploy + a Claude.ai user adding `https://simmersmith.fly.dev/mcp`
+as an MCP server — that's the next step.
+
+**Blockers**: None code-side. UAT depends on user-driven deploy +
+Claude.ai connection attempt.
+
+---
+
 **Date**: 2026-05-14 — Builds 66–95 catch-up (handoff docs were 30 builds stale)
 
 The handoff docs fell out of sync between build 65 (2026-05-06) and

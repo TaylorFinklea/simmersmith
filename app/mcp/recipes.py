@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route, _settings
+from ._helpers import _call_route, _current_user_id, _settings
 
 from app.auth import CurrentUser
 from app.api.recipes import (
@@ -41,7 +41,7 @@ from app.services.recipes import get_recipe
 def recipes_list(
     include_archived: bool = False, cuisine: str = "", tags: list[str] | None = None
 ) -> list[dict[str, Any]]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _call_route(
             lambda: recipes_payload(
@@ -56,21 +56,21 @@ def recipes_list(
 
 @mcp.tool(description="Get one recipe by ID.")
 def recipes_get(recipe_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _call_route(lambda: recipe_detail_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
 
 
 @mcp.tool(description="Create or update a recipe.")
 def recipes_save(payload: RecipePayload) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _call_route(lambda: save_recipe(payload, session=session, current_user=CurrentUser(id=user_id)))
 
 
 @mcp.tool(description="Import a recipe draft from a source URL.")
 def recipes_import_from_url(url: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeImportRequest(url=url)
         return _call_route(
@@ -86,7 +86,7 @@ def recipes_import_from_text(
     source_label: str = "",
     source_url: str = "",
 ) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeTextImportRequest(
             text=text,
@@ -115,7 +115,7 @@ def recipes_add_metadata_item(kind: str, name: str) -> dict[str, Any]:
 
 @mcp.tool(description="Generate a recipe suggestion draft.")
 def recipes_suggestion_draft(goal: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeSuggestionDraftRequest(goal=goal)
         return _call_route(
@@ -125,7 +125,7 @@ def recipes_suggestion_draft(goal: str) -> dict[str, Any]:
 
 @mcp.tool(description="Generate three companion recipe drafts for a recipe.")
 def recipes_companion_drafts(recipe_id: str, focus: str = "sides_and_sauces") -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeCompanionDraftRequest(focus=focus)
         return _call_route(
@@ -141,7 +141,7 @@ def recipes_companion_drafts(recipe_id: str, focus: str = "sides_and_sauces") ->
 
 @mcp.tool(description="Generate a recipe variation draft for an existing recipe.")
 def recipes_variation_draft(recipe_id: str, goal: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeVariationDraftRequest(goal=goal)
         return _call_route(
@@ -182,21 +182,21 @@ def recipes_nutrition_match(
 
 @mcp.tool(description="Archive a recipe.")
 def recipes_archive(recipe_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _call_route(lambda: archive_recipe_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
 
 
 @mcp.tool(description="Restore an archived recipe.")
 def recipes_restore(recipe_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         return _call_route(lambda: restore_recipe_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
 
 
 @mcp.tool(description="Delete a recipe permanently.")
 def recipes_delete(recipe_id: str) -> dict[str, Any]:
-    user_id = _settings().local_user_id
+    user_id = _current_user_id()
     with session_scope() as session:
         recipe = get_recipe(session, user_id, recipe_id)
         if recipe is None:

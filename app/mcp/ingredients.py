@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route
+from ._helpers import _call_route, _current_user_id
 
 from app.api.ingredients import (
     create_ingredient_route,
@@ -16,7 +16,6 @@ from app.api.ingredients import (
     upsert_ingredient_preference_route,
 )
 from app.auth import CurrentUser
-from app.config import get_settings
 from app.db import session_scope
 from app.schemas import (
     BaseIngredientPayload,
@@ -27,7 +26,7 @@ from app.schemas import (
 
 
 def _mcp_user() -> CurrentUser:
-    return CurrentUser(id=get_settings().local_user_id)
+    return CurrentUser(id=_current_user_id())
 
 
 @mcp.tool(description="Search or list canonical base ingredients.")

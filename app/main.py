@@ -16,6 +16,7 @@ from app.api.discovery import router as discovery_router
 from app.api.events import events_router, guests_router
 from app.api.exports import router as exports_router
 from app.api.household import router as household_router
+from app.api.oauth import router as oauth_router
 from app.api.ingredients import preferences_router as ingredient_preferences_router
 from app.api.ingredients import router as ingredients_router
 from app.api.pantry import router as pantry_router
@@ -85,6 +86,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
 app.include_router(admin_router)  # Public — admin routes handle their own auth
 app.include_router(auth_router)  # Public — handles its own auth
+app.include_router(oauth_router)  # Public — OAuth metadata + flow; mounted at root
 protected_dependencies = [Depends(get_current_user)]
 app.include_router(ai_router, dependencies=protected_dependencies)
 app.include_router(aliases_router, dependencies=protected_dependencies)
@@ -112,6 +114,15 @@ app.include_router(stores_router, dependencies=protected_dependencies)
 # so we register it as a public router. Inside the router the webhook route
 # authenticates via the JWS signature only.
 app.include_router(subscriptions_router)
+
+
+# Mount the remote MCP endpoint at /mcp.
+# - Bearer auth via OAuth-issued JWTs (`app/mcp/auth.py`).
+# - User scoping via `_current_user_id_var` ContextVar set by the verifier.
+# - Stdio MCP (`scripts/run_simmersmith_mcp.py`) is unaffected.
+from app.mcp import build_http_app as _build_mcp_http_app  # noqa: E402
+
+app.mount("/mcp", _build_mcp_http_app())
 
 
 @app.get("/api/health", response_model=HealthResponse)

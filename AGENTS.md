@@ -106,7 +106,7 @@ tests/
 - **AI provider routing**: Auto-detects MCP (Codex server) → falls back to direct OpenAI/Anthropic APIs. Configurable timeout (default 120s).
 - **Export boundary**: App queues export runs; host-side CLI reads queue and writes to macOS Reminders via Playwright/AppleScript.
 - **Ingredient catalog**: 42KB+ in-memory cache with USDA FDC ingestion pipeline.
-- **MCP surface**: 47 tools exposing all app domains for external AI agents. Launch differentiator.
+- **MCP surface**: 55 tools across `app/mcp/{assistant,weeks,recipes,ingredients,profile}.py` exposing all app domains for external AI agents. Hosted at `simmersmith.fly.dev/mcp` behind OAuth 2.1 + PKCE (build 97, M24); also accessible via stdio for internal Codex routing. Launch differentiator.
 
 ## Environment Variables
 
