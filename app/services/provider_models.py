@@ -22,6 +22,44 @@ OPENAI_MODEL_PREFERENCES = (
 )
 OPENAI_MODEL_PREFIXES = tuple({model_id.split("-")[0] for model_id in OPENAI_MODEL_PREFERENCES})
 
+# Reasoning-class OpenAI models reject `temperature` other than 1.0 and
+# require `max_completion_tokens` in place of `max_tokens` on
+# `chat/completions`. Sending standard parameters returns HTTP 400.
+_OPENAI_REASONING_PREFIXES = (
+    "o1",
+    "o3",
+    "o4",
+    "gpt-5.5",
+)
+
+
+def is_openai_reasoning_model(model_id: str) -> bool:
+    """Return True for the gpt-5.5+/o-series family that rejects standard chat params."""
+    model = (model_id or "").strip().lower()
+    if not model:
+        return False
+    return any(
+        model == prefix or model.startswith(f"{prefix}-")
+        for prefix in _OPENAI_REASONING_PREFIXES
+    )
+
+
+def openai_chat_body(*, model: str, base: dict[str, object]) -> dict[str, object]:
+    """Compose an OpenAI `chat/completions` body that's parameter-compatible with ``model``.
+
+    Reasoning models (``o1*``, ``o3*``, ``o4*``, ``gpt-5.5*``) 400 on
+    non-default ``temperature`` and on ``max_tokens``. This helper drops
+    ``temperature`` and renames ``max_tokens`` → ``max_completion_tokens``
+    when the model needs it; otherwise the body passes through unchanged.
+    """
+    body: dict[str, object] = dict(base)
+    body["model"] = model
+    if is_openai_reasoning_model(model):
+        body.pop("temperature", None)
+        if "max_tokens" in body:
+            body["max_completion_tokens"] = body.pop("max_tokens")
+    return body
+
 
 def _is_openai_chat_model(model_id: str) -> bool:
     return model_id.startswith(("gpt-", "o",))

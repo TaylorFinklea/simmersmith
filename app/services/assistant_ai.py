@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 from app.config import Settings
 from app.schemas import AssistantRespondRequest, RecipePayload
 from app.services.ai import SUPPORTED_DIRECT_PROVIDERS, direct_provider_availability, resolve_direct_api_key, resolve_direct_model
+from app.services.provider_models import openai_chat_body
 from app.services.assistant_tools import (
     MAX_TOOL_ITERATIONS,
     AssistantToolResult,
@@ -369,14 +370,16 @@ class OpenAIAdapter(ProviderAdapter):
         }
 
     def request_body(self) -> dict[str, object]:
-        return {
-            "model": self.target.model,
-            "messages": self.messages,
-            "tools": openai_tools_schema(),
-            "tool_choice": "auto",
-            "temperature": 0.3,
-            "stream": True,
-        }
+        return openai_chat_body(
+            model=self.target.model,
+            base={
+                "messages": self.messages,
+                "tools": openai_tools_schema(),
+                "tool_choice": "auto",
+                "temperature": 0.3,
+                "stream": True,
+            },
+        )
 
     def reset_stream_state(self) -> None:
         self._tool_calls_acc = {}
@@ -935,14 +938,16 @@ def run_direct_provider(
     timeout = settings.ai_timeout_seconds
     if target.provider_name == "openai":
         headers["Authorization"] = f"Bearer {resolve_direct_api_key('openai', settings=settings, user_settings=user_settings)}"
-        body = {
-            "model": target.model,
-            "messages": [
-                {"role": "system", "content": "Return only valid JSON matching the requested schema."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.4,
-        }
+        body = openai_chat_body(
+            model=target.model,
+            base={
+                "messages": [
+                    {"role": "system", "content": "Return only valid JSON matching the requested schema."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.4,
+            },
+        )
         with httpx.Client(timeout=timeout) as client:
             response = client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
         response.raise_for_status()

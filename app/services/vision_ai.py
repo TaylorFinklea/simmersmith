@@ -30,6 +30,7 @@ from app.services.ai import (
     resolve_direct_model,
 )
 from app.services.assistant_ai import extract_json_object
+from app.services.provider_models import openai_chat_body
 
 logger = logging.getLogger(__name__)
 
@@ -125,23 +126,25 @@ def _run_vision_provider(
         headers["Authorization"] = (
             f"Bearer {resolve_direct_api_key('openai', settings=settings, user_settings=user_settings)}"
         )
-        body = {
-            "model": target.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{api_mime};base64,{base64_image}"},
-                        },
-                    ],
-                },
-            ],
-            "temperature": 0.2,
-        }
+        body = openai_chat_body(
+            model=target.model,
+            base={
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{api_mime};base64,{base64_image}"},
+                            },
+                        ],
+                    },
+                ],
+                "temperature": 0.2,
+            },
+        )
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
                 "https://api.openai.com/v1/chat/completions",

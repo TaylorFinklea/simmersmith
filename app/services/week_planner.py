@@ -23,6 +23,7 @@ from app.services.ai import (
     unit_system_directive,
     visible_profile_settings,
 )
+from app.services.provider_models import openai_chat_body
 
 logger = logging.getLogger(__name__)
 
@@ -376,15 +377,17 @@ def _call_ai_provider(
 
     if provider == "openai":
         headers["Authorization"] = f"Bearer {api_key}"
-        body = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.7,
-            "response_format": {"type": "json_object"},
-        }
+        body = openai_chat_body(
+            model=model,
+            base={
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.7,
+                "response_format": {"type": "json_object"},
+            },
+        )
         with httpx.Client(timeout=timeout) as client:
             response = client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
         response.raise_for_status()
