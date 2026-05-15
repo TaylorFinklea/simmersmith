@@ -12,28 +12,49 @@ SimmerSmith is an AI-first meal planning app for the App Store. AI is the star �
 
 Active items. Trim as completed.
 
-### Now (validation + commit)
+### Now
 
-Three milestones shipped this session — M18 push notifications, M17.1
-image-gen cost telemetry, and M19/M7 Phase 5 Anthropic tool-use. Fly is
-on v58 (carries M17, M18, M17.1). M19 is uncommitted at session end.
+iOS is on build 93 (TestFlight). Admin portal v2 (builds 94–95)
+deployed to Fly + Cloudflare on 2026-05-13 — operator visibility into
+per-user usage + estimated cost, plus manual Pro grant/revoke at
+admin.simmersmith.app. The Fusion redesign rollout is complete
+(builds 58–79). Builds 80–92 were almost entirely dogfood-driven
+fixes from Taylor + Savanne on TestFlight.
 
 Open follow-ups:
-- Commit M19 + `fly deploy` to ship Anthropic tool-use server-side.
-- Install TestFlight build 28 → sign in → accept the auto-fired APNs
-  permission prompt → run the `POST /api/push/test` curl smoke test →
-  wait for the 17:00 local "tonight's meal" tick.
-- Dogfood M19: Settings → AI provider → Anthropic → planning thread →
-  "add salmon to Tuesday dinner" → confirm tool fires + week refreshes
-  + iOS shows the same `assistant.tool_call` card OpenAI shows.
+- Smoke-test admin v2 in the browser (user-detail page, grant a Pro
+  override, edit a cost rate, confirm spend numbers move).
+- Continue dogfood triage from Taylor + Savanne.
+- Reconcile M5 status — the freemium/subscription/paywall
+  infrastructure exists despite the roadmap marking M5 deferred (see
+  current-state.md note). Next milestone-planning pass resolves this.
 
 ### Awaiting User / External
-- TestFlight build 26 dogfooding feedback (wife's iPhone).
-- Add internal testers to TestFlight if not done.
+- Ongoing TestFlight dogfood feedback (Taylor + Savanne).
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
 
-### Next (M22 in flight, M23 candidates)
+### Next (committed milestones — specced 2026-05-14)
+
+**M23.1 — Cart automation completion** (spec:
+[`phases/cart-automation-completion-spec.md`](phases/cart-automation-completion-spec.md))
+- Finish the two stubbed drivers in `skills/simmersmith-shopping/`
+  so all four supported retailers fill carts end-to-end.
+- New `capture` CLI subcommand for repeatable selector-rot repair.
+- Estimated ~3–4 sessions. Approach A: manual login + DOM capture
+  + hand-written `data-testid`-first selectors.
+
+**M24 — Remote OAuth MCP server** (spec:
+[`phases/remote-mcp-oauth-spec.md`](phases/remote-mcp-oauth-spec.md))
+- Host `app/mcp/` at `https://simmersmith.fly.dev/mcp` behind
+  OAuth 2.1 + PKCE so any Claude.ai user can connect with their
+  own Apple/Google sign-in.
+- Replace `_settings().local_user_id` with per-request user
+  scoping across the 55 `@mcp.tool` registrations.
+- Estimated ~5–6 sessions. Approach A: adopt `authlib`'s
+  `AuthorizationServer` for the spec-compliant bits.
+
+### Recently completed
 
 **M22 + M22.1 + M22.2 — Grocery list polish + Reminders sync** (shipped 2026-05-03)
 - Smart-merge regen preserves user edits (`is_user_added`,
@@ -60,13 +81,13 @@ need real selectors after first-run login")
   cart-add stubbed (return empty list, splitter avoids them).
 - `setup.sh` symlinks the skill into `~/.claude/skills/`.
 
-**Next candidates** (post-M22+M23)
-- **Sam's Club + Instacart selectors** — fill in `search_products` /
-  `add_to_cart` after first-run login captures live DOM samples.
+**Later candidates** (post-M23.1 + M24)
 - **Anthropic web search support** for the recipe finder (Messages
-  API `web_search_20250305` — currently OpenAI-only).
-- **Owner role transfer** (M21 follow-up).
-- **Removing a member as owner** (M21 follow-up).
+  API `web_search_20250305` — currently OpenAI-only in
+  `app/services/recipe_search_ai.py`).
+- **Pro-gate household sharing** — tie existing household
+  invitations to the Pro entitlement once M5 activates.
+- **Owner role transfer** + **member removal** (M21 follow-ups).
 - **profile_settings split** — household-scoped keys (timezone,
   store info, household_name, week_start_day) move into
   `household_settings`. Tracked since M21 Phase 2; deferred again as
@@ -88,8 +109,21 @@ need real selectors after first-run login")
 - Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop` into a provider-agnostic adapter.
 - Phase 6: True per-day `generate_week_plan` (7× tokens; flag cost before shipping).
 
-### Deferred (do not restart without authorization)
-- **M5 Freemium + Subscription**: postponed 2026-04-20. Saved to memory (`project_m5_freemium_deferred.md`).
+### M5 status (corrected 2026-05-14)
+
+The "deferred — none done" framing was stale. The freemium /
+subscription / paywall infrastructure is fully built across
+backend (`app/services/entitlements.py`,
+`app/services/subscriptions.py`, `app/api/subscriptions.py` with
+`/verify` + `/apple-webhook`) and iOS (`Features/Paywall/`,
+`AppState+Subscription.swift`, StoreKit linked). Builds 93–95
+added the admin portal that tunes the freemium knobs. The gate is
+currently dark via `trial_mode_enabled` ("free Pro for everyone
+during beta"). What remains: App Store Connect product
+configuration for `simmersmith.pro.monthly` / `.annual`, a
+`.storekit` testing config, sandbox purchase validation, and the
+decision to flip trial mode off. Treat M5 activation as a live
+candidate once M24's tool-call cost question lands.
 
 ## Infrastructure (complete)
 

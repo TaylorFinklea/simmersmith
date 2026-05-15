@@ -8,6 +8,93 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-14 — Builds 66–95 catch-up (handoff docs were 30 builds stale)
+
+The handoff docs fell out of sync between build 65 (2026-05-06) and
+build 95 (2026-05-13). This entry consolidates the span. iOS is on
+build 93 (TestFlight); admin builds 94–95 deployed to Fly +
+Cloudflare on 2026-05-13. Backend: 351 tests passing.
+
+**Fusion redesign — finished the rollout (builds 76–79)**
+- Build 76: per-tab configurable primary FAB (TopBarSettings),
+  TopBarSparkleButton, SmithToolbar paper-on-cream treatment with a
+  hand-drawn ember rule across every screen, Forge search promoted
+  to a top-bar icon, Settings simmer·smith wordmark, new anvil+
+  spatula logo (AppIcon.appiconset + BrandMark.imageset).
+- Build 78: secondary-screen sweep — 40+ sheets/views get the paper
+  toolbar + ember buttons; app icon auto-crops to the alpha bbox so
+  the mark fills the tile.
+- Build 79: FuHero on the last three tabs (Grocery/Pantry/Events),
+  15 Settings sections to lowercase Caveat handwritten headers,
+  CookingMode HammeredGrain canvas overlay.
+
+**Dogfood-driven fixes (builds 80–92)** — Taylor + Savanne on
+TestFlight; most of this span is feedback triage.
+- Build 80: BGAppRefresh sync now respects cancellation — root-cause
+  fix for SIGKILL background crashes (Reminders sync ran past iOS's
+  30s budget).
+- Build 81: Savanne pass — future-week hero labels, AI sparkle pill
+  on recipe cards, Dessert filter, InSeasonStrip moved to Grocery,
+  and AI-generated recipe photos replaced with category-derived
+  gradient + SF Symbol illustrations (imageUrl path preserved on the
+  model for a possible future toggle).
+- Builds 82–85: hand-drawn recipe icon library (28 Path-composed
+  glyphs), per-recipe picker, server-side `icon_key` column (alembic
+  0037) + iOS sync + one-shot local→server migration.
+- Build 86: re-mounted the AI overlay as a sheet host (per-day
+  sparkles were dead after build 76 dropped the floating FAB), Forge
+  filters narrow the Recently Added rail, horizontal swipe across
+  the Week hero changes weeks.
+- Build 87: grocery "Plan Shopping" flow replaces the auto-populated
+  list (Taylor flagged the cleanup tax) — `auto_grocery_from_meals`
+  setting (default off), plan-shopping projection endpoint,
+  quick-add, clear-auto, per-item `store_label` (alembic 0038).
+- Build 88: resolver no longer clobbers a server match back to
+  "unresolved" from the inbound payload; `reresolve` service +
+  endpoint + iOS one-shot backfill; swipe-to-pantry on grocery +
+  plan-shopping rows.
+- Build 89: day-of-month numerals use the UTC calendar (CDT users
+  saw them a day behind).
+- Build 90: Week FAB opens the contextual popup AI sheet scoped to
+  the displayed week instead of switching to the Smith tab.
+- Build 91: Reminders Connect/Disconnect buttons replace the toggle
+  (fixes the picker-sheet teardown race); picker hoisted to
+  SettingsView body level.
+- Build 92: "Hide completed" grocery filter (per-device, only shows
+  when ≥1 item is checked).
+
+**Admin portal + usage visibility (builds 93–95)**
+- Build 93: default OpenAI model → gpt-5.5; `increment_usage` now
+  accrues for every user (pro/trial included — visibility only,
+  paywall bypass unchanged); user-facing "ai usage (this month)"
+  section in iOS Settings.
+- Build 94 (admin v1): `server_settings` table (alembic 0039) for
+  operator-tunable knobs; `/api/admin/usage`, `/users`, `/settings`
+  endpoints; SvelteKit admin site at admin.simmersmith.app behind
+  Cloudflare Access + a bearer-gated FastAPI inner layer.
+- Build 95 (admin v2): `/api/admin/users/{id}` detail endpoint,
+  `POST .../subscription` manual grant-Pro / revoke, editable
+  `usage_cost_usd` cost-rate map, `apple_original_transaction_id`
+  made nullable + `admin_note` column (alembic 0040) so admin grants
+  share the `subscriptions` table; admin site `/users/[id]` page +
+  cost columns.
+
+**Validation**: 351 backend tests passing. iOS build 93 on
+TestFlight. Admin builds 94–95 live on Fly + Cloudflare (deployed
+2026-05-13). `project.yml` `CURRENT_PROJECT_VERSION` → 93.
+
+**Blockers**: None.
+
+**Note for planning**: the roadmap still lists M5 (Freemium +
+Subscription) as "deferred — none done", but the subscription /
+entitlements / usage-counter / paywall infrastructure clearly exists
+(`app/models/billing.py`, `app/services/entitlements.py` +
+`subscriptions.py`, iOS `Features/Paywall/PaywallSheet.swift` +
+`AppState+Subscription.swift`, StoreKit linked). M5's real status
+needs reconciling — flagged for the next milestone-planning pass.
+
+---
+
 **Date**: 2026-05-06 — Build 65 (Cooking IA + Forge list fix + RecipeDetail calorie move)
 
 User signed off on RecipeDetail visuals from build 64. Asked for
