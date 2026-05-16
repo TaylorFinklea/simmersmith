@@ -96,3 +96,58 @@ Skill skips reminders where `isCompleted == true`.
   does not write to it.
 - The user wants to actually place an order. The skill stops at the
   cart page on purpose — the user reviews and clicks Checkout.
+
+## When a driver breaks (selector rot)
+
+Retailers rotate `data-testid` and class names without warning. When
+a run fails with a `SelectorMissing: <store>: '<key>' selector
+(<pattern>) missing on <page>` error, the fix is mechanical:
+
+1. **Re-run capture against the broken store.** Capture opens the
+   persistent profile, walks you through one search + one ADD, and
+   writes selector candidates next to the rendered HTML:
+
+   ```bash
+   uv run --project ~/.claude/skills/simmersmith-shopping \
+     python -m simmersmith_shopping capture --store <slug>
+   ```
+
+   Output lands in
+   `~/.config/simmersmith-shopping/captures/<slug>-<UTC-iso>/`.
+
+2. **Find the replacement.** Open `candidates.txt` from that
+   directory. Candidates are ranked by attribute stability
+   (`data-testid` first), so the right selector is usually near the
+   top of the relevant page section. Grep hints in the file header
+   land each `_SELECTORS` key fast:
+
+   ```
+   grep -E '(testid|aria-label).+search'       candidates.txt
+   grep -E '(testid|automation-id).+(add|cart)' candidates.txt
+   grep -E '(testid|automation-id).+(product|item).*card' candidates.txt
+   ```
+
+3. **Edit `_SELECTORS`.** Open the failing driver file in
+   `skills/simmersmith-shopping/src/simmersmith_shopping/stores/`
+   and replace the value for the named key. The error message names
+   the exact key — `'add_to_cart' selector missing on product page`
+   means edit `_SELECTORS["add_to_cart"]`.
+
+4. **Re-run the skill.** Same dry-run / real-run commands as
+   normal. If the same key fails again with a different selector
+   value, re-run capture — the site may have shifted between
+   capture and run.
+
+Same procedure for the unconfigured Sam's Club + Instacart drivers:
+their `_SELECTORS` ship as an empty dict and the driver returns no
+candidates until you transcribe a capture into the map. Each
+driver's module docstring spells out the workflow inline.
+
+Priority order when picking a selector value:
+
+1. `data-testid` / `data-automation-id` / `data-test` — these are
+   change-resistant; retailers use them for their own QA.
+2. `aria-label` — change-resistant for accessibility reasons.
+3. `role` — coarse but stable.
+4. `name` / `id` — usually stable on inputs.
+5. CSS class — last resort; rotates with every redesign.

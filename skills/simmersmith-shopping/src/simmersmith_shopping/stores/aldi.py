@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .base import ProductCandidate, StoreHandler
+from .base import ProductCandidate, StoreHandler, locate
 
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class AldiHandler(StoreHandler):
         page = context.new_page()
         try:
             page.goto(f"https://new.aldi.us/results?q={line.name}", wait_until="domcontentloaded")
-            page.wait_for_selector(_SELECTORS["product_card"], timeout=8000)
+            locate(page, _SELECTORS, "product_card", store=self.slug, where="search results")
             cards = page.query_selector_all(_SELECTORS["product_card"])[:3]
             results: list[ProductCandidate] = []
             for card in cards:
@@ -83,7 +83,7 @@ class AldiHandler(StoreHandler):
         page = context.new_page()
         try:
             page.goto(candidate.product_url, wait_until="domcontentloaded")
-            page.click(_SELECTORS["add_to_cart"], timeout=8000)
+            locate(page, _SELECTORS, "add_to_cart", store=self.slug, where="product page").click(timeout=8000)
             # Aldi animates the side-cart in; give it a beat to settle
             # so an immediate next add_to_cart sees a stable DOM.
             page.wait_for_timeout(800)

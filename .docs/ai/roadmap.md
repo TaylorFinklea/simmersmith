@@ -38,23 +38,29 @@ Open follow-ups:
 
 **M23.1 — Cart automation completion** (spec:
 [`phases/cart-automation-completion-spec.md`](phases/cart-automation-completion-spec.md))
-- Finish the two stubbed drivers in `skills/simmersmith-shopping/`
-  so all four supported retailers fill carts end-to-end.
-- New `capture` CLI subcommand for repeatable selector-rot repair.
-- Estimated ~3–4 sessions. Approach A: manual login + DOM capture
-  + hand-written `data-testid`-first selectors.
-
-**M24 — Remote OAuth MCP server** (spec:
-[`phases/remote-mcp-oauth-spec.md`](phases/remote-mcp-oauth-spec.md))
-- Host `app/mcp/` at `https://simmersmith.fly.dev/mcp` behind
-  OAuth 2.1 + PKCE so any Claude.ai user can connect with their
-  own Apple/Google sign-in.
-- Replace `_settings().local_user_id` with per-request user
-  scoping across the 55 `@mcp.tool` registrations.
-- Estimated ~5–6 sessions. Approach A: adopt `authlib`'s
-  `AuthorizationServer` for the spec-compliant bits.
+- Framework shipped 2026-05-15: `capture` subcommand, `locate()`
+  domain-error helper, Sam's Club + Instacart driver scaffolds with
+  empty `_SELECTORS` maps wired into the splitter via
+  `_hint_needs_capture()` so the orchestrator routes around them
+  until populated.
+- **Remaining (interactive)**: Taylor runs `login --store sams_club`
+  + `capture --store sams_club`, transcribes selectors into
+  `stores/sams_club.py::_SELECTORS`, repeats for Instacart, then
+  validates with a small fixture grocery list.
 
 ### Recently completed
+
+**M24 — Remote OAuth MCP server** (shipped 2026-05-15 — build 97)
+- 55-tool `app/mcp/` surface mounted at `simmersmith.fly.dev/mcp`
+  behind OAuth 2.1 + PKCE (S256).
+- RFC 8414 metadata, RFC 7591 dynamic client registration, stateless
+  JWT access tokens (aud="mcp", 30-day TTL).
+- Per-request user scoping via ContextVar; stdio path falls through
+  to `local_user_id` so internal Codex routing keeps working.
+- 17 new OAuth pytest cases; 384 total passing.
+- V1 user-auth pastes `SIMMERSMITH_API_TOKEN`; Apple/Google web
+  sign-in is M24.1 (touches only the `/oauth/authorize` HTML page).
+
 
 **M22 + M22.1 + M22.2 — Grocery list polish + Reminders sync** (shipped 2026-05-03)
 - Smart-merge regen preserves user edits (`is_user_added`,

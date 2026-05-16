@@ -17,6 +17,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -114,6 +115,185 @@ def cmd_login(args: argparse.Namespace) -> int:
             context.close()
     console.print(f"[green]✓ {handler.display_name} cookies saved.[/green]")
     return 0
+
+
+def cmd_capture(args: argparse.Namespace) -> int:
+    """Walk the user through one search + one ADD interaction in the
+    persistent profile, snapshot the rendered HTML at each step, and
+    emit a ranked candidates file. The output is structured so that
+    `grep -E '(data-testid|aria-label).+search' candidates.txt` lands
+    the search-input selector immediately.
+    """
+    handler = REGISTRY.get(args.store)
+    if handler is None:
+        console.print(f"[red]unknown store: {args.store}[/red]")
+        return 2
+
+    _ensure_playwright_chromium()
+    from playwright.sync_api import sync_playwright
+
+    capture_root = Path(
+        os.environ.get("SIMMERSMITH_CAPTURE_ROOT")
+        or "~/.config/simmersmith-shopping/captures"
+    ).expanduser()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = capture_root / f"{handler.slug}-{timestamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"[bold]Capture mode — {handler.display_name}[/bold]")
+    console.print(f"Output: {out_dir}")
+    console.print()
+    console.print("This walks you through one search and one ADD interaction.")
+    console.print("At each prompt, return to the terminal and press Enter when ready.")
+    console.print()
+
+    with sync_playwright() as pw:
+        context = pw.chromium.launch_persistent_context(
+            user_data_dir=str(handler.profile_path()),
+            headless=False,
+        )
+        try:
+            page = context.new_page()
+            page.goto(handler.default_login_url)
+
+            console.print("[bold]Step 1.[/bold] In the browser, search for any common item")
+            console.print("(e.g. 'milk' or 'eggs'). Wait for the results grid to render.")
+            console.print("Then return here and press [bold]Enter[/bold].")
+            if not _wait_for_enter():
+                console.print("[yellow]aborted[/yellow]")
+                return 1
+            _snapshot_page(_active_page(context, page), out_dir, label="search")
+            console.print("[green]✓[/green] search snapshot saved")
+
+            console.print()
+            console.print("[bold]Step 2.[/bold] Click a product, then click the store's ADD button.")
+            console.print("Wait for the cart confirmation (badge, drawer, etc.) to render.")
+            console.print("Then return here and press [bold]Enter[/bold].")
+            if not _wait_for_enter():
+                console.print("[yellow]aborted — partial capture in place[/yellow]")
+            else:
+                _snapshot_page(_active_page(context, page), out_dir, label="product")
+                console.print("[green]✓[/green] product snapshot saved")
+        finally:
+            context.close()
+
+    _emit_candidates(out_dir)
+    console.print()
+    console.print("[bold green]Capture complete.[/bold green]")
+    console.print(f"  search.html, product.html, candidates.txt → {out_dir}")
+    console.print()
+    console.print("Next:")
+    console.print(f"  1. Open {out_dir / 'candidates.txt'}")
+    console.print( "  2. Pick search_input / product_card / card_title / card_price / card_link / add_to_cart")
+    console.print(f"  3. Fill in `_SELECTORS` in skills/simmersmith-shopping/src/simmersmith_shopping/stores/{handler.slug}.py")
+    console.print( "  4. Re-run the skill against a small grocery list to validate.")
+    return 0
+
+
+def _wait_for_enter() -> bool:
+    try:
+        input()
+        return True
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def _active_page(context, fallback):
+    """Return the most recently focused page in the persistent context.
+
+    The user can navigate from the original landing page across N
+    intermediate links during capture; we always want the page they're
+    actually looking at, not the initial one we opened.
+    """
+    if context.pages:
+        return context.pages[-1]
+    return fallback
+
+
+def _snapshot_page(page, out_dir: Path, *, label: str) -> None:
+    try:
+        html = page.content()
+        url = page.url
+    except Exception as exc:  # noqa: BLE001 — best-effort snapshot
+        log = logging.getLogger(__name__)
+        log.warning("snapshot for %s failed: %s", label, exc)
+        return
+    (out_dir / f"{label}.html").write_text(html, encoding="utf-8")
+    (out_dir / f"{label}.url").write_text(url, encoding="utf-8")
+
+
+# Highest-stability attributes first; the candidates file is sorted by
+# this priority so `data-testid` matches surface above brittle CSS.
+_CANDIDATE_ATTRS = (
+    "data-testid",
+    "data-automation-id",
+    "data-test",
+    "aria-label",
+    "role",
+    "name",
+)
+
+
+def _emit_candidates(out_dir: Path) -> None:
+    """Parse each captured HTML file, walk every element with at least
+    one priority attribute, and write a ranked single-file digest.
+
+    Uses stdlib `html.parser` (no soup/lxml dep) — we don't need a
+    real DOM, just attribute extraction and a short tag-excerpt.
+    """
+    from html.parser import HTMLParser
+
+    rows: list[tuple[int, str, str, str, str, str]] = []  # (priority, attr, value, tag, label, excerpt)
+
+    class _Collector(HTMLParser):
+        def __init__(self, label: str) -> None:
+            super().__init__(convert_charrefs=True)
+            self._label = label
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attrs_dict = {k.lower(): (v or "") for k, v in attrs}
+            for priority, attr in enumerate(_CANDIDATE_ATTRS):
+                if attr in attrs_dict and attrs_dict[attr]:
+                    pairs = " ".join(f'{k}="{v}"' for k, v in attrs[:6] if v is not None)
+                    excerpt = f"<{tag} {pairs}>"[:240]
+                    rows.append((priority, attr, attrs_dict[attr], tag, self._label, excerpt))
+                    break
+
+    for label in ("search", "product"):
+        path = out_dir / f"{label}.html"
+        if not path.exists():
+            continue
+        collector = _Collector(label)
+        try:
+            collector.feed(path.read_text(encoding="utf-8", errors="replace"))
+        except Exception as exc:  # noqa: BLE001
+            log = logging.getLogger(__name__)
+            log.warning("parsing %s.html failed: %s", label, exc)
+
+    seen: set[tuple[str, str, str, str]] = set()
+    deduped: list[tuple[int, str, str, str, str, str]] = []
+    for row in rows:
+        key = (row[1], row[2], row[3], row[4])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    deduped.sort(key=lambda r: (r[0], r[4], r[1], r[2]))
+
+    lines = [
+        f"# Selector candidates — {out_dir.name}",
+        "# Columns: PAGE | ATTR=VALUE | TAG | EXCERPT",
+        "# Priority order: " + " > ".join(_CANDIDATE_ATTRS),
+        "# Grep hints:",
+        "#   grep -E '(testid|aria-label).+search' candidates.txt",
+        "#   grep -E '(testid|automation-id).+(add|cart)' candidates.txt",
+        "#   grep -E '(testid|automation-id).+(product|item).*card' candidates.txt",
+        "",
+    ]
+    for _priority, attr, value, tag, label, excerpt in deduped:
+        lines.append(f"{label:8s} | {attr}={value!r:50s} | {tag:8s} | {excerpt}")
+
+    (out_dir / "candidates.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -309,6 +489,12 @@ def main(argv: list[str] | None = None) -> int:
     login = sub.add_parser("login", help="Interactive login for a store.")
     login.add_argument("--store", required=True, choices=list(REGISTRY.keys()))
 
+    capture = sub.add_parser(
+        "capture",
+        help="Walk through search + ADD; dump rendered HTML + ranked selector candidates.",
+    )
+    capture.add_argument("--store", required=True, choices=list(REGISTRY.keys()))
+
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -317,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "login":
         return cmd_login(args)
+    if args.cmd == "capture":
+        return cmd_capture(args)
     return cmd_run(args)
 
 

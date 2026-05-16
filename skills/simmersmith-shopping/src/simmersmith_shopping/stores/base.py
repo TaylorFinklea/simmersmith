@@ -11,9 +11,52 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from playwright.sync_api import BrowserContext
+    from playwright.sync_api import BrowserContext, Locator, Page
 
     from ..parser import GroceryLine
+
+
+class SelectorMissing(RuntimeError):
+    """A `_SELECTORS` entry didn't match on the live page.
+
+    Raised by `locate()` so the orchestrator can surface a useful
+    error (`'add_to_cart' selector missing on sams_club product page`)
+    instead of a bare Playwright timeout. When this fires, the fix is
+    to re-run `capture --store <slug>` and patch the named key in
+    that driver's `_SELECTORS` map.
+    """
+
+    def __init__(self, store: str, key: str, selector: str, where: str) -> None:
+        super().__init__(
+            f"{store}: '{key}' selector ({selector!r}) missing on {where}. "
+            f"Re-run `capture --store {store}` and update _SELECTORS[{key!r}]."
+        )
+        self.store = store
+        self.key = key
+        self.selector = selector
+        self.where = where
+
+
+def locate(
+    page: "Page",
+    selectors: dict[str, str],
+    key: str,
+    *,
+    store: str,
+    where: str = "page",
+    timeout_ms: int = 8000,
+) -> "Locator":
+    """Resolve `selectors[key]` against the page, waiting until it
+    attaches. Raises `SelectorMissing` (naming `key`) on timeout so
+    failures are diagnosable without reading the Playwright stack.
+    """
+    selector = selectors[key]
+    locator = page.locator(selector).first
+    try:
+        locator.wait_for(state="attached", timeout=timeout_ms)
+    except Exception as exc:  # noqa: BLE001 — translate Playwright timeouts only
+        raise SelectorMissing(store=store, key=key, selector=selector, where=where) from exc
+    return locator
 
 
 def profile_root() -> Path:

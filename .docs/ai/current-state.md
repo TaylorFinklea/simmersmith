@@ -8,6 +8,62 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-15 — M23.1 cart-automation framework (capture
+subcommand + driver scaffolds + selector-rot docs)
+
+Framework half of M23.1 is now in `skills/simmersmith-shopping/`,
+ready for the manual selector-authoring pass that requires Taylor's
+live login at Sam's Club + Instacart.
+
+- New `capture` subcommand in `cli.py`. Resumes the same persistent
+  Playwright profile the `login` subcommand seeded, walks the user
+  through one search + one ADD interaction, snapshots rendered HTML
+  at each step, and writes a ranked selector-candidate file. Output
+  lands in `~/.config/simmersmith-shopping/captures/<slug>-<UTC>/`
+  with `search.html`, `product.html`, and `candidates.txt`. The
+  candidates file is sorted by attribute stability (`data-testid` >
+  `data-automation-id` > `data-test` > `aria-label` > `role` >
+  `name`) and headers each grep hint for the three selectors that
+  matter most: `search_input`, `product_card`, `add_to_cart`.
+- New `locate(page, selectors, key, store=…, where=…)` helper in
+  `stores/base.py` that wraps every selector use in a domain
+  `SelectorMissing` error naming the failed `_SELECTORS` key. Aldi +
+  Walmart refactored to use it; the existing two drivers and the
+  two new scaffolds all surface identical diagnostic messages on
+  selector rot. Meets M23.1 spec acceptance criterion #3.
+- Sam's Club + Instacart drivers go from stub to scaffold. The
+  search/add code path mirrors Aldi exactly; only `_SELECTORS` is
+  empty, behind a `_hint_needs_capture()` log-once guard so the
+  splitter cleanly routes around them today. Once `_SELECTORS` is
+  populated (per the in-file docstring workflow), the same code
+  path goes live without touching the orchestrator.
+- `SKILL.md` gets a "When a driver breaks" section documenting the
+  capture-then-edit-selectors loop so selector rot is repairable
+  without re-reading the spec. Includes the priority order, the
+  three canonical grep patterns, and the per-driver workflow.
+
+8 existing pytest cases (parser + splitter) still pass; ruff clean
+on the changed files. End-to-end activation requires the manual
+capture pass — explicit user-side instructions in the M23.1 handoff
+notes below.
+
+**Files changed**: `skills/simmersmith-shopping/src/simmersmith_shopping/cli.py`
+(+capture command, +candidate parser), `stores/base.py` (+locate
+helper, +SelectorMissing), `stores/aldi.py` + `stores/walmart.py`
+(refactored to use locate), `stores/sams_club.py` + `stores/instacart.py`
+(stub → scaffold), `SKILL.md` (+selector-rot section).
+
+**Blockers**: M23.1 selector-authoring requires Taylor to:
+1. Run `python -m simmersmith_shopping login --store sams_club`,
+   sign in, confirm the right club is selected, close window.
+2. Run `python -m simmersmith_shopping capture --store sams_club`
+   and walk through one search + one ADD.
+3. Open the resulting `candidates.txt` and transcribe selectors
+   into `_SELECTORS` in `stores/sams_club.py`.
+4. Repeat for Instacart.
+
+---
+
 **Date**: 2026-05-15 — Builds 96 + 97 (gpt-5.5 chat fix + M24 Remote OAuth MCP)
 
 Shipped two backend builds in one session:
