@@ -8,6 +8,69 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-15 — build 98 (M24.1 Apple/Google web SSO on /oauth/authorize)
+
+Replaces the V1 bearer-token-paste user-auth on the OAuth authorize
+page with real Apple Sign In for Web + Google Sign In for Web.
+OAuth surface (metadata, DCR, code exchange, JWT, PKCE) is
+unchanged — only the human-authentication step on /oauth/authorize
+gains two new redirect-flow paths.
+
+- `app/services/sso.py` (NEW): state JWT mint/verify (HS256, 10min
+  TTL, provider-scoped), provider authorize-URL builders, Apple
+  ES256 `client_secret` minting per token-exchange (no long-lived
+  secret stored), code-exchange against Apple + Google token
+  endpoints, web-flavored id_token verifiers (different aud claim
+  than iOS), find-or-create user helpers reusing same `apple_sub` /
+  `google_sub` columns as iOS auth so signing in via web matches
+  the existing iOS account.
+- `app/api/oauth.py`: 4 new endpoints (`GET /oauth/sso/{apple,google}/start`,
+  callbacks at `POST /oauth/sso/apple/callback` for Apple's
+  `form_post` mode and `GET /oauth/sso/google/callback`). Authorize
+  page HTML now renders Apple + Google buttons (each gated by env
+  presence — buttons hide when its config isn't set) plus a
+  collapsible "Use a SimmerSmith API token instead" fallback.
+- `app/config.py`: 6 new env vars — `apple_web_service_id`,
+  `apple_web_team_id`, `apple_web_key_id`, `apple_web_private_key`,
+  `google_web_client_id`, `google_web_client_secret`. All optional;
+  empty = button hidden.
+- `tests/test_sso.py` (NEW): 21 tests covering enablement gates,
+  state-JWT roundtrip + tamper / expiry / provider-mismatch
+  rejection, Apple client_secret minting (decoded against the
+  test's own ES256 public key), authorize page button-presence
+  conditional on env, start endpoints' redirect-to-provider, and
+  callback rejection of garbage state JWTs.
+
+Find-or-create defaults to OPEN signup (matches existing iOS
+`auth_apple`/`auth_google` precedent — anyone who can prove
+ownership of an Apple/Google account gets a User row). Lock-down
+flag is a one-line follow-up if needed.
+
+405 / 405 pytest pass (was 384 + 21 new). Ruff clean.
+
+**Files changed**: `app/config.py` (+6 fields), `app/services/sso.py`
+(NEW, ~280 lines), `app/api/oauth.py` (+4 endpoints, +SSO buttons
++ collapsible fallback + module docstring rewrite),
+`tests/test_sso.py` (NEW, ~320 lines, 21 cases).
+
+**Blockers**: SSO buttons hide until Taylor configures the portals:
+1. **Apple Developer Portal**: register a Service ID (separate from
+   App ID), enable Sign In with Apple on it, set return URL to
+   `https://simmersmith.fly.dev/oauth/sso/apple/callback`, generate
+   a `.p8` private key with Sign In with Apple capability, note
+   the Team ID + Key ID.
+2. **Google Cloud Console**: create new OAuth 2.0 Web Client (NOT
+   iOS), authorized redirect URI
+   `https://simmersmith.fly.dev/oauth/sso/google/callback`, note
+   client_id + client_secret.
+3. Set 6 Fly secrets:
+   `flyctl secrets set SIMMERSMITH_APPLE_WEB_SERVICE_ID=… SIMMERSMITH_APPLE_WEB_TEAM_ID=… SIMMERSMITH_APPLE_WEB_KEY_ID=… SIMMERSMITH_APPLE_WEB_PRIVATE_KEY="$(cat AuthKey_…p8)" SIMMERSMITH_GOOGLE_WEB_CLIENT_ID=… SIMMERSMITH_GOOGLE_WEB_CLIENT_SECRET=… -a simmersmith`
+4. `fly deploy --remote-only -a simmersmith`.
+5. Reconnect Claude.ai to `https://simmersmith.fly.dev/mcp` and
+   pick "Sign in with Apple" on the authorize page.
+
+---
+
 **Date**: 2026-05-15 — M23.1 cart-automation framework (capture
 subcommand + driver scaffolds + selector-rot docs)
 

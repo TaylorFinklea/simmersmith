@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     # Auth — Google Sign In (iOS sends identity token, we verify)
     google_client_id: str = ""
 
+    # Web SSO — Apple Sign In for Web. Used only by /oauth/sso/apple/*
+    # (the OAuth authorize page for Claude.ai etc.). Distinct from the
+    # iOS bundle_id above: web sign-in requires a separate Service ID,
+    # plus a .p8 private key to mint the per-request ES256 client_secret.
+    # All empty = Apple button hidden on the authorize page.
+    apple_web_service_id: str = ""
+    apple_web_team_id: str = ""
+    apple_web_key_id: str = ""
+    apple_web_private_key: str = ""
+
+    # Web SSO — Google Sign In for Web. Distinct OAuth client from the
+    # iOS google_client_id above (web flow requires a client_secret).
+    # All empty = Google button hidden on the authorize page.
+    google_web_client_id: str = ""
+    google_web_client_secret: str = ""
+
     # Legacy bearer token — maps to a dev/local user for MCP and self-hosted
     api_token: str = ""
     local_user_id: str = "00000000-0000-0000-0000-000000000001"
