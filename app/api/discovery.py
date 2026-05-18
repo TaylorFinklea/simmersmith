@@ -1,6 +1,6 @@
 """Discovery routes (M12) — features that surface ideas to the user
-beyond what's already in their library. Currently exposes the in-season
-produce snapshot; AI recipe web search lands here in Phase 4.
+beyond what's already in their library. Exposes the in-season produce
+snapshot and AI recipe web search.
 """
 from __future__ import annotations
 
@@ -33,7 +33,13 @@ def recipe_web_search_route(
     settings: Settings = Depends(get_settings),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """Find a real recipe online via OpenAI Responses API + web_search tool.
+    """Find a real recipe online via the user's chosen AI provider.
+
+    Provider resolution (see `recipe_search_ai._resolve_provider`):
+    `recipe_search_provider` profile_settings row wins > global
+    `ai_recipe_search_provider` setting > `"openai"` default. Both
+    providers return the same `RecipePayload` shape so the iOS client
+    doesn't care which one answered.
 
     Returns a `RecipePayload` for the iOS client to open in the editor.
     Nothing is persisted server-side — the user has to hit Save in the

@@ -8,6 +8,56 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-18 — build 99 (Anthropic web search support for recipe finder)
+
+The recipe finder (M12 Phase 4) was OpenAI-only. This build adds
+Anthropic Messages API + `web_search_20250305` tool as a peer
+provider so users with Anthropic keys (or who simply prefer Claude
+for recipe discovery) get parity.
+
+- `app/services/recipe_search_ai.py`: factored `_resolve_openai_target`
+  into `_resolve_provider` + `_resolve_target`, mirroring the
+  `recipe_image_ai._resolve_provider` precedent (user setting
+  `recipe_search_provider` > global `ai_recipe_search_provider` >
+  `"openai"` default). Split the wire-format code into
+  `_search_openai` (Responses API) + `_search_anthropic` (Messages
+  API), each returning raw text; the JSON parse + `_AIRecipe`
+  validation happens once after dispatch so both providers share
+  the same schema-mismatch error path.
+- `app/config.py`: new `ai_recipe_search_provider` (default
+  `"openai"`) so the admin can flip the global default without
+  every user re-configuring.
+- Anthropic payload parser skips intermediate `server_tool_use` +
+  `web_search_tool_result` blocks and concatenates the final `text`
+  block(s).
+- `app/api/discovery.py`: route docstring refreshed to reflect
+  dual-provider reality; the endpoint surface is unchanged because
+  it already passes `profile_settings_map` through and reads
+  `recipe_search_provider` from there automatically.
+- `tests/test_recipe_search_ai.py` (NEW): 13 tests cover the
+  provider router (user > global > default precedence), OpenAI wire
+  format + Responses payload parsing (including the flat
+  `output_text` collapsed shape), Anthropic wire format + Messages
+  payload parsing (incl. the tool-block-skip path), missing-API-key
+  errors that name the provider in their message, and the empty-
+  query / invalid-JSON / schema-mismatch error paths.
+
+418 / 418 pytest pass (was 405 + 13 new). Ruff clean on the changed
+files.
+
+**Files changed**: `app/services/recipe_search_ai.py` (rewrite,
+~330 lines), `app/config.py` (+1 field), `app/api/discovery.py`
+(docstring refresh), `tests/test_recipe_search_ai.py` (NEW, ~310
+lines, 13 cases).
+
+**Blockers**: None. To opt into Anthropic per-user, an iOS or
+preferences-API client writes `recipe_search_provider=anthropic`
+to the user's `profile_settings` row (same shape as
+`image_provider`). Admins can flip the global default with
+`SIMMERSMITH_AI_RECIPE_SEARCH_PROVIDER=anthropic` Fly secret.
+
+---
+
 **Date**: 2026-05-15 — build 98 (M24.1 Apple/Google web SSO on /oauth/authorize)
 
 Replaces the V1 bearer-token-paste user-auth on the OAuth authorize

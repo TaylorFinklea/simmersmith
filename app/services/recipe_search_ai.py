@@ -1,12 +1,19 @@
 """AI recipe web search (M12 Phase 4).
 
-Uses OpenAI's Responses API with the `web_search` tool to find a real
-recipe online and return it as a `RecipePayload`. The cited source URL
-is preserved on the recipe so the user knows where it came from.
+Searches the web for a real recipe and returns it as a `RecipePayload`
+with the cited `source_url` preserved.
 
-Anthropic's Messages web-search tool is a future follow-up — for now,
-this feature requires an OpenAI key. If only Anthropic is configured,
-we raise a helpful error rather than silently degrade.
+Two providers, picked per-user via the `recipe_search_provider` row in
+`profile_settings` (falls back to `settings.ai_recipe_search_provider`,
+which defaults to "openai"):
+
+- **OpenAI** uses the Responses API with the `web_search` tool.
+- **Anthropic** uses the Messages API with the `web_search_20250305`
+  tool.
+
+Both providers return the same `_AIRecipe` shape and pass through the
+same `_to_recipe_payload` mapper, so the rest of the codebase doesn't
+care which one answered.
 """
 from __future__ import annotations
 
@@ -31,6 +38,10 @@ from app.services.assistant_ai import extract_json_object
 logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
+
+_VALID_PROVIDERS = ("openai", "anthropic")
 
 
 class _AIIngredient(BaseModel):
@@ -65,20 +76,42 @@ class _AIRecipe(BaseModel):
 
 @dataclass(frozen=True)
 class _Target:
+    provider: str
     model: str
 
 
-def _resolve_openai_target(settings: Settings, user_settings: dict[str, str]) -> _Target:
+def _resolve_provider(
+    settings: Settings, user_settings: dict[str, str]
+) -> str:
+    """Pick the provider for this call. User's `recipe_search_provider`
+    profile row wins when valid; otherwise fall back to the global
+    `ai_recipe_search_provider` setting; otherwise "openai".
+
+    Mirrors the resolution pattern in `recipe_image_ai._resolve_provider`.
+    """
+    user_choice = str((user_settings or {}).get("recipe_search_provider", "")).strip().lower()
+    if user_choice in _VALID_PROVIDERS:
+        return user_choice
+    global_choice = str(settings.ai_recipe_search_provider or "").strip().lower()
+    if global_choice in _VALID_PROVIDERS:
+        return global_choice
+    return "openai"
+
+
+def _resolve_target(settings: Settings, user_settings: dict[str, str]) -> _Target:
+    provider = _resolve_provider(settings, user_settings)
     available, _ = direct_provider_availability(
-        "openai", settings=settings, user_settings=user_settings
+        provider, settings=settings, user_settings=user_settings
     )
     if not available:
+        nice_name = "Anthropic" if provider == "anthropic" else "OpenAI"
+        key_env = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
         raise RuntimeError(
-            "AI recipe web search requires OpenAI. Add your OPENAI_API_KEY in "
-            "Settings → AI."
+            f"AI recipe web search is set to {nice_name} but no key is configured. "
+            f"Add your {key_env} in Settings → AI, or pick the other provider."
         )
-    model = resolve_direct_model("openai", settings=settings, user_settings=user_settings)
-    return _Target(model=model)
+    model = resolve_direct_model(provider, settings=settings, user_settings=user_settings)
+    return _Target(provider=provider, model=model)
 
 
 def _build_input(query: str, *, user_settings: dict[str, str]) -> str:
@@ -115,12 +148,17 @@ def _build_input(query: str, *, user_settings: dict[str, str]) -> str:
     )
 
 
-def _extract_text_from_responses_payload(payload: dict[str, Any]) -> str:
-    """Pull the model's text output from the Responses API payload.
+# ---------------------------------------------------------------------
+# OpenAI Responses API (web_search tool)
+# ---------------------------------------------------------------------
 
-    The shape is a list of `output` items: web_search_call entries (skipped)
-    and a `message` entry whose `content` is a list of text blocks. We
-    concatenate all `output_text` values.
+
+def _extract_text_from_openai_payload(payload: dict[str, Any]) -> str:
+    """Pull the model's text output from the OpenAI Responses payload.
+
+    Shape: a list of `output` items — `web_search_call` (skipped) and
+    one or more `message` items whose `content` is a list of text
+    blocks. We concatenate all `output_text` / `text` values.
     """
     if "output_text" in payload and isinstance(payload["output_text"], str):
         return str(payload["output_text"])
@@ -136,6 +174,88 @@ def _extract_text_from_responses_payload(payload: dict[str, Any]) -> str:
                 if isinstance(text, str) and text:
                     chunks.append(text)
     return "\n".join(chunks).strip()
+
+
+def _search_openai(
+    *,
+    query: str,
+    target: _Target,
+    settings: Settings,
+    user_settings: dict[str, str],
+) -> str:
+    api_key = resolve_direct_api_key("openai", settings=settings, user_settings=user_settings)
+    body = {
+        "model": target.model,
+        "input": _build_input(query, user_settings=user_settings),
+        "tools": [{"type": "web_search"}],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    timeout = max(settings.ai_timeout_seconds, 90)
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(OPENAI_RESPONSES_URL, headers=headers, json=body)
+    response.raise_for_status()
+    return _extract_text_from_openai_payload(response.json())
+
+
+# ---------------------------------------------------------------------
+# Anthropic Messages API (web_search_20250305 tool)
+# ---------------------------------------------------------------------
+
+
+def _extract_text_from_anthropic_payload(payload: dict[str, Any]) -> str:
+    """Pull the model's final-answer text from Anthropic Messages payload.
+
+    Shape: `content` is a list of blocks; web_search introduces
+    `server_tool_use` + `web_search_tool_result` blocks before the final
+    `text` block. Skip the tool blocks, concat the text blocks.
+    """
+    chunks: list[str] = []
+    for block in payload.get("content", []):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            text = block.get("text") or ""
+            if isinstance(text, str) and text:
+                chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _search_anthropic(
+    *,
+    query: str,
+    target: _Target,
+    settings: Settings,
+    user_settings: dict[str, str],
+) -> str:
+    api_key = resolve_direct_api_key("anthropic", settings=settings, user_settings=user_settings)
+    body = {
+        "model": target.model,
+        "max_tokens": 4096,
+        # `max_uses` caps the number of search subqueries — keeps cost
+        # bounded if the model gets indecisive between candidate recipes.
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+        "messages": [
+            {"role": "user", "content": _build_input(query, user_settings=user_settings)},
+        ],
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+    }
+    timeout = max(settings.ai_timeout_seconds, 90)
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=body)
+    response.raise_for_status()
+    return _extract_text_from_anthropic_payload(response.json())
+
+
+# ---------------------------------------------------------------------
+# Public entry + payload mapper
+# ---------------------------------------------------------------------
 
 
 def _to_recipe_payload(parsed: _AIRecipe) -> RecipePayload:
@@ -185,30 +305,23 @@ def search_recipe(
 ) -> RecipePayload:
     """Search the web for a real recipe and return it as a `RecipePayload`.
 
-    Currently uses OpenAI's Responses API (`web_search` tool). Anthropic
-    web-search support is a future follow-up. Raises RuntimeError if no
-    OpenAI provider is configured or the response cannot be parsed.
+    Dispatches to OpenAI or Anthropic based on the resolved provider
+    (user setting wins over global; defaults to OpenAI). Raises
+    `RuntimeError` if the chosen provider has no API key configured
+    or the response can't be parsed.
     """
     if not query.strip():
         raise ValueError("Search query is empty.")
-    target = _resolve_openai_target(settings, user_settings)
-    api_key = resolve_direct_api_key("openai", settings=settings, user_settings=user_settings)
-    body = {
-        "model": target.model,
-        "input": _build_input(query, user_settings=user_settings),
-        "tools": [{"type": "web_search"}],
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    timeout = max(settings.ai_timeout_seconds, 90)
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(OPENAI_RESPONSES_URL, headers=headers, json=body)
-    response.raise_for_status()
-    payload = response.json()
+    target = _resolve_target(settings, user_settings)
+    if target.provider == "anthropic":
+        raw_text = _search_anthropic(
+            query=query, target=target, settings=settings, user_settings=user_settings
+        )
+    else:
+        raw_text = _search_openai(
+            query=query, target=target, settings=settings, user_settings=user_settings
+        )
 
-    raw_text = _extract_text_from_responses_payload(payload)
     if not raw_text:
         raise RuntimeError("AI web search returned no text output.")
 

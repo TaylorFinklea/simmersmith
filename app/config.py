@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     ai_gemini_api_key: str = ""
     ai_gemini_image_model: str = "gemini-2.5-flash-image-preview"
 
+    # Recipe web search provider. OpenAI uses its Responses API
+    # `web_search` tool; Anthropic uses its Messages API
+    # `web_search_20250305` tool. Per-user override via
+    # `recipe_search_provider` profile_settings row; empty here =
+    # default to openai.
+    ai_recipe_search_provider: str = "openai"
+
     # Kroger API (grocery pricing)
     kroger_client_id: str = ""
     kroger_client_secret: str = ""
