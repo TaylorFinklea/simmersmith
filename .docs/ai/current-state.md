@@ -8,6 +8,59 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-18 — build 100 (M21 household follow-ups: owner transfer + member removal)
+
+Filled the two remaining gaps in M21 household ops: transferring
+ownership and removing members (leave + kick).
+
+- `app/services/households.py`: 4 new exception classes
+  (`MembershipError`, `NotAMemberError`, `OwnerCannotLeaveError`,
+  `OnlyOwnerCanRemoveError`) mapped 1:1 to HTTP statuses in the API
+  layer, plus two new service functions:
+  - `transfer_ownership(session, *, household_id, current_owner_user_id, new_owner_user_id)` —
+    validates the current owner actually holds the role + the target
+    is a member + they aren't the same user; swaps roles.
+  - `remove_member(session, *, household_id, requesting_user_id, target_user_id)` —
+    single function handles both "leave" (when requester == target)
+    and "kick" (owner-initiated). Owner cannot be removed via this
+    path (must transfer first). Removed user gets a fresh empty solo
+    via the existing idempotent `create_solo_household`.
+- `app/api/household.py`: 2 new endpoints
+  (`POST /api/household/transfer-owner`, `DELETE /api/household/members/{user_id}`),
+  service-error → HTTP mapping (403 / 404 / 409 / 400), router
+  docstring + module-level endpoint list refreshed.
+- `app/schemas/household.py` + `app/schemas/__init__.py`:
+  `TransferOwnerRequest` shape added and re-exported. Side cleanup:
+  the seven household schemas that had been missing from `__all__`
+  since M21 are now listed — pre-existing F401 warnings resolved.
+- `app/services/drafts.py`: drive-by removal of one truly unused
+  import (`regenerate_grocery_for_week`) that came up in ruff's
+  baseline.
+- `tests/test_household_member_ops.py` (NEW): 17 cases covering
+  transfer happy path + the 4 transfer-rejection paths (non-owner
+  caller, non-member target, self-transfer, post-transfer the new
+  owner can mint invitations / old owner cannot), leave happy path
+  + owner-can't-leave guards + leaver-gets-fresh-solo, kick happy
+  path + kicked-user-can-rejoin + non-owner-can't-kick +
+  kick-non-member-404 + owner-cannot-be-removed-by-member, and
+  invariants (single owner, member count drops by one on leave).
+
+435 pytest pass (was 418 + 17 new). Ruff clean on all changed
+files; `app/` directory globally goes from 8 F401 baseline errors
+to 0.
+
+**Files changed**: `app/services/households.py` (+helpers + 4
+exceptions, ~120 lines), `app/api/household.py` (+2 routes, ~75
+lines), `app/schemas/household.py` (+1 model), `app/schemas/__init__.py`
+(+7 entries to `__all__`), `app/services/drafts.py` (-1 dead
+import), `tests/test_household_member_ops.py` (NEW, ~230 lines).
+
+**Blockers**: None — endpoints are live as soon as build 100 ships.
+iOS surface to expose these in Settings → Household is a separate
+client-side work item.
+
+---
+
 **Date**: 2026-05-18 — build 99 (Anthropic web search support for recipe finder)
 
 The recipe finder (M12 Phase 4) was OpenAI-only. This build adds

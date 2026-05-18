@@ -23,7 +23,6 @@ from app.services.change_history import ai_baseline_changes, build_change_event,
 from app.services.grocery import (
     auto_regenerate_grocery_for_week,
     normalize_name,
-    regenerate_grocery_for_week,
 )
 from app.services.ingredient_catalog import resolve_ingredient, resolve_ingredient_payloads
 from app.services.managed_lists import sync_items

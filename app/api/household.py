@@ -7,6 +7,10 @@ Endpoints:
 - DELETE /api/household/invitations/{code} → revoke (owner only)
 - POST /api/household/join → claim an invitation; auto-merges joiner's
   solo content into the target household.
+- POST /api/household/transfer-owner → move owner role to another member
+  (owner only).
+- DELETE /api/household/members/{user_id} → leave (self) or kick
+  (owner kicks non-owner member). Removed user gets a fresh solo.
 """
 from __future__ import annotations
 
@@ -23,17 +27,24 @@ from app.schemas import (
     HouseholdRenameRequest,
     InvitationCreatedOut,
     JoinHouseholdRequest,
+    TransferOwnerRequest,
 )
 from app.services.households import (
     InvitationError,
     InvitationExpiredError,
     InvitationNotFoundError,
     InvitationOwnHouseholdError,
+    MembershipError,
+    NotAMemberError,
+    OnlyOwnerCanRemoveError,
+    OwnerCannotLeaveError,
     claim_invitation,
     create_invitation,
     list_active_invitations,
     list_members,
+    remove_member,
     revoke_invitation,
+    transfer_ownership,
 )
 from app.models._base import utcnow
 
@@ -195,3 +206,74 @@ def join_household_route(
         invitations=invitations,
         requesting_user_id=current_user.id,
     )
+
+
+@router.post("/transfer-owner", response_model=HouseholdOut)
+def transfer_owner_route(
+    payload: TransferOwnerRequest,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Move the household owner role to another member. Requesting user
+    must be the current owner; target must be an existing member."""
+    try:
+        transfer_ownership(
+            session,
+            household_id=current_user.household_id,
+            current_owner_user_id=current_user.id,
+            new_owner_user_id=payload.new_owner_user_id,
+        )
+    except OnlyOwnerCanRemoveError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except NotAMemberError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MembershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session.commit()
+    household = session.get(Household, current_user.household_id)
+    if household is None:
+        raise HTTPException(status_code=404, detail="Household not found.")
+    members = list_members(session, current_user.household_id)
+    invitations = list_active_invitations(session, current_user.household_id)
+    return _household_payload(
+        household=household,
+        members=members,
+        invitations=invitations,
+        requesting_user_id=current_user.id,
+    )
+
+
+@router.delete("/members/{user_id}", status_code=204)
+def remove_member_route(
+    user_id: str,
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Response:
+    """Remove a member from the household.
+
+    - When ``user_id`` equals the requester's id, this is a "leave"
+      operation (allowed for non-owners).
+    - When different, only the owner can do it (kicking a non-owner
+      member).
+    - In either case, the removed user gets a fresh solo household so
+      they're never left without one.
+    """
+    try:
+        remove_member(
+            session,
+            household_id=current_user.household_id,
+            requesting_user_id=current_user.id,
+            target_user_id=user_id,
+        )
+    except OwnerCannotLeaveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OnlyOwnerCanRemoveError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except NotAMemberError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MembershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session.commit()
+    return Response(status_code=204)

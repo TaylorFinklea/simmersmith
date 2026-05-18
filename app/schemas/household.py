@@ -39,3 +39,7 @@ class JoinHouseholdRequest(BaseModel):
 class InvitationCreatedOut(BaseModel):
     code: str
     expires_at: datetime
+
+
+class TransferOwnerRequest(BaseModel):
+    new_owner_user_id: str = Field(..., min_length=1, max_length=64)

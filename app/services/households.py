@@ -342,6 +342,122 @@ def merge_solo_into(
     return rows_updated
 
 
+class MembershipError(RuntimeError):
+    """Base class for membership-mutation failures. Subclasses map to
+    HTTP statuses in the API layer."""
+
+
+class NotAMemberError(MembershipError):
+    """Target user_id is not a member of this household."""
+
+
+class OwnerCannotLeaveError(MembershipError):
+    """Owner tried to leave (or remove themselves) without transferring
+    ownership first. Block at the service layer so the API can map to
+    a clear 409 with the right hint."""
+
+
+class OnlyOwnerCanRemoveError(MembershipError):
+    """A non-owner member tried to remove someone other than themselves."""
+
+
+def transfer_ownership(
+    session: Session,
+    *,
+    household_id: str,
+    current_owner_user_id: str,
+    new_owner_user_id: str,
+) -> None:
+    """Move the ``owner`` role from ``current_owner_user_id`` to
+    ``new_owner_user_id``. Both must be current members; the new owner
+    cannot be the same person as the current owner; the current owner
+    must actually hold the owner role.
+
+    On success, the current owner's role becomes ``"member"`` and the
+    new owner's role becomes ``"owner"``. Single owner per household
+    is preserved.
+    """
+    if current_owner_user_id == new_owner_user_id:
+        raise MembershipError("Cannot transfer ownership to yourself.")
+
+    members = list_members(session, household_id)
+    by_user: dict[str, HouseholdMember] = {m.user_id: m for m in members}
+
+    current = by_user.get(current_owner_user_id)
+    if current is None or current.role != "owner":
+        raise OnlyOwnerCanRemoveError(
+            "Only the current household owner can transfer ownership."
+        )
+
+    target = by_user.get(new_owner_user_id)
+    if target is None:
+        raise NotAMemberError(
+            f"User {new_owner_user_id} is not a member of this household."
+        )
+
+    current.role = "member"
+    target.role = "owner"
+    session.flush()
+
+
+def remove_member(
+    session: Session,
+    *,
+    household_id: str,
+    requesting_user_id: str,
+    target_user_id: str,
+) -> str:
+    """Remove ``target_user_id`` from ``household_id``. Returns the
+    fresh solo-household_id created for the removed user.
+
+    Two modes, both routed through the same function so the API layer
+    can use a single ``DELETE`` endpoint:
+
+    1. **Self-removal (leaving)**: ``requesting_user_id == target_user_id``.
+       Non-owners only. Owners must transfer ownership first
+       (``OwnerCannotLeaveError``).
+    2. **Owner-initiated kick**: ``requesting_user_id != target_user_id``.
+       Only the household owner can do this. Target must be a non-owner
+       member.
+
+    After successful removal, the target gets a fresh empty solo
+    household via ``create_solo_household`` so they're never left
+    without a household membership.
+    """
+    members = list_members(session, household_id)
+    by_user: dict[str, HouseholdMember] = {m.user_id: m for m in members}
+
+    target = by_user.get(target_user_id)
+    if target is None:
+        raise NotAMemberError(
+            f"User {target_user_id} is not a member of this household."
+        )
+
+    if target.role == "owner":
+        # Owner cannot be removed via this endpoint by anyone — transfer
+        # first, then leave. Same message for self-removal and owner-kick
+        # attempts; distinguishing them doesn't help the user.
+        raise OwnerCannotLeaveError(
+            "The household owner can't leave or be removed. "
+            "Transfer ownership to another member first."
+        )
+
+    if requesting_user_id != target_user_id:
+        # Owner-initiated kick.
+        requester = by_user.get(requesting_user_id)
+        if requester is None or requester.role != "owner":
+            raise OnlyOwnerCanRemoveError(
+                "Only the household owner can remove other members."
+            )
+
+    session.delete(target)
+    session.flush()
+
+    # Give the removed user a fresh solo so they're not in a
+    # no-household limbo state. create_solo_household is idempotent.
+    return create_solo_household(session, target_user_id)
+
+
 def revoke_invitation(session: Session, *, code: str, household_id: str) -> bool:
     """Mark an unclaimed invitation as expired. Returns True if revoked,
     False if not found / already claimed / already expired."""
