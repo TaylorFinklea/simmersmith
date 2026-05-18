@@ -50,6 +50,37 @@ Open follow-ups:
 
 ### Recently completed
 
+**M21 follow-ups — Owner transfer + member removal** (shipped 2026-05-18 — build 100)
+- `POST /api/household/transfer-owner` and
+  `DELETE /api/household/members/{user_id}` (single endpoint handles
+  both "leave" and "kick" semantics).
+- Removed users get a fresh empty solo via the existing
+  `create_solo_household` so no-household limbo is unreachable.
+- Owner can't leave or be removed without transferring first.
+- 17 new pytest cases; 435 total passing.
+
+**Anthropic web search support** (shipped 2026-05-18 — build 99)
+- Provider router in `recipe_search_ai.py` mirroring the
+  `recipe_image_ai` pattern: user setting `recipe_search_provider`
+  > global `ai_recipe_search_provider` > "openai" default.
+- Anthropic Messages API + `web_search_20250305` tool path returns
+  the same `_AIRecipe` shape as OpenAI so the iOS client doesn't
+  care which one answered.
+- 13 new pytest cases.
+
+**M24.1 — Apple/Google web SSO on /oauth/authorize** (shipped 2026-05-15 — build 98)
+- Real Apple Sign In for Web + Google Sign In for Web replace the
+  V1 bearer-token-paste user-auth step (which stays as a dev /
+  admin fallback under a collapsible).
+- New `app/services/sso.py`: state JWT (HS256, provider-scoped,
+  10-min TTL), Apple ES256 client_secret minting per token-exchange
+  (no long-lived secret stored), web-flavored id_token verifiers,
+  find-or-create user helpers reusing `apple_sub` / `google_sub`
+  columns from iOS auth so web sign-in matches existing accounts.
+- 4 new endpoints; authorize-page buttons each gated by env presence.
+- 21 new pytest cases.
+- **Awaiting user**: Apple/Google portal config + 6 Fly secrets.
+
 **M24 — Remote OAuth MCP server** (shipped 2026-05-15 — build 97)
 - 55-tool `app/mcp/` surface mounted at `simmersmith.fly.dev/mcp`
   behind OAuth 2.1 + PKCE (S256).
@@ -57,10 +88,7 @@ Open follow-ups:
   JWT access tokens (aud="mcp", 30-day TTL).
 - Per-request user scoping via ContextVar; stdio path falls through
   to `local_user_id` so internal Codex routing keeps working.
-- 17 new OAuth pytest cases; 384 total passing.
-- V1 user-auth pastes `SIMMERSMITH_API_TOKEN`; Apple/Google web
-  sign-in is M24.1 (touches only the `/oauth/authorize` HTML page).
-
+- 17 new OAuth pytest cases.
 
 **M22 + M22.1 + M22.2 — Grocery list polish + Reminders sync** (shipped 2026-05-03)
 - Smart-merge regen preserves user edits (`is_user_added`,
@@ -88,16 +116,14 @@ need real selectors after first-run login")
 - `setup.sh` symlinks the skill into `~/.claude/skills/`.
 
 **Later candidates** (post-M23.1 + M24)
-- **Anthropic web search support** for the recipe finder (Messages
-  API `web_search_20250305` — currently OpenAI-only in
-  `app/services/recipe_search_ai.py`).
 - **Pro-gate household sharing** — tie existing household
   invitations to the Pro entitlement once M5 activates.
-- **Owner role transfer** + **member removal** (M21 follow-ups).
 - **profile_settings split** — household-scoped keys (timezone,
   store info, household_name, week_start_day) move into
   `household_settings`. Tracked since M21 Phase 2; deferred again as
   the user-visible behavior is unaffected.
+- **Image-gen failover** — OpenAI 5xx → retry once via Gemini. Was
+  saved-for-dogfood; agent-doable when ready.
 
 ### Soon
 - Backfill helper: a Settings button that runs difficulty inference on every recipe still missing a score.
@@ -111,9 +137,11 @@ need real selectors after first-run login")
 - Thread-deep-link routing for the AI-finished push (today's deep link parses `?thread_id=` but only routes to the assistant tab; opening the specific thread is a follow-up).
 - Multi-machine push scheduler safety (Postgres advisory lock) — only if we scale past one Fly machine.
 
-### Deferred (M7 Phases 5 + 6)
-- Phase 5: Anthropic tool-use support — refactor `_run_openai_tool_loop` into a provider-agnostic adapter.
+### Deferred (M7 Phase 6 only — Phase 5 was already done as M19)
 - Phase 6: True per-day `generate_week_plan` (7× tokens; flag cost before shipping).
+- (Phase 5 / Anthropic tool-use parity shipped 2026-04-30 as M19;
+  `assistant_ai._run_provider_tool_loop` + `AnthropicAdapter` handle
+  both providers. Roadmap entry above was stale.)
 
 ### M5 status (corrected 2026-05-14)
 
