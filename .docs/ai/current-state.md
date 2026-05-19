@@ -6,6 +6,96 @@
 
 `main`
 
+## Deployment Status (as of 2026-05-19)
+
+All six commits below are pushed to `origin/main` AND deployed to
+Fly via `flyctl deploy --remote-only -a simmersmith`. Production
+smoke checks pass (metadata endpoint serves RFC 8414, OAuth gate
+returns 401 on `/mcp/` without bearer, new household + SSO routes
+respond with the expected 401/404 shapes).
+
+```
+96fb0cf  feat(image-gen):  build 101 — OpenAI 5xx/429/network → Gemini failover
+ac09141  docs(roadmap):    record builds 98-100 + correct stale M7 Phase 5 entry
+b7aa239  feat(household):  build 100 — M21 follow-ups (owner transfer + member removal)
+2069139  feat(recipe-search): build 99 — Anthropic web search provider parity
+9c40832  feat(oauth):      build 98 — M24.1 Apple/Google web SSO on /oauth/authorize
+7145da4  feat(shopping):   M23.1 framework — capture subcommand + driver scaffolds
+2d932e2  feat(mcp):        build 97 — M24 Remote OAuth MCP server (deployed 2026-05-15)
+1964ed5  fix(ai):          build 96 — strip temperature/max_tokens for gpt-5.5+ chat (deployed 2026-05-15)
+```
+
+448 / 448 pytest pass; ruff clean. Test suite ran twice to confirm
+post-build-101.
+
+### What's auto-active (no further action)
+
+- **Build 96** — gpt-5.5 chat completions fixed; AI Assistant /
+  vision / week-gen all back to working.
+- **Build 97** — Remote MCP at `simmersmith.fly.dev/mcp` accepts
+  OAuth-authorized clients (Taylor verified via Claude.ai).
+- **Build 99** — Anthropic web search available to any user; flip
+  on per-user via `profile_settings.recipe_search_provider="anthropic"`
+  or admin-wide via `SIMMERSMITH_AI_RECIPE_SEARCH_PROVIDER=anthropic`
+  Fly secret. Default remains `"openai"`.
+- **Build 100** — `POST /api/household/transfer-owner` and
+  `DELETE /api/household/members/{user_id}` live. iOS surface to
+  expose them in Settings → Household is a separate client task.
+- **Build 101** — Image-gen failover engages automatically for any
+  user whose server has BOTH `ai_openai_api_key` and
+  `ai_gemini_api_key` configured. No client work required; ops can
+  grep for `OpenAI image gen failed transiently` to find failovers
+  in production logs.
+
+### What's live-but-awaiting-user action
+
+- **Build 98 SSO buttons** — `/oauth/authorize` HTML renders Apple
+  + Google buttons only when the corresponding env vars are set.
+  Currently rendering bearer-paste fallback only. Activation
+  requires:
+  1. Apple Developer Portal: register a Service ID, enable Sign in
+     with Apple on it, set return URL
+     `https://simmersmith.fly.dev/oauth/sso/apple/callback`,
+     generate `.p8` key with Sign in with Apple capability, note
+     Team ID + Key ID + Service ID.
+  2. Google Cloud Console: create OAuth 2.0 Web Client (NOT iOS),
+     authorized redirect URI
+     `https://simmersmith.fly.dev/oauth/sso/google/callback`, note
+     client_id + client_secret.
+  3. `flyctl secrets set` six vars:
+     `SIMMERSMITH_APPLE_WEB_SERVICE_ID`, `SIMMERSMITH_APPLE_WEB_TEAM_ID`,
+     `SIMMERSMITH_APPLE_WEB_KEY_ID`, `SIMMERSMITH_APPLE_WEB_PRIVATE_KEY`
+     (the .p8 PEM content, multi-line), `SIMMERSMITH_GOOGLE_WEB_CLIENT_ID`,
+     `SIMMERSMITH_GOOGLE_WEB_CLIENT_SECRET`. flyctl auto-restarts;
+     no separate deploy.
+  4. Verify in Claude.ai: disconnect/reconnect the MCP, the
+     authorize page should now show both buttons.
+- **M23.1 cart-automation selector capture** — framework shipped
+  in `7145da4` is ready. Activation steps for Taylor:
+  1. `uv run --project ~/.claude/skills/simmersmith-shopping python -m simmersmith_shopping login --store sams_club`
+  2. `uv run … capture --store sams_club` (walks through one
+     search + one ADD, dumps ranked candidates to
+     `~/.config/simmersmith-shopping/captures/sams_club-<UTC>/`)
+  3. Open `candidates.txt`, transcribe selectors into
+     `_SELECTORS` in `skills/simmersmith-shopping/src/simmersmith_shopping/stores/sams_club.py`
+  4. Repeat for Instacart.
+  Until then, splitter routes around both stores cleanly (logs
+  a one-time hint per process).
+
+### Notable findings to keep on the radar
+
+- **M7 Phase 5** was listed under "Deferred" in the roadmap but
+  is already done as M19 (`assistant_ai._run_provider_tool_loop`
+  + `AnthropicAdapter`). Roadmap corrected in `ac09141`.
+- **M5 freemium / subscription** — built across backend + iOS;
+  gated by `trial_mode_enabled` ("free Pro for everyone").
+  Activation needs App Store Connect product config, .storekit
+  testing config, sandbox purchase validation, and the
+  flip-trial-mode-off decision. Treat as a live candidate.
+- **F401 baseline cleaned up** — `app/` was at 8 pre-existing
+  ruff F401 errors, now 0. Tests directory still has some
+  pre-existing F401/F811 noise in untouched files.
+
 ## Last Session Summary
 
 **Date**: 2026-05-18 — build 101 (image-gen failover: OpenAI 5xx → Gemini)
