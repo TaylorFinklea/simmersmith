@@ -8,6 +8,56 @@
 
 ## Last Session Summary
 
+**Date**: 2026-05-18 — build 101 (image-gen failover: OpenAI 5xx → Gemini)
+
+Reliability improvement: when the resolved primary image provider
+is OpenAI and OpenAI returns a transient failure (5xx, 429, or
+network-level httpx error), we retry once via Gemini if a Gemini
+key is configured. Failover is one-directional — Gemini-first
+users (who picked Gemini explicitly) do NOT fall back to OpenAI on
+a Gemini transient.
+
+- `RecipeImageTransientError(RecipeImageError)` subclass added.
+  Callers' existing `except RecipeImageError` handlers keep
+  working (subclass relationship preserves backward compat); the
+  failover dispatcher catches the transient subclass specifically
+  so permanent 4xx errors (400 bad prompt, 401 bad key) still
+  surface as before.
+- `_TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}`
+  drives the classification. Parametrized test locks the set in:
+  removing a code from the set without updating the test would
+  fail loudly.
+- `_generate_via_openai` reclassified: 5xx/429 → `RecipeImageTransientError`,
+  other 4xx → `RecipeImageError`, `httpx.HTTPError` → transient
+  (network-level failures are always transient).
+- `generate_recipe_image` catches transient from the OpenAI path
+  and retries via Gemini when configured, logging the failover
+  via `logger.warning` so ops can grep for it. The returned
+  `provider` tuple field reports the actual provider that
+  succeeded so admin telemetry (record_image_gen) attributes the
+  call correctly.
+
+13 new pytest cases cover: successful-OpenAI doesn't touch Gemini,
+Gemini-first user routes directly to Gemini, transient triggers
+failover, every transient status code in the set triggers failover
+(parametrized), permanent error surfaces unchanged, no-Gemini-key
+surfaces the original transient, Gemini-first transient stays at
+Gemini (no backward failover), and the returned `provider` field
+reports Gemini when failover happened.
+
+448 / 448 pytest pass (was 435 + 13 new). Ruff clean on the
+changed files.
+
+**Files changed**: `app/services/recipe_image_ai.py` (+transient
+subclass, +failover dispatcher, ~50 lines net), `tests/test_recipe_image_failover.py`
+(NEW, ~200 lines, 13 cases).
+
+**Blockers**: None. Activation is automatic for any user whose
+account has both keys configured (server-level Fly secrets or
+per-user override). No client work required.
+
+---
+
 **Date**: 2026-05-18 — build 100 (M21 household follow-ups: owner transfer + member removal)
 
 Filled the two remaining gaps in M21 household ops: transferring

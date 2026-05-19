@@ -45,6 +45,24 @@ class RecipeImageError(RuntimeError):
     detail for logging."""
 
 
+class RecipeImageTransientError(RecipeImageError):
+    """Provider failure that's plausibly transient — 5xx, 429, or a
+    network-level httpx exception. Used by `generate_recipe_image` to
+    decide when a one-shot Gemini fallback is worth attempting.
+
+    Subclass of `RecipeImageError` so existing `except RecipeImageError`
+    handlers in `app/api/recipes.py` and friends keep working unchanged
+    (they still swallow / surface the error if the fallback also fails).
+    """
+
+
+# HTTP statuses that suggest "the provider had a bad moment, try again
+# or fall through to another provider." Permanent 4xx errors (400 bad
+# prompt, 401 bad key, 403 content policy) are NOT in this set — a
+# different provider would also reject them.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
+
 def recipe_has_image(session: Session, recipe_id: str) -> bool:
     """True when a `recipe_images` row already exists for this recipe."""
     return session.scalar(
@@ -122,11 +140,31 @@ def generate_recipe_image(
     The returned (provider, model) tuple is used by callers to log
     telemetry (record_image_gen) with the resolved provider name and
     the model string from settings.
+
+    **Failover.** When the resolved primary is OpenAI and OpenAI fails
+    with a transient error (5xx, 429, network), we retry once via
+    Gemini if a Gemini key is configured. The returned `provider`
+    field reflects which provider actually succeeded, so telemetry
+    records the truth. Failover is one-directional: a Gemini-first
+    user who hits a Gemini transient does NOT fall back to OpenAI
+    (they picked Gemini explicitly).
     """
     provider = _resolve_provider(settings, user_settings)
     if provider == "gemini":
         return _generate_via_gemini(recipe, settings=settings)
-    return _generate_via_openai(recipe, settings=settings)
+
+    try:
+        return _generate_via_openai(recipe, settings=settings)
+    except RecipeImageTransientError as exc:
+        if not settings.ai_gemini_api_key.strip():
+            # No fallback available — re-raise so the caller sees the
+            # original transient failure.
+            raise
+        logger.warning(
+            "OpenAI image gen failed transiently (%s); falling back to Gemini.",
+            exc,
+        )
+        return _generate_via_gemini(recipe, settings=settings)
 
 
 def _generate_via_openai(recipe: Recipe, *, settings: Settings) -> tuple[bytes, str, str, str, str]:
@@ -154,9 +192,16 @@ def _generate_via_openai(recipe: Recipe, *, settings: Settings) -> tuple[bytes, 
                 headers=headers,
             )
     except httpx.HTTPError as exc:
-        raise RecipeImageError(f"Image request failed: {exc}") from exc
+        # Network-level failures (timeout, DNS, connection reset) are
+        # always transient — let the failover layer decide whether to
+        # retry on Gemini.
+        raise RecipeImageTransientError(f"OpenAI image request failed: {exc}") from exc
 
     if response.status_code >= 400:
+        if response.status_code in _TRANSIENT_STATUS_CODES:
+            raise RecipeImageTransientError(
+                f"OpenAI returned {response.status_code}: {response.text[:200]}"
+            )
         raise RecipeImageError(f"OpenAI returned {response.status_code}: {response.text[:200]}")
 
     try:
