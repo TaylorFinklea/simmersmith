@@ -142,18 +142,26 @@ token-exchange probe (`.p8` / Key ID `7W4M2A3LWZ` / Team ID
 `K7CBQW6MPG` / Service ID `app.simmersmith.web`). The `.p8` is at
 repo-root `AuthKey_7W4M2A3LWZ.p8` (gitignored, chmod 600).
 
-**Status**: all three fixes deployed and verified; committed this
-session (`app/main.py`, `app/api/oauth.py`, `app/services/oauth.py`,
-`app/services/sso.py`, `tests/test_oauth.py`). `uv.lock` was left
-untracked — an unintended `uv run` side effect, not committed.
+**Status**: all three connector fixes deployed and verified.
+Committed in two commits — `7d426de` (build 102: lifespan fix,
+RFC 9728 route, TTLs, OAuth logging) and `e682b01` (test-infra:
+migration 0040 SQLite fix + two build-102 follow-ups). `uv.lock`
+left untracked — an unintended `uv run` side effect, not committed.
 
-**Test suite SQLite fix:** migration `20260512_0040` (Build 95)
-used a plain `op.alter_column(..., nullable=True)` emitting
-Postgres-only `ALTER COLUMN ... DROP NOT NULL`, which broke the
-conftest's fresh-SQLite-DB build — every test errored at setup, so
-the "448/448 pass" claims for builds 96–101 could not have held.
-Fixed this session by wrapping the alter in `op.batch_alter_table`
-(committed separately).
+**Test suite restored to green — `449 passed`.** The pytest suite
+had been un-runnable on SQLite since build 95: migration
+`20260512_0040` used a plain `op.alter_column(..., nullable=True)`
+emitting Postgres-only `ALTER COLUMN ... DROP NOT NULL`, and the
+conftest rebuilds a fresh SQLite DB per test, so every test errored
+at setup (the "448/448 pass" claims for builds 96–101 could not
+have held). Fixed by wrapping the alter in `op.batch_alter_table`
+(Postgres still emits a plain ALTER; prod already past 0040, so no
+prod impact). Making the suite runnable surfaced two bugs in build
+102, both fixed in `e682b01`: (a) the new MCP-lifespan wiring in
+`app/main.py` re-entered the single-use `StreamableHTTPSessionManager`
+once per TestClient → `RuntimeError` — added a once-per-process
+guard; (b) the build-102 test in `tests/test_oauth.py` was inserted
+mid-method, orphaning two assertions — restored them.
 
 ---
 
