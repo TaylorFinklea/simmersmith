@@ -59,6 +59,10 @@ def _log_lifespan_failure(stage: str, exc: BaseException) -> None:
     print(tb, file=sys.stderr, flush=True)
 
 
+# Guards the one-time start of the mounted MCP app's lifespan (see below).
+_mcp_lifespan_ran = False
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
@@ -81,9 +85,16 @@ async def lifespan(_: FastAPI):
     # The MCP app is mounted as a sub-app at /mcp. Starlette does NOT run a
     # mounted sub-app's lifespan, so the MCP StreamableHTTP session manager
     # never starts on its own — every authenticated /mcp request then 500s.
-    # Run the mounted app's lifespan as part of ours.
-    async with _mcp_app.router.lifespan_context(_mcp_app):
+    # Run the mounted app's lifespan as part of ours — but only once per
+    # process: the session manager is single-use, and the test suite
+    # re-enters this lifespan once per TestClient.
+    global _mcp_lifespan_ran
+    if _mcp_lifespan_ran:
         yield
+    else:
+        _mcp_lifespan_ran = True
+        async with _mcp_app.router.lifespan_context(_mcp_app):
+            yield
     if scheduler is not None:
         scheduler.shutdown(wait=False)
 

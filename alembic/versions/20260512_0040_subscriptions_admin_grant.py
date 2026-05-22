@@ -27,23 +27,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "subscriptions",
-        "apple_original_transaction_id",
-        existing_type=sa.String(length=40),
-        nullable=True,
-    )
-    op.add_column(
-        "subscriptions",
-        sa.Column("admin_note", sa.Text(), nullable=True),
-    )
+    # batch_alter_table so the SQLite test harness can apply the nullability
+    # change — SQLite has no ALTER COLUMN, so Alembic recreates the table.
+    # On Postgres (recreate="auto") this still emits a plain ALTER.
+    with op.batch_alter_table("subscriptions") as batch_op:
+        batch_op.alter_column(
+            "apple_original_transaction_id",
+            existing_type=sa.String(length=40),
+            nullable=True,
+        )
+        batch_op.add_column(sa.Column("admin_note", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("subscriptions", "admin_note")
-    op.alter_column(
-        "subscriptions",
-        "apple_original_transaction_id",
-        existing_type=sa.String(length=40),
-        nullable=False,
-    )
+    with op.batch_alter_table("subscriptions") as batch_op:
+        batch_op.drop_column("admin_note")
+        batch_op.alter_column(
+            "apple_original_transaction_id",
+            existing_type=sa.String(length=40),
+            nullable=False,
+        )
