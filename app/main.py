@@ -78,7 +78,12 @@ async def lifespan(_: FastAPI):
             "(production) or SIMMERSMITH_API_TOKEN (dev) before exposing to a network."
         )
     scheduler = start_scheduler(settings) if settings.push_scheduler_enabled else None
-    yield
+    # The MCP app is mounted as a sub-app at /mcp. Starlette does NOT run a
+    # mounted sub-app's lifespan, so the MCP StreamableHTTP session manager
+    # never starts on its own — every authenticated /mcp request then 500s.
+    # Run the mounted app's lifespan as part of ours.
+    async with _mcp_app.router.lifespan_context(_mcp_app):
+        yield
     if scheduler is not None:
         scheduler.shutdown(wait=False)
 
@@ -122,7 +127,8 @@ app.include_router(subscriptions_router)
 # - Stdio MCP (`scripts/run_simmersmith_mcp.py`) is unaffected.
 from app.mcp import build_http_app as _build_mcp_http_app  # noqa: E402
 
-app.mount("/mcp", _build_mcp_http_app())
+_mcp_app = _build_mcp_http_app()
+app.mount("/mcp", _mcp_app)
 
 
 @app.get("/api/health", response_model=HealthResponse)

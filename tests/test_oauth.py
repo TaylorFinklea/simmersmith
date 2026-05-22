@@ -93,6 +93,17 @@ class TestMetadata:
         assert body["code_challenge_methods_supported"] == ["S256"]
         # Public client + PKCE means token endpoint auth is "none".
         assert "none" in body["token_endpoint_auth_methods_supported"]
+
+    def test_protected_resource_metadata_served_at_advertised_url(self, client) -> None:
+        """RFC 9728 metadata must be reachable at the root path the MCP
+        SDK advertises in the /mcp 401 challenge. The SDK only serves it
+        under the /mcp mount, so a discovery client 404s without this."""
+        response = client.get("/.well-known/oauth-protected-resource/mcp")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["resource"].endswith("/mcp")
+        assert isinstance(body["authorization_servers"], list)
+        assert body["authorization_servers"], "authorization_servers must be non-empty"
         assert body["authorization_endpoint"].endswith("/oauth/authorize")
         assert body["token_endpoint"].endswith("/oauth/token")
 

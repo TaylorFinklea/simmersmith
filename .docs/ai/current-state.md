@@ -98,6 +98,65 @@ post-build-101.
 
 ## Last Session Summary
 
+**Date**: 2026-05-22 — Remote MCP connector fixed end-to-end + Web SSO activated
+
+The OAuth-gated remote MCP server (`simmersmith.fly.dev/mcp`) had
+**never** successfully served an authenticated request since it
+shipped (build 97). Claude desktop's connector failed with
+"Couldn't connect / Authorization with the MCP server failed".
+Root-caused and fixed across three deploys this session; user
+confirmed the connector now connects.
+
+**THE bug — mounted sub-app lifespan never ran.** `app/main.py`
+mounts the MCP app via `app.mount("/mcp", ...)`. The MCP
+`streamable_http_app()` carries a lifespan that starts the
+StreamableHTTP **session manager** — but Starlette does NOT run
+the lifespan of a *mounted* sub-app. So the session manager was
+never started in production, and every authenticated `/mcp`
+request returned **HTTP 500**. OAuth itself worked the whole time
+(the DB showed every token exchange succeeding). Fix: the FastAPI
+`lifespan` now wraps its `yield` in
+`async with _mcp_app.router.lifespan_context(_mcp_app):`.
+Verified: a server-side `/mcp` `initialize` probe flipped 500 → 200.
+
+**Two earlier fixes this session (real bugs, but not the blocker):**
+- **RFC 9728 discovery 404.** The `/mcp` 401 advertised
+  `resource_metadata` at the root path, but the MCP SDK only
+  served it under the `/mcp` mount prefix. Added an explicit
+  `GET /.well-known/oauth-protected-resource/mcp` route in
+  `app/api/oauth.py` (+ a test in `tests/test_oauth.py`).
+- **OAuth time budgets too short.** `AUTHORIZE_REQUEST_TTL_SECONDS`
+  300 → 1800 (`app/services/oauth.py`) and `_STATE_TTL_SECONDS`
+  600 → 1800 (`app/services/sso.py`) — the 300s window was sized
+  for a token paste, not a human SSO round-trip.
+
+**Also added:** comprehensive diagnostic logging on every OAuth
+endpoint in `app/api/oauth.py` — the surface previously logged
+nothing, which made this debug painful. Kept as permanent
+observability.
+
+**Web SSO (Build 98) is ACTIVE.** All six `SIMMERSMITH_APPLE_WEB_*` /
+`SIMMERSMITH_GOOGLE_WEB_*` Fly secrets are set. Google SSO verified
+end-to-end; Apple credential chain verified via a direct
+token-exchange probe (`.p8` / Key ID `7W4M2A3LWZ` / Team ID
+`K7CBQW6MPG` / Service ID `app.simmersmith.web`). The `.p8` is at
+repo-root `AuthKey_7W4M2A3LWZ.p8` (gitignored, chmod 600).
+
+**Status**: all three fixes deployed and verified; committed this
+session (`app/main.py`, `app/api/oauth.py`, `app/services/oauth.py`,
+`app/services/sso.py`, `tests/test_oauth.py`). `uv.lock` was left
+untracked — an unintended `uv run` side effect, not committed.
+
+**Test suite SQLite fix:** migration `20260512_0040` (Build 95)
+used a plain `op.alter_column(..., nullable=True)` emitting
+Postgres-only `ALTER COLUMN ... DROP NOT NULL`, which broke the
+conftest's fresh-SQLite-DB build — every test errored at setup, so
+the "448/448 pass" claims for builds 96–101 could not have held.
+Fixed this session by wrapping the alter in `op.batch_alter_table`
+(committed separately).
+
+---
+
 **Date**: 2026-05-18 — build 101 (image-gen failover: OpenAI 5xx → Gemini)
 
 Reliability improvement: when the resolved primary image provider

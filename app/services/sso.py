@@ -43,9 +43,10 @@ from app.models.user import User
 log = logging.getLogger(__name__)
 
 
-# Short window so a stolen redirect URL can't be replayed after the
-# user finishes the dance.
-_STATE_TTL_SECONDS = 600
+# Window for the provider round-trip — long enough for a human to get
+# through the Apple/Google account pick + consent screens, still
+# bounded so a stolen redirect URL can't be replayed indefinitely.
+_STATE_TTL_SECONDS = 1800
 
 # Apple requires a fresh JWT-as-client-secret per token exchange.
 # Keep it short to limit replay if the token endpoint logs it.

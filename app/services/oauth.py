@@ -33,9 +33,12 @@ from app.models import OAuthAuthorizeRequest, OAuthClient, utcnow
 # against /mcp.
 MCP_TOKEN_AUDIENCE = "mcp"
 
-# Pending-authorize-request TTL. The user has this long after Claude.ai
-# hits /authorize to complete the approval before the code expires.
-AUTHORIZE_REQUEST_TTL_SECONDS = 300
+# Pending-authorize-request TTL. The user has this long after the
+# client hits /authorize to complete approval before the code expires.
+# Sized for a human-driven web SSO round-trip (Apple/Google account
+# pick + consent + any "unverified app" interstitial), not just the
+# near-instant bearer-token paste the V1 flow assumed.
+AUTHORIZE_REQUEST_TTL_SECONDS = 1800
 
 # Access-token TTL once issued.
 ACCESS_TOKEN_TTL_DAYS = 30

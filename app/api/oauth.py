@@ -22,6 +22,7 @@ Three user-auth paths to the same approval outcome:
 from __future__ import annotations
 
 import hmac
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -46,6 +47,8 @@ from app.services.oauth import (
 
 
 router = APIRouter(tags=["oauth"])
+
+log = logging.getLogger(__name__)
 
 
 def _public_base_url(request: Request) -> str:
@@ -79,6 +82,21 @@ def _oauth_error_response(err: OAuthError, status_code: int = 400) -> JSONRespon
 def oauth_metadata(request: Request) -> dict[str, object]:
     """RFC 8414 metadata Claude.ai fetches on first add-server attempt."""
     return authorization_server_metadata(_public_base_url(request), scopes=["mcp"])
+
+
+@router.get("/.well-known/oauth-protected-resource/mcp")
+def oauth_protected_resource_metadata(request: Request) -> dict[str, object]:
+    """RFC 9728 metadata for the /mcp resource. The MCP SDK advertises
+    this root URL in the /mcp 401 challenge but only serves it under
+    the /mcp mount prefix, so clients doing discovery 404. We serve it
+    here at the exact path the challenge points at."""
+    base = _public_base_url(request)
+    return {
+        "resource": f"{base}/mcp",
+        "authorization_servers": [base],
+        "scopes_supported": ["mcp"],
+        "bearer_methods_supported": ["header"],
+    }
 
 
 # ── 2. Dynamic Client Registration ─────────────────────────────────
@@ -117,8 +135,13 @@ def register(
             redirect_uris=body.redirect_uris,
         )
     except OAuthError as err:
+        log.warning("oauth/register rejected: %s — %s", err.code, err.description)
         raise HTTPException(status_code=400, detail={"error": err.code, "error_description": err.description}) from err
     session.commit()
+    log.info(
+        "oauth/register ok: client_id=%s name=%s redirect_uris=%s",
+        client.client_id, client.client_name, client.redirect_uris,
+    )
     return RegisterResponse(
         client_id=client.client_id,
         client_name=client.client_name,
@@ -268,7 +291,12 @@ def oauth_authorize(
     renders an HTML approval page. On valid form submission the approve
     endpoint redirects to ``redirect_uri`` with the authorization code.
     """
+    log.info(
+        "oauth/authorize: client_id=%s redirect_uri=%s response_type=%s scope=%s",
+        client_id, redirect_uri, response_type, scope,
+    )
     if response_type != "code":
+        log.warning("oauth/authorize rejected: unsupported response_type=%s", response_type)
         raise HTTPException(
             status_code=400,
             detail={"error": "unsupported_response_type",
@@ -299,12 +327,20 @@ def oauth_authorize(
             ),
         )
     except OAuthError as err:
+        log.warning(
+            "oauth/authorize rejected: %s — %s (client_id=%s redirect_uri=%s)",
+            err.code, err.description, client_id, redirect_uri,
+        )
         raise HTTPException(
             status_code=400,
             detail={"error": err.code, "error_description": err.description},
         ) from err
 
     session.commit()
+    log.info(
+        "oauth/authorize ok: client=%s code=%s redirect_uri=%s expires_at=%s",
+        client_id, pending.code[:8], redirect_uri, pending.expires_at,
+    )
     deny_redirect = _build_deny_redirect(redirect_uri, state)
     return _render_authorize_page(
         code=pending.code,
@@ -429,14 +465,18 @@ def _sso_start(
     redirect to the provider's authorize endpoint. Shared by both
     /oauth/sso/apple/start and /oauth/sso/google/start.
     """
+    log.info("sso/%s/start: code=%s", provider, code[:8])
     pending = session.scalar(__pending_query(code))
     if pending is None:
+        log.warning("sso/%s/start rejected: pending request not found (code=%s)", provider, code[:8])
         raise HTTPException(status_code=404, detail="Unknown authorization request.")
     if pending.user_id is not None:
+        log.warning("sso/%s/start rejected: already approved (code=%s)", provider, code[:8])
         raise HTTPException(status_code=400, detail="Authorization request already approved.")
 
     enabled = sso.apple_enabled(settings) if provider == "apple" else sso.google_enabled(settings)
     if not enabled:
+        log.warning("sso/%s/start rejected: provider not configured", provider)
         raise HTTPException(status_code=503, detail=f"{provider} Sign In for Web is not configured on this server.")
 
     try:
@@ -447,7 +487,9 @@ def _sso_start(
         else:
             url = sso.google_authorize_url(state=state, callback_url=callback, settings=settings)
     except sso.SsoError as exc:
+        log.warning("sso/%s/start failed: %s", provider, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    log.info("sso/%s/start: redirecting to provider (callback=%s)", provider, callback)
     return RedirectResponse(url=url, status_code=302)
 
 
@@ -463,15 +505,19 @@ def _sso_complete(
     """Common post-callback path: verify state, exchange code for
     id_token, find-or-create user, approve the pending OAuth request,
     bounce to the client's redirect_uri."""
+    log.info("sso/%s/callback: received", provider)
     try:
         authorize_code = sso.verify_state(state, expected_provider=provider, settings=settings)
     except sso.SsoError as exc:
+        log.warning("sso/%s/callback: state verify failed: %s", provider, exc)
         raise HTTPException(status_code=400, detail=f"invalid state: {exc}") from exc
 
     pending = session.scalar(__pending_query(authorize_code))
     if pending is None:
+        log.warning("sso/%s/callback: pending request not found (code=%s)", provider, authorize_code[:8])
         raise HTTPException(status_code=404, detail="Unknown authorization request.")
     if pending.user_id is not None:
+        log.warning("sso/%s/callback: pending already approved (code=%s)", provider, authorize_code[:8])
         raise HTTPException(status_code=400, detail="Authorization request already approved.")
 
     callback = _sso_callback_url(request, provider)
@@ -483,17 +529,23 @@ def _sso_complete(
             claims = sso.exchange_google_code(code=provider_code, callback_url=callback, settings=settings)
             user = sso.find_or_create_google_user(session, claims)
     except sso.SsoError as exc:
+        log.warning("sso/%s/callback: provider code exchange failed: %s", provider, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         approve_authorize_request(session, code=authorize_code, user_id=user.id)
     except OAuthError as err:
+        log.warning(
+            "sso/%s/callback: approve failed: %s — %s (code=%s expires_at=%s)",
+            provider, err.code, err.description, authorize_code[:8], pending.expires_at,
+        )
         raise HTTPException(
             status_code=400,
             detail={"error": err.code, "error_description": err.description},
         ) from err
 
     session.commit()
+    log.info("sso/%s/callback: ok, user=%s — redirecting to client redirect_uri", provider, user.id)
     return _redirect_to_client(pending)
 
 
@@ -570,6 +622,10 @@ def oauth_token(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> JSONResponse:
+    log.info(
+        "oauth/token: grant_type=%s client_id=%s redirect_uri=%s code=%s",
+        grant_type, client_id, redirect_uri, (code or "")[:8],
+    )
     try:
         grant = exchange_code_for_token(
             session,
@@ -583,8 +639,10 @@ def oauth_token(
             ),
         )
     except OAuthError as err:
+        log.warning("oauth/token failed: %s — %s (client=%s)", err.code, err.description, client_id)
         return _oauth_error_response(err)
     session.commit()
+    log.info("oauth/token ok: client=%s", client_id)
     body: dict[str, object] = {
         "access_token": grant.access_token,
         "token_type": grant.token_type,

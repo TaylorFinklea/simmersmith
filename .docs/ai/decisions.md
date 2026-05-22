@@ -573,3 +573,42 @@ checkout — closer to where the action lands.
 - The two-way Reminders bridge is foreground-only in v1 (no
   BGAppRefreshTask). If the user shops with the app backgrounded,
   the check-state propagation lags until the app is foregrounded.
+
+## 2026-05-20 - Serve RFC 9728 protected-resource metadata at the root path explicitly
+
+- The `mcp` SDK (1.26.0) `streamable_http_app()` registers its
+  protected-resource-metadata route at a path computed for
+  mount-at-root, and the `/mcp` 401 `WWW-Authenticate` header
+  advertises that root URL. Because `app/main.py` mounts the MCP app
+  at `/mcp`, the route actually lives at
+  `/mcp/.well-known/oauth-protected-resource/mcp` while the
+  advertised URL (`/.well-known/oauth-protected-resource/mcp`) 404s —
+  breaking RFC 9728 discovery for spec-compliant MCP clients
+  (current Claude desktop connector).
+- Decision: serve the metadata ourselves via an explicit FastAPI
+  route in `app/api/oauth.py` at the advertised root path. Rejected
+  alternatives: re-mounting the MCP app at `/` (would shadow the REST
+  surface) and patching SDK internals (fragile across SDK upgrades).
+- The hand-written document is tiny and stable (`resource`,
+  `authorization_servers`, `scopes_supported`,
+  `bearer_methods_supported`). Revisit if a future SDK version
+  becomes mount-aware.
+
+## 2026-05-22 - Run the mounted MCP sub-app's lifespan from the FastAPI lifespan
+
+- `app/main.py` mounts the MCP Streamable-HTTP app at `/mcp` via
+  `app.mount(...)`. Starlette does not execute the lifespan of a
+  mounted sub-app, so the MCP `StreamableHTTPSessionManager` was
+  never started — every authenticated `/mcp` request returned 500.
+  The remote MCP connector had never worked since build 97; only
+  the unauthenticated 401 path was ever smoke-tested.
+- Fix: the FastAPI `lifespan` now wraps its `yield` in
+  `async with _mcp_app.router.lifespan_context(_mcp_app):`, running
+  the mounted app's startup/shutdown (session manager + the MCP
+  module's migrate/seed lifespan).
+- The MCP module lifespan re-runs migrations + seed; idempotent and
+  harmless — not worth refactoring `build_http_app()` to pass a
+  no-op lifespan.
+- General rule for this repo: any mounted ASGI sub-app with its own
+  lifespan must be wired into the parent lifespan the same way —
+  Starlette will not do it automatically.
