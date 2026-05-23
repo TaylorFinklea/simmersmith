@@ -126,6 +126,8 @@ def build_http_app():
     # Lazy import — the FastAPI app loads this module at startup and
     # ``auth.py`` pulls in ``app.services.oauth`` which depends on
     # configured settings.
+    from mcp.server.transport_security import TransportSecuritySettings
+
     from .auth import JWTTokenVerifier
 
     settings = get_settings()
@@ -135,14 +137,27 @@ def build_http_app():
         resource_server_url=f"{issuer}/mcp",
         required_scopes=[],
     )
+    # DNS-rebinding protection (Host/Origin allow-listing) exists to stop a
+    # malicious web page from reaching a *local* MCP server via a victim's
+    # browser. This is a public server where every /mcp request already
+    # requires a valid OAuth bearer token, so the protection is inapplicable
+    # and only causes false rejections: the SDK default 421s the public Host,
+    # and it 403s the `Origin: https://claude.ai` that Claude's connector
+    # sends. Disable it — the OAuth bearer requirement is the access control.
+    transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     http_mcp = FastMCP(
         name=mcp.name,
         instructions=mcp.instructions,
         tools=mcp._tool_manager.list_tools(),
-        streamable_http_path="/",
+        # Transport at "/mcp"; the app is mounted at root in app/main.py, so
+        # `POST /mcp` resolves with no trailing-slash redirect. A 307 (from
+        # mounting at "/mcp" with the transport at "/") is not followed by
+        # the MCP client and the connector fails.
+        streamable_http_path="/mcp",
         lifespan=lifespan,
         auth=auth,
         token_verifier=JWTTokenVerifier(),
+        transport_security=transport_security,
     )
     return http_mcp.streamable_http_app()
 

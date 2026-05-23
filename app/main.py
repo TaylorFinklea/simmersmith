@@ -59,6 +59,44 @@ def _log_lifespan_failure(stage: str, exc: BaseException) -> None:
     print(tb, file=sys.stderr, flush=True)
 
 
+class _RequestLogMiddleware:
+    """Diagnostic request logger. Emits one line per HTTP request via
+    print() — not the logging module — so it survives any logging
+    reconfiguration and is reliably captured by ``flyctl logs``. Pure-ASGI
+    (not BaseHTTPMiddleware) so it never buffers bodies or breaks the
+    streaming /mcp responses."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        hdrs = {k.decode("latin-1").lower(): v.decode("latin-1")
+                for k, v in scope.get("headers", [])}
+        status = {"code": None}
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            print(
+                "REQLOG %s %s -> %s | host=%s origin=%s content-type=%s "
+                "accept=%s authorization=%s user-agent=%s"
+                % (scope.get("method"), scope.get("path"), status["code"],
+                   hdrs.get("host"), hdrs.get("origin"),
+                   hdrs.get("content-type"), hdrs.get("accept"),
+                   "present" if hdrs.get("authorization") else "absent",
+                   hdrs.get("user-agent")),
+                flush=True,
+            )
+
+
 # Guards the one-time start of the mounted MCP app's lifespan (see below).
 _mcp_lifespan_ran = False
 
@@ -100,6 +138,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
+app.add_middleware(_RequestLogMiddleware)
 app.include_router(admin_router)  # Public — admin routes handle their own auth
 app.include_router(auth_router)  # Public — handles its own auth
 app.include_router(oauth_router)  # Public — OAuth metadata + flow; mounted at root
@@ -132,14 +171,14 @@ app.include_router(stores_router, dependencies=protected_dependencies)
 app.include_router(subscriptions_router)
 
 
-# Mount the remote MCP endpoint at /mcp.
+# Build the remote MCP sub-app. It is mounted at the END of this module
+# (after every REST route) — see the `app.mount("/", _mcp_app)` at EOF.
 # - Bearer auth via OAuth-issued JWTs (`app/mcp/auth.py`).
 # - User scoping via `_current_user_id_var` ContextVar set by the verifier.
 # - Stdio MCP (`scripts/run_simmersmith_mcp.py`) is unaffected.
 from app.mcp import build_http_app as _build_mcp_http_app  # noqa: E402
 
 _mcp_app = _build_mcp_http_app()
-app.mount("/mcp", _mcp_app)
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -190,3 +229,11 @@ async def privacy_policy():
 <h2>Contact</h2>
 <p>Questions? Email <a href="mailto:privacy@simmersmith.app">privacy@simmersmith.app</a>.</p>
 </body></html>""")
+
+
+# Mount the MCP sub-app LAST, as a root catch-all. Its transport path is
+# "/mcp" (set in app/mcp/build_http_app), so `POST /mcp` resolves directly
+# with no trailing-slash redirect — the MCP client does not follow a 307,
+# so mounting at "/mcp" instead breaks the connector. Must come after every
+# REST route above, or this "/" mount would shadow them.
+app.mount("/", _mcp_app)
