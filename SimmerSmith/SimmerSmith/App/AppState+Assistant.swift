@@ -185,6 +185,9 @@ extension AppState {
         case "assistant.tool_result":
             let call = try event.decode(AssistantToolCall.self)
             appendAssistantToolCall(call, to: threadID)
+        case "assistant.heartbeat":
+            let beat = try event.decode(AssistantHeartbeatEvent.self)
+            applyAssistantHeartbeat(threadID: threadID, beat: beat)
         case "week.updated":
             let updated = try event.decode(AssistantWeekUpdatedEvent.self)
             applyAssistantWeekUpdate(updated.week)
@@ -405,6 +408,36 @@ extension AppState {
             ),
             to: threadID
         )
+    }
+
+    /// Apply an `assistant.heartbeat` SSE tick. The server fires these
+    /// every ~5s while a long tool run (e.g. `generate_week_plan`) is
+    /// in flight with no other events to send.
+    ///
+    /// Just *receiving* the event already accomplishes the critical
+    /// fix — keeps the HTTP stream alive against Fly's idle-timeout so
+    /// `assistant.completed` reliably arrives. What this method does
+    /// with `beat.elapsedSeconds` is purely the UX layer: how should
+    /// the in-flight spinner reflect "still working, Xs"?
+    ///
+    /// TODO(you): pick an approach and implement here. Suggested options
+    /// (any one works; mix as you like):
+    ///   A. Do nothing — the keepalive is the whole win, spinner stays
+    ///      generic. Smallest change; ship it.
+    ///   B. Track `[String: Int]` of elapsed-seconds keyed by threadID
+    ///      on AppState (`@Published var assistantElapsedByThreadID`)
+    ///      so AssistantView can show "Thinking… (Xs)".
+    ///   C. Stamp the in-flight `AssistantMessage` (the one matching
+    ///      `beat.messageId`) with a `lastHeartbeatAt: Date?` field and
+    ///      render it on the bubble.
+    ///
+    /// `beat.messageId` matches the in-flight assistant message; if you
+    /// go with (B) or (C), look it up via
+    /// `assistantThreadDetails[threadID]?.messages.first(where: { $0.messageId == beat.messageId })`.
+    private func applyAssistantHeartbeat(threadID: String, beat: AssistantHeartbeatEvent) {
+        // TODO(you): replace this no-op with your chosen approach above.
+        _ = beat
+        _ = threadID
     }
 
     private func attachAssistantDraft(threadID: String, event: AssistantRecipeDraftEvent) {

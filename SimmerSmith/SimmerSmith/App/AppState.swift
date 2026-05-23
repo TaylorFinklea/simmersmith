@@ -52,6 +52,15 @@ final class AppState {
         let week: WeekSnapshot
     }
 
+    /// Server-emitted "still working" tick during long single-shot tool
+    /// runs (e.g. `generate_week_plan`). Keeps the SSE connection alive
+    /// against edge idle-timeouts and carries elapsed time so the UI can
+    /// annotate the spinner instead of feeling like a hang.
+    struct AssistantHeartbeatEvent: Decodable {
+        let messageId: String
+        let elapsedSeconds: Int
+    }
+
     let settingsStore: ConnectionSettingsStore
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient

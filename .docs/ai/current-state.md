@@ -192,6 +192,50 @@ post-build-101.
 
 ## Last Session Summary
 
+**Date**: 2026-05-23 — build 105: MCP household fix + assistant SSE heartbeat
+
+Two distinct reliability fixes shipped together — the connector and the
+in-app Assistant were both intermittently broken; both deployed today.
+
+**1. MCP `_current_user(session)` household resolution (5 files).** Every
+authed MCP tool call had been failing in production with
+`CurrentUser.__init__() missing 1 required positional argument:
+'household_id'`. M21 made `household_id` required on `CurrentUser`; the
+REST FastAPI dependency was updated, but `app/mcp/{profile,weeks,
+ingredients,recipes}.py` were not — each constructed `CurrentUser(id=…)`
+sans household. The fix centralizes resolution in a new
+`app/mcp/_helpers._current_user(session)` helper that mirrors
+`get_current_user`'s id+household resolution (lazy-creating a solo
+household if missing). All four MCP tool modules switched to it; the
+duplicated local `_mcp_user()` helpers are gone. New
+`tests/test_mcp_helpers.py` locks in the contract — first MCP-layer test
+in the suite, the surface had zero coverage which is exactly why the bug
+shipped.
+
+**2. Assistant SSE heartbeat (`app/api/assistant.py` +
+`AppState[+Assistant].swift`).** The in-app Assistant felt like it
+"thought forever" on `Plan this week` even though the week actually got
+populated server-side. Root cause: `generate_week_plan` is one large AI
+call (30–60s) with no intermediate events, and the SSE loop yielded
+nothing during the idle wait — Fly's HTTP edge eventually idle-closed
+the stream, so the iOS client never received the `assistant.completed`
+event. Fix: emit `assistant.heartbeat` every 5s while the queue is idle
+(new `STREAM_HEARTBEAT_INTERVAL_SECONDS = 5.0`). Just receiving the
+event keeps the stream alive (unknown SSE events are ignored
+gracefully); the body carries `{message_id, elapsed_seconds}` so the
+iOS spinner can be annotated later. iOS side has the decoder + the
+switch case wired; `applyAssistantHeartbeat` is intentionally a no-op
+with a `TODO(you)` describing three valid UX options (do nothing, track
+elapsed-seconds per thread, stamp the in-flight message) — the
+keepalive is the actual fix; richer UX is a follow-up choice.
+
+**Status**: both fixes deployed to Fly (build 105). Connector verified;
+Assistant spinner-hang regression verified by user. Committed this
+session as one logical unit (5 MCP files, 1 assistant API, 2 iOS, 1
+new test file, plus this doc) — see `git log` for the hash.
+
+---
+
 **Date**: 2026-05-22 — Remote MCP connector fixed end-to-end + Web SSO activated
 
 The OAuth-gated remote MCP server (`simmersmith.fly.dev/mcp`) had

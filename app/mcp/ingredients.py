@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route, _current_user_id
+from ._helpers import _call_route, _current_user
 
 from app.api.ingredients import (
     create_ingredient_route,
@@ -15,7 +15,6 @@ from app.api.ingredients import (
     resolve_ingredient_route,
     upsert_ingredient_preference_route,
 )
-from app.auth import CurrentUser
 from app.db import session_scope
 from app.schemas import (
     BaseIngredientPayload,
@@ -23,10 +22,6 @@ from app.schemas import (
     IngredientResolveRequest,
     IngredientVariationPayload,
 )
-
-
-def _mcp_user() -> CurrentUser:
-    return CurrentUser(id=_current_user_id())
 
 
 @mcp.tool(description="Search or list canonical base ingredients.")
@@ -38,7 +33,7 @@ def ingredients_list(query: str = "", limit: int = 20) -> list[dict[str, Any]]:
 @mcp.tool(description="Get one canonical base ingredient by ID.")
 def ingredients_get(base_ingredient_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: ingredient_detail_route(base_ingredient_id, session=session, current_user=_mcp_user()))
+        return _call_route(lambda: ingredient_detail_route(base_ingredient_id, session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Create or update a canonical base ingredient.")
@@ -136,7 +131,7 @@ def ingredients_create_variation(
 @mcp.tool(description="List structured ingredient shopping preferences.")
 def ingredient_preferences_list() -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: list_ingredient_preferences_route(session=session, current_user=_mcp_user()))
+        return _call_route(lambda: list_ingredient_preferences_route(session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Create or update a structured ingredient shopping preference.")
@@ -157,4 +152,4 @@ def ingredient_preferences_upsert(
             active=active,
             notes=notes,
         )
-        return _call_route(lambda: upsert_ingredient_preference_route(payload, session=session, current_user=_mcp_user()))
+        return _call_route(lambda: upsert_ingredient_preference_route(payload, session=session, current_user=_current_user(session)))

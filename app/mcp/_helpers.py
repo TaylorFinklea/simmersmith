@@ -38,6 +38,24 @@ def _current_user_id() -> str:
     return _settings().local_user_id
 
 
+def _current_user(session: Any) -> Any:
+    """MCP equivalent of the FastAPI ``get_current_user`` dependency.
+
+    Resolves the user_id (from the OAuth JWT ContextVar set by
+    ``JWTTokenVerifier``, or the stdio-mode ``local_user_id`` fallback)
+    AND the household_id (lazy-creating a solo household if missing,
+    same as the REST path). Returns a ``CurrentUser`` carrying both
+    fields, which the FastAPI route handlers reused by MCP tools have
+    required since M21.
+    """
+    # Lazy import to avoid pulling app.auth at module load.
+    from app.auth import CurrentUser, _resolve_or_create_household_id
+
+    user_id = _current_user_id()
+    household_id = _resolve_or_create_household_id(session, user_id)
+    return CurrentUser(id=user_id, household_id=household_id)
+
+
 def _json_ready(value: Any) -> Any:
     return jsonable_encoder(value)
 

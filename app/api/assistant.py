@@ -58,6 +58,13 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 # How often the SSE endpoint flushes accumulated streamed text to the DB.
 # Tunable for tests (monkeypatch to 0 to flush on every delta).
 STREAM_PERSIST_INTERVAL_SECONDS = 0.5
+# How often the SSE loop emits an `assistant.heartbeat` event while the
+# inner queue is idle. Two purposes: (1) keep the Fly/edge HTTP proxy
+# from closing an apparently-idle stream during long single-shot tool
+# runs like `generate_week_plan` (one AI call, no intermediate events
+# for 30–60s); (2) give iOS something to display so the spinner can be
+# annotated with elapsed seconds instead of feeling like a hang.
+STREAM_HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 async def stream_test_response() -> StreamingResponse:
@@ -357,6 +364,8 @@ async def respond_route(
                 )
             last_persist_at = asyncio.get_event_loop().time()
 
+        turn_started_at = asyncio.get_event_loop().time()
+        last_heartbeat_at = turn_started_at
         try:
             while True:
                 try:
@@ -366,6 +375,16 @@ async def respond_route(
                 except asyncio.TimeoutError:
                     if task.done():
                         break
+                    now = asyncio.get_event_loop().time()
+                    if now - last_heartbeat_at >= STREAM_HEARTBEAT_INTERVAL_SECONDS:
+                        yield encode_sse(
+                            "assistant.heartbeat",
+                            {
+                                "message_id": assistant_message_id,
+                                "elapsed_seconds": int(now - turn_started_at),
+                            },
+                        )
+                        last_heartbeat_at = now
                     continue
                 if item is None:
                     break

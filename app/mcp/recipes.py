@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route, _current_user_id, _settings
+from ._helpers import _call_route, _current_user, _current_user_id, _settings
 
-from app.auth import CurrentUser
 from app.api.recipes import (
     archive_recipe_route,
     create_metadata_item_route,
@@ -56,25 +55,22 @@ def recipes_list(
 
 @mcp.tool(description="Get one recipe by ID.")
 def recipes_get(recipe_id: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
-        return _call_route(lambda: recipe_detail_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
+        return _call_route(lambda: recipe_detail_route(recipe_id, session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Create or update a recipe.")
 def recipes_save(payload: RecipePayload) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
-        return _call_route(lambda: save_recipe(payload, session=session, current_user=CurrentUser(id=user_id)))
+        return _call_route(lambda: save_recipe(payload, session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Import a recipe draft from a source URL.")
 def recipes_import_from_url(url: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeImportRequest(url=url)
         return _call_route(
-            lambda: import_recipe_route(payload, session=session, current_user=CurrentUser(id=user_id)).model_dump(mode="json")
+            lambda: import_recipe_route(payload, session=session, current_user=_current_user(session)).model_dump(mode="json")
         )
 
 
@@ -86,7 +82,6 @@ def recipes_import_from_text(
     source_label: str = "",
     source_url: str = "",
 ) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeTextImportRequest(
             text=text,
@@ -96,7 +91,7 @@ def recipes_import_from_text(
             source_url=source_url,
         )
         return _call_route(
-            lambda: import_recipe_text_route(payload, session=session, current_user=CurrentUser(id=user_id)).model_dump(mode="json")
+            lambda: import_recipe_text_route(payload, session=session, current_user=_current_user(session)).model_dump(mode="json")
         )
 
 
@@ -115,17 +110,15 @@ def recipes_add_metadata_item(kind: str, name: str) -> dict[str, Any]:
 
 @mcp.tool(description="Generate a recipe suggestion draft.")
 def recipes_suggestion_draft(goal: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeSuggestionDraftRequest(goal=goal)
         return _call_route(
-            lambda: recipe_suggestion_draft_route(payload, session=session, settings=_settings(), current_user=CurrentUser(id=user_id))
+            lambda: recipe_suggestion_draft_route(payload, session=session, settings=_settings(), current_user=_current_user(session))
         )
 
 
 @mcp.tool(description="Generate three companion recipe drafts for a recipe.")
 def recipes_companion_drafts(recipe_id: str, focus: str = "sides_and_sauces") -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeCompanionDraftRequest(focus=focus)
         return _call_route(
@@ -134,14 +127,13 @@ def recipes_companion_drafts(recipe_id: str, focus: str = "sides_and_sauces") ->
                 payload,
                 session=session,
                 settings=_settings(),
-                current_user=CurrentUser(id=user_id),
+                current_user=_current_user(session),
             )
         )
 
 
 @mcp.tool(description="Generate a recipe variation draft for an existing recipe.")
 def recipes_variation_draft(recipe_id: str, goal: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
         payload = RecipeVariationDraftRequest(goal=goal)
         return _call_route(
@@ -150,7 +142,7 @@ def recipes_variation_draft(recipe_id: str, goal: str) -> dict[str, Any]:
                 payload,
                 session=session,
                 settings=_settings(),
-                current_user=CurrentUser(id=user_id),
+                current_user=_current_user(session),
             )
         )
 
@@ -182,16 +174,14 @@ def recipes_nutrition_match(
 
 @mcp.tool(description="Archive a recipe.")
 def recipes_archive(recipe_id: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
-        return _call_route(lambda: archive_recipe_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
+        return _call_route(lambda: archive_recipe_route(recipe_id, session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Restore an archived recipe.")
 def recipes_restore(recipe_id: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
-        return _call_route(lambda: restore_recipe_route(recipe_id, session=session, current_user=CurrentUser(id=user_id)))
+        return _call_route(lambda: restore_recipe_route(recipe_id, session=session, current_user=_current_user(session)))
 
 
 @mcp.tool(description="Delete a recipe permanently.")
