@@ -594,6 +594,33 @@ checkout — closer to where the action lands.
   `bearer_methods_supported`). Revisit if a future SDK version
   becomes mount-aware.
 
+## 2026-05-23 - Hoist iOS `browsedWeek` from view-local @State to AppState (build 104)
+
+- Bug from this session: when the AI Assistant mutated a non-current
+  week (e.g. planning "next week" from the week-picker), the iOS
+  view rendered the day empty even though the meals committed
+  server-side. Root cause: the SSE `case "week.updated"` handler
+  unconditionally wrote `currentWeek = updated.week`, but the
+  user-displayed week lived in `WeekView`'s local `@State
+  browsedWeek` and never received the patch.
+- Considered:
+  - **A. Hoist `browsedWeek` to `AppState`** (chosen) — clean,
+    mechanical (~17 textual replacements in `WeekView`), restores
+    the invariant "AppState owns server-truth state; views observe."
+  - **B. Pass a binding/callback into WeekView so AppState can
+    update its @State indirectly** — preserves @State locality but
+    threads a binding through a state graph that doesn't otherwise
+    need one. Net more code and more confusing data flow.
+  - **C. Generic `cachedWeeksByID: [String: WeekSnapshot]` cache
+    on AppState; views read from the cache** — flexible
+    (other views could benefit) but invasive for the immediate
+    bug and not justified by current product needs.
+- A also unblocked a second fix: `.refreshable` and the FAB
+  `.refresh` action can now refetch the displayed week
+  (`appState.browsedWeek = try? await fetchWeekByStart(...)`)
+  instead of only `/api/weeks/current`. Pull-to-refresh on a
+  non-current week now actually refreshes that week.
+
 ## 2026-05-22 - Defer `uq_week_day_slot` instead of restructuring `update_week_meals`
 
 - Bug from this session: iOS swap-meals PUT 500s because Postgres

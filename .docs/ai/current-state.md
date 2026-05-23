@@ -6,7 +6,40 @@
 
 `main`
 
-## In-flight (2026-05-22, uncommitted)
+## In-flight (2026-05-22 → 2026-05-23, build 104)
+
+iOS build 104 archived + uploaded to TestFlight via
+`scripts/release-ios.sh`. Fixes the iOS half of Bug 2 (AI Assistant
+"added X" but day renders empty). Three changes:
+
+- **`browsedWeek` hoisted from `WeekView.@State` to `AppState`.**
+  The assistant SSE `case "week.updated"` handler used to do
+  `currentWeek = updated.week` unconditionally — corrupting "this
+  week" whenever the assistant mutated a non-current week (e.g.
+  planning "next week" from the week-picker browsed view) and
+  leaving `browsedWeek` (the actually-displayed snapshot) stale.
+  New helper `applyAssistantWeekUpdate(_:)` routes by `weekId` to
+  whichever slot matches; drops payloads for weeks neither slot
+  is tracking (the next fetch picks them up server-side).
+- **Pull-to-refresh refetches the displayed week.** `.refreshable`
+  and the FAB `.refresh` action now `fetchWeekByStart(displayedWeekStart)`
+  when browsing a non-current week instead of always hitting
+  `/api/weeks/current`. The user-reported repro (refresh on next
+  week → no meals visible despite AI committing them) is gone.
+- **Swallow benign cancellation errors.** `AppState.isExpectedCancellation(_:)`
+  detects `CancellationError` + `URLError.cancelled`; `refreshWeek`
+  and `refreshAssistantThreads` skip them instead of writing
+  `lastErrorMessage = "cancelled"`. Removes the "cancelled" red
+  banner that appeared on the Week tab after sheet dismissal.
+
+Files: `SimmerSmith/SimmerSmith/App/AppState.swift`,
+`AppState+Assistant.swift`, `AppState+Weeks.swift`,
+`Features/Week/WeekView.swift`, `SimmerSmith/project.yml`
+(`CURRENT_PROJECT_VERSION: 93 → 104`), and the regenerated
+`.xcodeproj/project.pbxproj`. xcodebuild Debug build clean. TestFlight
+upload succeeded.
+
+## In-flight (2026-05-22, server build 103 — deployed)
 
 Diagnosed two user-reported bugs from iOS build 93 / production v108
 (Fly app `simmersmith`):
