@@ -6,6 +6,67 @@
 
 `main`
 
+## In-flight (2026-05-22, uncommitted)
+
+Diagnosed two user-reported bugs from iOS build 93 / production v108
+(Fly app `simmersmith`):
+
+- **Bug 1 — swap meals → HTTP 500 on `PUT /api/weeks/{id}/meals`.**
+  Root cause: Postgres checks `uq_week_day_slot(week_id, day_name,
+  slot)` per-statement, so the two-row "exchange day_name+slot"
+  payload from the iOS drag-to-swap UI trips a transient duplicate
+  on the first UPDATE that `update_week_meals` issues. The handler
+  raises `IntegrityError` before any response starts; Uvicorn sends
+  500. **Fix landed locally, not deployed yet** — Taylor still
+  needs to commit + `flyctl deploy`:
+  - `alembic/versions/20260522_0042_defer_week_meal_slot_unique.py`
+    (new) — drop + re-add `uq_week_day_slot` with `DEFERRABLE
+    INITIALLY DEFERRED`. Postgres only; SQLite no-ops the clause.
+  - `app/models/week.py` — mirror the deferred flags on the
+    `UniqueConstraint` so SQLAlchemy metadata matches.
+  - `tests/test_week_meal_swap.py` (new) — one model-declaration
+    unit test (passes everywhere) and one end-to-end swap PUT test
+    (skipped on SQLite, the test DB; only meaningful on Postgres).
+  - Full suite: **450 passed, 1 skipped, 0 failures** in 2m58s.
+
+- **Bug 2 — AI Assistant "Added X" but day renders empty (Mon,
+  then Tue repro).** **Backend confirmed correct; this is an iOS
+  refresh bug, no backend change needed.**
+  - Monday turn (thread `2eba493c-…`, `2026-05-22 21:15`): 3
+    add_meal calls committed cleanly to Week
+    `a93444c7-…` (`week_start=2026-05-25`) with the right
+    `day_name=Monday`, `meal_date=2026-05-25`, and slots.
+  - Tuesday turn (thread `743cea90-…`, `2026-05-23 00:50`): 3
+    add_meal calls also `status=completed, ok=True`, also
+    committed to the same Week row (now 6 meals). The iOS UI
+    showed a red **"cancelled"** banner anyway and rendered
+    Tuesday empty even after pull-to-refresh.
+  - Log forensics for the post-cancel refresh: iOS hit
+    `GET /api/weeks`, `GET /api/weeks/current`, `POST /api/weeks`
+    (get-or-create), `GET /api/weeks/b3bd4ae0-…/exports` — but
+    **never `GET /api/weeks/a93444c7-…`** (the May-25 week being
+    displayed). The iOS pull-to-refresh path doesn't refetch the
+    currently-displayed week's full payload, which is why even an
+    explicit refresh leaves the new meals invisible.
+  - Battery in the cancelled screenshot was 18%; iOS likely
+    aggressively suspended the SSE stream, and the client labelled
+    the turn cancelled despite the server completing normally.
+  - **iOS-side follow-up backlog** (no server work):
+    1. Pull-to-refresh on a week view must `GET /api/weeks/{id}`
+       for the *displayed* week id, not just `/api/weeks/current`.
+    2. Treat "cancelled" as UI hint; do NOT discard
+       `assistant.tool_result` patches that already arrived
+       in-band with `ok=True`.
+    3. On Assistant-sheet dismiss, force a `GET /api/weeks/{id}`
+       refresh of the surrounding week view.
+  - **Optional backend robustness (deferred):** emit a final
+    `assistant.turn.completed` event carrying
+    `{week_ids_modified: [...]}` so iOS can cheaply refetch the
+    right weeks on any SSE drop. Not required for the fix.
+
+Uncommitted at session end (`app/main.py`, `app/mcp/__init__.py`
+from the earlier MCP-mount work plus the four Bug-1 files above).
+
 ## Deployment Status (as of 2026-05-19)
 
 All six commits below are pushed to `origin/main` AND deployed to

@@ -594,6 +594,35 @@ checkout — closer to where the action lands.
   `bearer_methods_supported`). Revisit if a future SDK version
   becomes mount-aware.
 
+## 2026-05-22 - Defer `uq_week_day_slot` instead of restructuring `update_week_meals`
+
+- Bug from this session: iOS swap-meals PUT 500s because Postgres
+  checks `uq_week_day_slot(week_id, day_name, slot)` per-statement
+  and the two-row exchange transiently duplicates the second row's
+  current slot before its own UPDATE lands.
+- Chosen fix: `DEFERRABLE INITIALLY DEFERRED` on the constraint
+  (migration `20260522_0042_defer_week_meal_slot_unique.py` +
+  mirroring flags on `app/models/week.py`). The constraint is still
+  enforced at COMMIT; only the *timing* of the check shifts.
+- Considered + rejected:
+  - **Two-pass write with a sentinel slot** in
+    `update_week_meals` — works on any DB (including the SQLite
+    tests), but introduces a `__pending__` slot value that has to
+    be invariant across the codebase forever and adds a second
+    flush per swap.
+  - **Single raw `UPDATE ... CASE id WHEN`** — atomic at the SQL
+    level but bypasses the SQLAlchemy lifecycle hooks (`updated_at`,
+    change events, `auto_regenerate_grocery_for_week`) that
+    `update_week_meals` already wires up. The fanout would have to
+    be re-issued by hand.
+- The deferred-constraint fix keeps the application code unchanged
+  and is the Postgres-native solution for "swap two rows under a
+  unique constraint". SQLite (used in pytest) parses but ignores
+  `DEFERRABLE` on UNIQUE constraints, so the end-to-end regression
+  test (`test_swap_meals_between_slots_does_not_500`) is skipped on
+  SQLite; only the model-declaration unit test runs in CI.
+  Acceptable until/unless CI gains a Postgres backend.
+
 ## 2026-05-22 - Run the mounted MCP sub-app's lifespan from the FastAPI lifespan
 
 - `app/main.py` mounts the MCP Streamable-HTTP app at `/mcp` via
