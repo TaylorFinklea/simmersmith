@@ -113,6 +113,14 @@ final class AppState {
 
     var profile: ProfileSnapshot?
     var currentWeek: WeekSnapshot?
+    /// The non-current week the user has navigated to via the Week-tab
+    /// picker (e.g. "next week"). Hoisted from WeekView's local @State
+    /// in Build 104 so the assistant SSE handler can update it by
+    /// week_id when AI tools mutate a week other than `currentWeek` —
+    /// previously `case "week.updated"` overwrote `currentWeek` with
+    /// whatever week the AI touched, corrupting the "this week" view
+    /// and leaving the browsed week stale.
+    var browsedWeek: WeekSnapshot?
     var recipes: [RecipeSummary] = []
     var recipeMetadata: RecipeMetadata?
     /// Memory-log entries keyed by recipeID. Refreshed lazily when
@@ -404,6 +412,17 @@ final class AppState {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
         }
+    }
+
+    /// True if the error is a benign cancellation (Task or URLSession)
+    /// that happens during normal view lifecycle — sheet dismissal,
+    /// rapid navigation, app backgrounding. Surfacing these as red
+    /// banners ("cancelled") is noise; callers should treat them as
+    /// "stop without complaint". Build 104.
+    func isExpectedCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     func clearLocalCache() {

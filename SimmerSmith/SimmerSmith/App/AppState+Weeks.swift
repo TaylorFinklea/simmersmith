@@ -44,6 +44,11 @@ extension AppState {
             // ingredient due to the iOS-Codable default.
             Task { [weak self] in await self?.runBuild88IngredientReresolveIfNeeded() }
         } catch {
+            // Build 104: swallow benign cancellations (sheet dismiss,
+            // rapid navigation, backgrounding). Surfacing them as a red
+            // "cancelled" banner on the Week tab is noise — the user did
+            // not initiate a failure.
+            if isExpectedCancellation(error) { return }
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
         }

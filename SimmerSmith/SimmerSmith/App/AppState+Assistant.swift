@@ -7,6 +7,9 @@ extension AppState {
         do {
             assistantThreads = try await apiClient.fetchAssistantThreads()
         } catch {
+            // Build 104: same as refreshWeek — don't render benign
+            // URLSession/Task cancellations as user-visible errors.
+            if isExpectedCancellation(error) { return }
             lastErrorMessage = error.localizedDescription
         }
     }
@@ -184,7 +187,7 @@ extension AppState {
             appendAssistantToolCall(call, to: threadID)
         case "week.updated":
             let updated = try event.decode(AssistantWeekUpdatedEvent.self)
-            currentWeek = updated.week
+            applyAssistantWeekUpdate(updated.week)
         case "assistant.completed":
             let message = try event.decode(AssistantMessage.self)
             replaceAssistantMessage(message, in: threadID)
@@ -194,6 +197,24 @@ extension AppState {
         default:
             break
         }
+    }
+
+    /// Route a `week.updated` SSE payload to whichever week slot matches
+    /// by `weekId`. The previous implementation unconditionally wrote to
+    /// `currentWeek`, which corrupted "this week" whenever the assistant
+    /// mutated a non-current week (e.g. planning "next week" from the
+    /// week-picker browsed view) — and left the browsed week stale, so
+    /// the user saw an empty day even after the AI reported success.
+    private func applyAssistantWeekUpdate(_ week: WeekSnapshot) {
+        if currentWeek?.weekId == week.weekId {
+            currentWeek = week
+            try? cacheStore.saveCurrentWeek(week)
+        } else if browsedWeek?.weekId == week.weekId {
+            browsedWeek = week
+        }
+        // If the AI mutated a week we're not tracking right now (e.g.
+        // user navigated away while the turn was in flight), drop the
+        // payload — the next fetch/refetch will pick it up server-side.
     }
 
     /// Flip the last streaming assistant row's status to "cancelled" without

@@ -16,7 +16,9 @@ struct WeekView: View {
     // Week navigation
     @State private var displayedWeekStart: Date?
     @State private var availableWeeks: [WeekSummary] = []
-    @State private var browsedWeek: WeekSnapshot?
+    // Build 104: `appState.browsedWeek` was hoisted to AppState so the assistant
+    // SSE `week.updated` handler can route updates to the right slot by
+    // week_id. See AppState.swift and applyAssistantWeekUpdate(_:).
 
     // Meal quick-add
     @State private var quickAddSlot: (dayName: String, mealDate: Date, slot: String)?
@@ -64,7 +66,7 @@ struct WeekView: View {
 
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
-            return browsedWeek ?? appState.currentWeek
+            return appState.browsedWeek ?? appState.currentWeek
         }
         return appState.currentWeek
     }
@@ -115,7 +117,16 @@ struct WeekView: View {
             }
             .paperBackground()
             .refreshable {
-                await appState.refreshWeek()
+                // Build 104: pull-to-refresh used to only refetch the
+                // household's "current week", so refreshing while browsing
+                // a non-current week (e.g. "next week" after the AI added
+                // meals) left the visible day stale. Refetch whichever
+                // week is actually on screen.
+                if let browsedStart = displayedWeekStart {
+                    appState.browsedWeek = try? await appState.fetchWeekByStart(browsedStart)
+                } else {
+                    await appState.refreshWeek()
+                }
                 await loadAvailableWeeks()
                 await appState.forceRefreshSeasonalProduce()
             }
@@ -141,7 +152,19 @@ struct WeekView: View {
                         slot: defaultSlotName()
                     )
                 },
-                .refresh: { Task { await appState.refreshWeek() } }
+                .refresh: {
+                    Task {
+                        // Build 104: same fix as `.refreshable` above —
+                        // when the user is browsing a non-current week,
+                        // refetch THAT week rather than the household
+                        // "current" week.
+                        if let browsedStart = displayedWeekStart {
+                            appState.browsedWeek = try? await appState.fetchWeekByStart(browsedStart)
+                        } else {
+                            await appState.refreshWeek()
+                        }
+                    }
+                }
             ])
         }
         .task {
@@ -813,7 +836,7 @@ struct WeekView: View {
         defer { rebalancingDayKey = nil }
         do {
             let updated = try await appState.rebalanceDay(weekID: week.weekId, mealDate: date)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch SimmerSmithAPIError.usageLimitReached(let action, let limit, let used, _) {
             appState.presentPaywall(.limitReached(action: action, used: used, limit: limit))
         } catch {
@@ -1037,10 +1060,10 @@ struct WeekView: View {
         isApprovingAll = true
         do {
             let updated = try await appState.approveWeek(weekID: week.weekId)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
             // Regenerate grocery list after approval
             let refreshed = try await appState.regenerateGrocery(weekID: week.weekId)
-            if !isViewingCurrentWeek { browsedWeek = refreshed }
+            if !isViewingCurrentWeek { appState.browsedWeek = refreshed }
             withAnimation { showApprovalConfirmation = true }
             try? await Task.sleep(for: .seconds(2))
             withAnimation { showApprovalConfirmation = false }
@@ -1064,7 +1087,7 @@ struct WeekView: View {
         }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1093,7 +1116,7 @@ struct WeekView: View {
             }
             do {
                 let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-                if !isViewingCurrentWeek { browsedWeek = updated }
+                if !isViewingCurrentWeek { appState.browsedWeek = updated }
             } catch {
                 appState.lastErrorMessage = error.localizedDescription
             }
@@ -1116,7 +1139,7 @@ struct WeekView: View {
                 }
             do {
                 let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-                if !isViewingCurrentWeek { browsedWeek = updated }
+                if !isViewingCurrentWeek { appState.browsedWeek = updated }
             } catch {
                 appState.lastErrorMessage = error.localizedDescription
             }
@@ -1144,7 +1167,7 @@ struct WeekView: View {
         }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1172,7 +1195,7 @@ struct WeekView: View {
         }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1217,7 +1240,7 @@ struct WeekView: View {
 
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1244,7 +1267,7 @@ struct WeekView: View {
         }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1271,7 +1294,7 @@ struct WeekView: View {
         }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1293,7 +1316,7 @@ struct WeekView: View {
         ))
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
-            if !isViewingCurrentWeek { browsedWeek = updated }
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
         }
@@ -1400,10 +1423,10 @@ struct WeekView: View {
             return
         }
         displayedWeekStart = week.weekStart
-        browsedWeek = nil
+        appState.browsedWeek = nil
         Task {
             do {
-                browsedWeek = try await appState.fetchWeekByStart(week.weekStart)
+                appState.browsedWeek = try await appState.fetchWeekByStart(week.weekStart)
             } catch {
                 appState.lastErrorMessage = error.localizedDescription
             }
@@ -1412,7 +1435,7 @@ struct WeekView: View {
 
     private func snapToCurrentWeek() {
         displayedWeekStart = nil
-        browsedWeek = nil
+        appState.browsedWeek = nil
     }
 
     private func navigateToPreviousWeek() { navigateRelative(weeks: -1) }
@@ -1483,7 +1506,7 @@ struct WeekView: View {
         }
 
         displayedWeekStart = target
-        browsedWeek = nil
+        appState.browsedWeek = nil
         Task { await ensureWeek(at: target) }
     }
 
@@ -1496,7 +1519,7 @@ struct WeekView: View {
     private func ensureWeek(at start: Date) async {
         do {
             let week = try await appState.createWeek(weekStart: start)
-            browsedWeek = week
+            appState.browsedWeek = week
             await loadAvailableWeeks()
         } catch {
             appState.lastErrorMessage = error.localizedDescription
