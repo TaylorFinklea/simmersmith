@@ -73,7 +73,24 @@ class Week(Base):
 
 class WeekMeal(Base):
     __tablename__ = "week_meals"
-    __table_args__ = (UniqueConstraint("week_id", "day_name", "slot", name="uq_week_day_slot"),)
+    # DEFERRABLE INITIALLY DEFERRED: the iOS "swap meals" PUT mutates
+    # two rows' (day_name, slot) in one transaction. With an immediate
+    # constraint, the first UPDATE transiently duplicates the second
+    # row's (week_id, day_name, slot) and Postgres raises an
+    # IntegrityError. Deferring the check to commit-time lets the swap
+    # land while still rejecting genuine duplicates at transaction
+    # boundary. See alembic/versions/20260522_0042 for the live-schema
+    # migration; SQLite (test DB) ignores DEFERRABLE on UNIQUE.
+    __table_args__ = (
+        UniqueConstraint(
+            "week_id",
+            "day_name",
+            "slot",
+            name="uq_week_day_slot",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     week_id: Mapped[str] = mapped_column(ForeignKey("weeks.id", ondelete="CASCADE"), nullable=False)
