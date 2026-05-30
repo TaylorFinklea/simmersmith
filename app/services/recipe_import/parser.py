@@ -627,13 +627,16 @@ def import_recipe_from_text(
 _MAX_IMPORT_REDIRECTS = 5
 
 
-def _assert_public_url(url: str) -> None:
-    """Reject URLs that resolve to a private/internal address (SSRF guard).
+def _validated_ip_for(url: str) -> tuple[str, str]:
+    """Resolve `url`'s host, reject if ANY resolved address is internal, and
+    return the single (validated_ip, host) pair to PIN the connection to.
 
-    The schema-level validator only blocks IP-literal hostnames; this
-    resolves the DNS name and checks EVERY A/AAAA record, defeating a
-    hostname that points at 169.254.169.254 / 127.0.0.1 / RFC-1918 / etc.
-    Called per hop so a 30x redirect can't bounce us to an internal host.
+    Returning the IP — rather than just asserting and letting httpx resolve
+    again at connect time — closes the DNS-rebinding TOCTOU: validation and
+    connection must use the same address, or a low-TTL record could pass the
+    check then flip to 127.0.0.1 / 169.254.169.254 for the actual fetch.
+    All resolved records are checked so a [public, private] answer can't slip
+    a private address through.
     """
     parsed = urllib_parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -646,6 +649,7 @@ def _assert_public_url(url: str) -> None:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise ValueError(f"Could not resolve that URL's host: {exc}") from exc
+    pinned: str | None = None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (
@@ -657,6 +661,25 @@ def _assert_public_url(url: str) -> None:
             or ip.is_unspecified
         ):
             raise ValueError("URLs pointing to private or internal addresses are not allowed.")
+        if pinned is None:
+            pinned = str(info[4][0])
+    if pinned is None:
+        raise ValueError("Could not resolve that URL's host.")
+    return pinned, host
+
+
+def _assert_public_url(url: str) -> None:
+    """Raise if `url` resolves to any private/internal address."""
+    _validated_ip_for(url)
+
+
+def _pinned_connect_url(url: str, validated_ip: str) -> str:
+    """Rewrite `url`'s host to the already-validated IP, preserving port,
+    path, and query. The hostname is restored via the Host header + SNI."""
+    parsed = urllib_parse.urlsplit(url)
+    ip_literal = f"[{validated_ip}]" if ":" in validated_ip else validated_ip
+    netloc = f"{ip_literal}:{parsed.port}" if parsed.port else ip_literal
+    return urllib_parse.urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 def import_recipe_from_url(url: str) -> RecipePayload:
@@ -674,10 +697,21 @@ def import_recipe_from_url(url: str) -> RecipePayload:
             for _ in range(_MAX_IMPORT_REDIRECTS + 1):
                 if not current_url.startswith(("http://", "https://")):
                     raise ValueError("Recipe URL must start with http:// or https://")
-                _assert_public_url(current_url)
-                response = client.get(current_url, headers=headers)
+                # Pin the connection to the exact IP we validated (defeats
+                # DNS rebinding); keep TLS correct by sending the real Host
+                # header and SNI (httpcore honors the sni_hostname extension
+                # for both SNI and certificate verification).
+                validated_ip, host = _validated_ip_for(current_url)
+                connect_url = _pinned_connect_url(current_url, validated_ip)
+                response = client.get(
+                    connect_url,
+                    headers={**headers, "Host": host},
+                    extensions={"sni_hostname": host},
+                )
                 if getattr(response, "is_redirect", False) and response.headers.get("location"):
-                    current_url = str(response.url.join(response.headers["location"]))
+                    # Resolve relative redirects against the real hostname URL,
+                    # not the IP-pinned one.
+                    current_url = str(httpx.URL(current_url).join(response.headers["location"]))
                     continue
                 break
             else:

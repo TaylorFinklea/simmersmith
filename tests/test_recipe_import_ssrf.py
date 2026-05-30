@@ -33,3 +33,19 @@ def test_import_from_url_rejects_internal_host() -> None:
     # End-to-end: the fetch path refuses before making the request.
     with pytest.raises(ValueError):
         import_recipe_from_url("http://localhost:9999/recipe")
+
+
+def test_pinned_connect_url_rewrites_host_to_ip() -> None:
+    from app.services.recipe_import.parser import _pinned_connect_url
+
+    assert _pinned_connect_url("https://example.com/recipe?a=1", "93.184.216.34") == (
+        "https://93.184.216.34/recipe?a=1"
+    )
+    # Non-default port preserved.
+    assert _pinned_connect_url("http://example.com:8080/x", "10.0.0.1") == (
+        "http://10.0.0.1:8080/x"
+    )
+    # IPv6 gets bracketed.
+    assert _pinned_connect_url("https://example.com/p", "2606:2800:220:1:248:1893:25c8:1946") == (
+        "https://[2606:2800:220:1:248:1893:25c8:1946]/p"
+    )
