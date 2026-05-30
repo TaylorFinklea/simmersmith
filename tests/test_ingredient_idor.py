@@ -84,3 +84,19 @@ def test_cannot_merge_other_households_private_ingredient(client: TestClient) ->
         headers=_h(USER_B),
     )
     assert resp.status_code == 404, resp.text
+
+
+def test_cannot_read_other_households_private_ingredient_detail(client: TestClient) -> None:
+    created = client.post(
+        "/api/ingredients",
+        json={"name": "A's Secret Spice Blend", "category": "Spices"},
+        headers=_h(USER_A),
+    )
+    assert created.status_code == 200, created.text
+    ing_id = created.json()["base_ingredient_id"]
+
+    # B can't read A's private ingredient detail or its variations.
+    assert client.get(f"/api/ingredients/{ing_id}", headers=_h(USER_B)).status_code == 404
+    assert client.get(f"/api/ingredients/{ing_id}/variations", headers=_h(USER_B)).status_code == 404
+    # Owner can.
+    assert client.get(f"/api/ingredients/{ing_id}", headers=_h(USER_A)).status_code == 200

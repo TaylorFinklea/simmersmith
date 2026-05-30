@@ -69,6 +69,25 @@ def _require_owned_base_ingredient(session: Session, base_ingredient_id: str, ho
     return item
 
 
+def _require_visible_base_ingredient(session: Session, base_ingredient_id: str, household_id: str):
+    """Authorize a READ of a base ingredient — mirrors the search/list
+    visibility rule (NOT the stricter mutation-ownership rule).
+
+    A household may read the global `approved` catalog AND its own
+    household rows, but not another household's private (household_only /
+    submitted / rejected) row. The detail + variations GET routes looked
+    rows up by id with no visibility filter, leaking another household's
+    private ingredient/variation data (cross-tenant IDOR read). 404 (not
+    403) so we don't reveal the row exists.
+    """
+    item = get_base_ingredient(session, base_ingredient_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    if item.submission_status != "approved" and item.household_id != household_id:
+        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    return item
+
+
 def _require_owned_variation(session: Session, ingredient_variation_id: str, household_id: str):
     """A variation inherits ownership from its base ingredient."""
     variation = session.get(IngredientVariation, ingredient_variation_id)
@@ -183,9 +202,7 @@ def ingredient_detail_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    item = get_base_ingredient(session, base_ingredient_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    item = _require_visible_base_ingredient(session, base_ingredient_id, current_user.household_id)
     preference = ingredient_preference_for_base(session, current_user.id, item.id)
     return {
         "ingredient": _base_payload(session, item),
@@ -353,9 +370,11 @@ def merge_ingredient_route(
 def list_variations_route(
     base_ingredient_id: str,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    if get_base_ingredient(session, base_ingredient_id) is None:
-        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    # Was missing get_current_user entirely — any caller could enumerate any
+    # household's private variations by base id. Gate on read-visibility.
+    _require_visible_base_ingredient(session, base_ingredient_id, current_user.household_id)
     return [_variation_payload(item) for item in list_variations(session, base_ingredient_id)]
 
 

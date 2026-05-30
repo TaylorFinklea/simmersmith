@@ -97,7 +97,11 @@ def ingredients_resolve(
 @mcp.tool(description="List ingredient variations for a base ingredient.")
 def ingredients_list_variations(base_ingredient_id: str) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: list_variations_route(base_ingredient_id, session=session))
+        return _call_route(
+            lambda: list_variations_route(
+                base_ingredient_id, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Create or update a specific ingredient variation under a base ingredient.")
