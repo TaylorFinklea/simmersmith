@@ -40,12 +40,12 @@ from app.services.recipes import get_recipe
 def recipes_list(
     include_archived: bool = False, cuisine: str = "", tags: list[str] | None = None
 ) -> list[dict[str, Any]]:
-    user_id = _current_user_id()
     with session_scope() as session:
+        household_id = _current_user(session).household_id
         return _call_route(
             lambda: recipes_payload(
                 session,
-                user_id=user_id,
+                household_id,
                 include_archived=include_archived,
                 cuisine=cuisine,
                 tags=tags or [],
@@ -98,14 +98,20 @@ def recipes_import_from_text(
 @mcp.tool(description="List recipe metadata including cuisines, tags, units, and templates.")
 def recipes_metadata() -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: recipe_metadata_route(session=session))
+        return _call_route(
+            lambda: recipe_metadata_route(session=session, current_user=_current_user(session))
+        )
 
 
 @mcp.tool(description="Add a managed recipe metadata item such as a cuisine, tag, or unit.")
 def recipes_add_metadata_item(kind: str, name: str) -> dict[str, Any]:
     with session_scope() as session:
         payload = ManagedListItemCreateRequest(name=name)
-        return _call_route(lambda: create_metadata_item_route(kind, payload, session=session))
+        return _call_route(
+            lambda: create_metadata_item_route(
+                kind, payload, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Generate a recipe suggestion draft.")
@@ -150,13 +156,21 @@ def recipes_variation_draft(recipe_id: str, goal: str) -> dict[str, Any]:
 @mcp.tool(description="Estimate nutrition for a recipe payload.")
 def recipes_nutrition_estimate(payload: RecipePayload) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: estimate_recipe_nutrition_route(payload, session=session))
+        return _call_route(
+            lambda: estimate_recipe_nutrition_route(
+                payload, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Search the nutrition database by ingredient or food name.")
 def recipes_nutrition_search(query: str = "", limit: int = 20) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: nutrition_search_route(q=query, limit=limit, session=session))
+        return _call_route(
+            lambda: nutrition_search_route(
+                q=query, limit=limit, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Save or update a nutrition-item match for an ingredient.")
@@ -169,7 +183,11 @@ def recipes_nutrition_match(
             normalized_name=normalized_name,
             nutrition_item_id=nutrition_item_id,
         )
-        return _call_route(lambda: nutrition_match_route(payload, session=session))
+        return _call_route(
+            lambda: nutrition_match_route(
+                payload, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Archive a recipe.")
