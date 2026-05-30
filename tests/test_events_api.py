@@ -110,6 +110,31 @@ def test_event_update_replaces_attendees(client) -> None:
     assert updated["attendees"][0]["plus_ones"] == 1
 
 
+def test_patch_without_event_date_preserves_it(client) -> None:
+    """Regression (F7): a PATCH that omits event_date must not wipe the
+    stored date. The previous tautological guard cleared it on every
+    update that touched any other field."""
+    event = client.post(
+        "/api/events",
+        json={"name": "Birthday", "event_date": "2026-06-15", "attendee_count": 5},
+    ).json()
+    assert event["event_date"] == "2026-06-15"
+
+    # PATCH a different field; event_date is absent from the body.
+    resp = client.patch(
+        f"/api/events/{event['event_id']}", json={"notes": "bring cake"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["event_date"] == "2026-06-15"
+
+    # Explicit null still clears it.
+    resp = client.patch(
+        f"/api/events/{event['event_id']}", json={"event_date": None}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["event_date"] is None
+
+
 def test_event_delete(client) -> None:
     event = client.post(
         "/api/events",

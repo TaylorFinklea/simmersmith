@@ -184,18 +184,26 @@ def update_event_route(
         if "auto_merge_grocery" in set_fields
         else {}
     )
+    # Only forward event_date when the client actually sent it, so a PATCH
+    # that omits it doesn't wipe the stored date (the service defaults the
+    # param to its _UNSET sentinel when this key is absent).
+    event_date_kwarg: dict[str, object] = (
+        {"event_date": payload.event_date}
+        if "event_date" in set_fields
+        else {}
+    )
     try:
         update_event(
             session,
             event,
             name=payload.name,
-            event_date=payload.event_date,
             occasion=payload.occasion,
             attendee_count=payload.attendee_count,
             notes=payload.notes,
             status=payload.status,
             attendees=attendees,
             household_id=current_user.household_id,
+            **event_date_kwarg,
             **auto_merge_kwarg,
         )
     except ValueError as exc:
@@ -422,7 +430,7 @@ def generate_event_menu_route(
     # the stale list until we flush + expire.
     session.flush()
     session.expire(event, ["meals"])
-    regenerate_event_grocery(session, current_user.id, event)
+    regenerate_event_grocery(session, current_user.id, current_user.household_id, event)
     from app.services.event_grocery import apply_auto_merge_policy
     apply_auto_merge_policy(
         session,
@@ -457,7 +465,7 @@ def refresh_event_grocery_route(
     event = get_event(session, current_user.household_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    regenerate_event_grocery(session, current_user.id, event)
+    regenerate_event_grocery(session, current_user.id, current_user.household_id, event)
     apply_auto_merge_policy(
         session,
         event=event,
@@ -483,7 +491,7 @@ def _refresh_event_after_supplement_change(
     pattern the meal-edit and menu-regen routes use."""
     from app.services.event_grocery import apply_auto_merge_policy, regenerate_event_grocery
 
-    regenerate_event_grocery(session, current_user.id, event)
+    regenerate_event_grocery(session, current_user.id, current_user.household_id, event)
     apply_auto_merge_policy(
         session,
         event=event,

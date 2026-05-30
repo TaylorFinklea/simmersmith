@@ -35,6 +35,7 @@ def _aggregate_event_rows(
     session: Session,
     *,
     user_id: str,
+    household_id: str,
     event: Event,
 ) -> list[dict[str, Any]]:
     """Mirror of build_grocery_rows_for_week but driven by EventMeals."""
@@ -64,7 +65,11 @@ def _aggregate_event_rows(
         ).all():
             inline_by_meal[ing.event_meal_id].append(ing)
 
-    staples = staple_names(session, user_id)
+    # Staples are household-scoped (Staple.household_id). Passing user_id
+    # here matched nothing (user_id != household_id), so pantry staples
+    # were never filtered out of event lists — mirror the week path,
+    # which keys staple_names on household_id.
+    staples = staple_names(session, household_id)
     aggregations: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     for meal in meals:
@@ -217,14 +222,35 @@ def _aggregate_event_rows(
     return rows
 
 
-def regenerate_event_grocery(session: Session, user_id: str, event: Event) -> list[EventGroceryItem]:
+def regenerate_event_grocery(
+    session: Session, user_id: str, household_id: str, event: Event
+) -> list[EventGroceryItem]:
     """Wipe + rebuild an event's grocery list from its current meals."""
+    # Reverse any prior merge into a week BEFORE wiping the event's
+    # grocery rows. The bulk delete below drops the merged_into pointers,
+    # so without this the subsequent apply_auto_merge_policy re-adds the
+    # rebuilt rows' event_quantity on top of the stale value already on
+    # the week's GroceryItems — double-counting on every refresh
+    # (3 → 6 → 9 …). Unmerging first subtracts the old contribution so
+    # the re-merge starts from a clean slate.
+    if event.linked_week_id:
+        prev_week = session.scalar(
+            select(Week).where(
+                Week.id == event.linked_week_id,
+                Week.household_id == household_id,
+            )
+        )
+        if prev_week is not None:
+            unmerge_event_from_week(session, event=event, week=prev_week)
+
     session.execute(
         delete(EventGroceryItem).where(EventGroceryItem.event_id == event.id)
     )
     session.flush()
 
-    rows = _aggregate_event_rows(session, user_id=user_id, event=event)
+    rows = _aggregate_event_rows(
+        session, user_id=user_id, household_id=household_id, event=event
+    )
     created: list[EventGroceryItem] = []
     for row in rows:
         item = EventGroceryItem(

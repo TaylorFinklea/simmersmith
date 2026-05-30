@@ -146,7 +146,7 @@ def update_event(
     event: Event,
     *,
     name: str | None,
-    event_date: date | None,
+    event_date: date | None | object = _UNSET,
     occasion: str | None,
     attendee_count: int | None,
     notes: str | None,
@@ -157,12 +157,13 @@ def update_event(
 ) -> Event:
     if name is not None:
         event.name = name.strip() or event.name
-    if event_date is not None or event_date is None:
-        # Explicit null is allowed to clear — but to distinguish "not
-        # provided" vs "clear to null" callers pass the event_date
-        # field only when they mean to change it. We accept a sentinel
-        # approach via the Pydantic model (None always means clear).
-        event.event_date = event_date
+    if event_date is not _UNSET:
+        # Sentinel discipline (mirrors auto_merge_grocery): the route only
+        # passes event_date when the client actually set it, so an
+        # explicit null clears the date while omitting the field leaves
+        # it untouched. The previous `is not None or is None` guard was a
+        # tautology that wiped the date on every PATCH.
+        event.event_date = event_date  # type: ignore[assignment]
     if occasion is not None:
         event.occasion = occasion.strip() or "other"
     if attendee_count is not None:

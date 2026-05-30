@@ -64,7 +64,7 @@ def test_supplement_lands_as_event_grocery_row() -> None:
             unit="ct",
             household_id=_uid,
         )
-        regenerate_event_grocery(session, _uid, event)
+        regenerate_event_grocery(session, _uid, _uid, event)
 
         rows = list(
             session.scalars(
@@ -109,7 +109,7 @@ def test_supplement_merges_into_week_event_quantity() -> None:
             unit="ct",
             household_id=_uid,
         )
-        regenerate_event_grocery(session, _uid, event)
+        regenerate_event_grocery(session, _uid, _uid, event)
         apply_auto_merge_policy(session, event=event, user_id=_uid, household_id=_uid)
         session.flush()
 
@@ -128,6 +128,52 @@ def test_supplement_merges_into_week_event_quantity() -> None:
     assert eggs.total_quantity == 60.0
     # Event supplement: 100 eggs in event_quantity.
     assert eggs.event_quantity == 100.0
+
+
+def test_refresh_does_not_double_count_event_quantity() -> None:
+    """Regression (F5): refreshing an event's grocery list must not stack
+    the event contribution onto the week's GroceryItem.event_quantity on
+    every refresh. regenerate_event_grocery now unmerges the prior
+    contribution before rebuilding + re-merging."""
+    with session_scope() as session:
+        event, pantry = _seed_event_with_pantry_item(session)
+        week = create_or_get_week(
+            session,
+            user_id=_uid,
+            household_id=_uid,
+            week_start=date(2026, 4, 20),
+            notes="event week",
+        )
+        event.linked_week_id = week.id
+        session.flush()
+        add_supplement(
+            session,
+            event=event,
+            pantry_item_id=pantry.id,
+            quantity=100.0,
+            unit="ct",
+            household_id=_uid,
+        )
+
+        # Two refresh cycles (regen + auto-merge) — what every event-edit
+        # route does. Before the fix the second cycle doubled event_quantity.
+        for _ in range(2):
+            regenerate_event_grocery(session, _uid, _uid, event)
+            apply_auto_merge_policy(session, event=event, user_id=_uid, household_id=_uid)
+            session.flush()
+
+        eggs_rows = list(
+            session.scalars(
+                select(GroceryItem).where(
+                    GroceryItem.week_id == week.id,
+                    GroceryItem.normalized_name == "eggs",
+                )
+            ).all()
+        )
+
+    assert len(eggs_rows) == 1
+    # 100, not 200 — the second refresh unmerged before re-merging.
+    assert eggs_rows[0].event_quantity == 100.0
 
 
 def test_duplicate_supplement_for_same_pantry_item_rejected() -> None:
