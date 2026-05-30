@@ -19,11 +19,18 @@ adversarial verification). Report: `.docs/ai/phases/bug-sweep-2026-05-30-report.
 - F12/F15/F18 export + recipe cross-household IDOR
 - F13/F14 MCP ingredient tools always-erroring; F25 recipes household scoping; F19 Anthropic max_tokens truncation
 
-**NOT fixed — needs your decision / dedicated work (see report):**
-- **F22 (CRIT)** Apple IAP JWS x5c never validated vs Apple root → forgeable Pro. Latent (trial mode grants Pro now); live at monetization. *Decision: official `app-store-server-library` vs hand-rolled pinning.* Pairs with F23/F24 (replay/dedup).
-- **F11 (CRIT)** MCP per-request identity frozen at session creation (ContextVar not threaded to tool dispatch). Architectural; needs request-context read + 2-token integration test.
-- F9/F10 (assistant SSE threads + tool-runner partial-commit — delicate path), F26/F27 (ingredient catalog IDOR — needs governance call), F28 (SSRF DNS/redirect), F20 (`household_id` NOT NULL migration), F16/F17/F29 (iOS — need a build to verify).
-- Plus ~35 medium / ~37 low findings catalogued in the report (notable: JWT alg not pinned, more MCP tools missing `current_user` in `recipes.py`, several races).
+**Follow-up batch — ALSO fixed + committed (user-approved):**
+- **F22 (CRIT)** IAP forgery → official `app-store-server-library` chain validation vs bundled Apple Root CA-G3 (`2c17b0f`). Added `SIMMERSMITH_APPLE_IAP_APP_APPLE_ID` (set before Production). Forged-receipt test.
+- **F11 (CRIT)** MCP identity → `stateless_http=True` (`6d9336e`). **⚠️ smoke-test the Claude.ai connector before deploy** (couldn't test from sandbox; one-line revert if it regresses).
+- F9 SSE asyncio.Queue (`dfa29bd`); F10 tool-runner rollback (`5c9ecfe`); F28 SSRF DNS/redirect (`e71195b`); F26/F27 ingredient cross-household IDOR (`561a752`, global catalog stays collaborative by design); 6 more MCP `current_user` tool bugs incl. `recipes_list` (`ce5d449`).
+
+**Still NOT fixed:**
+- **F23/F24** (IAP replay/dedup) — low-risk now F22 closes forgery; needs iOS `appAccountToken` + a `notificationUUID` dedup migration.
+- **F20** `household_id` NOT NULL migration (deploy-sensitive).
+- **F16/F17/F29** iOS (need a build to verify).
+- ~35 medium / ~37 low catalogued in the report (JWT alg pinning, races, perf).
+
+13 fix commits this session: `git log 21072f4^..dfa29bd`.
 
 **Still uncommitted (pre-existing, not from this session):**
 `SimmerSmith.xcodeproj/project.pbxproj` (104→105 xcodegen regen, pairs with 08dcdb6 `project.yml` bump). Plus scratch workflow files `.docs/ai/_*.js` (safe to delete).
