@@ -449,6 +449,22 @@ final class AppState {
         assistantThreads = []
         assistantThreadDetails = [:]
         checkedGroceryItemIDs = []
+        // User/household-scoped collections that must NOT survive a cache
+        // clear or sign-out (otherwise the previous user's data bleeds into
+        // the next account on the same device). currentHousehold is also
+        // cleared via resetConnection()->clearHouseholdContext(), but the
+        // standalone "Clear Local Cache" button bypasses that path.
+        browsedWeek = nil
+        recipeMemories = [:]
+        ingredientPreferences = []
+        householdAliases = []
+        pantryItems = []
+        guests = []
+        eventSummaries = []
+        eventDetails = [:]
+        seasonalProduce = []
+        seasonalProduceFetchedAt = nil
+        currentHousehold = nil
         syncPhase = .idle
         lastErrorMessage = nil
         selectedTab = .week
@@ -475,6 +491,12 @@ final class AppState {
         // connection we are about to clear.
         postClearRefreshTask?.cancel()
         postClearRefreshTask = nil
+        // F29: best-effort unregister this device for the signing-out user
+        // and drop the push dedup key BEFORE clearing the connection — the
+        // DELETE needs the server URL + bearer token that settingsStore.clear()
+        // is about to wipe. Without this, the next user on a shared device
+        // keeps the old device row and never re-registers (same APNs token).
+        PushService.shared.reset(apiClient: apiClient)
         settingsStore.clear()
         serverURLDraft = ""
         authTokenDraft = ""

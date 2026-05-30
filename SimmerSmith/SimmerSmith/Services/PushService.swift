@@ -76,6 +76,25 @@ final class PushService {
         }
     }
 
+    /// Call on sign-out (from `AppState.resetConnection()`, BEFORE the
+    /// connection/settings are cleared so the DELETE still has a server URL
+    /// + bearer token). Best-effort unregisters this device for the
+    /// signing-out user, then drops the dedup key so the next user who signs
+    /// in on this device re-registers even though iOS hands back the same
+    /// (unchanged) APNs token.
+    func reset(apiClient: SimmerSmithAPIClient) {
+        let token = UserDefaults.standard.string(forKey: lastTokenKey)
+        UserDefaults.standard.removeObject(forKey: lastTokenKey)
+        guard let token else { return }
+        Task {
+            do {
+                try await apiClient.unregisterPushDevice(token: token)
+            } catch {
+                print("[PushService] unregisterPushDevice failed: \(error)")
+            }
+        }
+    }
+
     // MARK: - Incoming notification dispatch
 
     /// Handle a remote notification payload — reads `deep_link` and routes accordingly.

@@ -171,6 +171,11 @@ extension AppState {
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
             try? cacheStore.saveCurrentWeek(week)
+        } else if browsedWeek?.weekId == week.weekId {
+            // Route the refreshed snapshot to the browsed slot too, so a
+            // mutation on a non-current (browsed) week doesn't leave its view
+            // stale (mirrors applyAssistantWeekUpdate's slot routing).
+            browsedWeek = week
         }
         syncPhase = .synced(.now)
         return week
@@ -216,8 +221,11 @@ extension AppState {
         return week
     }
 
-    func submitMealFeedback(for meal: WeekMeal, sentiment: Int, notes: String) async throws {
-        guard let weekID = currentWeek?.weekId else { return }
+    func submitMealFeedback(for meal: WeekMeal, in weekID: String, sentiment: Int, notes: String) async throws {
+        // weekID is the DISPLAYED week (browsed ?? current) — the meal the
+        // user rated belongs to it. Previously this hardcoded currentWeek and
+        // then refreshWeek()'d, so rating a browsed week's meal attached the
+        // feedback to the wrong week and reloaded the current week instead.
         _ = try await apiClient.submitFeedback(
             weekID: weekID,
             entries: [
@@ -230,7 +238,7 @@ extension AppState {
                 )
             ]
         )
-        await refreshWeek()
+        _ = try await refreshWeekAfterSideMutation(weekID: weekID)
     }
 
     func submitGroceryFeedback(for item: GroceryItem, sentiment: Int, notes: String) async throws {

@@ -380,7 +380,10 @@ struct WeekView: View {
         }
         .sheet(item: $feedbackMeal) { meal in
             FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
-                try await appState.submitMealFeedback(for: meal, sentiment: sentiment, notes: notes)
+                // Attach feedback to the displayed (possibly browsed) week the
+                // rated meal belongs to, not always the current week.
+                guard let weekID = displayedWeek?.weekId else { return }
+                try await appState.submitMealFeedback(for: meal, in: weekID, sentiment: sentiment, notes: notes)
             }
         }
         .sheet(isPresented: Binding(
