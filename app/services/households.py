@@ -218,6 +218,15 @@ class InvitationOwnHouseholdError(InvitationError):
     """The joining user is already a member of the inviting household."""
 
 
+class InvitationMultiMemberError(InvitationError):
+    """The joining user belongs to a household that has other members.
+
+    Accepting would `merge_solo_into` (delete) that shared household and
+    cascade-evict its other members, migrating their data into the
+    target. The joiner must leave/transfer their current household
+    first. Maps to HTTP 409 in the API layer."""
+
+
 def claim_invitation(
     session: Session, *, code: str, joining_user_id: str
 ) -> Household:
@@ -259,7 +268,21 @@ def claim_invitation(
         raise InvitationNotFoundError("Inviting household no longer exists.")
 
     # Auto-merge: re-point all of joiner's solo content at the target.
+    # Guard: only merge when the joiner's current household is genuinely
+    # solo (a single member, the joiner themselves). merge_solo_into
+    # deletes that household, which ON DELETE CASCADE would also evict
+    # any co-members and migrate their shared data — silent multi-tenant
+    # data loss. If the joiner is in a shared household, refuse and tell
+    # them to leave/transfer first.
     if joiner_household_id is not None:
+        members = list_members(session, joiner_household_id)
+        is_solo = len(members) == 1 and members[0].user_id == joining_user_id
+        if not is_solo:
+            raise InvitationMultiMemberError(
+                "You're in a household with other members. Leave or "
+                "transfer ownership of your current household before "
+                "joining another."
+            )
         merge_solo_into(
             session,
             joiner_user_id=joining_user_id,

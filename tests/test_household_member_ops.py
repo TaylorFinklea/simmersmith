@@ -264,3 +264,43 @@ class TestPostOpInvariants:
         client.delete(f"/api/household/members/{USER_B_ID}", headers=_headers(USER_B_ID))
         after = len(_household_state(client, USER_A_ID)["members"])
         assert before - after == 1
+
+
+# ─────────────────────────────────────────────────────────────────
+# Claim-invitation guard: a member of a multi-member household may not
+# join another household (would delete + cascade-evict their co-members).
+# Regression for the claim_invitation / merge_solo_into data-loss bug.
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestClaimInvitationMultiMemberGuard:
+    def test_member_of_shared_household_cannot_join_another(self, client: TestClient) -> None:
+        # A + B share a household (A owner, B member); B's solo is gone.
+        _join_a_household_with_b(client)
+        with session_scope() as session:
+            shared_id = get_household_id(session, USER_A_ID)
+            assert get_household_id(session, USER_B_ID) == shared_id
+
+        # C mints an invite. B (a member of the shared household) tries to
+        # accept it — this must be rejected, not silently merge+delete the
+        # shared household and evict A.
+        invite = client.post(
+            "/api/household/invitations", headers=_headers(USER_C_ID)
+        ).json()
+        resp = client.post(
+            "/api/household/join", json={"code": invite["code"]}, headers=_headers(USER_B_ID)
+        )
+        assert resp.status_code == 409, resp.text
+
+        # The shared household is intact: A and B are both still members of it.
+        with session_scope() as session:
+            assert get_household_id(session, USER_A_ID) == shared_id
+            assert get_household_id(session, USER_B_ID) == shared_id
+            members = (
+                session.query(HouseholdMember).filter_by(household_id=shared_id).all()
+            )
+            assert {m.user_id for m in members} == {USER_A_ID, USER_B_ID}
+
+    def test_solo_user_can_still_join(self, client: TestClient) -> None:
+        # The guard must not break the normal solo-join path.
+        _join_a_household_with_b(client)

@@ -32,6 +32,7 @@ from app.schemas import (
 from app.services.households import (
     InvitationError,
     InvitationExpiredError,
+    InvitationMultiMemberError,
     InvitationNotFoundError,
     InvitationOwnHouseholdError,
     MembershipError,
@@ -190,6 +191,8 @@ def join_household_route(
     except InvitationExpiredError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except InvitationOwnHouseholdError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvitationMultiMemberError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except InvitationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
