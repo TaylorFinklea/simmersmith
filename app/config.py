@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     # library refuses to build a production verifier without it). Sandbox /
     # TestFlight receipts verify without it. Set before flipping trial mode off.
     apple_iap_app_apple_id: int | None = None
+    # Reject App Store Server notifications whose signedDate is older than this
+    # many days (replay-staleness guard). 0 disables the check.
+    apple_iap_webhook_max_age_days: int = 30
     # App Store Connect API key (to call the Server API and verify JWS
     # notifications). Leave all three empty to disable verification; the
     # /api/subscriptions endpoints will 503 until they are configured.

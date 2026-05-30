@@ -31,12 +31,36 @@ class Subscription(Base):
     current_period_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Latest Apple transactionId we've applied (monotonic) — used to ignore
+    # out-of-order / replayed transactions. Null on admin grants.
+    last_transaction_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # appAccountToken Apple echoes back when the iOS client sets it at
+    # purchase (Product.PurchaseOption.appAccountToken). Lets us refuse a
+    # receipt being re-bound to a different account. Null until iOS sets it.
+    app_account_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     # Set on admin grants; null for Apple-billed rows.
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class ProcessedAppleNotification(Base):
+    """Dedup record for App Store Server Notifications v2.
+
+    One row per ``notificationUUID`` we've successfully processed, so a
+    replayed webhook delivery is recognized and ignored instead of
+    re-applying its effect.
+    """
+    __tablename__ = "processed_apple_notifications"
+
+    notification_uuid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    notification_type: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    subtype: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
     )
 
 

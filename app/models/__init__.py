@@ -1,7 +1,7 @@
 from app.models._base import new_id, utcnow
 from app.models.ai import AIRun, AssistantMessage, AssistantThread
 from app.models.aliases import HouseholdTermAlias
-from app.models.billing import Subscription, UsageCounter
+from app.models.billing import ProcessedAppleNotification, Subscription, UsageCounter
 from app.models.catalog import (
     BaseIngredient,
     IngredientNutritionMatch,
@@ -89,6 +89,7 @@ __all__ = [
     "RetailerPrice",
     "ServerSetting",
     "Staple",
+    "ProcessedAppleNotification",
     "Subscription",
     "UsageCounter",
     "User",

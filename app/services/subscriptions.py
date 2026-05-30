@@ -61,6 +61,12 @@ class VerifiedTransaction:
     transaction_id: str
     environment: str
     raw: dict[str, Any]
+    app_account_token: str | None = None
+
+
+# Statuses that mean the entitlement is over — never advance the period
+# window for these (a replayed renewal must not reopen a refunded sub).
+TERMINAL_STATUSES = {"refunded", "revoked", "expired"}
 
 
 @lru_cache(maxsize=1)
@@ -162,6 +168,7 @@ def verify_transaction_jws(signed: str, settings: Settings) -> VerifiedTransacti
         expires_date=datetime.fromtimestamp(decoded.expiresDate / 1000, tz=timezone.utc),
         environment=decoded.rawEnvironment or settings.apple_iap_environment,
         raw=attr.asdict(decoded),
+        app_account_token=(str(decoded.appAccountToken) if getattr(decoded, "appAccountToken", None) else None),
     )
 
 
@@ -200,6 +207,8 @@ def upsert_subscription_from_transaction(
             current_period_starts_at=transaction.purchase_date,
             current_period_ends_at=transaction.expires_date,
             auto_renew=auto_renew,
+            last_transaction_id=transaction.transaction_id,
+            app_account_token=transaction.app_account_token,
             raw_payload_json=json.dumps(transaction.raw, default=str, sort_keys=True),
         )
         session.add(row)
@@ -210,6 +219,11 @@ def upsert_subscription_from_transaction(
         row.current_period_starts_at = transaction.purchase_date
         row.current_period_ends_at = transaction.expires_date
         row.auto_renew = auto_renew
+        row.last_transaction_id = transaction.transaction_id
+        # Adopt the appAccountToken once Apple starts sending it; don't
+        # clobber a previously-recorded binding with a null.
+        if transaction.app_account_token and not row.app_account_token:
+            row.app_account_token = transaction.app_account_token
         row.raw_payload_json = json.dumps(transaction.raw, default=str, sort_keys=True)
         row.updated_at = utcnow()
     session.flush()
@@ -249,6 +263,27 @@ def status_from_notification(notification_type: str, subtype: str | None) -> str
         if nt == key[0] and st == "":
             return mapped
     return None
+
+
+def transaction_is_stale(incoming_transaction_id: str, stored_last_transaction_id: str | None) -> bool:
+    """True if ``incoming`` is older-or-equal than what we last applied.
+
+    Apple transactionIds are monotonically increasing numeric strings, so a
+    lower-or-equal id is a replay or out-of-order delivery we should ignore.
+    Falls back to exact-equality (dup) for any non-numeric ids.
+    """
+    if not stored_last_transaction_id:
+        return False
+    incoming, stored = incoming_transaction_id, stored_last_transaction_id
+    if incoming.isdigit() and stored.isdigit():
+        return int(incoming) <= int(stored)
+    return incoming == stored
+
+
+def app_account_token_conflict(existing_token: str | None, incoming_token: str | None) -> bool:
+    """True when both tokens are present and differ — a receipt being
+    re-bound to a different account. Inert until iOS sets appAccountToken."""
+    return bool(existing_token and incoming_token and existing_token != incoming_token)
 
 
 def decode_signed_payload(signed: str, settings: Settings) -> dict[str, Any]:
