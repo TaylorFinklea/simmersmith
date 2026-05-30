@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import socket
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any
@@ -622,20 +624,64 @@ def import_recipe_from_text(
     )
 
 
+_MAX_IMPORT_REDIRECTS = 5
+
+
+def _assert_public_url(url: str) -> None:
+    """Reject URLs that resolve to a private/internal address (SSRF guard).
+
+    The schema-level validator only blocks IP-literal hostnames; this
+    resolves the DNS name and checks EVERY A/AAAA record, defeating a
+    hostname that points at 169.254.169.254 / 127.0.0.1 / RFC-1918 / etc.
+    Called per hop so a 30x redirect can't bounce us to an internal host.
+    """
+    parsed = urllib_parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http and https URLs are allowed.")
+    host = parsed.hostname or ""
+    if not host:
+        raise ValueError("URL must include a hostname.")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise ValueError(f"Could not resolve that URL's host: {exc}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise ValueError("URLs pointing to private or internal addresses are not allowed.")
+
+
 def import_recipe_from_url(url: str) -> RecipePayload:
     normalized_url = clean_text(url)
-    if not normalized_url.startswith(("http://", "https://")):
-        raise ValueError("Recipe URL must start with http:// or https://")
-
+    current_url = normalized_url
+    headers = {
+        "User-Agent": "SimmerSmith/1.0 (+https://simmersmith.app)",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    # Follow redirects manually so each hop is SSRF-validated before we
+    # connect (httpx's follow_redirects=True would chase a 30x to an
+    # internal host without re-checking).
     try:
-        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-            response = client.get(
-                normalized_url,
-                headers={
-                    "User-Agent": "SimmerSmith/1.0 (+https://simmersmith.app)",
-                    "Accept": "text/html,application/xhtml+xml",
-                },
-            )
+        with httpx.Client(timeout=20.0, follow_redirects=False) as client:
+            for _ in range(_MAX_IMPORT_REDIRECTS + 1):
+                if not current_url.startswith(("http://", "https://")):
+                    raise ValueError("Recipe URL must start with http:// or https://")
+                _assert_public_url(current_url)
+                response = client.get(current_url, headers=headers)
+                if getattr(response, "is_redirect", False) and response.headers.get("location"):
+                    current_url = str(response.url.join(response.headers["location"]))
+                    continue
+                break
+            else:
+                raise ValueError("That URL redirected too many times.")
             response.raise_for_status()
     except httpx.TimeoutException:
         raise ValueError("The recipe site took too long to respond. Try again later.")
@@ -649,4 +695,4 @@ def import_recipe_from_url(url: str) -> RecipePayload:
         raise ValueError("That URL did not return an HTML page.")
     html = response.text
 
-    return parse_recipe_html(html, normalized_url)
+    return parse_recipe_html(html, current_url)
