@@ -325,6 +325,7 @@ def test_scheduler_tick_fires_at_matching_time() -> None:
         week = WeekModel(
             id=new_id(),
             user_id=user_id,
+            household_id=user_id,
             week_start=today_local,
             week_end=today_local,
             status="staging",
@@ -481,6 +482,7 @@ def test_scheduler_default_on_semantics() -> None:
         week = WeekModel(
             id=new_id(),
             user_id=user_id,
+            household_id=user_id,
             week_start=today_local,
             week_end=today_local,
             status="staging",
@@ -544,6 +546,7 @@ def test_saturday_tick_skips_when_week_confirmed() -> None:
         week = Week(
             id=new_id(),
             user_id=user_id,
+            household_id=user_id,
             week_start=upcoming_monday,
             week_end=upcoming_monday + timedelta(days=6),
             status="approved",
@@ -589,6 +592,7 @@ def test_saturday_tick_fires_when_week_draft() -> None:
         week = Week(
             id=new_id(),
             user_id=user_id,
+            household_id=user_id,
             week_start=upcoming_monday,
             week_end=upcoming_monday + timedelta(days=6),
             status="staging",
