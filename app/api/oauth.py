@@ -22,8 +22,10 @@ Three user-auth paths to the same approval outcome:
 from __future__ import annotations
 
 import hmac
+import html
 import logging
 from typing import Annotated
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -247,30 +249,41 @@ def _render_authorize_page(
     settings: Settings,
     error: str = "",
 ) -> HTMLResponse:
-    error_html = f'<div class="error">{error}</div>' if error else ""
+    # client_name comes verbatim from unauthenticated DCR (/oauth/register)
+    # and deny_redirect derives from the client's redirect_uri, so both are
+    # attacker-influenced and MUST be HTML-escaped before landing in this
+    # str.format'd page (no autoescaping). error is server-constant but we
+    # escape it for defense-in-depth. code is a server-minted token_urlsafe
+    # (URL-safe charset), but escape it too where it sits in HTML attrs.
+    safe_client_name = html.escape(client_name)
+    safe_deny_redirect = html.escape(deny_redirect, quote=True)
+    safe_code = html.escape(code, quote=True)
+    # error sits in element text content (not an attribute), so quote=False
+    # is sufficient and keeps the human message readable (apostrophes intact).
+    error_html = f'<div class="error">{html.escape(error, quote=False)}</div>' if error else ""
 
     sso_buttons: list[str] = []
     if sso.apple_enabled(settings):
-        sso_buttons.append(_SSO_BUTTON_APPLE.format(code=code))
+        sso_buttons.append(_SSO_BUTTON_APPLE.format(code=safe_code))
     if sso.google_enabled(settings):
-        sso_buttons.append(_SSO_BUTTON_GOOGLE.format(code=code))
+        sso_buttons.append(_SSO_BUTTON_GOOGLE.format(code=safe_code))
     sso_block = (
         '<div class="sso">' + "".join(sso_buttons) + "</div>"
         '<div class="divider">or</div>'
         if sso_buttons
         else ""
     )
-    fallback_block = _FALLBACK_FORM_TEMPLATE.format(code=code)
+    fallback_block = _FALLBACK_FORM_TEMPLATE.format(code=safe_code)
 
-    html = _AUTHORIZE_PAGE_TEMPLATE.format(
-        code=code,
-        client_name=client_name,
-        deny_redirect=deny_redirect,
+    page = _AUTHORIZE_PAGE_TEMPLATE.format(
+        code=safe_code,
+        client_name=safe_client_name,
+        deny_redirect=safe_deny_redirect,
         error_html=error_html,
         sso_block=sso_block,
         fallback_block=fallback_block,
     )
-    return HTMLResponse(html)
+    return HTMLResponse(page)
 
 
 @router.get("/oauth/authorize")
@@ -350,12 +363,23 @@ def oauth_authorize(
     )
 
 
-def _build_deny_redirect(redirect_uri: str, state: str | None) -> str:
+def _redirect_with_params(redirect_uri: str, params: dict[str, str]) -> str:
+    """Append query params to a redirect URI, URL-encoding every value.
+
+    Raw f-string concatenation let an attacker/client-controlled `state`
+    (or any reserved char) corrupt the redirect's parameters or, when the
+    result is rendered into an href, break out for reflected XSS. urlencode
+    percent-encodes keys/values so `state` is carried verbatim and safely.
+    """
     sep = "&" if "?" in redirect_uri else "?"
-    params = ["error=access_denied", "error_description=User+denied+access"]
+    return f"{redirect_uri}{sep}{urlencode(params)}"
+
+
+def _build_deny_redirect(redirect_uri: str, state: str | None) -> str:
+    params = {"error": "access_denied", "error_description": "User denied access"}
     if state:
-        params.append(f"state={state}")
-    return f"{redirect_uri}{sep}{'&'.join(params)}"
+        params["state"] = state
+    return _redirect_with_params(redirect_uri, params)
 
 
 @router.post("/oauth/authorize/approve", include_in_schema=False, response_model=None)
@@ -409,12 +433,11 @@ def oauth_authorize_approve(
         ) from err
 
     session.commit()
-    sep = "&" if "?" in pending.redirect_uri else "?"
-    params = [f"code={pending.code}"]
+    params = {"code": pending.code}
     if pending.state:
-        params.append(f"state={pending.state}")
+        params["state"] = pending.state
     return RedirectResponse(
-        url=f"{pending.redirect_uri}{sep}{'&'.join(params)}",
+        url=_redirect_with_params(pending.redirect_uri, params),
         status_code=302,
     )
 
@@ -444,12 +467,11 @@ def _sso_callback_url(request: Request, provider: str) -> str:
 
 def _redirect_to_client(pending) -> RedirectResponse:
     """Bounce back to the OAuth client's redirect_uri with code+state."""
-    sep = "&" if "?" in pending.redirect_uri else "?"
-    params = [f"code={pending.code}"]
+    params = {"code": pending.code}
     if pending.state:
-        params.append(f"state={pending.state}")
+        params["state"] = pending.state
     return RedirectResponse(
-        url=f"{pending.redirect_uri}{sep}{'&'.join(params)}",
+        url=_redirect_with_params(pending.redirect_uri, params),
         status_code=302,
     )
 

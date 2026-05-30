@@ -125,8 +125,66 @@ class TestDynamicClientRegistration:
         body = response.json()["detail"]
         assert body["error"] in {"invalid_redirect_uri", "invalid_request"}
 
+    @pytest.mark.parametrize(
+        "bad_uri",
+        [
+            "javascript:alert(document.cookie)",
+            "data:text/html,<script>alert(1)</script>",
+            "http://evil.example/cb",  # non-loopback http
+            "ftp://evil.example/cb",
+        ],
+    )
+    def test_register_rejects_dangerous_redirect_uri(self, client, bad_uri) -> None:
+        # Regression (F2): open DCR must not accept javascript:/data:/non-
+        # loopback-http/etc. redirect URIs (open-redirect + href XSS vector).
+        response = client.post(
+            "/oauth/register",
+            json={"client_name": "evil", "redirect_uris": [bad_uri]},
+        )
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"]["error"] == "invalid_redirect_uri"
+
+    def test_register_allows_https_and_loopback(self, client) -> None:
+        for ok_uri in (
+            "https://claude.ai/oauth/callback",
+            "http://127.0.0.1:8765/cb",
+            "http://localhost/cb",
+            "com.example.app:/oauth-callback",
+        ):
+            resp = client.post(
+                "/oauth/register",
+                json={"client_name": "ok", "redirect_uris": [ok_uri]},
+            )
+            assert resp.status_code in (200, 201), f"{ok_uri}: {resp.text}"
+
 
 class TestAuthorizeEndpoint:
+    def test_authorize_page_escapes_client_name(self, client) -> None:
+        # Regression (F1/F21): a malicious client_name registered via open
+        # DCR must be HTML-escaped on the consent page, not executed.
+        registered = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "<script>alert(1)</script>",
+                "redirect_uris": ["https://claude.ai/oauth/callback"],
+            },
+        ).json()
+        _, challenge = _pkce_pair()
+        response = client.get(
+            "/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": registered["client_id"],
+                "redirect_uri": "https://claude.ai/oauth/callback",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": "xyz",
+            },
+        )
+        assert response.status_code == 200
+        assert "<script>alert(1)</script>" not in response.text
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+
     def test_authorize_returns_html_form(self, client) -> None:
         registered = _register_client(client)
         _, challenge = _pkce_pair()

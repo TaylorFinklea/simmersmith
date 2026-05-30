@@ -20,6 +20,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+from urllib.parse import urlsplit
 
 import jwt
 from sqlalchemy import select
@@ -90,6 +91,40 @@ class RegisteredClient:
     redirect_uris: list[str]
 
 
+_DANGEROUS_REDIRECT_SCHEMES = {"javascript", "data", "vbscript", "file", "about", "blob"}
+
+
+def _validate_redirect_uri(uri: str) -> None:
+    """Reject redirect URIs that aren't safe for an OAuth 2.1 public client.
+
+    Registration is unauthenticated (RFC 7591 open DCR), so without this an
+    attacker could register ``javascript:...``/``http://evil`` and have the
+    authorization code (or, when rendered into an href, script) delivered to
+    an attacker-controlled target. Allow: https (any host); http only for
+    loopback; reverse-DNS custom app schemes for native clients (RFC 8252).
+    """
+    parts = urlsplit(uri)
+    scheme = parts.scheme.lower()
+    if not scheme:
+        raise OAuthError("invalid_redirect_uri", "redirect_uri must be an absolute URI.")
+    if scheme in _DANGEROUS_REDIRECT_SCHEMES:
+        raise OAuthError("invalid_redirect_uri", f"redirect_uri scheme {scheme!r} is not allowed.")
+    if scheme == "https":
+        return
+    if scheme == "http":
+        if (parts.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}:
+            return
+        raise OAuthError(
+            "invalid_redirect_uri",
+            "http redirect_uri is only allowed for loopback (127.0.0.1 / localhost).",
+        )
+    # Reverse-DNS private-use scheme (e.g. com.example.app:/callback). Require
+    # a dotted scheme so it can't be a bare non-URL token.
+    if "." in scheme:
+        return
+    raise OAuthError("invalid_redirect_uri", f"Unsupported redirect_uri scheme {scheme!r}.")
+
+
 def register_client(
     session: Session,
     *,
@@ -105,6 +140,8 @@ def register_client(
     cleaned_uris = [uri.strip() for uri in redirect_uris if uri and uri.strip()]
     if not cleaned_uris:
         raise OAuthError("invalid_redirect_uri", "At least one redirect_uri is required.")
+    for uri in cleaned_uris:
+        _validate_redirect_uri(uri)
 
     name = (client_name or "").strip() or "Unnamed Client"
     client = OAuthClient(
