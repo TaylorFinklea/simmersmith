@@ -165,13 +165,19 @@ def weeks_create_export(week_id: str, destination: str, export_type: str) -> dic
 @mcp.tool(description="Get a single export run by ID.")
 def exports_get(export_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: export_detail(export_id, session=session))
+        return _call_route(
+            lambda: export_detail(export_id, session=session, current_user=_current_user(session))
+        )
 
 
 @mcp.tool(description="Get the Apple Reminders payload for an export run.")
 def exports_get_apple_reminders(export_id: str) -> dict[str, Any]:
     with session_scope() as session:
-        return _call_route(lambda: export_apple_reminders_payload(export_id, session=session))
+        return _call_route(
+            lambda: export_apple_reminders_payload(
+                export_id, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Mark an export run completed or failed.")
@@ -183,4 +189,8 @@ def exports_complete(
 ) -> dict[str, Any]:
     with session_scope() as session:
         payload = ExportCompleteRequest(status=status, error=error, external_ref=external_ref)
-        return _call_route(lambda: complete_export(export_id, payload, session=session))
+        return _call_route(
+            lambda: complete_export(
+                export_id, payload, session=session, current_user=_current_user(session)
+            )
+        )

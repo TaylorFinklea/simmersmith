@@ -30,6 +30,7 @@ from app.services.recipe_templates import default_template, get_template
 from app.services.recipes import (
     RECIPE_OVERRIDE_FIELDS,
     effective_recipe_data,
+    get_recipe,
     mark_week_recipe_usage,
     normalize_tag_list,
     serialize_tag_list,
@@ -222,7 +223,13 @@ def variant_override_payload(base_recipe: Recipe, payload: RecipePayload) -> dic
 
 def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str, household_id: str) -> Recipe:
     recipe_id = payload.recipe_id
-    recipe = session.get(Recipe, recipe_id) if recipe_id else None
+    # Scope the lookup to the caller's household so a supplied recipe_id
+    # can't load+overwrite another household's recipe (IDOR). If an id is
+    # supplied that isn't ours but DOES exist globally, refuse rather than
+    # fall through to create (which would collide on the primary key).
+    recipe = get_recipe(session, household_id, recipe_id) if recipe_id else None
+    if recipe_id and recipe is None and session.get(Recipe, recipe_id) is not None:
+        raise ValueError("Recipe not found")
     is_new_recipe = recipe is None
     if recipe is None:
         recipe = Recipe(
@@ -235,7 +242,9 @@ def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str, hou
 
     base_recipe = None
     if payload.base_recipe_id:
-        base_recipe = session.get(Recipe, payload.base_recipe_id)
+        # Household-scoped: a variant can only be based on the caller's own
+        # recipe, never another household's (data leak via override payload).
+        base_recipe = get_recipe(session, household_id, payload.base_recipe_id)
         if base_recipe is None:
             raise ValueError("Base recipe not found")
         while base_recipe.base_recipe is not None:
