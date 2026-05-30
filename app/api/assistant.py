@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import queue
 import threading
 from collections.abc import AsyncIterator
 
@@ -278,7 +277,16 @@ async def respond_route(
         yield encode_sse("user_message.created", initial_user_payload)
         yield encode_sse("assistant.message.created", initial_assistant_payload)
 
-        event_queue: "queue.Queue[tuple[str, dict[str, object]] | None]" = queue.Queue()
+        # asyncio.Queue (not queue.Queue): the consumer awaits get() directly,
+        # so a 1s wait_for timeout cancels cleanly with no leaked thread and
+        # no dropped item. The previous `asyncio.to_thread(queue.Queue.get)`
+        # spawned a thread that stayed blocked on the un-timed get() after
+        # each timeout — dozens piled up over a long idle tool run, saturating
+        # the default executor, and when events finally arrived an orphaned
+        # thread consumed (and discarded) them. The producers run in the
+        # worker thread, so they push via loop.call_soon_threadsafe.
+        loop = asyncio.get_running_loop()
+        event_queue: "asyncio.Queue[tuple[str, dict[str, object]] | None]" = asyncio.Queue()
         # Signaled when the client disconnects so the tool loop can exit
         # between OpenAI chunks / tool calls instead of running to completion
         # spending tokens on a reply nobody will read.
@@ -290,7 +298,8 @@ async def respond_route(
             # message bubble.
             if event == "assistant.delta" and "message_id" not in data:
                 data["message_id"] = assistant_message_id
-            event_queue.put((event, data))
+            # Runs in the worker thread → hand the item to the loop safely.
+            loop.call_soon_threadsafe(event_queue.put_nowait, (event, data))
 
         def tool_runner(name: str, args: dict) -> AssistantToolResult:
             with session_scope() as tool_session:
@@ -322,7 +331,7 @@ async def respond_route(
                     abort_event=abort_event,
                 )
             finally:
-                event_queue.put(None)
+                loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
         task = asyncio.create_task(asyncio.to_thread(worker))
 
@@ -369,9 +378,7 @@ async def respond_route(
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(
-                        asyncio.to_thread(event_queue.get), timeout=1.0
-                    )
+                    item = await asyncio.wait_for(event_queue.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     if task.done():
                         break
