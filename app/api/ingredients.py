@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
+from app.models import IngredientVariation
 from app.schemas import (
     BaseIngredientDetailOut,
     BaseIngredientOut,
@@ -43,6 +44,38 @@ from app.api.admin import require_admin_bearer
 
 router = APIRouter(prefix="/api/ingredients", tags=["ingredients"])
 preferences_router = APIRouter(prefix="/api/ingredient-preferences", tags=["ingredients"])
+
+
+def _require_owned_base_ingredient(session: Session, base_ingredient_id: str, household_id: str):
+    """Block a household from mutating ANOTHER household's private ingredient.
+
+    Catalog governance here is intentionally collaborative: the global
+    `approved` rows (household_id NULL) are shared and remain editable by
+    any household (the resolver falls through to them, and
+    test_ingredient_catalog_merge_and_archive_routes codifies household
+    merge/archive of them). What is NOT allowed is reaching into another
+    household's `household_only` (private) row by id — that was a real
+    cross-tenant IDOR. So: allow own rows + the shared global catalog;
+    reject a row owned by a different household. (Internal resolution
+    flows call the services directly, not these routes, so are unaffected.
+    Locking the global catalog to admins is a separate product decision.)
+    """
+    item = get_base_ingredient(session, base_ingredient_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    if item.household_id is not None and item.household_id != household_id:
+        # Don't reveal that another household's private row exists.
+        raise HTTPException(status_code=404, detail="Base ingredient not found")
+    return item
+
+
+def _require_owned_variation(session: Session, ingredient_variation_id: str, household_id: str):
+    """A variation inherits ownership from its base ingredient."""
+    variation = session.get(IngredientVariation, ingredient_variation_id)
+    if variation is None:
+        raise HTTPException(status_code=404, detail="Ingredient variation not found")
+    _require_owned_base_ingredient(session, variation.base_ingredient_id, household_id)
+    return variation
 
 
 def _base_payload(session: Session, item) -> dict[str, object]:
@@ -176,6 +209,7 @@ def create_ingredient_route(
     submission_status = payload.submission_status or "household_only"
     household_id = current_user.household_id if submission_status != "approved" else None
     if payload.base_ingredient_id:
+        _require_owned_base_ingredient(session, payload.base_ingredient_id, current_user.household_id)
         try:
             item = update_base_ingredient(
                 session,
@@ -286,7 +320,9 @@ def reject_ingredient_route(
 def archive_ingredient_route(
     base_ingredient_id: str,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    _require_owned_base_ingredient(session, base_ingredient_id, current_user.household_id)
     try:
         item = archive_base_ingredient(session, base_ingredient_id)
     except ValueError as exc:
@@ -300,7 +336,11 @@ def merge_ingredient_route(
     base_ingredient_id: str,
     payload: IngredientMergeRequest,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    # Both ends of the merge must belong to the caller's household.
+    _require_owned_base_ingredient(session, base_ingredient_id, current_user.household_id)
+    _require_owned_base_ingredient(session, payload.target_id, current_user.household_id)
     try:
         item = merge_base_ingredients(session, source_id=base_ingredient_id, target_id=payload.target_id)
     except ValueError as exc:
@@ -324,7 +364,9 @@ def create_variation_route(
     base_ingredient_id: str,
     payload: IngredientVariationPayload,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    _require_owned_base_ingredient(session, base_ingredient_id, current_user.household_id)
     try:
         if payload.ingredient_variation_id:
             item = update_variation(
@@ -382,7 +424,9 @@ def create_variation_route(
 def archive_variation_route(
     ingredient_variation_id: str,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    _require_owned_variation(session, ingredient_variation_id, current_user.household_id)
     try:
         item = archive_variation(session, ingredient_variation_id)
     except ValueError as exc:
@@ -396,7 +440,11 @@ def merge_variation_route(
     ingredient_variation_id: str,
     payload: IngredientMergeRequest,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    # Both variations must belong to the caller's household (via their base).
+    _require_owned_variation(session, ingredient_variation_id, current_user.household_id)
+    _require_owned_variation(session, payload.target_id, current_user.household_id)
     try:
         item = merge_variations(session, source_id=ingredient_variation_id, target_id=payload.target_id)
     except ValueError as exc:

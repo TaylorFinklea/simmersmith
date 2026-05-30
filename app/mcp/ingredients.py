@@ -132,7 +132,9 @@ def ingredients_create_variation(
             calories=calories,
         )
         return _call_route(
-            lambda: create_variation_route(base_ingredient_id, payload, session=session)
+            lambda: create_variation_route(
+                base_ingredient_id, payload, session=session, current_user=_current_user(session)
+            )
         )
 
 
