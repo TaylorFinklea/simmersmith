@@ -934,6 +934,14 @@ def run_tool(
         result = tool.runner(**runner_kwargs)
     except Exception as exc:
         logger.exception("Assistant tool %s crashed", name)
+        # Mutating runners (generate_week_plan / rebalance_day) delete the
+        # week's meals and flush BEFORE the heavier apply_ai_draft step. A
+        # non-DB exception after that flush does NOT poison the SQLAlchemy
+        # transaction, so the surrounding session_scope would COMMIT the
+        # half-applied state (a wiped week) on normal return while we tell
+        # the model ok=False. Roll back here so the failure is atomic and
+        # the persisted state matches the reported result.
+        session.rollback()
         return AssistantToolResult(ok=False, detail=f"Tool {name} crashed: {exc}")
 
     if result.ok and tool.gated_action is not None:

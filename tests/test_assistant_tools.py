@@ -569,3 +569,52 @@ def test_streamed_deltas_persist_before_turn_completes(client, monkeypatch) -> N
         messages = session.query(AssistantMessage).all()
         assistant_row = next(m for m in messages if m.role == "assistant")
         assert assistant_row.content_markdown == "I'll plan Wednesday."
+
+
+def test_tool_crash_rolls_back_partial_week_mutation(client) -> None:
+    """F10 regression: if a mutating tool deletes + flushes the week's
+    meals and then crashes, run_tool must roll back so the surrounding
+    session_scope does not commit the wiped week."""
+    from sqlalchemy import delete as sa_delete
+
+    from app.models import WeekMeal
+    from app.services.assistant_tools import AssistantTool
+
+    week_id = _seed_week(client)
+    _add_meal_directly(client, week_id, "Monday", "dinner", "Keeper Meal")
+
+    def _crashing_runner(*, session, user_id, household_id, week, args, settings):
+        # Mimic generate_week_plan: wipe the week's meals, flush, then crash
+        # with a non-DB exception (which would otherwise leave the deletion
+        # committable).
+        session.execute(sa_delete(WeekMeal).where(WeekMeal.week_id == week.id))
+        session.flush()
+        raise ValueError("boom after delete")
+
+    REGISTRY["_test_crash"] = AssistantTool(
+        name="_test_crash",
+        description="test-only crashing tool",
+        parameters_schema={"type": "object"},
+        mutates_week=True,
+        gated_action=None,
+        runner=_crashing_runner,
+    )
+    try:
+        with session_scope() as session:
+            result = run_tool(
+                "_test_crash",
+                session=session,
+                user_id=get_settings().local_user_id,
+                household_id=get_settings().local_user_id,
+                linked_week_id=week_id,
+                args={},
+                settings=get_settings(),
+            )
+        assert result.ok is False
+    finally:
+        REGISTRY.pop("_test_crash", None)
+
+    # The meal survived — the partial delete was rolled back, not committed.
+    detail = client.get(f"/api/weeks/{week_id}")
+    assert detail.status_code == 200, detail.text
+    assert any(m["recipe_name"] == "Keeper Meal" for m in detail.json()["meals"])
