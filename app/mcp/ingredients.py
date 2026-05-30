@@ -27,7 +27,11 @@ from app.schemas import (
 @mcp.tool(description="Search or list canonical base ingredients.")
 def ingredients_list(query: str = "", limit: int = 20) -> list[dict[str, Any]]:
     with session_scope() as session:
-        return _call_route(lambda: list_ingredients_route(q=query, limit=limit, session=session))
+        return _call_route(
+            lambda: list_ingredients_route(
+                q=query, limit=limit, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="Get one canonical base ingredient by ID.")
@@ -58,7 +62,11 @@ def ingredients_create(
             nutrition_reference_unit=nutrition_reference_unit,
             calories=calories,
         )
-        return _call_route(lambda: create_ingredient_route(payload, session=session))
+        return _call_route(
+            lambda: create_ingredient_route(
+                payload, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(

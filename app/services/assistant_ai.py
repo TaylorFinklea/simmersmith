@@ -959,7 +959,11 @@ def run_direct_provider(
         headers["anthropic-version"] = "2023-06-01"
         body = {
             "model": target.model,
-            "max_tokens": 1800,
+            # 1800 truncated structured generations (e.g. a 4-6 dish event
+            # menu with full per-dish ingredient lists) mid-JSON, so
+            # _parse_response raised and the feature 502'd. Match the
+            # 4096 budget recipe_search_ai uses for the same shape.
+            "max_tokens": 4096,
             "system": "Return only valid JSON matching the requested schema.",
             "messages": [{"role": "user", "content": prompt}],
         }

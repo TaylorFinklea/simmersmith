@@ -407,7 +407,7 @@ def recipe_suggestion_draft_route(
 ) -> dict[str, object]:
     saved_recipes = [
         RecipePayload.model_validate(recipe_payload(session, recipe))
-        for recipe in list_recipes(session, current_user.id, include_archived=False)
+        for recipe in list_recipes(session, current_user.household_id, include_archived=False)
     ]
     try:
         draft, rationale, resolved_goal = build_suggestion_draft(saved_recipes, goal=payload.goal)
