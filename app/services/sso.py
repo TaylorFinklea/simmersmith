@@ -106,6 +106,12 @@ def google_enabled(settings: Settings) -> bool:
 Provider = Literal["apple", "google"]
 
 
+# Scope the state JWT to this purpose so it can't be confused with the
+# session JWT / OAuth-MCP token that share SIMMERSMITH_JWT_SECRET.
+_STATE_ISS = "simmersmith"
+_STATE_AUD = "simmersmith-sso-state"
+
+
 def generate_state(*, authorize_code: str, provider: Provider, settings: Settings) -> str:
     if not settings.jwt_secret:
         raise SsoError("Server has no SIMMERSMITH_JWT_SECRET configured")
@@ -113,6 +119,8 @@ def generate_state(*, authorize_code: str, provider: Provider, settings: Setting
     payload = {
         "authorize_code": authorize_code,
         "provider": provider,
+        "iss": _STATE_ISS,
+        "aud": _STATE_AUD,
         "iat": now,
         "exp": now + _STATE_TTL_SECONDS,
         "jti": token_urlsafe(8),
@@ -127,7 +135,14 @@ def verify_state(state: str, *, expected_provider: Provider, settings: Settings)
     if not settings.jwt_secret:
         raise SsoError("Server has no SIMMERSMITH_JWT_SECRET configured")
     try:
-        payload = jwt.decode(state, settings.jwt_secret, algorithms=["HS256"])
+        payload = jwt.decode(
+            state,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+            audience=_STATE_AUD,
+            issuer=_STATE_ISS,
+            options={"require": ["exp", "iat", "aud", "iss"]},
+        )
     except jwt.ExpiredSignatureError as exc:
         raise SsoError("state expired") from exc
     except jwt.InvalidTokenError as exc:

@@ -119,6 +119,15 @@ async def lifespan(_: FastAPI):
             "No authentication configured — API is open. Set SIMMERSMITH_JWT_SECRET "
             "(production) or SIMMERSMITH_API_TOKEN (dev) before exposing to a network."
         )
+    _jwt_secret = settings.jwt_secret.strip()
+    if _jwt_secret and len(_jwt_secret) < 32:
+        logger.warning(
+            "SIMMERSMITH_JWT_SECRET is only %d characters — it signs all "
+            "first-party tokens (session JWTs, OAuth/MCP access tokens, SSO "
+            "state). HS256 keys shorter than 32 chars are brute-forceable; use "
+            "a 32+ char random secret (e.g. `openssl rand -hex 32`).",
+            len(_jwt_secret),
+        )
     scheduler = start_scheduler(settings) if settings.push_scheduler_enabled else None
     # The MCP app is mounted as a sub-app at /mcp. Starlette does NOT run a
     # mounted sub-app's lifespan, so the MCP StreamableHTTP session manager
