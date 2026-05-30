@@ -24,13 +24,16 @@ adversarial verification). Report: `.docs/ai/phases/bug-sweep-2026-05-30-report.
 - **F11 (CRIT)** MCP identity → `stateless_http=True` (`6d9336e`). **⚠️ smoke-test the Claude.ai connector before deploy** (couldn't test from sandbox; one-line revert if it regresses).
 - F9 SSE asyncio.Queue (`dfa29bd`); F10 tool-runner rollback (`5c9ecfe`); F28 SSRF DNS/redirect (`e71195b`); F26/F27 ingredient cross-household IDOR (`561a752`, global catalog stays collaborative by design); 6 more MCP `current_user` tool bugs incl. `recipes_list` (`ce5d449`).
 
-**Still NOT fixed:**
-- **F23/F24** (IAP replay/dedup) — low-risk now F22 closes forgery; needs iOS `appAccountToken` + a `notificationUUID` dedup migration.
-- **F20** `household_id` NOT NULL migration (deploy-sensitive).
-- **F16/F17/F29** iOS (need a build to verify).
-- ~35 medium / ~37 low catalogued in the report (JWT alg pinning, races, perf).
+**Backlog burn-down (2026-05-30, second pass) — ALL remaining bug-sweep backlog cleared:**
+- **F23/F24** IAP replay/dedup → `0879339` (notificationUUID dedup table, signedDate freshness, monotonic last_transaction_id, terminal-status period freeze, forward-compatible appAccountToken). Follow-up: iOS must set `appAccountToken` at purchase to fully activate the rebind check.
+- **F20** household_id NOT NULL → `cf421cc` (migration 0043).
+- **F16/F17/F29** iOS → `df67196` (⚠️ needs iOS build smoke-test).
+- Medium security: jwt_secret strength warning + SSO state aud/iss → `21b191e`; ingredient-detail/variations IDOR read → `6a52c1c`.
+- Closed as NOT-real (verified): session-JWT alg pinning (PyJWT pins it), whitespace-token free-tier bypass (open-mode == open-auth).
 
-13 fix commits this session: `git log 21072f4^..dfa29bd`.
+**Two pre-deploy gates remain:** (1) smoke-test the Claude.ai MCP connector (F11 stateless transport); (2) set `SIMMERSMITH_APPLE_IAP_APP_APPLE_ID` before Production IAP / flipping trial mode off. Plus the iOS smoke-test above. ~35 medium / ~37 low findings from the original sweep remain catalogued in the report (races, perf, etc.) for future passes.
+
+Fix commits this session: `git log 21072f4^..df67196` (bug sweep + full backlog).
 
 **Still uncommitted (pre-existing, not from this session):**
 `SimmerSmith.xcodeproj/project.pbxproj` (104→105 xcodegen regen, pairs with 08dcdb6 `project.yml` bump). Plus scratch workflow files `.docs/ai/_*.js` (safe to delete).
