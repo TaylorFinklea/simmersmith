@@ -13,20 +13,26 @@ clearly needed.
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-import jwt
-from jwt import InvalidTokenError, PyJWK
+import attr
+from appstoreserverlibrary.models.Environment import Environment
+from appstoreserverlibrary.signed_data_verifier import SignedDataVerifier, VerificationException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import Subscription, utcnow
+
+# Apple root CAs (DER) the StoreKit JWS chain must terminate at. Bundled in
+# the repo because the verifier validates *against* roots the caller supplies.
+_APPLE_ROOT_DIR = Path(__file__).resolve().parents[1] / "data" / "apple_roots"
 
 
 logger = logging.getLogger(__name__)
@@ -57,108 +63,106 @@ class VerifiedTransaction:
     raw: dict[str, Any]
 
 
-def verify_transaction_jws(signed: str, settings: Settings) -> VerifiedTransaction:
-    """Verify an Apple-signed `JWSTransaction` and return the decoded fields.
+@lru_cache(maxsize=1)
+def _apple_root_certificates() -> tuple[bytes, ...]:
+    """Load the bundled Apple root CA certs (DER) the JWS chain must root in."""
+    certs = tuple(p.read_bytes() for p in sorted(_APPLE_ROOT_DIR.glob("*.cer")))
+    if not certs:
+        raise SubscriptionVerificationError(
+            f"No Apple root certificates bundled under {_APPLE_ROOT_DIR}."
+        )
+    return certs
 
-    Apple embeds its signing certificate chain in the JWS header (`x5c`).
-    We pin the leaf's public key, verify ES256, and enforce basic sanity
-    (bundle id, non-empty product id, unexpired `expiresDate` when the
-    status says active).
 
-    For now we trust the x5c chain without pinning Apple's root — pinning
-    is a hardening pass we can add once the flow is live. In the meantime
-    we enforce:
-      - Valid ES256 signature against the leaf x5c cert
-      - `bundleId` matches `settings.apple_iap_bundle_id`
-      - `environment` matches `settings.apple_iap_environment`
+def _environment_for(name: str) -> Environment:
+    return Environment.PRODUCTION if name.strip().lower() == "production" else Environment.SANDBOX
+
+
+def _build_verifier(environment: Environment, settings: Settings) -> SignedDataVerifier | None:
+    """Construct a chain-validating verifier for one environment.
+
+    Production requires the numeric app Apple ID; return None when it isn't
+    configured so the caller can skip it rather than crash.
     """
+    if environment == Environment.PRODUCTION and settings.apple_iap_app_apple_id is None:
+        return None
+    return SignedDataVerifier(
+        root_certificates=list(_apple_root_certificates()),
+        enable_online_checks=False,
+        environment=environment,
+        bundle_id=settings.apple_iap_bundle_id,
+        app_apple_id=settings.apple_iap_app_apple_id,
+    )
+
+
+def _verifiers_in_order(settings: Settings) -> list[SignedDataVerifier]:
+    """Verifiers to try, configured environment first then the other.
+
+    Apple signs Sandbox and Production identically, so a TestFlight Sandbox
+    receipt should still verify against a Production-configured server — we
+    just retry with the other environment on an INVALID_ENVIRONMENT mismatch.
+    The chain is fully validated for whichever environment matches.
+    """
+    primary = _environment_for(settings.apple_iap_environment)
+    other = Environment.SANDBOX if primary == Environment.PRODUCTION else Environment.PRODUCTION
+    return [v for v in (_build_verifier(primary, settings), _build_verifier(other, settings)) if v is not None]
+
+
+def _require_verifiers(settings: Settings) -> list[SignedDataVerifier]:
     if not settings.apple_iap_bundle_id:
         raise SubscriptionVerificationError(
             "App Store IAP not configured — set SIMMERSMITH_APPLE_IAP_BUNDLE_ID."
         )
-
-    try:
-        headers = jwt.get_unverified_header(signed)
-    except InvalidTokenError as exc:  # noqa: BLE001
-        raise SubscriptionVerificationError(f"Invalid JWS header: {exc}") from exc
-
-    x5c = headers.get("x5c") or []
-    if not x5c:
-        raise SubscriptionVerificationError("JWS missing x5c certificate chain.")
-
-    leaf_cert_der = base64.b64decode(x5c[0])
-    try:
-        signing_key = PyJWK.from_dict({"kty": "EC", "crv": "P-256", "x5c": x5c}).key
-    except Exception:
-        # Fallback: load the leaf cert directly.
-        from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
-
-        leaf = x509.load_der_x509_certificate(leaf_cert_der, backend=default_backend())
-        signing_key = leaf.public_key()
-
-    try:
-        claims = jwt.decode(
-            signed,
-            signing_key,
-            algorithms=["ES256"],
-            options={"verify_aud": False},
-        )
-    except InvalidTokenError as exc:
-        raise SubscriptionVerificationError(f"JWS signature verification failed: {exc}") from exc
-
-    bundle_id = str(claims.get("bundleId") or "")
-    if bundle_id != settings.apple_iap_bundle_id:
+    verifiers = _verifiers_in_order(settings)
+    if not verifiers:
         raise SubscriptionVerificationError(
-            f"bundleId mismatch: expected {settings.apple_iap_bundle_id}, got {bundle_id}"
+            "Production IAP verification requires SIMMERSMITH_APPLE_IAP_APP_APPLE_ID."
         )
+    return verifiers
 
-    environment = str(claims.get("environment") or "")
-    if environment and environment != settings.apple_iap_environment:
-        logger.info(
-            "Apple IAP environment mismatch: server=%s, token=%s",
-            settings.apple_iap_environment, environment,
-        )
-        # We allow sandbox tokens to flow through in prod builds during
-        # TestFlight pre-review; Apple signs both environments the same
-        # way. We log for visibility but don't reject.
 
-    product_id = str(claims.get("productId") or "")
+def verify_transaction_jws(signed: str, settings: Settings) -> VerifiedTransaction:
+    """Verify an Apple-signed ``JWSTransaction`` and return the decoded fields.
+
+    Uses Apple's App Store Server Library, which validates the FULL x5c
+    certificate chain against the bundled Apple Root CA - G3 (not merely the
+    attacker-supplied leaf key in the token header) and checks the bundle id
+    and environment. This closes the forgery hole where any self-signed key
+    in ``x5c`` was trusted.
+    """
+    verifiers = _require_verifiers(settings)
+    decoded = None
+    last_error: Exception | None = None
+    for verifier in verifiers:
+        try:
+            decoded = verifier.verify_and_decode_signed_transaction(signed)
+            break
+        except VerificationException as exc:
+            last_error = exc
+    if decoded is None:
+        raise SubscriptionVerificationError(f"JWS verification failed: {last_error}") from last_error
+
+    product_id = decoded.productId or ""
     if not product_id:
         raise SubscriptionVerificationError("Apple transaction has no productId.")
-
-    original_transaction_id = str(
-        claims.get("originalTransactionId") or claims.get("transactionId") or ""
-    )
-    transaction_id = str(claims.get("transactionId") or original_transaction_id)
+    original_transaction_id = decoded.originalTransactionId or decoded.transactionId or ""
     if not original_transaction_id:
         raise SubscriptionVerificationError("Apple transaction has no originalTransactionId.")
-
-    purchase_ms = _millis(claims.get("purchaseDate") or claims.get("originalPurchaseDate"))
-    expires_ms = _millis(claims.get("expiresDate"))
-    if purchase_ms is None:
+    transaction_id = decoded.transactionId or original_transaction_id
+    if decoded.purchaseDate is None:
         raise SubscriptionVerificationError("Apple transaction missing purchaseDate.")
-    if expires_ms is None:
+    if decoded.expiresDate is None:
         raise SubscriptionVerificationError("Apple transaction missing expiresDate.")
 
     return VerifiedTransaction(
         product_id=product_id,
         original_transaction_id=original_transaction_id,
         transaction_id=transaction_id,
-        purchase_date=datetime.fromtimestamp(purchase_ms / 1000, tz=timezone.utc),
-        expires_date=datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc),
-        environment=environment or settings.apple_iap_environment,
-        raw=claims,
+        purchase_date=datetime.fromtimestamp(decoded.purchaseDate / 1000, tz=timezone.utc),
+        expires_date=datetime.fromtimestamp(decoded.expiresDate / 1000, tz=timezone.utc),
+        environment=decoded.rawEnvironment or settings.apple_iap_environment,
+        raw=attr.asdict(decoded),
     )
-
-
-def _millis(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def upsert_subscription_from_transaction(
@@ -248,36 +252,34 @@ def status_from_notification(notification_type: str, subtype: str | None) -> str
 
 
 def decode_signed_payload(signed: str, settings: Settings) -> dict[str, Any]:
-    """Decode an App Store Server Notification v2 outer payload (JWS).
+    """Verify + decode an App Store Server Notification v2 outer payload (JWS).
 
-    This is NOT the transaction JWS — it's the notification wrapper. Apple
-    uses the same ES256 + x5c chain, so we reuse the same verify path.
+    Chain-validated via the same App Store Server Library path as the
+    transaction JWS. Returns a dict shaped like the raw notification claims
+    the webhook handler consumes (notificationType / subtype /
+    notificationUUID / signedDate / data.signedTransactionInfo), where the
+    inner transaction JWS is verified separately by ``verify_transaction_jws``.
     """
-    try:
-        headers = jwt.get_unverified_header(signed)
-    except InvalidTokenError as exc:
-        raise SubscriptionVerificationError(f"Invalid notification JWS: {exc}") from exc
-    x5c = headers.get("x5c") or []
-    if not x5c:
-        raise SubscriptionVerificationError("Notification JWS missing x5c.")
-    try:
-        signing_key = PyJWK.from_dict({"kty": "EC", "crv": "P-256", "x5c": x5c}).key
-    except Exception:
-        from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
+    verifiers = _require_verifiers(settings)
+    decoded = None
+    last_error: Exception | None = None
+    for verifier in verifiers:
+        try:
+            decoded = verifier.verify_and_decode_notification(signed)
+            break
+        except VerificationException as exc:
+            last_error = exc
+    if decoded is None:
+        raise SubscriptionVerificationError(
+            f"Notification verification failed: {last_error}"
+        ) from last_error
 
-        signing_key = x509.load_der_x509_certificate(
-            base64.b64decode(x5c[0]), backend=default_backend()
-        ).public_key()
-    try:
-        claims = jwt.decode(
-            signed,
-            signing_key,
-            algorithms=["ES256"],
-            options={"verify_aud": False},
-        )
-    except InvalidTokenError as exc:
-        raise SubscriptionVerificationError(f"Notification verification failed: {exc}") from exc
-    if not isinstance(claims, dict):
-        raise SubscriptionVerificationError("Notification payload is not a JSON object.")
-    return claims
+    data = getattr(decoded, "data", None)
+    signed_tx = getattr(data, "signedTransactionInfo", None) if data is not None else None
+    return {
+        "notificationType": decoded.rawNotificationType or "",
+        "subtype": decoded.rawSubtype or "",
+        "notificationUUID": decoded.notificationUUID or "",
+        "signedDate": getattr(decoded, "signedDate", None),
+        "data": {"signedTransactionInfo": signed_tx} if signed_tx else {},
+    }

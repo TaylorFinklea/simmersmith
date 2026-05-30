@@ -19,7 +19,8 @@ dependencies = [
   "psycopg2-binary>=2.9",
   "pyjwt[crypto]>=2.8.0",
   "sqlalchemy>=2.0.39",
-  "uvicorn>=0.34.0"
+  "uvicorn>=0.34.0",
+  "app-store-server-library",
 ]
 
 [project.optional-dependencies]

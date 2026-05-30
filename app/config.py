@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     # App Store Server API.
     apple_iap_bundle_id: str = ""
     apple_iap_environment: str = "Sandbox"
+    # App's numeric Apple ID (App Store Connect → App Information → "Apple ID").
+    # Required to verify PRODUCTION StoreKit JWS payloads (the App Store Server
+    # library refuses to build a production verifier without it). Sandbox /
+    # TestFlight receipts verify without it. Set before flipping trial mode off.
+    apple_iap_app_apple_id: int | None = None
     # App Store Connect API key (to call the Server API and verify JWS
     # notifications). Leave all three empty to disable verification; the
     # /api/subscriptions endpoints will 503 until they are configured.
