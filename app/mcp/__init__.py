@@ -154,6 +154,17 @@ def build_http_app():
         # mounting at "/mcp" with the transport at "/") is not followed by
         # the MCP client and the connector fails.
         streamable_http_path="/mcp",
+        # Stateless: create a fresh transport + server task per request. In
+        # the default STATEFUL mode the per-session server task's context is
+        # frozen at session-creation, so `verify_token` setting the
+        # per-request user (`_current_user_id_var`) never reaches tool
+        # dispatch — every tool ran as whoever created the session (or fell
+        # through to local_user_id), a cross-tenant identity bug. Stateless
+        # starts the server task from within each request's task, so anyio
+        # copies that request's context (the authenticated user) in, and the
+        # existing ContextVar scoping in app/mcp/_helpers is correct and
+        # leak-free per request.
+        stateless_http=True,
         lifespan=lifespan,
         auth=auth,
         token_verifier=JWTTokenVerifier(),
