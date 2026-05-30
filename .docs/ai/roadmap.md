@@ -159,6 +159,22 @@ configuration for `simmersmith.pro.monthly` / `.annual`, a
 decision to flip trial mode off. Treat M5 activation as a live
 candidate once M24's tool-call cost question lands.
 
+## Backlog — bug sweep 2026-05-30 (unfixed confirmed findings)
+
+Full report: `.docs/ai/phases/bug-sweep-2026-05-30-report.md`. 14 confirmed
+critical/high already fixed (commits `21072f4..5e31ef7`). Remaining:
+
+- [ ] **F22 — Apple IAP receipts forgeable (CRITICAL).** `app/services/subscriptions.py` `verify_transaction_jws`/`decode_signed_payload` verify against the JWS-embedded leaf key without validating the x5c chain to Apple Root CA - G3. **Fix BEFORE flipping `trial_mode_enabled` off (M5).** Acceptance: a self-signed forged JWS is rejected; a real sandbox receipt verifies. Verify: new pytest with a forged chain. Tier: Opus to scope (decision: `app-store-server-library` vs hand-rolled pinning); pairs with F23/F24 (replay/dedup, `appAccountToken`, webhook freshness).
+- [ ] **F11 — MCP per-request identity not threaded to tool dispatch (CRITICAL/latent).** `app/mcp/auth.py` ContextVar frozen at session creation. Read identity from MCP request context / `scope["user"]` instead. Verify: integration test calling two tools with two bearer tokens on one connection asserts each sees its own household. Tier: Opus.
+- [ ] **F9 — SSE orphaned blocking threads** (`app/api/assistant.py:370-388`). Replace `asyncio.to_thread(queue.Queue.get)` with `asyncio.Queue` + `call_soon_threadsafe`. Verify: assistant flow streams + no thread leak. Tier: Sonnet/Opus — delicate.
+- [ ] **F10 — tool runner commits partial state on swallowed exception** (`app/services/assistant_tools.py:933-942`). `session.rollback()` (or savepoint) before returning `ok=False`. Verify: a tool that raises post-delete leaves the week intact. Tier: Sonnet/Opus — delicate.
+- [ ] **F26/F27 — ingredient base/variation mutate/archive/merge IDOR** (`app/api/ingredients.py`, `app/services/ingredient_catalog/variation.py`). Needs governance decision (admin-only for `approved` global rows?). Tier: Opus to scope.
+- [ ] **F28 — recipe-import SSRF incomplete** (`app/services/recipe_import/parser.py`, `app/schemas/recipe.py`). Resolve + validate A/AAAA vs private ranges; disable/revalidate redirects. Tier: Sonnet.
+- [ ] **F20 — `household_id` NOT NULL migration** (migration 0027 left it nullable; models say NOT NULL). Backfill + `alter_column`. Tier: Sonnet — deploy-sensitive.
+- [ ] **F16/F17/F29 — iOS:** `clearLocalCache` leaks `browsedWeek`/event/guest/pantry across sign-out; feedback posts against `currentWeek` not the browsed week; push token not unregistered on sign-out. Need an iOS build to verify. Tier: Sonnet.
+- [ ] **Mediums worth a security pass:** pin session-JWT algorithm (`app/auth.py`); `jwt_secret` strength check (`app/config.py`); `verify_state` aud/iss + `email_verified` (`app/services/sso.py`); whitespace-token free-tier bypass (`app/services/entitlements.py`); **more MCP tools missing `current_user` in `app/mcp/recipes.py`** (F13/F14 class). Tier: Haiku/Sonnet each.
+- [ ] **Re-run the sweep over `skills/simmersmith-shopping/`** — the cart-automation finder hung and that subsystem was never reviewed.
+
 ## Infrastructure (complete)
 
 - [x] Backend deployed on Fly.io + Fly Postgres

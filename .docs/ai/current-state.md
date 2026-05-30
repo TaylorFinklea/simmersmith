@@ -6,7 +6,29 @@
 
 `main`
 
-## In-flight (2026-05-22 → 2026-05-23, build 104)
+## Last session (2026-05-30) — multi-agent bug sweep + critical/high fixes
+
+Full-codebase bug sweep (20 parallel reviewers → 101 findings →
+adversarial verification). Report: `.docs/ai/phases/bug-sweep-2026-05-30-report.md`.
+
+**Fixed + committed this session (14 findings, 6 commits `21072f4..5e31ef7`, 462 tests green):**
+- F6 household `claim_invitation` multi-member data loss (CRIT-class data loss)
+- F4/F5/F7 event-grocery staples scoping + double-count + `event_date` wipe
+- F8 admin `workers_dev = false` (Access bypass)
+- F1/F2/F3/F21 OAuth consent-page XSS + open-redirect + state injection
+- F12/F15/F18 export + recipe cross-household IDOR
+- F13/F14 MCP ingredient tools always-erroring; F25 recipes household scoping; F19 Anthropic max_tokens truncation
+
+**NOT fixed — needs your decision / dedicated work (see report):**
+- **F22 (CRIT)** Apple IAP JWS x5c never validated vs Apple root → forgeable Pro. Latent (trial mode grants Pro now); live at monetization. *Decision: official `app-store-server-library` vs hand-rolled pinning.* Pairs with F23/F24 (replay/dedup).
+- **F11 (CRIT)** MCP per-request identity frozen at session creation (ContextVar not threaded to tool dispatch). Architectural; needs request-context read + 2-token integration test.
+- F9/F10 (assistant SSE threads + tool-runner partial-commit — delicate path), F26/F27 (ingredient catalog IDOR — needs governance call), F28 (SSRF DNS/redirect), F20 (`household_id` NOT NULL migration), F16/F17/F29 (iOS — need a build to verify).
+- Plus ~35 medium / ~37 low findings catalogued in the report (notable: JWT alg not pinned, more MCP tools missing `current_user` in `recipes.py`, several races).
+
+**Still uncommitted (pre-existing, not from this session):**
+`SimmerSmith.xcodeproj/project.pbxproj` (104→105 xcodegen regen, pairs with 08dcdb6 `project.yml` bump). Plus scratch workflow files `.docs/ai/_*.js` (safe to delete).
+
+## Shipped (2026-05-22 → 2026-05-23, build 104 — superseded by 105)
 
 iOS build 104 archived + uploaded to TestFlight via
 `scripts/release-ios.sh`. Fixes the iOS half of Bug 2 (AI Assistant

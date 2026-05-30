@@ -668,3 +668,11 @@ checkout — closer to where the action lands.
 - General rule for this repo: any mounted ASGI sub-app with its own
   lifespan must be wired into the parent lifespan the same way —
   Starlette will not do it automatically.
+
+## 2026-05-30 - Bug-sweep fixes land in tiers: auto-fix contained, flag the rest
+
+- A multi-agent sweep surfaced 101 findings (6 crit / 23 high / 35 med / 37 low); see `phases/bug-sweep-2026-05-30-report.md`.
+- Decision: auto-fix only the **contained, server-side, test-coverable** confirmed critical/high (14 of them, commits `21072f4..5e31ef7`). Do NOT rush: (a) security-critical crypto (IAP cert-chain F22), (b) architectural changes (MCP identity F11), (c) the delicate assistant streaming/transaction path (F9/F10), (d) iOS fixes that can't be verified without a build (F16/F17/F29), (e) deploy-sensitive migrations (F20). These are flagged for dedicated work.
+- **F22 (IAP forgery) is latent, not dormant:** it's currently masked only because trial-mode grants Pro to everyone. It becomes a live paywall bypass the instant M5 monetization turns trial-mode off. Fix it BEFORE flipping `trial_mode_enabled` off. Open decision: official `app-store-server-library` vs hand-rolled Apple Root CA - G3 pinning.
+- Systemic root cause noted: multi-tenancy is an app convention, not a schema guarantee (`household_id` is nullable in the DB despite NOT NULL models, F20), and the `CurrentUser(id, household_id)` split is the source of the recurring "passed user_id where household_id expected" IDOR class. A scoped-lookup helper + NOT NULL migration would prevent recurrence.
+- Verification method: adversarial 3-lens majority vote per finding; 0 of 29 critical/high were refuted. A per-agent timeout that started at enqueue (not execution) caused false "uncertain" verdicts under the concurrency cap — re-run with a timeout well above total wall-clock.
