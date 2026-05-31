@@ -234,15 +234,25 @@ extension AppState {
         guard hasSavedConnection else { return }
         do {
             _ = try await apiClient.reresolveUnresolvedIngredients()
-            // Refresh so the iOS view picks up the updated
-            // resolution_status / base_ingredient_id on each row.
-            await refreshRecipes()
-            await refreshWeek()
+            // Silently re-pull the rows the re-resolve touched WITHOUT
+            // re-entering the public syncPhase-owning refresh methods — a
+            // user pull-to-refresh in flight would otherwise have its
+            // syncPhase / "Synced <time>" stamp clobbered by this
+            // fire-and-forget migration (M43). Mirrors the icon-override
+            // migration's direct fetch+assign.
+            recipes = try await apiClient.fetchRecipes(includeArchived: true)
+            try? cacheStore.saveRecipes(recipes)
+            if let week = try await apiClient.fetchCurrentWeek() {
+                currentWeek = week
+                try? cacheStore.saveCurrentWeek(week)
+            }
         } catch {
             // Swallow — the flag is set so we won't retry. If it failed
             // the rows stay "unresolved" until the user saves them
-            // again (which the build 88 server fix now handles).
-            lastErrorMessage = error.localizedDescription
+            // again (which the build 88 server fix now handles). This is a
+            // fire-and-forget migration the user never initiated, so don't
+            // paint lastErrorMessage's red banner over the foreground screen
+            // for it (M42) — matches the silent icon-override migration.
         }
     }
 }

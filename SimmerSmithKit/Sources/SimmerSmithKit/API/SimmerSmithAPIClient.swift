@@ -2235,7 +2235,12 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
     // MARK: - Stores & Pricing
 
     public func searchStores(zipCode: String, radius: Int = 10) async throws -> [StoreLocation] {
-        try await request(path: "/api/stores/search?zip_code=\(zipCode)&radius=\(radius)")
+        // Percent-encode the free-text zip — a trailing space or a non-US
+        // postal code (e.g. "SW1A 1AA") would otherwise make URL(string:)
+        // return nil and throw a misleading missingServerURL (M48). Mirrors
+        // searchNutritionItems / fetchBaseIngredients.
+        let encodedZip = zipCode.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return try await request(path: "/api/stores/search?zip_code=\(encodedZip)&radius=\(radius)")
     }
 
     public func fetchPricing(weekID: String, locationID: String? = nil) async throws -> PricingResponse {

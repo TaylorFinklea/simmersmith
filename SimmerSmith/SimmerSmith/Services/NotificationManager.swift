@@ -56,8 +56,6 @@ final class NotificationManager: @unchecked Sendable {
         // Remove all existing meal reminders
         center.removePendingNotificationRequests(withIdentifiers: meals.map { "meal-\($0.mealId)" })
 
-        let calendar = Calendar.current
-
         for meal in meals {
             let slotHour: Int
             switch meal.slot.lowercased() {
@@ -68,12 +66,23 @@ final class NotificationManager: @unchecked Sendable {
             default: continue
             }
 
-            guard let reminderDate = calendar.date(
-                bySettingHour: slotHour,
-                minute: 0,
-                second: 0,
-                of: meal.mealDate
-            )?.addingTimeInterval(TimeInterval(-reminderMinutesBefore * 60)) else { continue }
+            // mealDate is a date-only "YYYY-MM-DD" decoded at UTC midnight, so
+            // read the intended calendar day with the UTC calendar (matching
+            // how it was decoded), then build the slot time on the LOCAL
+            // wall-clock day. Setting an hour directly on the raw UTC-midnight
+            // Date with Calendar.current shifts the day for users west of UTC,
+            // firing the reminder a day early (M47).
+            let dayComponents = DayKey.utcCalendar.dateComponents(
+                [.year, .month, .day], from: meal.mealDate
+            )
+            var triggerComponents = DateComponents()
+            triggerComponents.year = dayComponents.year
+            triggerComponents.month = dayComponents.month
+            triggerComponents.day = dayComponents.day
+            triggerComponents.hour = slotHour
+            triggerComponents.minute = 0
+            guard let slotDate = Calendar.current.date(from: triggerComponents) else { continue }
+            let reminderDate = slotDate.addingTimeInterval(TimeInterval(-reminderMinutesBefore * 60))
 
             // Don't schedule reminders in the past
             guard reminderDate > Date() else { continue }
@@ -84,7 +93,7 @@ final class NotificationManager: @unchecked Sendable {
             content.sound = .default
             content.categoryIdentifier = "MEAL_REMINDER"
 
-            let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate)
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(identifier: "meal-\(meal.mealId)", content: content, trigger: trigger)
 

@@ -420,22 +420,13 @@ extension AppState {
     /// with `beat.elapsedSeconds` is purely the UX layer: how should
     /// the in-flight spinner reflect "still working, Xs"?
     ///
-    /// TODO(you): pick an approach and implement here. Suggested options
-    /// (any one works; mix as you like):
-    ///   A. Do nothing — the keepalive is the whole win, spinner stays
-    ///      generic. Smallest change; ship it.
-    ///   B. Track `[String: Int]` of elapsed-seconds keyed by threadID
-    ///      on AppState (`@Published var assistantElapsedByThreadID`)
-    ///      so AssistantView can show "Thinking… (Xs)".
-    ///   C. Stamp the in-flight `AssistantMessage` (the one matching
-    ///      `beat.messageId`) with a `lastHeartbeatAt: Date?` field and
-    ///      render it on the bubble.
-    ///
-    /// `beat.messageId` matches the in-flight assistant message; if you
-    /// go with (B) or (C), look it up via
-    /// `assistantThreadDetails[threadID]?.messages.first(where: { $0.messageId == beat.messageId })`.
+    /// This is intentionally a no-op beyond keeping the stream alive:
+    /// receiving the event is the entire fix. `beat.elapsedSeconds` is
+    /// available here if a future build wants to surface "Thinking… (Xs)"
+    /// on the in-flight spinner — track `[threadID: Int]` on AppState and
+    /// render it in AssistantView — but the generic spinner is fine for
+    /// now. (`beat.messageId` matches the in-flight assistant message.)
     private func applyAssistantHeartbeat(threadID: String, beat: AssistantHeartbeatEvent) {
-        // TODO(you): replace this no-op with your chosen approach above.
         _ = beat
         _ = threadID
     }
