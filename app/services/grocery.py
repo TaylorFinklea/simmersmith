@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    EventGroceryItem,
     GroceryItem,
     ProfileSetting,
     Recipe,
@@ -764,6 +765,20 @@ def dedupe_week_grocery(session: Session, *, week: Week) -> dict[str, int]:
         ).all()
     )
 
+    # Index event-grocery rows merged into any of these items, keyed by their
+    # target grocery-item id, so when we tombstone a non-keeper we can repoint
+    # its EventGroceryItem pointers onto the keeper — otherwise unmerge later
+    # subtracts from / cleans up the wrong (tombstoned) row (M68).
+    item_ids = [i.id for i in items]
+    ev_rows_by_target: dict[str, list[EventGroceryItem]] = {}
+    if item_ids:
+        for ev in session.scalars(
+            select(EventGroceryItem).where(
+                EventGroceryItem.merged_into_grocery_item_id.in_(item_ids)
+            )
+        ).all():
+            ev_rows_by_target.setdefault(ev.merged_into_grocery_item_id, []).append(ev)
+
     # First pass: group by (normalized_name, unit). Build a list of
     # candidates per group so the keeper-pick policy can examine all
     # duplicates before deciding which row survives.
@@ -826,6 +841,12 @@ def dedupe_week_grocery(session: Session, *, week: Week) -> dict[str, int]:
             # merge regen can manage it on future passes.
             if keeper.is_user_added and not item.is_user_added:
                 keeper.is_user_added = False
+            # Repoint any event-grocery rows that merged into this duplicate
+            # onto the keeper (whose event_quantity we just absorbed), so a
+            # later unmerge_event_from_week adjusts the surviving row (M68).
+            for ev in ev_rows_by_target.get(item.id, []):
+                ev.merged_into_grocery_item_id = keeper.id
+                ev_rows_by_target.setdefault(keeper.id, []).append(ev)
             # Tombstone the duplicate.
             item.is_user_removed = True
             counts["merged"] += 1

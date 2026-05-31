@@ -57,7 +57,10 @@ def get_household_id(session: Session, user_id: str) -> str:
     `HouseholdNotFoundError` if the user has no membership row.
     """
     member = session.scalars(
-        select(HouseholdMember).where(HouseholdMember.user_id == user_id).limit(1)
+        select(HouseholdMember)
+        .where(HouseholdMember.user_id == user_id)
+        .order_by(HouseholdMember.joined_at)
+        .limit(1)
     ).first()
     if member is None:
         raise HouseholdNotFoundError(f"No household for user_id={user_id}")
@@ -68,7 +71,10 @@ def get_household_id_or_none(session: Session, user_id: str) -> str | None:
     """Same as `get_household_id` but returns None instead of raising.
     Used by `get_current_user` so a missing household doesn't 500 out."""
     member = session.scalars(
-        select(HouseholdMember).where(HouseholdMember.user_id == user_id).limit(1)
+        select(HouseholdMember)
+        .where(HouseholdMember.user_id == user_id)
+        .order_by(HouseholdMember.joined_at)
+        .limit(1)
     ).first()
     return member.household_id if member is not None else None
 

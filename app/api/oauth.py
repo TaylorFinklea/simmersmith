@@ -662,6 +662,10 @@ def oauth_token(
         )
     except OAuthError as err:
         log.warning("oauth/token failed: %s — %s (client=%s)", err.code, err.description, client_id)
+        # Persist any cleanup the exchange did before raising (e.g. deleting an
+        # expired authorization-code row) — otherwise get_session's rollback
+        # discards it and expired rows accumulate forever (M56).
+        session.commit()
         return _oauth_error_response(err)
     session.commit()
     log.info("oauth/token ok: client=%s", client_id)

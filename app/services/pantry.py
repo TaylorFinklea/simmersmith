@@ -109,9 +109,12 @@ def add_pantry_item(
     normalized = normalize_name(normalized_name_override or cleaned)
     if not normalized:
         raise ValueError("staple_name produced an empty normalized name")
+    # Dedup household-wide (the pantry is shared across the household on every
+    # read/aggregation path), not per-user — otherwise two members each adding
+    # "Milk" both pass and the recurring auto-add then fires twice (M34).
     existing = session.scalar(
         select(Staple).where(
-            Staple.user_id == user_id,
+            Staple.household_id == household_id,
             Staple.normalized_name == normalized,
         )
     )
@@ -257,8 +260,13 @@ def apply_pantry_recurrings(
             continue
         marker = f"{_PANTRY_SOURCE_PREFIX}{item.id}"
         existing = existing_rows.get(marker)
-        if existing is not None and not existing.is_user_removed:
-            landed.append(existing)
+        if existing is not None:
+            # A marker row already exists for this recurring item this week.
+            # If the user removed it (tombstone), RESPECT that — don't re-add
+            # (which previously resurrected it AND inserted a duplicate marker
+            # since there's no unique constraint on (week_id, source_meals)) (M35).
+            if not existing.is_user_removed:
+                landed.append(existing)
             continue
         unit = item.recurring_unit or item.typical_unit or ""
         row = GroceryItem(

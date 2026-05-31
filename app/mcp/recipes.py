@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mcp
-from ._helpers import _call_route, _current_user, _current_user_id, _settings
+from ._helpers import _call_route, _current_user, _settings
 
 from app.api.recipes import (
     archive_recipe_route,
@@ -204,9 +204,9 @@ def recipes_restore(recipe_id: str) -> dict[str, Any]:
 
 @mcp.tool(description="Delete a recipe permanently.")
 def recipes_delete(recipe_id: str) -> dict[str, Any]:
-    user_id = _current_user_id()
     with session_scope() as session:
-        recipe = get_recipe(session, user_id, recipe_id)
+        # get_recipe's 2nd arg is household_id, not user_id (M50).
+        recipe = get_recipe(session, _current_user(session).household_id, recipe_id)
         if recipe is None:
             raise ValueError("Recipe not found")
         session.delete(recipe)

@@ -14,6 +14,7 @@ from app.models import (
     Week,
     new_id,
     WeekChangeBatch,
+    WeekChangeEvent,
     WeekMeal,
     WeekMealIngredient,
     utcnow,
@@ -351,6 +352,19 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
         recipe = upsert_recipe(session, recipe_payload, user_id=week.user_id, household_id=week.household_id)
         known_recipes[recipe.id] = recipe
 
+    # Delete child rows explicitly before their parents. The FK
+    # ondelete=CASCADE on WeekMealIngredient.week_meal_id /
+    # WeekChangeEvent.batch_id only fires on Postgres; under SQLite (tests,
+    # FK enforcement off) a Core bulk-delete of the parents would orphan the
+    # children, so re-applying a draft leaves dangling rows (M70).
+    meal_ids = list(session.scalars(select(WeekMeal.id).where(WeekMeal.week_id == week.id)).all())
+    if meal_ids:
+        session.execute(delete(WeekMealIngredient).where(WeekMealIngredient.week_meal_id.in_(meal_ids)))
+    batch_ids = list(
+        session.scalars(select(WeekChangeBatch.id).where(WeekChangeBatch.week_id == week.id)).all()
+    )
+    if batch_ids:
+        session.execute(delete(WeekChangeEvent).where(WeekChangeEvent.batch_id.in_(batch_ids)))
     session.execute(delete(WeekMeal).where(WeekMeal.week_id == week.id))
     session.execute(delete(WeekChangeBatch).where(WeekChangeBatch.week_id == week.id))
     session.flush()

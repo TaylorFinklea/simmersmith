@@ -406,11 +406,17 @@ def _resolve_target_week(session: Session, event: Event, household_id: str) -> W
     if event.event_date is None:
         return None
     return session.scalar(
-        select(Week).where(
+        select(Week)
+        .where(
             Week.household_id == household_id,
             Week.week_start <= event.event_date,
             Week.week_end >= event.event_date,
         )
+        # Weeks can overlap (week_start is client-supplied, not weekday-snapped),
+        # so order deterministically — prefer the latest-starting covering week
+        # rather than an arbitrary row (M71).
+        .order_by(Week.week_start.desc())
+        .limit(1)
     )
 
 

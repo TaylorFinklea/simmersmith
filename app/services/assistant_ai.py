@@ -772,7 +772,11 @@ def _run_provider_tool_loop(
         )
 
         if not completed_calls:
-            final_text = turn_text.strip()
+            # Use the full accumulated text (every tool-loop iteration), not
+            # just this last iteration's turn_text — otherwise the persisted
+            # message drops text the user already saw streamed in earlier
+            # iterations (M9).
+            final_text = accumulated_text.strip()
             break
 
         adapter.record_assistant_turn(turn_text, completed_calls)
@@ -826,7 +830,11 @@ def _run_provider_tool_loop(
             break
         adapter.record_tool_results(tool_results)
         if terminal:
-            final_text = turn_text.strip()
+            # Use the full accumulated text (every tool-loop iteration), not
+            # just this last iteration's turn_text — otherwise the persisted
+            # message drops text the user already saw streamed in earlier
+            # iterations (M9).
+            final_text = accumulated_text.strip()
             break
     else:
         logger.warning("Assistant tool loop exceeded %s iterations", MAX_TOOL_ITERATIONS)

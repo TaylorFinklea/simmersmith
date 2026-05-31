@@ -345,3 +345,34 @@ def test_regen_grocery_includes_pantry_recurring() -> None:
 
     assert len(rows) == 1
     assert rows[0].ingredient_name == "Sourdough"
+
+
+def test_recurring_respects_user_removed_tombstone() -> None:
+    """M35: if the user removes a recurring pantry auto-add this week, a
+    re-run must NOT resurrect it or insert a duplicate marker row."""
+    with session_scope() as session:
+        week = create_or_get_week(
+            session, user_id=_uid, household_id=_uid,
+            week_start=date(2026, 6, 15), notes="tombstone test",
+        )
+        add_pantry_item(
+            session, user_id=_uid, household_id=_uid, name="Eggs",
+            recurring_quantity=12.0, recurring_unit="ct", recurring_cadence="weekly",
+        )
+        landed = apply_pantry_recurrings(session, week=week, household_id=_uid)
+        assert len(landed) == 1
+        # User removes the auto-added row (tombstone).
+        landed[0].is_user_removed = True
+        session.flush()
+        # Re-run: must not resurrect or duplicate.
+        apply_pantry_recurrings(session, week=week, household_id=_uid)
+        rows = list(
+            session.scalars(
+                select(GroceryItem).where(
+                    GroceryItem.week_id == week.id,
+                    GroceryItem.source_meals.like("pantry:recurring:%"),
+                )
+            ).all()
+        )
+    assert len(rows) == 1  # the single tombstoned row, not resurrected/duplicated
+    assert rows[0].is_user_removed is True
