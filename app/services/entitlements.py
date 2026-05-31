@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -211,24 +213,38 @@ def increment_usage(
         return current_usage(session, user_id, action, now=now)
 
     period = _period_key(now)
-    row = _counter_row(session, user_id, action, period)
-    if row is None:
-        row = UsageCounter(
-            id=new_id(),
-            user_id=user_id,
-            action=action,
-            period_key=period,
-            count=1,
-        )
-        session.add(row)
-    else:
-        row.count += 1
-        row.updated_at = utcnow()
+    # Atomic upsert so two concurrent first-use requests can't both INSERT
+    # (duplicate-key 500) and concurrent bumps can't lose an increment
+    # (read-modify-write race). The +1 happens inside the DB engine; the
+    # unique constraint uq_usage_counters_user_action_period is the conflict
+    # target. RETURNING gives the post-increment count in one round-trip
+    # (M27). Dialect-dispatched because prod is Postgres and tests SQLite.
+    dialect = session.get_bind().dialect.name
+    insert_fn = pg_insert if dialect == "postgresql" else sqlite_insert
+    stmt = insert_fn(UsageCounter).values(
+        id=new_id(),
+        user_id=user_id,
+        action=action,
+        period_key=period,
+        count=1,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            UsageCounter.user_id,
+            UsageCounter.action,
+            UsageCounter.period_key,
+        ],
+        set_={
+            "count": UsageCounter.count + 1,
+            "updated_at": utcnow(),
+        },
+    ).returning(UsageCounter.count)
+    new_count = session.execute(stmt).scalar_one()
     session.flush()
     return UsageSummary(
         action=action,
         limit=_effective_limits(session).get(action, 0),
-        used=row.count,
+        used=new_count,
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -70,8 +71,20 @@ def auth_apple(
     if user is None:
         user = User(apple_sub=apple_sub, email=email, created_at=utcnow())
         session.add(user)
-        session.flush()
-    session.commit()
+        try:
+            session.flush()
+            session.commit()
+        except IntegrityError:
+            # Concurrent first sign-in for the same Apple identity: the
+            # other request won the unique-constraint race. Recover by
+            # adopting the row it created instead of 500ing (M15).
+            session.rollback()
+            user = session.scalars(
+                select(User).where(User.apple_sub == apple_sub)
+            ).one()
+            is_new = False
+    else:
+        session.commit()
 
     token = issue_session_jwt(user.id, settings)
     return TokenExchangeResponse(
@@ -99,8 +112,18 @@ def auth_google(
     if user is None:
         user = User(google_sub=google_sub, email=email, display_name=name, created_at=utcnow())
         session.add(user)
-        session.flush()
-    session.commit()
+        try:
+            session.flush()
+            session.commit()
+        except IntegrityError:
+            # Concurrent first sign-in for the same Google identity (M15).
+            session.rollback()
+            user = session.scalars(
+                select(User).where(User.google_sub == google_sub)
+            ).one()
+            is_new = False
+    else:
+        session.commit()
 
     token = issue_session_jwt(user.id, settings)
     return TokenExchangeResponse(

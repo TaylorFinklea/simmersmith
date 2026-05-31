@@ -200,6 +200,61 @@ def test_join_twice_with_same_code_returns_410(
     assert second.status_code in (410, 409), second.text
 
 
+def test_claimed_invitation_cannot_create_second_membership(
+    client: TestClient, headers_a, headers_b
+) -> None:
+    """A single-use code, once claimed by B, can never mint a membership
+    for a different user C. The with_for_update row lock (M30) serializes
+    concurrent claimers; here we assert the invariant it guarantees — the
+    claim is recorded against B only and C gets no membership row.
+    """
+    from sqlalchemy import func, select
+
+    user_c_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    with session_scope() as session:
+        session.add(User(id=user_c_id, email="c@test.com", display_name="C", created_at=utcnow()))
+        session.flush()
+        create_solo_household(session, user_c_id)
+    headers_c = _headers(user_c_id)
+
+    invite = client.post("/api/household/invitations", headers=headers_a).json()
+    code = invite["code"]
+
+    first = client.post("/api/household/join", json={"code": code}, headers=headers_b)
+    assert first.status_code == 200, first.text
+
+    # The claim is pinned to B.
+    with session_scope() as session:
+        row = session.scalar(
+            select(HouseholdInvitation).where(HouseholdInvitation.code == code)
+        )
+        assert row.claimed_at is not None
+        assert row.claimed_by_user_id == USER_B_ID
+        target_household_id = row.household_id
+
+    # C tries the already-claimed code → rejected, and no membership created.
+    second = client.post("/api/household/join", json={"code": code}, headers=headers_c)
+    assert second.status_code in (410, 409), second.text
+
+    with session_scope() as session:
+        from app.models import HouseholdMember
+
+        c_in_target = session.scalar(
+            select(func.count())
+            .select_from(HouseholdMember)
+            .where(
+                HouseholdMember.household_id == target_household_id,
+                HouseholdMember.user_id == user_c_id,
+            )
+        )
+        assert c_in_target == 0
+        # And the claim is still B's, unchanged.
+        row = session.scalar(
+            select(HouseholdInvitation).where(HouseholdInvitation.code == code)
+        )
+        assert row.claimed_by_user_id == USER_B_ID
+
+
 # ── 7. Cross-member visibility ───────────────────────────────
 
 

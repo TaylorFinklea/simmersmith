@@ -36,6 +36,11 @@ class HouseholdMember(Base):
         UniqueConstraint(
             "household_id", "user_id", name="uq_household_members_household_user"
         ),
+        # The "exactly one household per user" invariant (see module docstring)
+        # is now enforced at the schema level, not just in app logic, so a
+        # concurrent first sign-in can't insert two memberships for the same
+        # user under different households (M15).
+        UniqueConstraint("user_id", name="uq_household_members_user"),
         Index("ix_household_members_user_id", "user_id"),
     )
 

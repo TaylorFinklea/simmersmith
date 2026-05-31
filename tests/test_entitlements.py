@@ -136,6 +136,33 @@ def test_usage_counter_accrues_for_pro_users(enforced_mode) -> None:  # noqa: AR
         assert rows[0].count == 1
 
 
+def test_increment_usage_is_idempotent_under_repeated_insert(enforced_mode) -> None:  # noqa: ARG001
+    """Repeated increments in one session never duplicate-INSERT and
+    accumulate correctly via the atomic ON CONFLICT upsert (M27)."""
+    with session_scope() as session:
+        for _ in range(3):
+            increment_usage(session, TEST_USER_ID, ACTION_AI_GENERATE)
+        rows = session.scalars(select(UsageCounter)).all()
+        assert len(rows) == 1
+        assert rows[0].count == 3
+
+
+def test_increment_usage_no_duplicate_row_across_commits(enforced_mode) -> None:  # noqa: ARG001
+    """Two independently-committed first-uses for the same (user, action)
+    hit ON CONFLICT DO UPDATE on the second instead of raising on the
+    unique constraint (the duplicate-INSERT 500 in M27)."""
+    with session_scope() as session:
+        summary = increment_usage(session, TEST_USER_ID, ACTION_AI_GENERATE)
+        assert summary.used == 1
+    with session_scope() as session:
+        summary = increment_usage(session, TEST_USER_ID, ACTION_AI_GENERATE)
+        assert summary.used == 2
+    with session_scope() as session:
+        rows = session.scalars(select(UsageCounter)).all()
+        assert len(rows) == 1
+        assert rows[0].count == 2
+
+
 def test_expired_subscription_does_not_count_as_pro(enforced_mode) -> None:  # noqa: ARG001
     with session_scope() as session:
         past = datetime.now(timezone.utc) - timedelta(days=2)

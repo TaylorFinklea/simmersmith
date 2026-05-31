@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -127,7 +128,15 @@ def create_solo_household(
         joined_at=utcnow(),
     )
     session.add(member)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        # Concurrent first sign-in: another request already created this
+        # user's solo household and won the uq_household_members_user race.
+        # Discard our orphan household + member and adopt the existing one
+        # so we stay idempotent instead of 500ing (M15).
+        session.rollback()
+        return get_household_id(session, user_id)
     return household.id
 
 
@@ -243,8 +252,15 @@ def claim_invitation(
     Raises one of the InvitationError subclasses on failure.
     """
     code = (code or "").strip().upper()
+    # Lock the invitation row so two users racing the same single-use code
+    # are serialized: the second claimer blocks until the first commits,
+    # then re-reads claimed_at set and falls into the already-claimed branch
+    # below — closing the double-spend / double-merge window. with_for_update
+    # is a no-op on SQLite (tests), enforced on Postgres (prod) (M30).
     invitation = session.scalars(
-        select(HouseholdInvitation).where(HouseholdInvitation.code == code)
+        select(HouseholdInvitation)
+        .where(HouseholdInvitation.code == code)
+        .with_for_update()
     ).first()
     if invitation is None:
         raise InvitationNotFoundError(f"No invitation with code={code!r}")
