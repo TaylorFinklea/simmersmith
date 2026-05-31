@@ -304,6 +304,7 @@ def update_event_meal_route(
             notes=payload.notes,
             assigned_guest_id=payload.assigned_guest_id,
             clear_assignee=payload.clear_assignee,
+            clear_recipe=payload.clear_recipe,
             household_id=current_user.household_id,
         )
     except ValueError as exc:

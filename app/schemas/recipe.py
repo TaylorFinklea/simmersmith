@@ -115,7 +115,7 @@ class RecipePayload(BaseModel):
     notes: str = ""
     memories: str = ""
     last_used: date | None = None
-    difficulty_score: int | None = None
+    difficulty_score: int | None = Field(default=None, ge=1, le=5)
     kid_friendly: bool = False
     ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
     steps: list[RecipeStepPayload] = Field(default_factory=list)

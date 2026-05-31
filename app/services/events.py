@@ -349,7 +349,7 @@ def update_event_meal(
     servings: float | None = None,
     notes: str | None = None,
     assigned_guest_id: str | None = None,
-    clear_assignee: bool = False, household_id: str,
+    clear_assignee: bool = False, clear_recipe: bool = False, household_id: str,
 ) -> EventMeal:
     meal = next((m for m in event.meals if m.id == meal_id), None)
     if meal is None:
@@ -358,7 +358,10 @@ def update_event_meal(
         meal.role = role
     if recipe_name is not None:
         meal.recipe_name = recipe_name.strip() or meal.recipe_name
-    if recipe_id is not None:
+    if clear_recipe:
+        # Explicit unlink — distinct from "field not provided" (recipe_id None).
+        meal.recipe_id = None
+    elif recipe_id is not None:
         if recipe_id:
             from app.models import Recipe as _Recipe
 

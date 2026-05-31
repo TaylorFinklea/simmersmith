@@ -82,6 +82,7 @@ class EventMealUpdateRequest(BaseModel):
     notes: str | None = None
     assigned_guest_id: str | None = None
     clear_assignee: bool = False
+    clear_recipe: bool = False
 
 
 class EventMealOut(EventMealPayload):

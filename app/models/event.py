@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -262,6 +263,11 @@ class EventPantrySupplement(Base):
     `event_quantity` column with attribution.
     """
     __tablename__ = "event_pantry_supplements"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "pantry_item_id", name="uq_event_pantry_supplements_event_pantry"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     event_id: Mapped[str] = mapped_column(

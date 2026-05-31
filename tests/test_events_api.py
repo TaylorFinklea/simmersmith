@@ -556,3 +556,23 @@ def test_event_grocery_merge_into_week_combines_matching_rows(client) -> None:
         assert week_rows[0].event_quantity is None
         event_rows = list(session.query(EventGroceryItem).filter_by(event_id=event_id).all())
         assert event_rows[0].merged_into_week_id is None
+
+
+def test_event_meal_clear_recipe_unlinks(client) -> None:
+    # M33: clear_recipe=true unlinks recipe_id (distinct from omitting it).
+    recipe = client.post("/api/recipes", json={"name": "Linked Dish"}).json()
+    event = client.post("/api/events", json={"name": "Dinner", "attendee_count": 2}).json()
+    eid = event["event_id"]
+    added = client.post(
+        f"/api/events/{eid}/meals",
+        json={"role": "main", "recipe_id": recipe["recipe_id"], "recipe_name": "Linked Dish"},
+    ).json()
+    meal_id = added["meals"][0]["meal_id"]
+    assert added["meals"][0]["recipe_id"] == recipe["recipe_id"]
+
+    # Omitting recipe_id leaves it linked.
+    kept = client.patch(f"/api/events/{eid}/meals/{meal_id}", json={"notes": "x"}).json()
+    assert kept["meals"][0]["recipe_id"] == recipe["recipe_id"]
+    # clear_recipe unlinks it.
+    cleared = client.patch(f"/api/events/{eid}/meals/{meal_id}", json={"clear_recipe": True}).json()
+    assert cleared["meals"][0]["recipe_id"] is None
