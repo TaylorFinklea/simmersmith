@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     # Reject App Store Server notifications whose signedDate is older than this
     # many days (replay-staleness guard). 0 disables the check.
     apple_iap_webhook_max_age_days: int = 30
+    # Accept Sandbox (TestFlight) receipts even when apple_iap_environment is
+    # "Production". True today so TestFlight works; set False once monetizing
+    # so a free Sandbox purchase can't grant production Pro.
+    apple_iap_allow_sandbox: bool = True
     # App Store Connect API key (to call the Server API and verify JWS
     # notifications). Leave all three empty to disable verification; the
     # /api/subscriptions endpoints will 503 until they are configured.

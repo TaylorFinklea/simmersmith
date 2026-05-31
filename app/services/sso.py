@@ -327,6 +327,16 @@ def find_or_create_apple_user(session: Session, claims: dict) -> User:
     return user
 
 
+def _google_verified_email(claims: dict) -> str:
+    """Store Google's email only if it isn't explicitly unverified.
+    (Identity is keyed on google_sub; email is display-only.)"""
+    email = claims.get("email", "")
+    ev = claims.get("email_verified")
+    if ev is None:
+        return email
+    return email if (ev is True or (isinstance(ev, str) and ev.lower() == "true")) else ""
+
+
 def find_or_create_google_user(session: Session, claims: dict) -> User:
     """Find existing user by `google_sub`, or create one. Same
     precedent as `app/api/auth.py::auth_google`."""
@@ -335,7 +345,7 @@ def find_or_create_google_user(session: Session, claims: dict) -> User:
     if user is None:
         user = User(
             google_sub=google_sub,
-            email=claims.get("email", ""),
+            email=_google_verified_email(claims),
             display_name=claims.get("name", ""),
             created_at=utcnow(),
         )

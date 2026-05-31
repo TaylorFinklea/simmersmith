@@ -110,8 +110,15 @@ def _verifiers_in_order(settings: Settings) -> list[SignedDataVerifier]:
     The chain is fully validated for whichever environment matches.
     """
     primary = _environment_for(settings.apple_iap_environment)
+    verifiers = [_build_verifier(primary, settings)]
     other = Environment.SANDBOX if primary == Environment.PRODUCTION else Environment.PRODUCTION
-    return [v for v in (_build_verifier(primary, settings), _build_verifier(other, settings)) if v is not None]
+    # Accept the other environment (so a TestFlight Sandbox receipt verifies
+    # against a Production-configured server) UNLESS we're in Production with
+    # sandbox acceptance turned off — then a free Sandbox purchase can't grant
+    # production Pro (M28).
+    if not (primary == Environment.PRODUCTION and not settings.apple_iap_allow_sandbox):
+        verifiers.append(_build_verifier(other, settings))
+    return [v for v in verifiers if v is not None]
 
 
 def _require_verifiers(settings: Settings) -> list[SignedDataVerifier]:

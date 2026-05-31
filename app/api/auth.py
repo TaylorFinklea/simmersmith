@@ -21,6 +21,22 @@ from app.models._base import utcnow
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _verified_email(claims: dict) -> str:
+    """Return the provider email only if it isn't explicitly unverified.
+
+    Apple/Google encode email_verified as bool True or the string "true".
+    Identity is keyed on the provider `sub` (never email), and email is
+    display-only, so we keep the email when the claim is absent (some
+    flows omit it) and drop it only when the provider explicitly says
+    unverified."""
+    email = claims.get("email", "")
+    ev = claims.get("email_verified")
+    if ev is None:
+        return email
+    verified = ev is True or (isinstance(ev, str) and ev.lower() == "true")
+    return email if verified else ""
+
+
 class TokenExchangeRequest(BaseModel):
     identity_token: str
 
@@ -47,7 +63,7 @@ def auth_apple(
 ) -> TokenExchangeResponse:
     claims = verify_apple_identity_token(body.identity_token, settings)
     apple_sub = claims["sub"]
-    email = claims.get("email", "")
+    email = _verified_email(claims)
 
     user = session.scalars(select(User).where(User.apple_sub == apple_sub)).one_or_none()
     is_new = user is None
@@ -75,7 +91,7 @@ def auth_google(
 ) -> TokenExchangeResponse:
     claims = verify_google_identity_token(body.identity_token, settings)
     google_sub = claims["sub"]
-    email = claims.get("email", "")
+    email = _verified_email(claims)
     name = claims.get("name", "")
 
     user = session.scalars(select(User).where(User.google_sub == google_sub)).one_or_none()

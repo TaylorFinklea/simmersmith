@@ -125,3 +125,32 @@ def test_stale_transaction_is_ignored(client, monkeypatch) -> None:
     _patch(monkeypatch, notif_type="REFUND", uuid="stale-1", txn_id="300")
     assert client.post("/api/subscriptions/apple-webhook", json={"signedPayload": "x"}).status_code == 204
     assert _sub_row().status == "active"  # unchanged
+
+
+def test_unmapped_notification_type_does_not_advance_window(client, monkeypatch) -> None:
+    # M25: a type status_from_notification doesn't map (new_status None) must
+    # NOT push the period window forward.
+    _seed_sub(last_txn="100")
+    _patch(monkeypatch, notif_type="PRICE_INCREASE", uuid="pi-1", txn_id="200")
+    assert client.post("/api/subscriptions/apple-webhook", json={"signedPayload": "x"}).status_code == 204
+    row = _sub_row()
+    assert row.status == "active"
+    assert row.current_period_ends_at.replace(tzinfo=timezone.utc) == ORIG_END  # unchanged
+
+
+def test_production_drops_sandbox_verifier_when_disabled(monkeypatch) -> None:
+    # M28: with Production + allow_sandbox False, only the Production verifier
+    # is built (no Sandbox fallback), so a Sandbox receipt can't grant Pro.
+    import app.services.subscriptions as svc
+
+    monkeypatch.setenv("SIMMERSMITH_APPLE_IAP_BUNDLE_ID", "app.simmersmith")
+    monkeypatch.setenv("SIMMERSMITH_APPLE_IAP_ENVIRONMENT", "Production")
+    monkeypatch.setenv("SIMMERSMITH_APPLE_IAP_APP_APPLE_ID", "123456")
+    monkeypatch.setenv("SIMMERSMITH_APPLE_IAP_ALLOW_SANDBOX", "false")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    try:
+        verifiers = svc._verifiers_in_order(get_settings())
+        assert len(verifiers) == 1  # production only — no sandbox fallback
+    finally:
+        get_settings.cache_clear()

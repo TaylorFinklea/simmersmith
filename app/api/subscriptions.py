@@ -202,11 +202,13 @@ def apple_webhook(
         new_status = status_from_notification(notification_type, subtype)
         if new_status is not None:
             existing.status = new_status
-        # (c) Only advance the period window for non-terminal states — a
-        # replayed renewal must not reopen a refunded/revoked/expired sub.
+        # (c) Only advance the period window for a recognized ACTIVE/renewal
+        # status. Terminal states freeze it; unmapped types (new_status None —
+        # PRICE_INCREASE, RENEWAL_EXTENDED, CONSUMPTION_REQUEST, …) must NOT
+        # blindly push the entitlement window forward (M25).
         if new_status in TERMINAL_STATUSES:
             existing.cancelled_at = _utcnow()
-        else:
+        elif new_status == "active":
             existing.current_period_starts_at = verified.purchase_date
             existing.current_period_ends_at = verified.expires_date
         if notification_type.upper() == "DID_CHANGE_RENEWAL_STATUS":
