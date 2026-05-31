@@ -51,6 +51,10 @@ from app.schemas import RecipePayload
 
 logger = logging.getLogger(__name__)
 
+# Strong refs for fire-and-forget background tasks so the event loop doesn't
+# garbage-collect them mid-flight (M11). Discarded on completion.
+_background_tasks: set[asyncio.Task] = set()
+
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
@@ -371,9 +375,9 @@ async def respond_route(
                     "Failed to persist streamed deltas for message %s",
                     assistant_message_id,
                 )
-            last_persist_at = asyncio.get_event_loop().time()
+            last_persist_at = loop.time()
 
-        turn_started_at = asyncio.get_event_loop().time()
+        turn_started_at = loop.time()
         last_heartbeat_at = turn_started_at
         try:
             while True:
@@ -382,7 +386,7 @@ async def respond_route(
                 except asyncio.TimeoutError:
                     if task.done():
                         break
-                    now = asyncio.get_event_loop().time()
+                    now = loop.time()
                     if now - last_heartbeat_at >= STREAM_HEARTBEAT_INTERVAL_SECONDS:
                         yield encode_sse(
                             "assistant.heartbeat",
@@ -400,7 +404,7 @@ async def respond_route(
                     delta_piece = str(data.get("delta", ""))
                     if delta_piece:
                         streamed_text += delta_piece
-                        now = asyncio.get_event_loop().time()
+                        now = loop.time()
                         if now - last_persist_at >= STREAM_PERSIST_INTERVAL_SECONDS:
                             _flush_streamed_content()
                 yield encode_sse(event_name, data)
@@ -488,7 +492,7 @@ async def respond_route(
                         tool_calls=result.tool_calls,
                         assistant_markdown=result.envelope.assistant_markdown,
                     )
-                    asyncio.create_task(
+                    push_task = asyncio.create_task(
                         _send_assistant_done_push(
                             settings=settings,
                             user_id=user_id,
@@ -497,6 +501,9 @@ async def respond_route(
                             body=push_body,
                         )
                     )
+                    # Retain a strong ref until it finishes (M11).
+                    _background_tasks.add(push_task)
+                    push_task.add_done_callback(_background_tasks.discard)
         except Exception as exc:
             detail = str(exc) or "Assistant response failed."
             logger.exception("Assistant turn failed for thread %s", thread_id)
@@ -537,6 +544,12 @@ async def respond_route(
                 "assistant.error",
                 {"message_id": assistant_message_id, "detail": detail},
             )
+        except GeneratorExit:
+            # Client disconnected and Starlette closed the generator. Signal
+            # the worker thread to abort so the AI turn doesn't run to
+            # completion spending tokens on a reply nobody will read (M10).
+            abort_event.set()
+            raise
         finally:
             # Always tear down the disconnect watcher so it doesn't outlive
             # the stream (prevents a leaking polling coroutine per request).

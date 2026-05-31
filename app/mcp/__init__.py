@@ -39,11 +39,27 @@ class StaticBearerTokenVerifier(TokenVerifier):
         )
 
 
+# Process-level guard so migrations + seed run at most once. The mounted
+# HTTP path calls mark_startup_complete() from app.main's lifespan (which
+# already migrated/seeded), so entering this lifespan there is a no-op
+# instead of redoing the work (M19). The stdio path (main()) runs it once.
+_startup_ran = False
+
+
+def mark_startup_complete() -> None:
+    """Record that migrations + seed have already run this process."""
+    global _startup_ran
+    _startup_ran = True
+
+
 @asynccontextmanager
 async def lifespan(_: FastMCP):
-    run_migrations()
-    with session_scope() as session:
-        seed_defaults(session)
+    global _startup_ran
+    if not _startup_ran:
+        _startup_ran = True
+        run_migrations()
+        with session_scope() as session:
+            seed_defaults(session)
     yield
 
 
@@ -173,4 +189,7 @@ def build_http_app():
     return http_mcp.streamable_http_app()
 
 
-__all__ = ["mcp", "main", "lifespan", "parse_args", "StaticBearerTokenVerifier", "build_http_app"]
+__all__ = [
+    "mcp", "main", "lifespan", "parse_args", "StaticBearerTokenVerifier",
+    "build_http_app", "mark_startup_complete",
+]

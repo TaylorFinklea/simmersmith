@@ -128,6 +128,10 @@ async def lifespan(_: FastAPI):
             "a 32+ char random secret (e.g. `openssl rand -hex 32`).",
             len(_jwt_secret),
         )
+    # We just ran migrations + seed above; tell the mounted MCP app's lifespan
+    # not to repeat them when we enter its context below (M19).
+    from app.mcp import mark_startup_complete
+    mark_startup_complete()
     scheduler = start_scheduler(settings) if settings.push_scheduler_enabled else None
     # The MCP app is mounted as a sub-app at /mcp. Starlette does NOT run a
     # mounted sub-app's lifespan, so the MCP StreamableHTTP session manager
@@ -136,14 +140,18 @@ async def lifespan(_: FastAPI):
     # process: the session manager is single-use, and the test suite
     # re-enters this lifespan once per TestClient.
     global _mcp_lifespan_ran
-    if _mcp_lifespan_ran:
-        yield
-    else:
-        _mcp_lifespan_ran = True
-        async with _mcp_app.router.lifespan_context(_mcp_app):
+    try:
+        if _mcp_lifespan_ran:
             yield
-    if scheduler is not None:
-        scheduler.shutdown(wait=False)
+        else:
+            _mcp_lifespan_ran = True
+            async with _mcp_app.router.lifespan_context(_mcp_app):
+                yield
+    finally:
+        # Always stop the scheduler — even if the MCP session-manager startup
+        # raises — so its background thread isn't leaked (M21).
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)

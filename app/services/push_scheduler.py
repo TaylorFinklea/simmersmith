@@ -41,6 +41,15 @@ logger = logging.getLogger(__name__)
 _sent_today: dict[tuple[str, str, str], bool] = {}
 
 
+def _prune_sent_today() -> None:
+    """Bound _sent_today so it can't grow unbounded for the process
+    lifetime (M22). Keys are (kind, user_id, 'YYYY-MM-DD'); drop entries
+    older than ~2 days (ISO date strings sort lexicographically)."""
+    cutoff = (datetime.now() - timedelta(days=2)).date().isoformat()
+    for key in [k for k in _sent_today if k[2] < cutoff]:
+        _sent_today.pop(key, None)
+
+
 def _effective_toggle(user_settings: dict[str, str], key: str, default: str = "1") -> bool:
     """Return True for enabled toggle.
 
@@ -103,13 +112,17 @@ async def _tick_tonights_meal(
     now_local: Callable[[str], datetime] | None = None,
 ) -> None:
     """Fire tonight's-meal push for eligible users."""
+    _prune_sent_today()
     with session_scope() as session:
         user_ids = _active_user_ids(session)
-        for user_id in user_ids:
-            try:
+    # Per-user session so one pooled connection + transaction isn't pinned
+    # across every user's blocking APNs round-trips (M20).
+    for user_id in user_ids:
+        try:
+            with session_scope() as session:
                 await _process_tonights_meal(session, settings, user_id, now_local)
-            except Exception:
-                logger.exception("_tick_tonights_meal: error for user=%s", user_id)
+        except Exception:
+            logger.exception("_tick_tonights_meal: error for user=%s", user_id)
 
 
 async def _process_tonights_meal(
@@ -186,13 +199,16 @@ async def _tick_saturday_plan(
     now_local: Callable[[str], datetime] | None = None,
 ) -> None:
     """Fire Saturday-plan-reminder push for eligible users."""
+    _prune_sent_today()
     with session_scope() as session:
         user_ids = _active_user_ids(session)
-        for user_id in user_ids:
-            try:
+    # Per-user session (M20) — see _tick_tonights_meal.
+    for user_id in user_ids:
+        try:
+            with session_scope() as session:
                 await _process_saturday_plan(session, settings, user_id, now_local)
-            except Exception:
-                logger.exception("_tick_saturday_plan: error for user=%s", user_id)
+        except Exception:
+            logger.exception("_tick_saturday_plan: error for user=%s", user_id)
 
 
 async def _process_saturday_plan(

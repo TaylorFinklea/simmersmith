@@ -271,7 +271,6 @@ def ensure_nutrition_defaults(session: Session) -> None:
 
 
 def search_nutrition_items(session: Session, query: str, limit: int = 20) -> list[NutritionItem]:
-    ensure_nutrition_defaults(session)
     statement = select(NutritionItem).order_by(NutritionItem.name).limit(max(1, min(limit, 50)))
     normalized_query = normalize_name(query)
     if normalized_query:
@@ -296,7 +295,6 @@ def save_ingredient_nutrition_match(
     normalized_name: str | None,
     nutrition_item_id: str,
 ) -> IngredientNutritionMatch:
-    ensure_nutrition_defaults(session)
     item = session.get(NutritionItem, nutrition_item_id)
     if item is None:
         raise ValueError("Nutrition item not found")
@@ -526,7 +524,6 @@ def calculate_meal_macros(
 
 
 def _lookup_nutrition_item(session: Session, ingredient_name: str, normalized_name: str | None) -> NutritionItem | None:
-    ensure_nutrition_defaults(session)
     normalized = normalize_name(normalized_name or ingredient_name)
     if not normalized:
         return None
@@ -545,7 +542,6 @@ def calculate_recipe_nutrition(
     ingredients: list[dict[str, Any]],
     servings: float | None,
 ) -> NutritionSummary:
-    ensure_nutrition_defaults(session)
     total_calories = 0.0
     matched = 0
     unmatched_names: list[str] = []

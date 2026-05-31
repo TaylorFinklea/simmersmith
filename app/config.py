@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,10 +19,18 @@ class Settings(BaseSettings):
     port: int = 8080
     base_url: str = "http://localhost:8080"
     # Reads SIMMERSMITH_DATABASE_URL first; falls back to DATABASE_URL (Fly.io convention).
-    # Fly/Heroku use "postgres://" but SQLAlchemy requires "postgresql://".
+    # Fly/Heroku use "postgres://" but SQLAlchemy requires "postgresql://" — the
+    # validator below rewrites it regardless of source (env override or default).
     database_url: str = os.environ.get(
         "DATABASE_URL", "postgresql://simmersmith:simmersmith@localhost:5432/simmersmith"
-    ).replace("postgres://", "postgresql://", 1)
+    )
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_postgres_scheme(cls, value: str) -> str:
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql://", 1)
+        return value
 
     # Auth — session JWT
     jwt_secret: str = ""

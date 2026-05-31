@@ -147,4 +147,7 @@ async def test_push(
         title=payload.title,
         body=payload.body,
     )
+    # send_push prunes dead (410) device rows; persist that (M38) — get_session
+    # otherwise rolls it back on close.
+    session.commit()
     return {"delivered": delivered}
