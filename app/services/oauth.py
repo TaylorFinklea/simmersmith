@@ -383,7 +383,9 @@ def issue_mcp_access_token(
     }
     if scope:
         payload["scope"] = scope
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    # Pin HS256 (symmetric secret) so a misconfigured jwt_algorithm can't
+    # weaken MCP access-token signing (mirrors app/auth.py session JWTs).
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 @dataclass(frozen=True)
@@ -407,7 +409,7 @@ def verify_mcp_access_token(token: str, settings: Settings) -> VerifiedAccessTok
         claims = jwt.decode(
             token,
             settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
+            algorithms=["HS256"],
             audience=MCP_TOKEN_AUDIENCE,
             options={"require": ["exp", "iat", "sub", "aud"]},
             leeway=30,

@@ -137,7 +137,10 @@ def issue_session_jwt(user_id: str, settings: Settings) -> str:
         "iat": now,
         "exp": now + timedelta(days=settings.jwt_expiry_days),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    # Hardcode HS256 (symmetric secret) rather than reading a config field —
+    # pins the algorithm so a misconfigured jwt_algorithm can't open an
+    # alg-confusion / "none" surface.
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def _verify_session_jwt(token: str, settings: Settings) -> str:
@@ -148,7 +151,7 @@ def _verify_session_jwt(token: str, settings: Settings) -> str:
         claims = jwt.decode(
             token,
             settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
+            algorithms=["HS256"],
             options={"require": ["exp", "iat", "sub"]},
             leeway=30,
         )
@@ -206,7 +209,9 @@ def _resolve_authenticated_user_id(
                 raise
 
     # (3) Legacy bearer token fallback.
-    if legacy_configured and compare_digest(token, settings.api_token.strip()):
+    if legacy_configured and compare_digest(
+        token.encode("utf-8"), settings.api_token.strip().encode("utf-8")
+    ):
         return settings.local_user_id
 
     raise _AuthError()

@@ -97,9 +97,13 @@ def auth_google(
 
 
 @router.get("/me", response_model=MeResponse)
-def auth_me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
+def auth_me(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeResponse:
+    user = session.get(User, current_user.id)
     return MeResponse(
         user_id=current_user.id,
-        email="",
-        display_name="",
+        email=user.email if user else "",
+        display_name=user.display_name if user else "",
     )

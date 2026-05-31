@@ -324,3 +324,35 @@ def test_free_tier_limit_override_lives_in_db(client: TestClient, settings_with_
     with session_scope() as session:
         summary = current_usage(session, user_id, ACTION_AI_GENERATE)
     assert summary.limit == 1
+
+
+def test_admin_rejects_non_ascii_bearer_cleanly(
+    settings_with_api_token: Settings,
+) -> None:
+    # M1: Starlette decodes header bytes as latin-1, so a crafted Authorization
+    # header can yield a non-ASCII `credentials` str; compare_digest on a
+    # non-ASCII str raises TypeError (→ 500). The encode-to-bytes fix must make
+    # it a clean 403. (httpx won't SEND a non-ASCII header, so call the
+    # dependency directly.)
+    import pytest
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api.admin import require_admin_bearer
+
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="caf\xe9")
+    with pytest.raises(HTTPException) as exc:
+        require_admin_bearer(authorization=creds, settings=settings_with_api_token)
+    assert exc.value.status_code == 403
+
+
+def test_admin_settings_rejects_negative_free_tier_limit(
+    client: TestClient, settings_with_api_token: Settings
+) -> None:
+    # M3: negative limits would permanently 402 every free user — reject.
+    response = client.patch(
+        "/api/admin/settings",
+        headers=_headers(settings_with_api_token.api_token),
+        json={"free_tier_limits": {"ai_generate": -1}},
+    )
+    assert response.status_code == 400, response.text

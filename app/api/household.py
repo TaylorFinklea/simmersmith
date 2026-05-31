@@ -129,10 +129,15 @@ def rename_household_route(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
     _require_owner(session, household_id=current_user.household_id, user_id=current_user.id)
+    # min_length=1 on the schema rejects "" but not all-whitespace; strip-guard
+    # here so a blank household name can't be stored.
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Household name cannot be empty.")
     household = session.get(Household, current_user.household_id)
     if household is None:
         raise HTTPException(status_code=404, detail="Household not found.")
-    household.name = payload.name.strip()
+    household.name = name
     household.updated_at = utcnow()
     session.commit()
     members = list_members(session, current_user.household_id)

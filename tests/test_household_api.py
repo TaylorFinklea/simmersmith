@@ -286,6 +286,12 @@ def test_owner_can_rename_household(client: TestClient, headers_a) -> None:
     assert resp.json()["name"] == "The Smiths"
 
 
+def test_rename_rejects_empty_or_whitespace_name(client: TestClient, headers_a) -> None:
+    # M32: empty fails schema (422); all-whitespace fails the route strip-guard (400).
+    assert client.put("/api/household", json={"name": ""}, headers=headers_a).status_code == 422
+    assert client.put("/api/household", json={"name": "   "}, headers=headers_a).status_code == 400
+
+
 def test_owner_can_revoke_invitation(client: TestClient, headers_a, headers_b) -> None:
     invite = client.post("/api/household/invitations", headers=headers_a).json()
     code = invite["code"]

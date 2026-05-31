@@ -29,7 +29,7 @@ class HouseholdOut(BaseModel):
 
 
 class HouseholdRenameRequest(BaseModel):
-    name: str = Field(..., max_length=120)
+    name: str = Field(..., min_length=1, max_length=120)
 
 
 class JoinHouseholdRequest(BaseModel):

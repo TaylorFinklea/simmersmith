@@ -119,7 +119,12 @@ def free_tier_limits(session: Session) -> dict[str, int]:
 
 
 def set_free_tier_limits(session: Session, limits: dict[str, int]) -> None:
-    cleaned = {str(key): int(value) for key, value in limits.items()}
+    cleaned: dict[str, int] = {}
+    for key, value in limits.items():
+        v = int(value)
+        if v < 0:
+            raise ValueError(f"free_tier_limits[{key!r}] must be >= 0, got {v}")
+        cleaned[str(key)] = v
     set_value(session, KEY_FREE_TIER_LIMITS, json.dumps(cleaned, sort_keys=True))
 
 
@@ -167,7 +172,12 @@ def usage_cost_usd(session: Session) -> dict[str, float]:
 
 
 def set_usage_cost_usd(session: Session, rates: dict[str, float]) -> None:
-    cleaned = {str(key): float(value) for key, value in rates.items()}
+    cleaned: dict[str, float] = {}
+    for key, value in rates.items():
+        v = float(value)
+        if v < 0:
+            raise ValueError(f"usage_cost_usd[{key!r}] must be >= 0, got {v}")
+        cleaned[str(key)] = v
     set_value(session, KEY_USAGE_COST_USD, json.dumps(cleaned, sort_keys=True))
 
 

@@ -51,7 +51,13 @@ def require_admin_bearer(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Missing authorization header",
         )
-    if not compare_digest(authorization.credentials, settings.api_token):
+    # Encode to bytes (and strip, matching the empty-check above + auth.py):
+    # compare_digest raises TypeError on non-ASCII str input, which would
+    # surface as an unhandled 500 instead of a clean 403.
+    if not compare_digest(
+        authorization.credentials.encode("utf-8"),
+        settings.api_token.strip().encode("utf-8"),
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid token",
@@ -267,7 +273,10 @@ def admin_settings_patch(
         if value is None:
             delete_value(session, KEY_FREE_TIER_LIMITS)
         elif isinstance(value, dict):
-            set_free_tier_limits(session, value)
+            try:
+                set_free_tier_limits(session, value)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid free_tier_limits: {exc}") from exc
         else:
             raise HTTPException(status_code=400, detail="free_tier_limits must be an object or null")
 
