@@ -788,8 +788,10 @@ def fetch_week_pricing(
     try:
         result = fetch_kroger_pricing(session, week, settings, location_id)
     except ValueError as exc:
+        session.commit()  # persist the failed PricingRun record (M36)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        session.commit()  # persist the failed PricingRun record (M36)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     session.commit()
     increment_usage(session, current_user.id, ACTION_PRICING_FETCH)
@@ -809,6 +811,7 @@ def import_week_pricing(
     try:
         result = import_pricing(session, week, payload)
     except ValueError as exc:
+        session.commit()  # persist the failed PricingRun record (M36)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.commit()
     session.expire_all()

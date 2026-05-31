@@ -29,7 +29,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/vision", tags=["vision"])
 
 
+# Reject oversized payloads BEFORE allocating the decoded buffer (the
+# precise 5MB-decoded cap is still enforced later in _validate_image; this
+# is a DoS guard sized generously above it, mirroring the sibling upload
+# routes which length-check the base64 before decoding).
+_MAX_IMAGE_BASE64_BYTES = 7 * 1024 * 1024
+
+
 def _decode_base64(payload: str) -> bytes:
+    if len(payload) > _MAX_IMAGE_BASE64_BYTES:
+        raise HTTPException(status_code=400, detail="Image is too large.")
     try:
         return base64.b64decode(payload, validate=True)
     except (ValueError, TypeError) as exc:

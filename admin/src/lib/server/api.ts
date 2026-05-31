@@ -155,7 +155,10 @@ export type SubscriptionAction =
 
 export const adminApi = {
     usage: (platform: Platform | undefined, period?: string) =>
-        call<UsageSummary>(platform, `/api/admin/usage${period ? `?period=${period}` : ''}`),
+        call<UsageSummary>(
+            platform,
+            `/api/admin/usage${period ? `?period=${encodeURIComponent(period)}` : ''}`
+        ),
     users: (platform: Platform | undefined) => call<UsersResponse>(platform, '/api/admin/users'),
     user: (platform: Platform | undefined, userId: string) =>
         call<UserDetail>(platform, `/api/admin/users/${encodeURIComponent(userId)}`),

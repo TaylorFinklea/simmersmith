@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from app.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _settings() -> Settings:
@@ -71,3 +74,9 @@ def _call_route(callback: Any) -> Any:
         return _json_ready(callback())
     except HTTPException as exc:
         _raise_tool_error(exc)
+    except ValueError:
+        # Domain errors (already our public-safe MCP vocabulary) propagate as-is.
+        raise
+    except Exception as exc:  # noqa: BLE001 — don't leak raw internals to the client
+        logger.exception("MCP tool route handler crashed")
+        raise ValueError("The tool encountered an internal error.") from exc

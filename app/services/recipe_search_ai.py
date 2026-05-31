@@ -196,7 +196,11 @@ def _search_openai(
     timeout = max(settings.ai_timeout_seconds, 90)
     with httpx.Client(timeout=timeout) as client:
         response = client.post(OPENAI_RESPONSES_URL, headers=headers, json=body)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        # Map provider 401/429/5xx to RuntimeError -> 502 at the route (M6).
+        raise RuntimeError(f"AI provider request failed: {exc}") from exc
     return _extract_text_from_openai_payload(response.json())
 
 
@@ -249,7 +253,10 @@ def _search_anthropic(
     timeout = max(settings.ai_timeout_seconds, 90)
     with httpx.Client(timeout=timeout) as client:
         response = client.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=body)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"AI provider request failed: {exc}") from exc
     return _extract_text_from_anthropic_payload(response.json())
 
 

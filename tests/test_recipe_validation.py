@@ -14,3 +14,24 @@ def test_recipe_save_rejects_out_of_range_difficulty() -> None:
             assert resp.status_code == 422, f"{bad}: {resp.text}"
         ok = client.post("/api/recipes", json={"name": "ok", "difficulty_score": 3})
         assert ok.status_code == 200, ok.text
+
+
+def test_import_from_text_rejects_oversized_body() -> None:
+    # M61: a multi-MB paste is a 422 (schema cap), not an event-loop-blocking
+    # regex run.
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/recipes/import-from-text",
+            json={"text": "x" * 600_000},
+        )
+        assert resp.status_code == 422, resp.text
+
+
+def test_vision_rejects_oversized_image() -> None:
+    # M39: oversized base64 is rejected before the decode buffer is allocated.
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/vision/identify-ingredient",
+            json={"image_base64": "A" * (8 * 1024 * 1024)},
+        )
+        assert resp.status_code == 400, resp.text

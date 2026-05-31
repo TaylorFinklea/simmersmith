@@ -958,7 +958,12 @@ def run_direct_provider(
         )
         with httpx.Client(timeout=timeout) as client:
             response = client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            # Surface provider 401/429/5xx as RuntimeError so the routes map
+            # it to a clean 502 instead of a generic 500 (M6).
+            raise RuntimeError(f"AI provider request failed: {exc}") from exc
         payload = response.json()
         return str(payload["choices"][0]["message"]["content"])
 
@@ -977,7 +982,10 @@ def run_direct_provider(
         }
         with httpx.Client(timeout=timeout) as client:
             response = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"AI provider request failed: {exc}") from exc
         payload = response.json()
         content = payload.get("content", [])
         text_chunks = [item.get("text", "") for item in content if item.get("type") == "text"]

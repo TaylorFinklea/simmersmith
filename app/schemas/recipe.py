@@ -169,7 +169,9 @@ class RecipeImportRequest(BaseModel):
 
 
 class RecipeTextImportRequest(BaseModel):
-    text: str
+    # Cap the body so the regex-heavy sync parser can't be DoS'd by a
+    # multi-MB paste (covers both REST import routes + the MCP tool).
+    text: str = Field(..., max_length=500_000)
     title: str = ""
     source: str = "scan_import"
     source_label: str = ""

@@ -10,7 +10,11 @@
     }
 
     function relativeDate(iso: string) {
+        if (!iso) return '—';
         const d = new Date(iso);
+        // A bad/empty created_at must degrade to one '—' cell, not 500 the
+        // whole SSR users list (new Date('garbage').toISOString() throws).
+        if (Number.isNaN(d.getTime())) return '—';
         return d.toISOString().slice(0, 10);
     }
 
