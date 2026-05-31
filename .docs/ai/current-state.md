@@ -6,7 +6,39 @@
 
 `main`
 
-## Last session (2026-05-30) — multi-agent bug sweep + critical/high fixes
+## Last session (2026-05-30 pm) — medium/low sweep findings (Batches A–H)
+
+Implemented the ~71 medium/low findings from the 2026-05-30 sweep, grouped
+into 8 themed commits `0e34ab3..d7ae052`. Verify-before-implement throughout
+(re-scoped each finding against current code; debunked false positives).
+Backend: full suite **510 passed, 1 skipped**, ruff clean. SimmerSmithKit:
+`swift build` clean. App-target iOS changes flagged **needs-build** (no Xcode here).
+
+- **A** `0e34ab3` auth/admin: compare_digest bytes, JWT alg pin, /me, settings validation (M1,M2,M3,M13,M17,M18,M32)
+- **B** `2c1986d` auth/iap: email_verified gate, webhook freshness window, sandbox gate (M16,M25,M28,M58,M67)
+- **C** `c0ca607` data-integrity: FK width, value bounds, model/migration drift, recipe unlink (M52,M53,M54,M33)
+- **D** `dd45553` data-integrity logic: transcript, pantry, dedupe, scoping (M9,M31,M34,M35,M50,M56,M68,M70,M71)
+- **E** `649cf2a` error-handling/validation: provider 502, body caps, error sanitizing, admin encoding (M4,M5,M6,M36,M39,M51,M61)
+- **F** `7fb78a8` robustness: SSE disconnect-abort, task-ref leak, startup dedup, scheduler session-per-user, config (M7,M10,M11,M12,M19,M20,M21,M22,M24,M38)
+- **G** `d1e0e6a` concurrency: first-sign-in 500 + dup-household recovery (M15, migration 0046 `uq_household_members_user`), atomic usage upsert (M27), invitation `with_for_update` (M30)
+- **H** `d7ae052` iOS: Keychain atomic write + status logging (M44/M45), reminder UTC→local day fix (M47), zip percent-encode (M48), silent build-88 migration + syncPhase bypass (M42/M43), removed shipped assistant TODO (M41)
+
+**Deferred (with notes — need dedicated focused passes, NOT tail-of-session):**
+- **M8** (low) nutrition-catalog reference-value leak — broad household_id threading; mirror `_require_visible_base_ingredient`.
+- **M63** (med) `resolve_ingredient` provisional-row pollution — REAL committing path is the MCP `ingredients_resolve` tool (REST doesn't commit); keep household_id optional to preserve 5 internal callers.
+- **M62** (med) ingredient-list COUNT N+1 (`search.py:191`, `ingredients.py:183`) — must preserve exact count field names/values.
+- **M37** (med) Kroger per-item blocking pricing — item-cap + per-call + wall-clock budget (config-tunable); not live (no Kroger creds).
+- **M64** (low) draft-preview routes persist provisional catalog rows — scope fix to preview routes only; real-save persistence is intentional.
+- **M66** (low) SSO missing `nonce` — OIDC defense-in-depth; `verify_state` return-shape change ripples to `oauth.py:532` + `test_sso.py`. Send-nonce must land before require-nonce or Apple breaks.
+- **M40** (low, iOS) PlanShoppingSheet reads `currentWeek` while browsing a non-current week → cross-week quick-add. Correct fix threads `weekID` through WeekView/GroceryView/PlanShoppingSheet/quickAddPlanItem with slot-routing + changes the sheet's added-item tracking; needs build+test.
+
+**False positives confirmed (no change):** M13 session-JWT alg (PyJWT pins it), M26 entitlements bypass, M58/M67 "account takeover" half (matches on `sub`, not email).
+
+**iOS needs-build gate:** Batch H app-target files (NotificationManager, AppState+Grocery/+Assistant) compile-checked only by inspection. Build + smoke-test before TestFlight. `project.pbxproj` still carries the pre-existing 104→105 regen (unstaged, not mine).
+
+**Carried pre-deploy gates (unchanged):** (1) smoke-test Claude.ai MCP connector (F11 stateless); (2) set `SIMMERSMITH_APPLE_IAP_APP_APPLE_ID` + iOS must set `appAccountToken` at purchase before flipping trial-mode off (F23/F24).
+
+## Earlier 2026-05-30 — multi-agent bug sweep + critical/high fixes
 
 Full-codebase bug sweep (20 parallel reviewers → 101 findings →
 adversarial verification). Report: `.docs/ai/phases/bug-sweep-2026-05-30-report.md`.
