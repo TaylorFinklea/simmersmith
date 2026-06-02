@@ -112,26 +112,39 @@ _STATE_ISS = "simmersmith"
 _STATE_AUD = "simmersmith-sso-state"
 
 
-def generate_state(*, authorize_code: str, provider: Provider, settings: Settings) -> str:
+def generate_state(
+    *, authorize_code: str, provider: Provider, settings: Settings
+) -> tuple[str, str]:
+    """Mint the state JWT plus a fresh OIDC ``nonce``. The nonce is both
+    embedded in the (server-signed, tamper-proof) state JWT and returned
+    so the caller can send it in the provider authorize URL; on callback
+    we require the id_token to echo it back, binding the token to this
+    exact request (M66). Returns ``(state, nonce)``."""
     if not settings.jwt_secret:
         raise SsoError("Server has no SIMMERSMITH_JWT_SECRET configured")
     now = int(time.time())
+    nonce = token_urlsafe(16)
     payload = {
         "authorize_code": authorize_code,
         "provider": provider,
+        "nonce": nonce,
         "iss": _STATE_ISS,
         "aud": _STATE_AUD,
         "iat": now,
         "exp": now + _STATE_TTL_SECONDS,
         "jti": token_urlsafe(8),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256"), nonce
 
 
-def verify_state(state: str, *, expected_provider: Provider, settings: Settings) -> str:
-    """Decode the state JWT, enforce provider match, return the original
-    OAuth authorize-request code. Raises `SsoError` on tampering,
-    expiry, or cross-provider replay."""
+def verify_state(
+    state: str, *, expected_provider: Provider, settings: Settings
+) -> tuple[str, str]:
+    """Decode the state JWT, enforce provider match, return
+    ``(authorize_code, nonce)``. The nonce is ``""`` for legacy state
+    JWTs minted before M66 (so an in-flight flow across the deploy
+    boundary degrades to the pre-nonce behavior rather than failing).
+    Raises `SsoError` on tampering, expiry, or cross-provider replay."""
     if not settings.jwt_secret:
         raise SsoError("Server has no SIMMERSMITH_JWT_SECRET configured")
     try:
@@ -152,14 +165,16 @@ def verify_state(state: str, *, expected_provider: Provider, settings: Settings)
     code = payload.get("authorize_code")
     if not code or not isinstance(code, str):
         raise SsoError("state missing authorize_code")
-    return code
+    nonce = payload.get("nonce")
+    nonce = nonce if isinstance(nonce, str) else ""
+    return code, nonce
 
 
 # ---------------------------------------------------------------------
 # Provider authorize URL builders
 # ---------------------------------------------------------------------
 
-def apple_authorize_url(*, state: str, callback_url: str, settings: Settings) -> str:
+def apple_authorize_url(*, state: str, nonce: str, callback_url: str, settings: Settings) -> str:
     if not apple_enabled(settings):
         raise SsoError("Apple Sign In for Web not configured")
     params = {
@@ -171,11 +186,14 @@ def apple_authorize_url(*, state: str, callback_url: str, settings: Settings) ->
         "response_mode": "form_post",
         "scope": "name email",
         "state": state,
+        # OIDC nonce — Apple echoes it in the id_token so the callback can
+        # bind the token to this request (M66).
+        "nonce": nonce,
     }
     return f"{APPLE_AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def google_authorize_url(*, state: str, callback_url: str, settings: Settings) -> str:
+def google_authorize_url(*, state: str, nonce: str, callback_url: str, settings: Settings) -> str:
     if not google_enabled(settings):
         raise SsoError("Google Sign In for Web not configured")
     params = {
@@ -184,6 +202,8 @@ def google_authorize_url(*, state: str, callback_url: str, settings: Settings) -
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
+        # OIDC nonce — echoed back in the id_token (M66).
+        "nonce": nonce,
         # `select_account` so users picking which Google to sign in with
         # don't get auto-logged-in as the last-used one.
         "prompt": "select_account",
@@ -222,7 +242,9 @@ def mint_apple_client_secret(settings: Settings) -> str:
 # Provider code exchange
 # ---------------------------------------------------------------------
 
-def exchange_apple_code(*, code: str, callback_url: str, settings: Settings) -> dict:
+def exchange_apple_code(
+    *, code: str, callback_url: str, settings: Settings, expected_nonce: str = ""
+) -> dict:
     """POST to Apple's token endpoint, verify the returned id_token
     against the web Service ID audience, return claims."""
     client_secret = mint_apple_client_secret(settings)
@@ -244,10 +266,12 @@ def exchange_apple_code(*, code: str, callback_url: str, settings: Settings) -> 
     id_token = body.get("id_token")
     if not id_token:
         raise SsoError("apple response missing id_token")
-    return _verify_apple_id_token_web(id_token, settings)
+    return _verify_apple_id_token_web(id_token, settings, expected_nonce=expected_nonce)
 
 
-def exchange_google_code(*, code: str, callback_url: str, settings: Settings) -> dict:
+def exchange_google_code(
+    *, code: str, callback_url: str, settings: Settings, expected_nonce: str = ""
+) -> dict:
     """POST to Google's token endpoint, verify the returned id_token
     against the web OAuth client_id audience, return claims."""
     with httpx.Client(timeout=10.0) as client:
@@ -268,10 +292,17 @@ def exchange_google_code(*, code: str, callback_url: str, settings: Settings) ->
     id_token = body.get("id_token")
     if not id_token:
         raise SsoError("google response missing id_token")
-    return _verify_google_id_token_web(id_token, settings)
+    return _verify_google_id_token_web(id_token, settings, expected_nonce=expected_nonce)
 
 
-def _verify_apple_id_token_web(token: str, settings: Settings) -> dict:
+def _require_nonce(claims: dict, expected_nonce: str) -> None:
+    """Enforce the OIDC nonce echo when we sent one (M66). Skipped when
+    expected_nonce is empty (legacy state JWT across the deploy boundary)."""
+    if expected_nonce and claims.get("nonce") != expected_nonce:
+        raise SsoError("id_token nonce mismatch")
+
+
+def _verify_apple_id_token_web(token: str, settings: Settings, *, expected_nonce: str = "") -> dict:
     try:
         signing_key = _apple_jwks_client().get_signing_key_from_jwt(token)
         claims = jwt.decode(
@@ -285,10 +316,11 @@ def _verify_apple_id_token_web(token: str, settings: Settings) -> dict:
         )
     except jwt.InvalidTokenError as exc:
         raise SsoError(f"invalid Apple id_token: {exc}") from exc
+    _require_nonce(claims, expected_nonce)
     return claims
 
 
-def _verify_google_id_token_web(token: str, settings: Settings) -> dict:
+def _verify_google_id_token_web(token: str, settings: Settings, *, expected_nonce: str = "") -> dict:
     try:
         signing_key = _google_jwks_client().get_signing_key_from_jwt(token)
         claims = jwt.decode(
@@ -303,6 +335,7 @@ def _verify_google_id_token_web(token: str, settings: Settings) -> dict:
         )
     except jwt.InvalidTokenError as exc:
         raise SsoError(f"invalid Google id_token: {exc}") from exc
+    _require_nonce(claims, expected_nonce)
     return claims
 
 

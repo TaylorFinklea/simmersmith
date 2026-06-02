@@ -189,31 +189,47 @@ def ingredient_usage_summary(session: Session, base_ingredient_id: str) -> Ingre
 
 
 def ingredient_counts(session: Session, base_ingredient_id: str) -> dict[str, int]:
-    return {
-        "variation_count": session.scalar(
-            select(func.count(IngredientVariation.id)).where(
-                IngredientVariation.base_ingredient_id == base_ingredient_id,
-                IngredientVariation.archived_at.is_(None),
-                IngredientVariation.active.is_(True),
-            )
-        )
-        or 0,
-        "preference_count": session.scalar(
-            select(func.count(IngredientPreference.id)).where(
-                IngredientPreference.base_ingredient_id == base_ingredient_id
-            )
-        )
-        or 0,
-        "recipe_usage_count": session.scalar(
-            select(func.count(RecipeIngredient.id)).where(
-                RecipeIngredient.base_ingredient_id == base_ingredient_id
-            )
-        )
-        or 0,
-        "grocery_usage_count": session.scalar(
-            select(func.count(GroceryItem.id)).where(
-                GroceryItem.base_ingredient_id == base_ingredient_id
-            )
-        )
-        or 0,
+    return ingredient_counts_bulk(session, [base_ingredient_id])[base_ingredient_id]
+
+
+# Each entry: count-key → (model, extra WHERE predicates beyond the
+# base_ingredient_id match). Variations also filter archived/active.
+_COUNT_SOURCES = (
+    (
+        "variation_count",
+        IngredientVariation,
+        (IngredientVariation.archived_at.is_(None), IngredientVariation.active.is_(True)),
+    ),
+    ("preference_count", IngredientPreference, ()),
+    ("recipe_usage_count", RecipeIngredient, ()),
+    ("grocery_usage_count", GroceryItem, ()),
+)
+
+
+def ingredient_counts_bulk(
+    session: Session, base_ingredient_ids: list[str]
+) -> dict[str, dict[str, int]]:
+    """Batched ``ingredient_counts`` for a list of base ingredients.
+
+    Runs one GROUP BY per count source (4 queries total) instead of 4
+    scalar COUNTs per row — the listing route was issuing 4*N queries
+    over up to 200 rows (M62). Field names + zero-fill are identical to
+    the per-row version so callers and tests are unchanged.
+    """
+    ids = list(dict.fromkeys(base_ingredient_ids))
+    result = {
+        bid: {key: 0 for key, _model, _extra in _COUNT_SOURCES} for bid in ids
     }
+    if not ids:
+        return result
+    for key, model, extra in _COUNT_SOURCES:
+        col = model.base_ingredient_id
+        rows = session.execute(
+            select(col, func.count(model.id))
+            .where(col.in_(ids), *extra)
+            .group_by(col)
+        )
+        for base_id, count in rows:
+            if base_id in result:
+                result[base_id][key] = count or 0
+    return result

@@ -23,6 +23,7 @@ from app.services.ingredient_catalog import (
     ensure_base_ingredient,
     get_base_ingredient,
     ingredient_counts,
+    ingredient_counts_bulk,
     ingredient_preference_for_base,
     ingredient_usage_summary,
     is_product_like_base_ingredient,
@@ -97,8 +98,12 @@ def _require_owned_variation(session: Session, ingredient_variation_id: str, hou
     return variation
 
 
-def _base_payload(session: Session, item) -> dict[str, object]:
-    counts = ingredient_counts(session, item.id)
+def _base_payload(session: Session, item, counts: dict[str, int] | None = None) -> dict[str, object]:
+    # Single-item callers (detail route) let this fall back to a per-row
+    # count; the list route precomputes them in bulk and passes them in
+    # to avoid the 4*N COUNT query storm (M62).
+    if counts is None:
+        counts = ingredient_counts(session, item.id)
     return {
         "base_ingredient_id": item.id,
         "name": item.name,
@@ -180,20 +185,19 @@ def list_ingredients_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    return [
-        _base_payload(session, item)
-        for item in search_base_ingredients(
-            session,
-            q,
-            limit=limit,
-            include_archived=include_archived,
-            provisional_only=provisional_only,
-            with_preferences=with_preferences,
-            with_variations=with_variations,
-            include_product_like=include_product_like,
-            household_id=current_user.household_id,
-        )
-    ]
+    items = search_base_ingredients(
+        session,
+        q,
+        limit=limit,
+        include_archived=include_archived,
+        provisional_only=provisional_only,
+        with_preferences=with_preferences,
+        with_variations=with_variations,
+        include_product_like=include_product_like,
+        household_id=current_user.household_id,
+    )
+    counts_map = ingredient_counts_bulk(session, [item.id for item in items])
+    return [_base_payload(session, item, counts_map.get(item.id)) for item in items]
 
 
 @router.get("/{base_ingredient_id}", response_model=BaseIngredientDetailOut)

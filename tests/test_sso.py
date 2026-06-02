@@ -143,18 +143,21 @@ class TestEnablement:
 class TestStateJwt:
     def test_roundtrip_returns_authorize_code(self) -> None:
         settings = get_settings()
-        state = sso.generate_state(authorize_code="abc123", provider="apple", settings=settings)
-        assert sso.verify_state(state, expected_provider="apple", settings=settings) == "abc123"
+        state, nonce = sso.generate_state(authorize_code="abc123", provider="apple", settings=settings)
+        assert nonce  # a fresh OIDC nonce is minted (M66)
+        code, verified_nonce = sso.verify_state(state, expected_provider="apple", settings=settings)
+        assert code == "abc123"
+        assert verified_nonce == nonce
 
     def test_provider_mismatch_rejected(self) -> None:
         settings = get_settings()
-        state = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
+        state, _ = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
         with pytest.raises(sso.SsoError, match="provider mismatch"):
             sso.verify_state(state, expected_provider="google", settings=settings)
 
     def test_tampered_state_rejected(self) -> None:
         settings = get_settings()
-        state = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
+        state, _ = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
         # Flip a character in the JWT's payload segment.
         head, payload, sig = state.split(".")
         bad_payload = payload[:-1] + ("A" if payload[-1] != "A" else "B")
@@ -167,7 +170,7 @@ class TestStateJwt:
         # Pin time backwards so the freshly minted state appears already-expired.
         real_time = time.time
         monkeypatch.setattr(sso.time, "time", lambda: real_time() - sso._STATE_TTL_SECONDS - 60)
-        state = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
+        state, _ = sso.generate_state(authorize_code="abc", provider="apple", settings=settings)
         monkeypatch.undo()
         with pytest.raises(sso.SsoError, match="expired"):
             sso.verify_state(state, expected_provider="apple", settings=settings)
@@ -177,6 +180,16 @@ class TestStateJwt:
         get_settings.cache_clear()
         with pytest.raises(sso.SsoError, match="JWT_SECRET"):
             sso.generate_state(authorize_code="abc", provider="apple", settings=get_settings())
+
+    def test_nonce_enforcement(self) -> None:
+        # The id_token must echo the nonce we sent (M66). Empty expected
+        # nonce (legacy state) skips the check.
+        with pytest.raises(sso.SsoError, match="nonce mismatch"):
+            sso._require_nonce({"nonce": "other"}, "expected")
+        with pytest.raises(sso.SsoError, match="nonce mismatch"):
+            sso._require_nonce({}, "expected")
+        sso._require_nonce({"nonce": "expected"}, "expected")  # match → ok
+        sso._require_nonce({}, "")  # legacy / no nonce sent → skipped
 
 
 # ---------------------------------------------------------------------
@@ -358,7 +371,7 @@ class TestSsoCallbackRejection:
     def test_callback_rejects_state_for_wrong_provider(self, client, apple_env) -> None:
         # State minted for Google can't be used at Apple's callback.
         settings = get_settings()
-        google_state = sso.generate_state(
+        google_state, _ = sso.generate_state(
             authorize_code="any", provider="google", settings=settings
         )
         response = client.post(

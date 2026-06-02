@@ -502,12 +502,12 @@ def _sso_start(
         raise HTTPException(status_code=503, detail=f"{provider} Sign In for Web is not configured on this server.")
 
     try:
-        state = sso.generate_state(authorize_code=code, provider=provider, settings=settings)
+        state, nonce = sso.generate_state(authorize_code=code, provider=provider, settings=settings)
         callback = _sso_callback_url(request, provider)
         if provider == "apple":
-            url = sso.apple_authorize_url(state=state, callback_url=callback, settings=settings)
+            url = sso.apple_authorize_url(state=state, nonce=nonce, callback_url=callback, settings=settings)
         else:
-            url = sso.google_authorize_url(state=state, callback_url=callback, settings=settings)
+            url = sso.google_authorize_url(state=state, nonce=nonce, callback_url=callback, settings=settings)
     except sso.SsoError as exc:
         log.warning("sso/%s/start failed: %s", provider, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -529,7 +529,7 @@ def _sso_complete(
     bounce to the client's redirect_uri."""
     log.info("sso/%s/callback: received", provider)
     try:
-        authorize_code = sso.verify_state(state, expected_provider=provider, settings=settings)
+        authorize_code, nonce = sso.verify_state(state, expected_provider=provider, settings=settings)
     except sso.SsoError as exc:
         log.warning("sso/%s/callback: state verify failed: %s", provider, exc)
         raise HTTPException(status_code=400, detail=f"invalid state: {exc}") from exc
@@ -545,10 +545,10 @@ def _sso_complete(
     callback = _sso_callback_url(request, provider)
     try:
         if provider == "apple":
-            claims = sso.exchange_apple_code(code=provider_code, callback_url=callback, settings=settings)
+            claims = sso.exchange_apple_code(code=provider_code, callback_url=callback, settings=settings, expected_nonce=nonce)
             user = sso.find_or_create_apple_user(session, claims)
         else:
-            claims = sso.exchange_google_code(code=provider_code, callback_url=callback, settings=settings)
+            claims = sso.exchange_google_code(code=provider_code, callback_url=callback, settings=settings, expected_nonce=nonce)
             user = sso.find_or_create_google_user(session, claims)
     except sso.SsoError as exc:
         log.warning("sso/%s/callback: provider code exchange failed: %s", provider, exc)

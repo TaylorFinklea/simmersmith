@@ -22,7 +22,12 @@ from .product_rewrite import (
     normalize_product_like_base_ingredients,
     plan_product_like_base_rewrites,
 )
-from .search import ingredient_counts, ingredient_usage_summary, search_base_ingredients
+from .search import (
+    ingredient_counts,
+    ingredient_counts_bulk,
+    ingredient_usage_summary,
+    search_base_ingredients,
+)
 from .shared import (
     IngredientResolution,
     IngredientUsageSummary,
@@ -434,6 +439,7 @@ __all__ = [
     "ensure_catalog_defaults",
     "get_base_ingredient",
     "ingredient_counts",
+    "ingredient_counts_bulk",
     "ingredient_preference_for_base",
     "ingredient_usage_summary",
     "is_product_like_base_ingredient",
