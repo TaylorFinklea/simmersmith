@@ -24,10 +24,17 @@ struct PlanShoppingSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
+    /// The week to plan against. nil → the current week (the Grocery tab
+    /// always passes current; WeekView passes the displayed week so planning
+    /// a browsed future week targets that week, not the current one — M40).
+    var weekID: String? = nil
+
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var planItems: [PlanShoppingItem] = []
-    @State private var justAddedIDs: [String] = []
+    // Hold the added rows directly rather than ids into currentWeek — a
+    // browsed week's added items aren't in the currentWeek slot (M40).
+    @State private var justAdded: [GroceryItem] = []
 
     var body: some View {
         NavigationStack {
@@ -45,7 +52,7 @@ struct PlanShoppingSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading && planItems.isEmpty && justAddedIDs.isEmpty {
+        if isLoading && planItems.isEmpty && justAdded.isEmpty {
             ProgressView("Looking at this week’s meals…")
                 .progressViewStyle(.circular)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,9 +112,9 @@ struct PlanShoppingSheet: View {
                 }
             }
 
-            if !justAddedIDs.isEmpty {
+            if !justAdded.isEmpty {
                 Section("Just Added") {
-                    ForEach(justAddedItems) { item in
+                    ForEach(justAdded) { item in
                         justAddedRow(item)
                     }
                 }
@@ -193,7 +200,7 @@ struct PlanShoppingSheet: View {
     // MARK: - Data
 
     private var heroEyebrow: String {
-        if planItems.isEmpty && justAddedIDs.isEmpty {
+        if planItems.isEmpty && justAdded.isEmpty {
             return "this week"
         }
         let remaining = planItems.count
@@ -213,20 +220,21 @@ struct PlanShoppingSheet: View {
             }
     }
 
-    private var justAddedItems: [GroceryItem] {
-        let map = Dictionary(uniqueKeysWithValues: (appState.currentWeek?.groceryItems ?? []).map { ($0.groceryItemId, $0) })
-        return justAddedIDs.compactMap { map[$0] }
+    /// The week this sheet plans against — the passed-in displayed week,
+    /// falling back to the current week.
+    private var resolvedWeekID: String? {
+        weekID ?? appState.currentWeek?.weekId
     }
 
     private func load() async {
-        guard let weekID = appState.currentWeek?.weekId else {
-            loadError = "No current week to plan against."
+        guard let resolvedWeekID else {
+            loadError = "No week to plan against."
             return
         }
         isLoading = true
         loadError = nil
         do {
-            let response = try await appState.loadPlanShopping(weekID: weekID)
+            let response = try await appState.loadPlanShopping(weekID: resolvedWeekID)
             planItems = response.items
         } catch {
             loadError = error.localizedDescription
@@ -235,10 +243,10 @@ struct PlanShoppingSheet: View {
     }
 
     private func add(_ planItem: PlanShoppingItem) async {
-        guard let added = await appState.quickAddPlanItem(planItem) else { return }
+        guard let added = await appState.quickAddPlanItem(planItem, weekID: resolvedWeekID) else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             planItems.removeAll { $0.id == planItem.id }
-            justAddedIDs.append(added.groceryItemId)
+            justAdded.append(added)
         }
     }
 }

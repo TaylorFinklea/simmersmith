@@ -60,6 +60,9 @@ struct WeekView: View {
 
     /// Build 87 — plan-shopping sheet from the Week hero.
     @State private var showingPlanShopping = false
+    // The week id captured when Plan Shopping is opened, so the sheet plans
+    // against the week being viewed (browsed or current) — M40.
+    @State private var planShoppingWeekID: String?
 
     // Rebalance-this-day
     @State private var rebalancingDayKey: String?
@@ -175,7 +178,7 @@ struct WeekView: View {
         }
         // Build 87 — plan-shopping sheet entry from Week.
         .sheet(isPresented: $showingPlanShopping) {
-            PlanShoppingSheet()
+            PlanShoppingSheet(weekID: planShoppingWeekID)
                 .environment(appState)
         }
         .overlay(alignment: .top) {
@@ -1451,6 +1454,7 @@ struct WeekView: View {
     @ViewBuilder
     private var planShoppingTrailing: some View {
         Button {
+            planShoppingWeekID = displayedWeek?.weekId
             showingPlanShopping = true
         } label: {
             HStack(spacing: 4) {

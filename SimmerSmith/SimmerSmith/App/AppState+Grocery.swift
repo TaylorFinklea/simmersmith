@@ -131,12 +131,37 @@ extension AppState {
         try await apiClient.planShopping(weekID: weekID)
     }
 
-    /// Build 87: quick-add a `PlanShoppingItem` to the current week's
-    /// grocery list. The new row is appended to the local mirror
-    /// optimistically and the Reminders sync re-runs.
+    /// Insert (or replace) a grocery item into whichever week slot matches
+    /// `weekID` — current or browsed. Mirrors `applyAssistantWeekUpdate`'s
+    /// slot routing so a mutation made while browsing a non-current week
+    /// lands on that week instead of corrupting the current one (M40).
+    func insertGroceryItemInWeek(_ item: GroceryItem, weekID: String) {
+        if currentWeek?.weekId == weekID {
+            insertGroceryItemInCurrentWeek(item)
+        } else if var week = browsedWeek, week.weekId == weekID {
+            var items = week.groceryItems
+            if let index = items.firstIndex(where: { $0.groceryItemId == item.groceryItemId }) {
+                items[index] = item
+            } else {
+                items.append(item)
+            }
+            browsedWeek = week.replacingGroceryItems(items)
+        }
+    }
+
+    /// Build 87: quick-add a `PlanShoppingItem` to a week's grocery list.
+    /// Targets `weekID` when given (the displayed week — could be a browsed
+    /// non-current week), else the current week. The new row is appended to
+    /// the matching local slot optimistically; the Reminders sync (which
+    /// mirrors the current week only) re-runs just for the current week.
     @discardableResult
-    func quickAddPlanItem(_ planItem: PlanShoppingItem, storeLabel: String = "") async -> GroceryItem? {
-        guard hasSavedConnection, let weekID = currentWeek?.weekId else { return nil }
+    func quickAddPlanItem(
+        _ planItem: PlanShoppingItem,
+        weekID: String? = nil,
+        storeLabel: String = ""
+    ) async -> GroceryItem? {
+        let targetWeekID = weekID ?? currentWeek?.weekId
+        guard hasSavedConnection, let targetWeekID else { return nil }
         let body = SimmerSmithAPIClient.GroceryItemQuickAddBody(
             name: planItem.ingredientName,
             normalizedName: planItem.normalizedName,
@@ -148,10 +173,14 @@ extension AppState {
             storeLabel: storeLabel
         )
         do {
-            let item = try await apiClient.quickAddGroceryItem(weekID: weekID, body: body)
-            insertGroceryItemInCurrentWeek(item)
-            if item.isChecked { checkedGroceryItemIDs.insert(item.groceryItemId) }
-            await syncGroceryToReminders()
+            let item = try await apiClient.quickAddGroceryItem(weekID: targetWeekID, body: body)
+            insertGroceryItemInWeek(item, weekID: targetWeekID)
+            // checkedGroceryItemIDs + the Reminders mirror are current-week
+            // scoped — only touch them when the add targeted the current week.
+            if currentWeek?.weekId == targetWeekID {
+                if item.isChecked { checkedGroceryItemIDs.insert(item.groceryItemId) }
+                await syncGroceryToReminders()
+            }
             return item
         } catch {
             lastErrorMessage = error.localizedDescription

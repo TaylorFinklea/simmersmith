@@ -247,28 +247,6 @@ struct SettingsView: View {
                 SmithSectionHeader("templates")
             }
 
-            Section {
-                NavigationLink {
-                    StoreSelectionView()
-                } label: {
-                    HStack {
-                        Label("Preferred Store", systemImage: "cart")
-                        Spacer()
-                        if let storeName = appState.profile?.settings["kroger_store_name"], !storeName.isEmpty {
-                            Text(storeName)
-                                .font(SMFont.caption)
-                                .foregroundStyle(SMColor.textSecondary)
-                                .lineLimit(1)
-                        } else {
-                            Text("Not set")
-                                .font(SMFont.caption)
-                                .foregroundStyle(SMColor.textTertiary)
-                        }
-                    }
-                }
-            } header: {
-                SmithSectionHeader("grocery")
-            }
 
             Section {
                 @Bindable var bindable = appState

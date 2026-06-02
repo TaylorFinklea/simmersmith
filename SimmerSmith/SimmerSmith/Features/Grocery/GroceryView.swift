@@ -93,8 +93,6 @@ struct GroceryView: View {
                             }
                         }
 
-                        fetchPricesRow(week: week)
-
                         // Build 92 — Hide-completed filter. Shown
                         // only when there's at least one checked
                         // item so it doesn't add chrome on an
