@@ -77,12 +77,14 @@ def _take_quantity(parts: list[str]) -> tuple[float | None, int]:
         try:
             value = float(int(head)) + float(Fraction(parts[1]))
             return value, 2
-        except ValueError:
+        except (ValueError, ZeroDivisionError):
+            # ZeroDivisionError for an "N/0" token — the regex matches it
+            # but Fraction rejects it; honor the never-raises contract.
             return None, 0
     if _FRACTION_RE.match(head):
         try:
             return float(Fraction(head)), 1
-        except ValueError:
+        except (ValueError, ZeroDivisionError):
             return None, 0
     try:
         return float(head), 1

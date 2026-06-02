@@ -82,17 +82,31 @@ def split(
     ):
         return greedy
 
+    # The greedy pass (every store allowed) fulfils the maximum possible
+    # number of items, so its unassigned count is the floor. Any restricted
+    # combo that strands MORE items than that is dropping items we could
+    # have bought — and because `total` only sums *assigned* prices, such a
+    # combo looks deceptively cheap. Reject those so we don't pick a "cheap"
+    # split that silently leaves items unbought.
+    min_unassigned = len(greedy.unassigned_indices)
+
     # Try every k-store combination up to max_stops; pick lowest cost
-    # including the stop penalty.
+    # (assigned total + stop penalty) among combos that fulfil as much as
+    # greedy did and clear every store's minimum.
     best: StoreSplit | None = None
+    best_cost = 0.0
     for k in range(1, max_stops + 1):
         for combo in combinations(available_stores, k):
             attempt = _restricted_assignment(candidates_by_item, set(combo))
+            if len(attempt.unassigned_indices) > min_unassigned:
+                continue
             if not _meets_minimums(attempt, minimums):
                 continue
             penalty = stop_penalty * len({a.store for a in attempt.assignments})
-            if best is None or (attempt.total + penalty) < (best.total + stop_penalty * len({a.store for a in best.assignments})):
+            cost = attempt.total + penalty
+            if best is None or cost < best_cost:
                 best = attempt
+                best_cost = cost
 
     if best is None:
         # No combination meets minimums — return the greedy pass and

@@ -29,6 +29,20 @@ class SplitterSmoke(unittest.TestCase):
         # combination meets minimums).
         self.assertEqual(len(result.assignments), 2)
 
+    def test_does_not_pick_a_cheaper_incomplete_split(self):
+        # greedy uses 3 stores (> max_stops=2), forcing the combination
+        # search. A 1-store {aldi} combo would strand items 0 and 2 yet
+        # look cheap (total counts only assigned items). The fix must keep
+        # the complete 2-store split instead of dropping items.
+        items = [
+            [Candidate("walmart", 8, True)],                       # only walmart
+            [Candidate("aldi", 3, True)],                          # only aldi
+            [Candidate("sams_club", 2, True), Candidate("walmart", 10, True)],
+        ]
+        result = split(items, minimums={}, max_stops=2, stop_penalty=5.0)
+        self.assertEqual(result.unassigned_indices, [])
+        self.assertEqual(len(result.assignments), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

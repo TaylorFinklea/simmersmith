@@ -68,6 +68,10 @@ def _read_with_pyxa(list_name: str) -> list[tuple[str, bool]]:
         for reminder in target.reminders():
             rows.append((str(reminder.name), bool(reminder.completed)))
         return rows
+    except RemindersAccessError:
+        # A specific, already-helpful error (e.g. list-not-found) — don't
+        # let the broad handler below mask it as a permission problem.
+        raise
     except Exception as exc:
         # Permission denial surfaces as an AEKit error here — bubble up
         # with a helpful message rather than the raw PyXA stack.
@@ -79,12 +83,16 @@ def _read_with_pyxa(list_name: str) -> list[tuple[str, bool]]:
 
 
 def _read_with_osascript(list_name: str) -> list[tuple[str, bool]]:
+    # Emit one reminder per line as "name<TAB>completed". A tab or linefeed
+    # can't appear in a single-line Reminders title, so this is unambiguous
+    # even when a name contains ", " — which the previous comma-split shape
+    # silently desynced into corrupted (name, completed) pairs.
     script = (
         'tell application "Reminders"\n'
         f'    set targetList to first list whose name is "{_escape(list_name)}"\n'
-        '    set out to {}\n'
+        '    set out to ""\n'
         '    repeat with r in (reminders of targetList)\n'
-        '        set end of out to {name of r, completed of r}\n'
+        '        set out to out & (name of r) & tab & (completed of r as text) & linefeed\n'
         '    end repeat\n'
         '    return out\n'
         'end tell\n'
@@ -111,25 +119,19 @@ def _read_with_osascript(list_name: str) -> list[tuple[str, bool]]:
 
 
 def _parse_osascript_output(raw: str) -> Iterable[tuple[str, bool]]:
-    """osascript returns AppleScript records as comma-separated tokens
-    inside braces. We don't try to be a full AppleScript parser — we
-    pair them up: every reminder produces (name, true|false).
+    """Each non-empty line is ``name<TAB>true|false``. Split on the LAST
+    tab so the boolean (always the final field) is isolated even in the
+    pathological case of a tab inside a name.
     """
-    text = raw.strip()
-    if not text:
-        return
-    # Strip the outermost braces.
-    if text.startswith("{") and text.endswith("}"):
-        text = text[1:-1]
-    # Split on ", " which separates the FIELDS, then re-pair.
-    tokens = [tok.strip() for tok in text.split(", ")]
-    if len(tokens) % 2 != 0:
-        log.warning("osascript output had odd token count; trimming last token: %s", tokens[-1])
-        tokens = tokens[:-1]
-    for i in range(0, len(tokens), 2):
-        name = tokens[i].strip()
-        completed_text = tokens[i + 1].strip().lower()
-        yield (name, completed_text == "true")
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        name, sep, completed = line.rpartition("\t")
+        if not sep:
+            # No tab — degenerate line; treat the whole thing as a name.
+            name = line
+            completed = ""
+        yield (name, completed.strip().lower() == "true")
 
 
 def _escape(text: str) -> str:

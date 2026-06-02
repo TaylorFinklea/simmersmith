@@ -41,6 +41,13 @@ class ParserSmoke(unittest.TestCase):
         line = parse("milk", completed=True)
         self.assertTrue(line.completed)
 
+    def test_divide_by_zero_fraction_does_not_raise(self):
+        # "N/0" matches the fraction regex but Fraction rejects it; the
+        # parser must honor its never-raises contract.
+        line = parse("1/0 cups flour")
+        self.assertIsNone(line.quantity)
+        self.assertIn("flour", line.name)
+
 
 if __name__ == "__main__":
     unittest.main()

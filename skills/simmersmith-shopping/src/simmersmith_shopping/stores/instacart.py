@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from .base import ProductCandidate, StoreHandler, locate
 
@@ -98,7 +99,7 @@ class InstacartHandler(StoreHandler):
             return []
         page = context.new_page()
         try:
-            page.goto(f"https://www.instacart.com/store/s?k={line.name}", wait_until="domcontentloaded")
+            page.goto(f"https://www.instacart.com/store/s?k={quote(line.name)}", wait_until="domcontentloaded")
             locate(page, _SELECTORS, "product_card", store=self.slug, where="search results")
             cards = page.query_selector_all(_SELECTORS["product_card"])[:3]
             results: list[ProductCandidate] = []
