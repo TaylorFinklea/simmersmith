@@ -480,7 +480,10 @@ def merge_variation_route(
 def resolve_ingredient_route(
     payload: IngredientResolveRequest,
     session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
+    # Scope any newly-minted base ingredient to the caller's household so an
+    # explicit resolve doesn't write into the shared global catalog (M63).
     return resolve_ingredient(
         session,
         ingredient_name=payload.ingredient_name,
@@ -490,6 +493,7 @@ def resolve_ingredient_route(
         prep=payload.prep,
         category=payload.category,
         notes=payload.notes,
+        household_id=current_user.household_id,
     ).as_payload()
 
 

@@ -127,7 +127,12 @@ def resolution_status_override(ingredient: object) -> str | None:
     return value or None
 
 
-def ingredient_payloads(payload: RecipePayload, session: Session | None = None) -> list[dict[str, object]]:
+def ingredient_payloads(
+    payload: RecipePayload,
+    session: Session | None = None,
+    *,
+    household_id: str | None = None,
+) -> list[dict[str, object]]:
     normalized_ingredients = []
     for ingredient in payload.ingredients:
         if not ingredient.ingredient_name.strip():
@@ -162,7 +167,9 @@ def ingredient_payloads(payload: RecipePayload, session: Session | None = None) 
             canonical_units = sync_items(session, "unit", [unit])
             if canonical_units:
                 ingredient["unit"] = canonical_units[0]
-        normalized_ingredients = resolve_ingredient_payloads(session, normalized_ingredients)
+        normalized_ingredients = resolve_ingredient_payloads(
+            session, normalized_ingredients, household_id=household_id
+        )
     return normalized_ingredients
 
 
@@ -303,7 +310,9 @@ def upsert_recipe(session: Session, payload: RecipePayload, *, user_id: str, hou
 
     session.execute(delete(RecipeIngredient).where(RecipeIngredient.recipe_id == recipe.id))
     session.execute(delete(RecipeStep).where(RecipeStep.recipe_id == recipe.id))
-    for index, ingredient in enumerate(ingredient_payloads(payload, session), start=1):
+    for index, ingredient in enumerate(
+        ingredient_payloads(payload, session, household_id=household_id), start=1
+    ):
         ingredient_id = ingredient["ingredient_id"] or f"{recipe.id}-ingredient-{index}"
         session.add(
             RecipeIngredient(
@@ -407,6 +416,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
                 base_ingredient_id=ingredient.base_ingredient_id,
                 ingredient_variation_id=ingredient.ingredient_variation_id,
                 resolution_status=resolution_status_override(ingredient),
+                household_id=week.household_id,
             )
             session.add(
                 WeekMealIngredient(

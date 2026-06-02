@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentUser, get_current_user
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import AIRun
+from app.models import AIRun, BaseIngredient, IngredientVariation
 from app.services.recipe_image_ai import (
     RecipeImageError,
     generate_recipe_image,
@@ -68,7 +68,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
-def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePayload:
+def _base_visible(session: Session, base_ingredient_id: str | None, household_id: str) -> bool:
+    """A base ingredient is visible to a household if it's a global
+    `approved` row or one the household owns. Mirrors the catalog
+    visibility rule (`_require_visible_base_ingredient`)."""
+    if not base_ingredient_id:
+        return False
+    base = session.get(BaseIngredient, base_ingredient_id)
+    if base is None:
+        return False
+    return base.submission_status == "approved" or base.household_id == household_id
+
+
+def _scope_nutrition_refs(
+    session: Session, ingredient_dicts: list[dict], household_id: str
+) -> list[dict]:
+    """Drop client-supplied base/variation ids the caller can't see before
+    a nutrition lookup, so the estimate can't be used to probe another
+    household's private reference values by id (M8). Falls back to
+    name-based lookup against the global nutrition tables, which is the
+    correct behavior for a ref the caller has no business reading.
+    """
+    for ing in ingredient_dicts:
+        bid = ing.get("base_ingredient_id")
+        if bid and not _base_visible(session, bid, household_id):
+            ing["base_ingredient_id"] = None
+        vid = ing.get("ingredient_variation_id")
+        if vid:
+            variation = session.get(IngredientVariation, vid)
+            base_id = variation.base_ingredient_id if variation is not None else None
+            if not _base_visible(session, base_id, household_id):
+                ing["ingredient_variation_id"] = None
+    return ingredient_dicts
+
+
+def _with_nutrition_summary(
+    session: Session, recipe: RecipePayload, household_id: str
+) -> RecipePayload:
     resolved_ingredients = []
     for ingredient in recipe.ingredients:
         resolved = resolve_ingredient(
@@ -83,27 +119,33 @@ def _with_nutrition_summary(session: Session, recipe: RecipePayload) -> RecipePa
             base_ingredient_id=ingredient.base_ingredient_id,
             ingredient_variation_id=ingredient.ingredient_variation_id,
             resolution_status=resolution_status_override(ingredient),
+            household_id=household_id,
+            # This is a draft/import preview — resolve against existing rows
+            # only; don't mint throwaway catalog rows for a recipe the user
+            # hasn't saved yet (M64). Save re-resolves with persist=True.
+            persist=False,
         )
         resolved_ingredients.append(
             RecipeIngredientPayload.model_validate({"ingredient_id": ingredient.ingredient_id, **resolved.as_payload()})
         )
     recipe.ingredients = resolved_ingredients
+    nutrition_inputs = _scope_nutrition_refs(
+        session,
+        [
+            {
+                "ingredient_name": ingredient.ingredient_name,
+                "normalized_name": ingredient.normalized_name,
+                "base_ingredient_id": ingredient.base_ingredient_id,
+                "ingredient_variation_id": ingredient.ingredient_variation_id,
+                "quantity": ingredient.quantity,
+                "unit": ingredient.unit,
+            }
+            for ingredient in recipe.ingredients
+        ],
+        household_id,
+    )
     recipe.nutrition_summary = NutritionSummaryOut(
-        **calculate_recipe_nutrition(
-            session,
-            [
-                {
-                    "ingredient_name": ingredient.ingredient_name,
-                    "normalized_name": ingredient.normalized_name,
-                    "base_ingredient_id": ingredient.base_ingredient_id,
-                    "ingredient_variation_id": ingredient.ingredient_variation_id,
-                    "quantity": ingredient.quantity,
-                    "unit": ingredient.unit,
-                }
-                for ingredient in recipe.ingredients
-            ],
-            recipe.servings,
-        ).as_payload()
+        **calculate_recipe_nutrition(session, nutrition_inputs, recipe.servings).as_payload()
     )
     return recipe
 
@@ -321,7 +363,7 @@ def import_recipe_route(
         recipe = import_recipe_from_url(payload.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _with_nutrition_summary(session, recipe)
+    return _with_nutrition_summary(session, recipe, current_user.household_id)
 
 
 @router.post("/import-from-html", response_model=RecipePayload)
@@ -342,7 +384,7 @@ def import_recipe_html_route(
         recipe.source_label = payload.source_label
     if payload.source_url:
         recipe.source_url = payload.source_url
-    return _with_nutrition_summary(session, recipe)
+    return _with_nutrition_summary(session, recipe, current_user.household_id)
 
 
 @router.post("/import-from-text", response_model=RecipePayload)
@@ -361,7 +403,7 @@ def import_recipe_text_route(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _with_nutrition_summary(session, recipe)
+    return _with_nutrition_summary(session, recipe, current_user.household_id)
 
 
 class RecipeDraftRefineRequest(BaseModel):
@@ -414,7 +456,7 @@ def recipe_suggestion_draft_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    draft = _with_nutrition_summary(session, draft)
+    draft = _with_nutrition_summary(session, draft, current_user.household_id)
     user_settings = profile_settings_map(session, current_user.id)
     execution_target = resolve_ai_execution_target(settings, user_settings)
     if execution_target is None:
@@ -456,7 +498,7 @@ def recipe_companion_drafts_route(
             option_id=option_id,
             label=label,
             rationale=option_rationale,
-            draft=_with_nutrition_summary(session, draft),
+            draft=_with_nutrition_summary(session, draft, current_user.household_id),
         )
         for option_id, label, option_rationale, draft in draft_options
     ]
@@ -498,7 +540,7 @@ def recipe_variation_draft_route(
 
     base_payload = RecipePayload.model_validate(recipe_payload(session, recipe))
     draft, rationale, resolved_goal = build_variation_draft(base_payload, goal=payload.goal)
-    draft = _with_nutrition_summary(session, draft)
+    draft = _with_nutrition_summary(session, draft, current_user.household_id)
 
     user_settings = profile_settings_map(session, current_user.id)
     execution_target = resolve_ai_execution_target(settings, user_settings)
@@ -682,7 +724,7 @@ def estimate_recipe_nutrition_route(
     session: Session = Depends(get_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, object]:
-    summary = calculate_recipe_nutrition(
+    nutrition_inputs = _scope_nutrition_refs(
         session,
         [
             {
@@ -695,8 +737,9 @@ def estimate_recipe_nutrition_route(
             }
             for ingredient in payload.ingredients
         ],
-        payload.servings,
+        current_user.household_id,
     )
+    summary = calculate_recipe_nutrition(session, nutrition_inputs, payload.servings)
     return summary.as_payload()
 
 

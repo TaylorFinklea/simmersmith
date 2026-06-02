@@ -71,7 +71,21 @@ def resolve_ingredient(
     base_ingredient_id: str | None = None,
     ingredient_variation_id: str | None = None,
     resolution_status: str | None = None,
+    household_id: str | None = None,
+    persist: bool = True,
 ) -> IngredientResolution:
+    """Resolve an ingredient line against the catalog.
+
+    ``household_id``: when set, any *newly minted* base ingredient is scoped
+    private to that household (``submission_status="household_only"``) instead
+    of polluting the shared global ``approved`` tier — a household-driven
+    resolution shouldn't auto-promote unknowns into everyone's master list
+    (M63). Existing global/approved rows are still reused (no fragmentation).
+    ``persist=False``: resolve against existing rows only, never minting —
+    used by draft/import *preview* flows so a throwaway preview doesn't write
+    catalog rows (M64); novel ingredients come back ``unresolved`` and are
+    minted for real on save.
+    """
     cleaned_name = str(ingredient_name).strip()
     normalized = normalize_name(normalized_name or cleaned_name)
     generic_name = cleaned_base_ingredient_name(cleaned_name) or cleaned_name
@@ -80,6 +94,7 @@ def resolve_ingredient(
     cleaned_category = str(category or "").strip()
     cleaned_notes = str(notes or "").strip()
     cleaned_prep = str(prep or "").strip()
+    new_base_status = "household_only" if household_id else "approved"
 
     variation = None
     base = None
@@ -120,7 +135,7 @@ def resolve_ingredient(
             )
             generic_normalized = normalize_name(generic_name) or generic_normalized
             base = _active_base_by_normalized_name(session, generic_normalized)
-            if base is None:
+            if base is None and persist:
                 base = ensure_base_ingredient(
                     session,
                     name=generic_name,
@@ -133,9 +148,11 @@ def resolve_ingredient(
                     nutrition_reference_amount=candidate.nutrition_reference_amount,
                     nutrition_reference_unit=candidate.nutrition_reference_unit,
                     calories=candidate.calories,
+                    household_id=household_id,
+                    submission_status=new_base_status,
                 )
             candidate_variation = _variation_candidate_from_base(candidate)
-            if candidate_variation is not None:
+            if candidate_variation is not None and base is not None and persist:
                 variation = create_or_update_variation(
                     session,
                     base_ingredient_id=base.id,
@@ -169,7 +186,7 @@ def resolve_ingredient(
         nutrition_item = session.scalar(
             select(NutritionItem).where(NutritionItem.normalized_name == generic_normalized)
         )
-        if nutrition_item is not None:
+        if nutrition_item is not None and persist:
             base = ensure_base_ingredient(
                 session,
                 name=nutrition_item.name,
@@ -180,9 +197,11 @@ def resolve_ingredient(
                 nutrition_reference_amount=nutrition_item.reference_amount,
                 nutrition_reference_unit=nutrition_item.reference_unit,
                 calories=nutrition_item.calories,
+                household_id=household_id,
+                submission_status=new_base_status,
             )
 
-    if base is None and generic_normalized:
+    if base is None and generic_normalized and persist:
         base = ensure_base_ingredient(
             session,
             name=generic_name,
@@ -191,6 +210,8 @@ def resolve_ingredient(
             default_unit=cleaned_unit,
             notes=cleaned_notes,
             provisional=True,
+            household_id=household_id,
+            submission_status=new_base_status,
         )
 
     if resolution_status in RESOLUTION_STATUSES:
@@ -223,6 +244,9 @@ def resolve_ingredient(
 def resolve_ingredient_payloads(
     session: Session,
     ingredients: list[dict[str, Any]],
+    *,
+    household_id: str | None = None,
+    persist: bool = True,
 ) -> list[dict[str, object]]:
     return [
         {
@@ -240,6 +264,8 @@ def resolve_ingredient_payloads(
                 ingredient_variation_id=str(ingredient.get("ingredient_variation_id") or "")
                 or None,
                 resolution_status=str(ingredient.get("resolution_status") or "") or None,
+                household_id=household_id,
+                persist=persist,
             ).as_payload(),
         }
         for ingredient in ingredients
@@ -295,6 +321,7 @@ def reresolve_unresolved_for_household(
                 unit=ing.unit,
                 category=ing.category,
                 notes=ing.notes,
+                household_id=household_id,
             )
             ing.base_ingredient_id = resolved.base_ingredient_id
             ing.ingredient_variation_id = resolved.ingredient_variation_id
@@ -328,6 +355,7 @@ def reresolve_unresolved_for_household(
                 unit=ing.unit,
                 category=ing.category,
                 notes=ing.notes,
+                household_id=household_id,
             )
             ing.base_ingredient_id = resolved.base_ingredient_id
             ing.ingredient_variation_id = resolved.ingredient_variation_id
@@ -353,6 +381,7 @@ def reresolve_unresolved_for_household(
                 unit=row.unit,
                 category=row.category,
                 notes=row.notes,
+                household_id=household_id,
             )
             row.base_ingredient_id = resolved.base_ingredient_id
             row.ingredient_variation_id = resolved.ingredient_variation_id

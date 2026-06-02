@@ -91,7 +91,11 @@ def ingredients_resolve(
             category=category,
             notes=notes,
         )
-        return _call_route(lambda: resolve_ingredient_route(payload, session=session))
+        return _call_route(
+            lambda: resolve_ingredient_route(
+                payload, session=session, current_user=_current_user(session)
+            )
+        )
 
 
 @mcp.tool(description="List ingredient variations for a base ingredient.")
