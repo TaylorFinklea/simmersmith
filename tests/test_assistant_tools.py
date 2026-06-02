@@ -56,7 +56,6 @@ def test_registry_exposes_expected_tools() -> None:
         "remove_meal",
         "set_meal_approved",
         "rebalance_day",
-        "fetch_pricing",
         "set_dietary_goal",
         # M26 Phase 5: dry-run confirm flow.
         "confirm_swap_meal",

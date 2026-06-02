@@ -96,10 +96,6 @@ class Settings(BaseSettings):
     # default to openai.
     ai_recipe_search_provider: str = "openai"
 
-    # Kroger API (grocery pricing)
-    kroger_client_id: str = ""
-    kroger_client_secret: str = ""
-
     # Temporary "Pro for everyone" promo. When true, `is_pro()` returns
     # True for all users regardless of their Subscription row, and the
     # /api/profile response flags `is_trial: true` so the iOS client can

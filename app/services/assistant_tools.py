@@ -26,7 +26,6 @@ from app.services.ai import profile_settings_map
 from app.services.drafts import apply_ai_draft, update_week_meals
 from app.services.entitlements import (
     ACTION_AI_GENERATE,
-    ACTION_PRICING_FETCH,
     ACTION_REBALANCE_DAY,
     ensure_action_allowed,
     increment_usage,
@@ -584,38 +583,6 @@ def _run_rebalance_day(
     )
 
 
-def _run_fetch_pricing(
-    *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
-) -> AssistantToolResult:
-    from app.services.pricing import fetch_kroger_pricing
-
-    if week is None:
-        return AssistantToolResult(ok=False, detail="No active week.")
-    location_id = str(args.get("location_id") or "").strip()
-    if not location_id:
-        user_settings = profile_settings_map(session, user_id)
-        location_id = str(user_settings.get("kroger_location_id") or "").strip()
-    if not location_id:
-        return AssistantToolResult(
-            ok=False,
-            detail="No store selected. Ask the user to pick a Kroger store first.",
-        )
-    if week.status not in {"approved", "priced"}:
-        return AssistantToolResult(
-            ok=False,
-            detail="Approve the week before fetching prices.",
-        )
-    try:
-        fetch_kroger_pricing(session, week, settings, location_id)
-    except ValueError as exc:
-        return AssistantToolResult(ok=False, detail=str(exc))
-    except RuntimeError as exc:
-        return AssistantToolResult(ok=False, detail=f"Pricing lookup failed: {exc}")
-    session.flush()
-    payload = _week_payload_dict(session, household_id, week.id) or {}
-    return AssistantToolResult(ok=True, detail="Fetched Kroger prices for the week.", week=payload)
-
-
 def _run_set_dietary_goal(
     *, session: Session, user_id: str, household_id: str, week: Week | None, args: dict, settings: Settings
 ) -> AssistantToolResult:
@@ -823,20 +790,6 @@ REGISTRY: dict[str, AssistantTool] = {
         mutates_week=True,
         gated_action=ACTION_REBALANCE_DAY,
         runner=_run_rebalance_day,
-    ),
-    "fetch_pricing": AssistantTool(
-        name="fetch_pricing",
-        description="Fetch live Kroger prices for the week's grocery list. Week must be approved.",
-        parameters_schema={
-            "type": "object",
-            "properties": {
-                "location_id": {"type": "string", "description": "Kroger store locationId."},
-            },
-            "additionalProperties": False,
-        },
-        mutates_week=True,
-        gated_action=ACTION_PRICING_FETCH,
-        runner=_run_fetch_pricing,
     ),
     "set_dietary_goal": AssistantTool(
         name="set_dietary_goal",
