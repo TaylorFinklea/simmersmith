@@ -326,7 +326,6 @@ struct SettingsView: View {
                     }
                 } else {
                     let aiUsage = appState.usage(for: "ai_generate")
-                    let priceUsage = appState.usage(for: "pricing_fetch")
                     VStack(alignment: .leading, spacing: SMSpacing.xs) {
                         HStack {
                             Label("Free tier", systemImage: "circle.dotted")
@@ -334,11 +333,6 @@ struct SettingsView: View {
                         }
                         if let aiUsage {
                             Text("AI generations: \(aiUsage.used) of \(aiUsage.limit) this month")
-                                .font(SMFont.caption)
-                                .foregroundStyle(SMColor.textSecondary)
-                        }
-                        if let priceUsage {
-                            Text("Kroger fetches: \(priceUsage.used) of \(priceUsage.limit) this month")
                                 .font(SMFont.caption)
                                 .foregroundStyle(SMColor.textSecondary)
                         }

@@ -210,7 +210,6 @@ extension AppState {
     var knownStoreOptions: [String] {
         var set = Set<String>()
         let candidates = [
-            profile?.settings["kroger_store_name"],
             profile?.settings["aldi_store_name"],
             profile?.settings["walmart_store_name"],
         ]

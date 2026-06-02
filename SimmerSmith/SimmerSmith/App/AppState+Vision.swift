@@ -10,11 +10,6 @@ extension AppState {
         try await apiClient.identifyIngredient(imageData: imageData, mimeType: "image/jpeg")
     }
 
-    /// Reverse-lookup a Kroger product by UPC at the user's currently
-    /// selected store. The caller is responsible for surfacing the
-    /// "no store selected" state — the route 503s without a configured
-    /// location, but we want a friendlier error before the request leaves
-    /// the device.
     /// Check whether a mid-cook photo looks on track for a given recipe step.
     /// `stepNumber` is the index into `recipe.steps`.
     func cookCheck(
@@ -30,22 +25,4 @@ extension AppState {
         )
     }
 
-    func lookupProductByUPC(_ upc: String) async throws -> ProductLookup {
-        let locationID = profile?.settings["kroger_location_id"] ?? ""
-        guard !locationID.isEmpty else {
-            throw VisionError.noStoreSelected
-        }
-        return try await apiClient.lookupProductByUPC(upc: upc, locationID: locationID)
-    }
-}
-
-enum VisionError: LocalizedError {
-    case noStoreSelected
-
-    var errorDescription: String? {
-        switch self {
-        case .noStoreSelected:
-            return "Pick a Kroger store in Settings before scanning."
-        }
-    }
 }

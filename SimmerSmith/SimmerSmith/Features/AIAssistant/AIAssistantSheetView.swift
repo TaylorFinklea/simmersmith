@@ -147,7 +147,7 @@ struct AIAssistantSheetView: View {
         case "recipes":
             return "Try \"find me a 30-minute dinner\" or \"what should I cook with chicken?\""
         case "grocery":
-            return "Try \"fetch Kroger prices\" or \"what else do I need for Tuesday?\""
+            return "Try \"what else do I need for Tuesday?\" or \"what can I skip?\""
         default:
             return "I can plan your week, swap meals, rebalance macros, and more."
         }
@@ -207,7 +207,7 @@ struct AIAssistantSheetView: View {
         case "recipes":
             return ["Find me a quick weeknight dinner", "What should I cook with salmon?"]
         case "grocery":
-            return ["Fetch Kroger prices", "What can I skip?"]
+            return ["What else do I need this week?", "What can I skip?"]
         default:
             return []
         }

@@ -149,10 +149,6 @@ private struct TokenExchangeBody: Encodable {
     let identityToken: String
 }
 
-private struct FetchPricingBody: Encodable {
-    let locationId: String
-}
-
 private struct AssistantThreadCreateBody: Encodable {
     let title: String
     let threadKind: String
@@ -1876,21 +1872,6 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         )
     }
 
-    public func lookupProductByUPC(
-        upc: String,
-        locationID: String
-    ) async throws -> ProductLookup {
-        struct Body: Encodable {
-            let upc: String
-            let locationId: String
-        }
-        return try await request(
-            path: "/api/products/lookup-upc",
-            method: "POST",
-            body: Body(upc: upc, locationId: locationID)
-        )
-    }
-
     // MARK: - Event Plans (M10)
 
     public func fetchGuests(includeInactive: Bool = false) async throws -> [Guest] {
@@ -2230,29 +2211,6 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     public func submitFeedback(weekID: String, entries: [FeedbackEntryRequest]) async throws -> WeekFeedbackResponse {
         try await request(path: "/api/weeks/\(weekID)/feedback", method: "POST", body: entries)
-    }
-
-    // MARK: - Stores & Pricing
-
-    public func searchStores(zipCode: String, radius: Int = 10) async throws -> [StoreLocation] {
-        // Percent-encode the free-text zip — a trailing space or a non-US
-        // postal code (e.g. "SW1A 1AA") would otherwise make URL(string:)
-        // return nil and throw a misleading missingServerURL (M48). Mirrors
-        // searchNutritionItems / fetchBaseIngredients.
-        let encodedZip = zipCode.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return try await request(path: "/api/stores/search?zip_code=\(encodedZip)&radius=\(radius)")
-    }
-
-    public func fetchPricing(weekID: String, locationID: String? = nil) async throws -> PricingResponse {
-        try await request(
-            path: "/api/weeks/\(weekID)/pricing/fetch",
-            method: "POST",
-            body: FetchPricingBody(locationId: locationID ?? "")
-        )
-    }
-
-    public func getPricing(weekID: String) async throws -> PricingResponse {
-        try await request(path: "/api/weeks/\(weekID)/pricing")
     }
 
     private func request<T: Decodable>(

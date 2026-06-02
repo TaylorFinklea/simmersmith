@@ -41,7 +41,6 @@
 		3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E66D6C949E92294D4B03EC /* PantryView.swift */; };
 		40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */; };
 		43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */; };
-		43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */; };
 		446A8B1231ACE6510EE1259D /* RecipeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */; };
 		44A436E4F3FBF7F5C991C4BA /* AppState+AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16263AD59B5D2F17D3561E4A /* AppState+AI.swift */; };
 		44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */; };
@@ -125,7 +124,6 @@
 		D16E49B2302C027341160A24 /* CookingTimerChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EDBF32F733FB6791D90373 /* CookingTimerChip.swift */; };
 		D298ADE57806E2F422C8D006 /* Spectral-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = DC228E5F386CA12839147F04 /* Spectral-Italic.ttf */; };
 		D55FE20E6A5756B8301F2270 /* HouseholdAliasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC21B409CD23A4D526A595F7 /* HouseholdAliasesView.swift */; };
-		D5F78BDD8F28302565886C23 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */; };
 		D6D665599BB2121248AC3271 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF738967CD3644971E26635 /* SignInView.swift */; };
 		D6F565FBCB27395CEBE63D72 /* RemindersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD4B0B2B48797EDA3DA4907 /* RemindersService.swift */; };
 		DAED83023940D89C80BFD1B6 /* Caveat-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 289B584B688BF106322CF223 /* Caveat-Variable.ttf */; };
@@ -238,7 +236,6 @@
 		6DF738967CD3644971E26635 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		6ECB22E673210C0A5DD08ADF /* DayKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayKey.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
-		726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreSelectionView.swift; sourceTree = "<group>"; };
 		7387FA57FB78ACD7148F204D /* AppState+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Events.swift"; sourceTree = "<group>"; };
 		73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenStepService.swift; sourceTree = "<group>"; };
 		74BEFEA67BE67E9376250739 /* RecipeMemoriesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeMemoriesSection.swift; sourceTree = "<group>"; };
@@ -282,7 +279,6 @@
 		ABA391135FC54F682B62E86F /* InvitationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationSheet.swift; sourceTree = "<group>"; };
 		AFD40679A0A648A290B348CF /* MealIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealIcon.swift; sourceTree = "<group>"; };
 		B11211BF532BA99470BA0A30 /* IngredientLinkPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientLinkPickerSheet.swift; sourceTree = "<group>"; };
-		B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
 		B3AE2B7D371803789AF07846 /* RecipeListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeListRow.swift; sourceTree = "<group>"; };
 		B7332396128AF5CD988A1821 /* CompactRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactRecipeCard.swift; sourceTree = "<group>"; };
 		BC21B409CD23A4D526A595F7 /* HouseholdAliasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdAliasesView.swift; sourceTree = "<group>"; };
@@ -385,7 +381,6 @@
 		21EBD5C0DBC902F0BD90AF13 /* Vision */ = {
 			isa = PBXGroup;
 			children = (
-				B1FAC97E2295A441869E9EC8 /* BarcodeScannerView.swift */,
 				A33E0F18FC2CE75CD7A8B98A /* CookCheckView.swift */,
 				7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */,
 			);
@@ -587,7 +582,6 @@
 				ABA391135FC54F682B62E86F /* InvitationSheet.swift */,
 				4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */,
 				6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */,
-				726F9734B5CD3D5C57AEE89F /* StoreSelectionView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -891,7 +885,6 @@
 				5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */,
 				923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */,
 				7A1708334327AE594FDE7313 /* BackgroundSyncService.swift in Sources */,
-				D5F78BDD8F28302565886C23 /* BarcodeScannerView.swift in Sources */,
 				27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */,
 				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */,
@@ -983,7 +976,6 @@
 				2E1B9FFB5BEA40BB24E62408 /* SmithToolbar.swift in Sources */,
 				FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */,
 				C90B01FDC95A67D89BCF39D0 /* StoreChip.swift in Sources */,
-				43FBCCC67631F279A80CD663 /* StoreSelectionView.swift in Sources */,
 				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
 				FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */,
 				6C57EBF2A02821F1F660DD1E /* TabPrimaryFAB.swift in Sources */,
@@ -1038,7 +1030,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 104;
+				CURRENT_PROJECT_VERSION = 106;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1154,7 +1146,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 104;
+				CURRENT_PROJECT_VERSION = 106;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

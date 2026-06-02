@@ -102,7 +102,6 @@ struct PaywallSheet: View {
     private var featureList: some View {
         VStack(alignment: .leading, spacing: SMSpacing.sm) {
             featureRow(systemImage: "sparkles", text: "Unlimited AI week plans")
-            featureRow(systemImage: "cart.fill", text: "Real Kroger prices, on demand")
             featureRow(systemImage: "wand.and.stars", text: "Rebalance any day to hit your macros")
             featureRow(systemImage: "book.closed", text: "Unlimited recipe imports")
         }
