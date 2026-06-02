@@ -177,15 +177,21 @@ critical/high already fixed (commits `21072f4..5e31ef7`). Remaining:
 - [x] **Medium/low pass — Batches A–H (~71 findings) — DONE `0e34ab3..d7ae052`** (2026-05-30 pm). Backend 510 passed/1 skipped, ruff clean; SimmerSmithKit `swift build` clean; iOS app-target changes flagged needs-build. Per-batch breakdown in `current-state.md`. New migration 0046 (`uq_household_members_user`). Remaining deferred items below.
 - [ ] **Re-run the sweep over `skills/simmersmith-shopping/`** — the cart-automation finder hung and that subsystem was never reviewed.
 
-### Deferred sweep findings (need dedicated focused passes)
+### Deferred sweep findings — ALL CLEARED 2026-06-02 (`c7f9178..54f0fc7`)
 
-- [ ] **M63 — `resolve_ingredient` provisional-row pollution (med).** Scope: the MCP `ingredients_resolve` tool commits provisional household catalog rows scoped to the wrong/absent household. Files: `app/services/ingredient_catalog/variation.py` (`ensure_base_ingredient`/`resolve_ingredient`), MCP `ingredients_resolve`. Note: REST path doesn't commit (no bug there); keep `household_id` optional (default None) to preserve the 5 internal callers (`recipes.py:74`, `drafts.py:384`, `__init__.py` backfills). Acceptance: MCP resolve persists rows under the caller's household only. Verify: `pytest tests/test_mcp_tools.py`. Tier: Opus to scope.
-- [ ] **M62 — ingredient-list COUNT N+1 (med, perf).** Scope: `search.py:191-219` runs 4 scalar COUNTs per row; `ingredients.py:183-196` maps `_base_payload` over up to 200 rows. Batch the counts. MUST preserve exact count field names/values (`or 0` zero-fill). Verify: existing ingredient-list tests stay green + a row-count assertion. Tier: Sonnet.
-- [ ] **M8 — nutrition-catalog reference-value leak (low).** Scope: `POST /api/recipes/nutrition/estimate` (`recipes.py:685`) + recompute (`recipes.py:92`) return scaled calorie/macro values from base ingredients without household scoping. Mirror `_require_visible_base_ingredient` (`ingredients.py:72-88`); `IngredientVariation` visibility derives from its base — do NOT add a column. Tier: Sonnet/Opus.
-- [ ] **M37 — Kroger per-item blocking pricing (med, availability).** Scope: holds a threadpool worker + DB conn for minutes. Add item-cap + per-call timeout + overall wall-clock budget (config-tunable). NOT multi-term batching (wrong for Kroger's API). Not live (no Kroger creds). Tier: Sonnet.
-- [ ] **M64 — draft-preview routes persist provisional catalog rows (low).** Scope: companion/suggestion/variation draft routes commit `resolve_ingredient` side-effects. Scope the fix to the preview routes ONLY — real-save persistence (`drafts.py upsert_recipe`) is intentional. Tier: Sonnet.
-- [ ] **M66 — SSO `nonce` not sent/verified (low, OIDC conformance).** Scope: add nonce to authorize URL + verify it in the id_token. `verify_state` return-shape change ripples to `oauth.py:532` + `test_sso.py:144`. Send-nonce step MUST land before require-nonce or Apple sign-in breaks (Apple only echoes nonce if present in the request). Tier: Opus.
-- [ ] **M40 — iOS PlanShoppingSheet cross-week quick-add (low).** Scope: while browsing a non-current week, the "plan shopping" pill reads `appState.currentWeek` and quick-adds to the current week. Fix threads a `weekID` through `WeekView` → `GroceryView` → `PlanShoppingSheet` → `AppState.quickAddPlanItem` with slot-routing (mirror `applyAssistantWeekUpdate`) + changes the sheet's `justAddedItems:[String]` to hold `[GroceryItem]`. Plan detail in the sweep scoping output. Acceptance: quick-add on a browsed week targets that week. Verify: iOS build + manual repro. Tier: Opus — multi-file view change, needs build+test.
+Product decisions taken: AI/MCP-resolved ingredients are **household-private**
+(not global approved); **Kroger pricing dropped** (not hardened). iOS build +
+backend suite + live smoke all green.
+
+- [x] **M63 — resolve provisional-row pollution → household-private** `725baf0`. resolve_ingredient gained `household_id`; threaded through MCP resolve, REST resolve, recipe save, AI drafts, reresolve. Existing approved rows reused.
+- [x] **M62 — ingredient COUNT N+1 → batched** `c7f9178` (`ingredient_counts_bulk`, 4 GROUP BYs).
+- [x] **M8 — nutrition estimate cross-household ref → nulled** `725baf0` (`_scope_nutrition_refs`).
+- [x] **M37 — Kroger dropped** `54eb4b1` (backend) + `54f0fc7` (iOS). See current-state for what was removed vs kept.
+- [x] **M64 — draft previews no longer persist** `725baf0` (resolve `persist=False`).
+- [x] **M66 — SSO nonce** `c7f9178`.
+- [x] **M40 — iOS plan-shopping week routing** `54f0fc7` (built clean).
+
+- [ ] **iOS Kroger dead-code cleanup (needs-build).** Entry points are gone; delete the now-unreachable `StoreSelectionView`, `GroceryView.fetchPricesRow/fetchPrices`, the barcode-scanner UPC lookup (`AppState+Vision.lookupProductByUPC` + `BarcodeScannerView`), and the dead `searchStores`/`fetchPricing`/`lookupProductByUPC` API-client methods + `StoreLocation`/`PricingResponse` models. Verify: `xcodebuild ... build`. Tier: Sonnet — multi-file but mechanical, needs an Xcode build.
 
 ## Infrastructure (complete)
 

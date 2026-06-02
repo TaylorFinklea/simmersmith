@@ -6,7 +6,23 @@
 
 `main`
 
-## Last session (2026-05-30 pm) — medium/low sweep findings (Batches A–H)
+## Last session (2026-06-02) — cleared the 7 deferred sweep findings + e2e
+
+Burned through the 7 previously-deferred findings (product decisions taken via
+AskUserQuestion), then verified end-to-end. Commits `c7f9178..54f0fc7`.
+
+**Done + verified:**
+- **M62** `c7f9178` — ingredient-list COUNT N+1 → one GROUP BY per source (`ingredient_counts_bulk`).
+- **M66** `c7f9178` — SSO OIDC nonce: minted in state JWT, sent in authorize URL, required in id_token echo (legacy state degrades, doesn't break).
+- **M8/M63/M64** `725baf0` — **product decision: AI/MCP-resolved ingredients are now household-private** (`household_only`), not global `approved`; existing approved rows still reused. Draft/import previews resolve `persist=False` (no throwaway rows). Nutrition estimate nulls cross-household private refs. New `tests/test_catalog_scoping.py`.
+- **M37** `54eb4b1` (backend) + `54f0fc7` (iOS) — **product decision: drop Kroger.** Deleted `kroger.py`, `stores.py`, `products.py`, `fetch_kroger_pricing` + `/pricing/fetch`, the assistant `fetch_pricing` tool, config keys, Kroger tests. Kept generic manual-pricing (import route, RetailerPrice/PricingRun, MCP pricing tools) + `ACTION_PRICING_FETCH` (now unincremented, avoids profile/test churn). iOS: removed the Settings "Preferred Store" link + GroceryView "Fetch Kroger prices" row (rest self-hides since `kroger_location_id` is now unsettable).
+- **M40** `54f0fc7` (iOS) — plan-shopping threads the displayed week through PlanShoppingSheet → `quickAddPlanItem` with slot routing (`insertGroceryItemInWeek`).
+
+**E2E (2026-06-02):** iOS **BUILD SUCCEEDED** (Xcode 26, sim) — all iOS changes compile. Backend suite 500/1-skip. Live smoke (local uvicorn :8080, token `devtoken`, trial mode): M62 counts ✅, M63 resolve ✅, M8 estimate ✅, M37 routes 404 ✅ / import route kept ✅. Simulator UI smoke handed to user (connect via "Use a self-hosted server").
+
+**iOS Kroger dead-code cleanup (follow-up, needs-build):** the entry points are gone but `StoreSelectionView`, `GroceryView.fetchPricesRow`, the barcode-scanner UPC lookup, and the dead `searchStores`/`fetchPricing`/`lookupProductByUPC` API methods + Store models remain unreachable-but-present. Delete in a dedicated build-capable pass. (Supersedes the earlier-committed M48 searchStores percent-encode — that function is now dead.)
+
+## Earlier session (2026-05-30 pm) — medium/low sweep findings (Batches A–H)
 
 Implemented the ~71 medium/low findings from the 2026-05-30 sweep, grouped
 into 8 themed commits `0e34ab3..d7ae052`. Verify-before-implement throughout
