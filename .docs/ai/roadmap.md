@@ -175,7 +175,7 @@ critical/high already fixed (commits `21072f4..5e31ef7`). Remaining:
 - [x] **F16/F17/F29 — iOS — FIXED `df67196`** (clearLocalCache resets leaked fields; meal feedback routes by displayed week; PushService.reset on sign-out). **⚠️ Swift — needs an iOS build smoke-test (sign-out/switch-account, rate a browsed week's meal) before release.**
 - [x] **Medium security pass:** `jwt_secret` strength warning + SSO state aud/iss — FIXED `21b191e`; ingredient-detail/variations IDOR read — FIXED `6a52c1c`. Closed as NOT-real: session-JWT alg pinning (PyJWT pins it; symmetric secret) and whitespace-token free-tier bypass (open-mode == open-auth, same expression).
 - [x] **Medium/low pass — Batches A–H (~71 findings) — DONE `0e34ab3..d7ae052`** (2026-05-30 pm). Backend 510 passed/1 skipped, ruff clean; SimmerSmithKit `swift build` clean; iOS app-target changes flagged needs-build. Per-batch breakdown in `current-state.md`. New migration 0046 (`uq_household_members_user`). Remaining deferred items below.
-- [ ] **Re-run the sweep over `skills/simmersmith-shopping/`** — the cart-automation finder hung and that subsystem was never reviewed.
+- [x] **Re-swept `skills/simmersmith-shopping/`** — 2026-06-02 (`98376b9`). Fixed 5 bugs (splitter dropping items, osascript comma desync, PyXA list-not-found masked, parser ZeroDivisionError, store-driver unencoded search URLs). 13 tests pass.
 
 ### Deferred sweep findings — ALL CLEARED 2026-06-02 (`c7f9178..54f0fc7`)
 
@@ -191,7 +191,7 @@ backend suite + live smoke all green.
 - [x] **M66 — SSO nonce** `c7f9178`.
 - [x] **M40 — iOS plan-shopping week routing** `54f0fc7` (built clean).
 
-- [ ] **iOS Kroger dead-code cleanup (needs-build).** Entry points are gone; delete the now-unreachable `StoreSelectionView`, `GroceryView.fetchPricesRow/fetchPrices`, the barcode-scanner UPC lookup (`AppState+Vision.lookupProductByUPC` + `BarcodeScannerView`), and the dead `searchStores`/`fetchPricing`/`lookupProductByUPC` API-client methods + `StoreLocation`/`PricingResponse` models. Verify: `xcodebuild ... build`. Tier: Sonnet — multi-file but mechanical, needs an Xcode build.
+- [x] **iOS Kroger dead-code cleanup — DONE** 2026-06-02 (`369d2e9`). Deleted StoreSelectionView, BarcodeScannerView, GroceryView fetch-prices code, AppState.lookupProductByUPC, the dead Kit API methods + models, and stale Kroger UI (paywall bullet, assistant suggestions, Settings usage row). Kept the generic price display. `xcodebuild` clean; shipped in build 106.
 
 ## Infrastructure (complete)
 

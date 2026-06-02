@@ -6,7 +6,20 @@
 
 `main`
 
-## Last session (2026-06-02) — cleared the 7 deferred sweep findings + e2e
+## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
+
+Pushed the whole bug sweep (39 commits) to `origin/main`, then shipped it.
+
+- **Backend deployed to Fly** (`fly deploy`, app version 115). Migrations 0043–0046 applied. **Smoke-tested prod**: health 200, **MCP connector serving** (POST /mcp → 401 OAuth gate, NOT 500 — F11 stateless transport works in prod), RFC 8414/9728 metadata 200, dropped Kroger routes (`/stores/search`, `/products/lookup-upc`) 404. ⚠️ **One thing still on you: reconnect the Claude.ai MCP connector once** to confirm the full OAuth round-trip (server-side is confirmed healthy).
+- **iOS Kroger dead-code cleanup** `369d2e9` — deleted StoreSelectionView, BarcodeScannerView, GroceryView fetch-prices code, AppState.lookupProductByUPC, dead Kit methods/models, and stale Kroger UI. Kept the generic price display. `swift build` + `xcodebuild` clean.
+- **iOS build 106 → TestFlight** `bsuual4o7` — archived + uploaded ("Upload succeeded"). project.yml bumped 105→106 (`369d2e9`).
+- **Re-swept `skills/simmersmith-shopping/`** `98376b9` — fixed 5 bugs (splitter dropping items, osascript comma desync, PyXA list-not-found masked, parser ZeroDivisionError, store-driver unencoded URLs). 13 tests pass (was 8).
+
+Commits this session: `369d2e9`, `98376b9` + docs (the 39 sweep commits `08dcdb6..67af999` were pushed at the start).
+
+**Deferred (still open):** M5 monetization activation (App Store Connect product config + flip `trial_mode_enabled` off — F22 IAP now hardened, but still set `SIMMERSMITH_APPLE_IAP_APP_APPLE_ID` + iOS `appAccountToken` first). Not done per your call.
+
+## Earlier 2026-06-02 — cleared the 7 deferred sweep findings + e2e
 
 Burned through the 7 previously-deferred findings (product decisions taken via
 AskUserQuestion), then verified end-to-end. Commits `c7f9178..54f0fc7`.
