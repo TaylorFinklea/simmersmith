@@ -36,13 +36,32 @@ staples into the prompt (was empty pre-fix). ✅ AI works, T1 change verified li
 ⚠️ **Surfaced (pre-existing, not T1): `ai_timeout_seconds=120` is too tight for
 gpt-5.5 week-gen** — 118s direct, so the HTTP route exceeds 120s and returns a
 **bare 500** (a non-RuntimeError httpx.ReadTimeout escapes `except RuntimeError`;
-arch finding T7). Added to roadmap backlog.
+arch finding T7). **→ Fixed same session in T7 (below).**
+
+### T7 — observability + error-handling cluster fixed — `d772f9e`
+
+Closed the arch-T7 gap that *swallowed* today's 500:
+- **`configure_logging()`** (dictConfig, root INFO→stdout) so app `logger.info/
+  debug` reach `flyctl logs` (were dropped at default WARNING). New
+  `SIMMERSMITH_LOG_LEVEL`. The intentional `_RequestLogMiddleware` print() stays.
+- **Global handlers** (`main.py`): unhandled Exception → logged (method+path+
+  traceback) + generic 500 (no leak); `OperationalError` → 503 + Retry-After.
+  Deep `/api/health/ready` (SELECT 1).
+- **`AIProviderError(RuntimeError)`** — `_call_ai_provider` wraps httpx timeout/
+  HTTP/parse failures (raw logged, clean message); generate route maps it → 503
+  before RuntimeError→422. Bumped `ai_timeout_seconds` 120→300.
+- 7 new tests (`tests/test_t7_error_handling.py`); **suite 518 passed**, ruff clean.
+- **Live-verified**: a forced 1s timeout → `generate` returns **503** with a clean
+  body AND logs `week-plan AI call failed (openai/gpt-5.5): The read operation
+  timed out` (was a bare 500 + swallowed traceback). Readiness probe returns ready.
 
 **Remaining from the bug bash (not started):** 36 mediums + 20 lows + most of the
 62 architecture findings — all in the report. Highest-value next clusters:
 freemium-not-enforced (arch T5: ungated recipe_import/pricing + uncapped
-assistant turns), no-logging/no-global-exception-handler (T7, which masked
-today's 500), event-grocery merge lifecycle (T4, 5 bugs).
+assistant turns), event-grocery merge lifecycle (T4, 5 bugs), remaining IDOR
+(T3: subscription /verify takeover #5, preference/feedback upserts #13/#17),
+crashes (T6: #18 rebalance-day 500, #3 cancelled-turn unreadable thread, #33
+import "1/0", #1 kid-friendly preset).
 
 ## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
 

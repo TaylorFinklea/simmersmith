@@ -169,18 +169,15 @@ unfinished M21 household pivot.
   weeks/staples UNIQUE re-keyed to household_id (migration 0047), create_or_get_week
   savepoint recovery, update_profile/pantry/feedback/MCP-assistant/push-scheduler/
   week-planner all household-scoped. 11 new tests, suite 511 green, live AI verified.
-- [ ] **AI-gen 120s timeout → bare 500 on slow models** (surfaced live 2026-06-13).
-  `ai_timeout_seconds` defaults to 120 but gpt-5.5 full-week generation takes ~118s
-  direct, so `POST /api/weeks/{id}/generate` exceeds it and the httpx.ReadTimeout (a
-  non-RuntimeError) escapes the route's `except RuntimeError` as an unmapped 500.
-  Scope: raise the default (e.g. 300s) AND wrap provider calls so timeouts/HTTP
-  errors map to 502/503 not 500 (overlaps arch finding T7 + bug #176). Files:
-  `app/config.py` (`ai_timeout_seconds`), `app/services/week_planner.py`
-  (`_call_ai_provider`), `app/api/weeks.py:172-181` (broaden the except).
-  Acceptance: a slow/erroring provider yields 502/503 with a clean detail, not 500;
-  default timeout fits a real week-gen. Verify: pytest mocking the provider client
-  to raise httpx.ReadTimeout / 5xx asserts the route returns 502/503. tier_floor:
-  senior · complexity: S.
+- [x] **T7 — observability + error-handling — DONE `d772f9e`** (2026-06-13). Folded
+  in the surfaced AI-gen-timeout/500: `configure_logging()` (root INFO→stdout, new
+  `SIMMERSMITH_LOG_LEVEL`); global handlers (unhandled Exception → logged generic
+  500 no-leak; OperationalError → 503+Retry-After); `/api/health/ready` SELECT 1;
+  `AIProviderError` wraps provider timeout/HTTP/parse → generate route 503;
+  `ai_timeout_seconds` 120→300. 7 new tests, suite 518 green, live-verified
+  (forced timeout → 503 + logged). Remaining T7 follow-ups (separate scope): the
+  ~30 `detail=str(exc)` route sites + the streaming-loop/vision_ai unwrapped
+  provider calls + truncation detection (arch report AI-LLM + error-handling).
 - [ ] **Remaining bug-bash findings** — 36 mediums + 20 lows + most of 62 arch
   findings, all itemized in the report (file:line + trigger + fix). Highest-value
   clusters: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
