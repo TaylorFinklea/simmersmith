@@ -31,6 +31,7 @@ from app.db import session_scope
 from app.models.profile import ProfileSetting
 from app.models.push import PushDevice
 from app.models.week import Week, WeekMeal
+from app.services.households import get_household_id_or_none
 from app.services.push_apns import is_apns_configured, send_push
 
 logger = logging.getLogger(__name__)
@@ -161,12 +162,16 @@ async def _process_tonights_meal(
     if _sent_today.get(dedup_key):
         return
 
-    # Find today's primary dinner meal
+    # Find today's primary dinner meal. Weeks are household-scoped (M21), so a
+    # member who didn't create the week must still match it — scope by
+    # household_id, not the creator's user_id.
+    household_id = get_household_id_or_none(session, user_id)
+    week_filter = Week.household_id == household_id if household_id else Week.user_id == user_id
     meal = session.scalar(
         select(WeekMeal)
         .join(Week, WeekMeal.week_id == Week.id)
         .where(
-            Week.user_id == user_id,
+            week_filter,
             WeekMeal.meal_date == today_local,
             WeekMeal.slot == "dinner",
         )
@@ -258,10 +263,14 @@ async def _process_saturday_plan(
     if _sent_today.get(dedup_key):
         return
 
-    # Check if the upcoming week exists and has a non-draft status
+    # Check if the upcoming week exists and has a non-draft status. Weeks are
+    # household-scoped (M21) — match by household_id so a non-creator member
+    # isn't nagged to plan a week the household already planned.
+    household_id = get_household_id_or_none(session, user_id)
+    week_filter = Week.household_id == household_id if household_id else Week.user_id == user_id
     upcoming_week = session.scalar(
         select(Week).where(
-            Week.user_id == user_id,
+            week_filter,
             Week.week_start == upcoming_monday,
         )
     )

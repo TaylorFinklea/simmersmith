@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 class Week(Base):
     __tablename__ = "weeks"
-    __table_args__ = (UniqueConstraint("user_id", "week_start", name="uq_weeks_user_week_start"),)
+    __table_args__ = (UniqueConstraint("household_id", "week_start", name="uq_weeks_household_week_start"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)

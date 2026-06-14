@@ -23,11 +23,28 @@ def update_profile(
         session.flush()
         return
 
-    session.execute(delete(Staple).where(Staple.household_id == household_id))
+    # Replace only the caller's own staples — never delete a housemate's rows.
+    # The pantry is household-shared (uq_staples_household_normalized_name), so
+    # deleting household-wide here wiped other members' pantry; scope to the
+    # caller. Flush the deletes before re-inserting so the unit-of-work doesn't
+    # order an INSERT of a still-pending name ahead of its DELETE.
+    session.execute(
+        delete(Staple).where(
+            Staple.household_id == household_id, Staple.user_id == user_id
+        )
+    )
+    session.flush()
+    # Rows still present belong to other household members; don't duplicate
+    # their normalized_name (the new constraint would reject it anyway).
+    housemate_names = set(
+        session.scalars(
+            select(Staple.normalized_name).where(Staple.household_id == household_id)
+        ).all()
+    )
     seen: set[str] = set()
     for item in staples:
         normalized = normalize_name(item.normalized_name or item.staple_name)
-        if not normalized or normalized in seen:
+        if not normalized or normalized in seen or normalized in housemate_names:
             continue
         seen.add(normalized)
         session.add(

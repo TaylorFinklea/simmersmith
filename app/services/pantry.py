@@ -157,8 +157,23 @@ def update_pantry_item(
         cleaned = str(fields["staple_name"]).strip()
         if not cleaned:
             raise ValueError("staple_name cannot be empty")
+        new_normalized = normalize_name(cleaned)
+        # Renames must respect the household-wide pantry dedup the same way
+        # add_pantry_item does — otherwise a rename can collide with another
+        # member's item and either defeat the recurring de-dup or (now)
+        # violate uq_staples_household_normalized_name at flush.
+        if new_normalized and new_normalized != item.normalized_name:
+            conflict = session.scalar(
+                select(Staple).where(
+                    Staple.household_id == item.household_id,
+                    Staple.normalized_name == new_normalized,
+                    Staple.id != item.id,
+                )
+            )
+            if conflict is not None:
+                raise ValueError("Pantry item with that name already exists")
         item.staple_name = cleaned
-        item.normalized_name = normalize_name(cleaned)
+        item.normalized_name = new_normalized
     if "notes" in fields and fields["notes"] is not None:
         item.notes = fields["notes"]
     if "is_active" in fields and fields["is_active"] is not None:

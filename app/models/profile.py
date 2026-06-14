@@ -26,7 +26,7 @@ class Staple(Base):
     add to weekly grocery lists.
     """
     __tablename__ = "staples"
-    __table_args__ = (UniqueConstraint("user_id", "normalized_name", name="uq_staples_user_normalized_name"),)
+    __table_args__ = (UniqueConstraint("household_id", "normalized_name", name="uq_staples_household_normalized_name"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)

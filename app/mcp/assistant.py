@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from . import mcp
-from ._helpers import _current_user_id, _json_ready, _settings
+from ._helpers import _current_user, _current_user_id, _json_ready, _settings
 
 from app.db import session_scope
 from app.models import AIRun, AssistantMessage
@@ -95,7 +95,11 @@ def assistant_respond(
 
         attached_recipe_payload = request.attached_recipe_draft
         if attached_recipe_payload is None and request.attached_recipe_id:
-            attached_recipe = get_recipe(session, user_id, request.attached_recipe_id)
+            # get_recipe filters on household_id, not user_id — resolve the
+            # caller's household (matches the REST route) or the attached
+            # recipe is silently dropped.
+            household_id = _current_user(session).household_id
+            attached_recipe = get_recipe(session, household_id, request.attached_recipe_id)
             if attached_recipe is not None:
                 attached_recipe_payload = RecipePayload.model_validate(
                     recipe_payload(session, attached_recipe)

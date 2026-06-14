@@ -116,10 +116,17 @@ def _upsert_feedback_signal(
     feedback_signal.updated_at = utcnow()
 
 
-def rebuild_feedback_preference_signals(session: Session, user_id: str) -> None:
+def rebuild_feedback_preference_signals(session: Session, user_id: str, household_id: str) -> None:
+    # FeedbackEntry has no user/household column — it hangs off a week. Scope to
+    # the caller's household by joining through Week so one user's preference
+    # signals are derived only from their own household's feedback, never every
+    # household's (the rows are still written per-user via _upsert_feedback_signal).
     entries = list(
         session.scalars(
-            select(FeedbackEntry).where(
+            select(FeedbackEntry)
+            .join(Week, FeedbackEntry.week_id == Week.id)
+            .where(
+                Week.household_id == household_id,
                 FeedbackEntry.active.is_(True),
                 FeedbackEntry.target_type.in_(PREFERENCE_FEEDBACK_TYPES),
             )
@@ -202,7 +209,7 @@ def upsert_feedback_entries(session: Session, user_id: str, week: Week, entries:
         stored.append(entry)
 
     session.flush()
-    rebuild_feedback_preference_signals(session, user_id)
+    rebuild_feedback_preference_signals(session, user_id, week.household_id)
     return stored
 
 

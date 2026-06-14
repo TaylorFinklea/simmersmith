@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import ExportRun, GroceryItem, PricingRun, RetailerPrice, Week, WeekChangeBatch, WeekMeal, utcnow
@@ -111,7 +112,26 @@ def create_or_get_week(
         notes=notes,
     )
     session.add(week)
-    session.flush()
+    try:
+        # Savepoint so a lost race only unwinds this insert, not the caller's
+        # other work in the same transaction. The (household_id, week_start)
+        # unique now lets two members planning the same week concurrently
+        # collide; the loser adopts the winner's row instead of 500ing.
+        with session.begin_nested():
+            session.flush()
+    except IntegrityError:
+        session.expunge(week)
+        existing = session.scalar(
+            select(Week)
+            .where(Week.week_start == week_start, Week.household_id == household_id)
+            .order_by(Week.updated_at.desc())
+            .limit(1)
+        )
+        if existing is None:
+            raise
+        if notes:
+            existing.notes = notes
+        return existing
     return week
 
 

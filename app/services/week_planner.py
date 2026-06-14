@@ -112,9 +112,9 @@ def gather_planning_context(
         s.name for s in active_signals if s.signal_type == "cuisine" and s.score < 0
     )
 
-    pantry = sorted(staple_names(session, user_id))
+    pantry = sorted(staple_names(session, household_id or user_id))
 
-    recent_weeks = list_weeks(session, user_id, limit=4)
+    recent_weeks = list_weeks(session, household_id or user_id, limit=4)
     seen: set[str] = set()
     recent_meal_names: list[str] = []
     for week in recent_weeks:
