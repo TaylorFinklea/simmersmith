@@ -156,6 +156,7 @@ def generate_week_plan(
 ) -> dict[str, object]:
     """Generate a full week of meals using AI."""
     from app.services.week_planner import (
+        AIProviderError,
         gather_planning_context,
         generate_week_plan as run_planner,
         score_generated_plan,
@@ -177,6 +178,10 @@ def generate_week_plan(
             week_start=week.week_start,
             planning_context=context,
         )
+    except AIProviderError as exc:
+        # Provider timeout / HTTP / transport failure — retryable, not the
+        # caller's fault. 503 (not 422, and not a bare 500).
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

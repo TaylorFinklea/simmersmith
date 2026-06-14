@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import logging.config
 import sys
 import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from app.api.admin import router as admin_router
 from app.api.ai import router as ai_router
@@ -40,6 +43,34 @@ from app.services.push_scheduler import start_scheduler
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+
+def configure_logging() -> None:
+    """Install a root stdout handler so the app's ``logger.info``/``debug``
+    breadcrumbs (subscriptions, push, MCP, AI) actually reach ``flyctl logs``.
+    Without this the root logger defaults to WARNING with no handler and every
+    info/debug call is silently dropped. ``disable_existing_loggers=False`` keeps
+    uvicorn's own loggers intact."""
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+            },
+            "handlers": {
+                "stdout": {
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                    "formatter": "default",
+                },
+            },
+            "root": {"level": settings.log_level, "handlers": ["stdout"]},
+        }
+    )
+
+
+configure_logging()
 
 
 def _log_lifespan_failure(stage: str, exc: BaseException) -> None:
@@ -154,6 +185,31 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="SimmerSmith", lifespan=lifespan)
 app.add_middleware(_RequestLogMiddleware)
+
+
+@app.exception_handler(OperationalError)
+async def _handle_db_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
+    """A DB blip (connection drop, pool exhaustion) is transient — answer 503
+    with Retry-After so Fly routing/clients back off, instead of a bare 500
+    that reads as a hard failure while /api/health stays green."""
+    logger.error("database unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service temporarily unavailable. Please try again."},
+        headers={"Retry-After": "5"},
+    )
+
+
+@app.exception_handler(Exception)
+async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort handler: log the full traceback with the route that raised
+    it (the REST surface had no error sink, so unhandled errors vanished) and
+    return a generic body that never leaks an exception string to the client.
+    HTTPException / RequestValidationError keep their own FastAPI handlers."""
+    logger.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+
+
 app.include_router(admin_router)  # Public — admin routes handle their own auth
 app.include_router(auth_router)  # Public — handles its own auth
 app.include_router(oauth_router)  # Public — OAuth metadata + flow; mounted at root
@@ -197,6 +253,22 @@ _mcp_app = _build_mcp_http_app()
 @app.get("/api/health", response_model=HealthResponse)
 async def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/api/health/ready", include_in_schema=False)
+async def readiness() -> JSONResponse:
+    """Deep health check — actually round-trips the DB so Fly can tell a live
+    process from one whose database is unreachable (the shallow /api/health
+    stays green even when every request 503s)."""
+    from sqlalchemy import text
+
+    try:
+        with session_scope() as session:
+            session.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("readiness check failed")
+        return JSONResponse(status_code=503, content={"status": "not ready"})
+    return JSONResponse(status_code=200, content={"status": "ready"})
 
 
 # Public SSE diagnostic — emits 20 deltas spaced 100ms apart so we can curl

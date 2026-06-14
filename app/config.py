@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     api_token: str = ""
     local_user_id: str = "00000000-0000-0000-0000-000000000001"
 
+    # Observability. Root log level for the app's `logging.getLogger(__name__)`
+    # loggers — without a configured handler these default to WARNING and every
+    # logger.info/debug breadcrumb is dropped.
+    log_level: str = "INFO"
+
     # AI provider configuration
     ai_mcp_enabled: bool = True
     ai_mcp_server_name: str = "codex"
@@ -75,7 +80,9 @@ class Settings(BaseSettings):
     ai_openai_model: str = "gpt-5.5"
     ai_anthropic_model: str = "claude-3-5-sonnet-latest"
     usda_api_key: str = ""
-    ai_timeout_seconds: int = 120
+    # A full week-plan generation with a reasoning-class model (gpt-5.5) takes
+    # ~2 min; 120s left no headroom over HTTP and surfaced as a bare 500.
+    ai_timeout_seconds: int = 300
 
     # Recipe header image generation. The OpenAI path reuses
     # `ai_openai_api_key`; the Gemini path uses

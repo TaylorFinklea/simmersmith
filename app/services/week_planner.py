@@ -27,6 +27,14 @@ from app.services.provider_models import openai_chat_body
 
 logger = logging.getLogger(__name__)
 
+
+class AIProviderError(RuntimeError):
+    """Raised when an AI provider call fails at the transport/HTTP/parse layer
+    (timeout, 5xx, malformed response) — distinct from the model returning
+    valid-but-unusable content. Subclasses RuntimeError so existing
+    ``except RuntimeError`` handlers still catch it; routes map it to 503
+    (retryable) ahead of the generic RuntimeError -> 422."""
+
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 SLOTS = ["breakfast", "lunch", "dinner"]
 
@@ -375,40 +383,54 @@ def _call_ai_provider(
 
     headers = {"Content-Type": "application/json"}
 
-    if provider == "openai":
-        headers["Authorization"] = f"Bearer {api_key}"
-        body = openai_chat_body(
-            model=model,
-            base={
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.7,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
-        response.raise_for_status()
-        return str(response.json()["choices"][0]["message"]["content"])
+    try:
+        if provider == "openai":
+            headers["Authorization"] = f"Bearer {api_key}"
+            body = openai_chat_body(
+                model=model,
+                base={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.7,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
+            response.raise_for_status()
+            return str(response.json()["choices"][0]["message"]["content"])
 
-    if provider == "anthropic":
-        headers["x-api-key"] = api_key
-        headers["anthropic-version"] = "2023-06-01"
-        body = {
-            "model": model,
-            "max_tokens": 8000,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
-        }
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
-        response.raise_for_status()
-        content = response.json().get("content", [])
-        return "\n".join(item.get("text", "") for item in content if item.get("type") == "text").strip()
+        if provider == "anthropic":
+            headers["x-api-key"] = api_key
+            headers["anthropic-version"] = "2023-06-01"
+            body = {
+                "model": model,
+                "max_tokens": 8000,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+            response.raise_for_status()
+            content = response.json().get("content", [])
+            return "\n".join(item.get("text", "") for item in content if item.get("type") == "text").strip()
 
-    raise RuntimeError(f"Unsupported provider: {provider}")
+        raise RuntimeError(f"Unsupported provider: {provider}")
+    except httpx.HTTPError as exc:
+        # Timeout / connection / 4xx-5xx from the provider. Log the raw error
+        # server-side; surface a clean retryable message (no upstream URL).
+        logger.warning("week-plan AI call failed (%s/%s): %s", provider, model, exc)
+        raise AIProviderError(
+            "The meal-planning AI is temporarily unavailable. Please try again."
+        ) from exc
+    except (KeyError, IndexError, ValueError) as exc:
+        # Missing choices/content or non-JSON body — an unexpected wire shape.
+        logger.warning("week-plan AI returned an unexpected response shape (%s): %s", provider, exc)
+        raise AIProviderError(
+            "The meal-planning AI returned an unexpected response. Please try again."
+        ) from exc
 
 
 def _extract_json(raw: str) -> dict:
