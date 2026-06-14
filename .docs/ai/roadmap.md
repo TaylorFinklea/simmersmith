@@ -159,6 +159,40 @@ configuration for `simmersmith.pro.monthly` / `.annual`, a
 decision to flip trial mode off. Treat M5 activation as a live
 candidate once M24's tool-call cost question lands.
 
+## Backlog — ultracode bug bash 2026-06-13
+
+Full report: `.docs/ai/phases/bugbash-2026-06-13-report.md` (149-agent workflow:
+55 confirmed bugs + 62 architecture findings, 10 refuted). Dominant theme was the
+unfinished M21 household pivot.
+
+- [x] **T1 — household-scoping cluster (9 bugs) — DONE `694ea92`** (2026-06-13).
+  weeks/staples UNIQUE re-keyed to household_id (migration 0047), create_or_get_week
+  savepoint recovery, update_profile/pantry/feedback/MCP-assistant/push-scheduler/
+  week-planner all household-scoped. 11 new tests, suite 511 green, live AI verified.
+- [ ] **AI-gen 120s timeout → bare 500 on slow models** (surfaced live 2026-06-13).
+  `ai_timeout_seconds` defaults to 120 but gpt-5.5 full-week generation takes ~118s
+  direct, so `POST /api/weeks/{id}/generate` exceeds it and the httpx.ReadTimeout (a
+  non-RuntimeError) escapes the route's `except RuntimeError` as an unmapped 500.
+  Scope: raise the default (e.g. 300s) AND wrap provider calls so timeouts/HTTP
+  errors map to 502/503 not 500 (overlaps arch finding T7 + bug #176). Files:
+  `app/config.py` (`ai_timeout_seconds`), `app/services/week_planner.py`
+  (`_call_ai_provider`), `app/api/weeks.py:172-181` (broaden the except).
+  Acceptance: a slow/erroring provider yields 502/503 with a clean detail, not 500;
+  default timeout fits a real week-gen. Verify: pytest mocking the provider client
+  to raise httpx.ReadTimeout / 5xx asserts the route returns 502/503. tier_floor:
+  senior · complexity: S.
+- [ ] **Remaining bug-bash findings** — 36 mediums + 20 lows + most of 62 arch
+  findings, all itemized in the report (file:line + trigger + fix). Highest-value
+  clusters: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
+  uncapped assistant turns = unbounded paid-LLM spend; paywall has no e2e test),
+  **T7 observability** (no logging config, no global exception handler — masked
+  today's 500; provider URLs leak into responses), **T4 event-grocery merge
+  lifecycle** (5 bugs), **T3 remaining IDOR** (subscription /verify takeover #5,
+  preference/feedback upserts #13/#17), **T6 crashes** (#18 rebalance-day endpoint
+  AttributeError 500, #3 cancelled-turn unreadable thread, #33 import "1/0"
+  ZeroDivisionError, #1 kid-friendly preset corruption). tier_floor: per-item in
+  report · complexity: mixed.
+
 ## Backlog — bug sweep 2026-05-30 (unfixed confirmed findings)
 
 Full report: `.docs/ai/phases/bug-sweep-2026-05-30-report.md`. 14 confirmed

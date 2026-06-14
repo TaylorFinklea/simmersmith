@@ -6,6 +6,44 @@
 
 `main`
 
+## Last session (2026-06-13) — ultracode bug bash + T1 household-scoping cluster fixed
+
+Ran a 149-agent ultracode workflow (23 bug-finders + 11 architecture agents,
+every finding adversarially verified): **55 confirmed bugs** (19 high / 16 med /
+20 low) + **62 architecture findings**, 10 refuted. Full report:
+`.docs/ai/phases/bugbash-2026-06-13-report.md` (committed `cdc6bd9`).
+
+Then fixed the **T1 cluster** — the unfinished M21 household pivot (`user_id`
+used where `household_id` belongs). One commit `694ea92`:
+- **migration 0047** — weeks/staples UNIQUE re-keyed to `household_id`. Postgres
+  drops+recreates the named constraint; SQLite adds a unique **index** (Alembic
+  batch can't reflect the inline constraint name — no naming_convention). Python-
+  side dedup first. Up/down/up round-trips clean.
+- **create_or_get_week** — savepoint + IntegrityError recovery so two members
+  planning the same week converge instead of 500ing (#23).
+- **update_profile** scoped to the caller; won't wipe a housemate's staples,
+  skips names a housemate owns (#14). **pantry rename** household dedup (#49).
+- **feedback rebuild** joins Week → scoped to household (#16). **MCP
+  assistant_respond** resolves household_id for get_recipe (#21). **push
+  scheduler** week lookups household-scoped (#24). **week_planner** passes
+  household_id to staple_names/list_weeks (#34/#35).
+- 11 new tests (`tests/test_t1_household_scoping.py`); **full suite 511 passed**,
+  ruff clean.
+
+**Live AI regression (real OpenAI key, local uvicorn):** week-plan generation
+produced a valid 21-meal plan in 118s; `gather_planning_context` now feeds pantry
+staples into the prompt (was empty pre-fix). ✅ AI works, T1 change verified live.
+⚠️ **Surfaced (pre-existing, not T1): `ai_timeout_seconds=120` is too tight for
+gpt-5.5 week-gen** — 118s direct, so the HTTP route exceeds 120s and returns a
+**bare 500** (a non-RuntimeError httpx.ReadTimeout escapes `except RuntimeError`;
+arch finding T7). Added to roadmap backlog.
+
+**Remaining from the bug bash (not started):** 36 mediums + 20 lows + most of the
+62 architecture findings — all in the report. Highest-value next clusters:
+freemium-not-enforced (arch T5: ungated recipe_import/pricing + uncapped
+assistant turns), no-logging/no-global-exception-handler (T7, which masked
+today's 500), event-grocery merge lifecycle (T4, 5 bugs).
+
 ## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
 
 Pushed the whole bug sweep (39 commits) to `origin/main`, then shipped it.
