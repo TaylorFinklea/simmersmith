@@ -73,12 +73,33 @@ Four crash/dead-feature bugs:
   every step/ingredient. Added the trailing comma.
 - 5 new tests (`tests/test_t6_crashes.py`); **suite 523 passed**, ruff clean.
 
+### T4 — event↔week grocery merge lifecycle fixed — `9446002`
+
+Five interconnected merge-lifecycle bugs (the buggiest subsystem):
+- **#9** deleting a merged event left stale event_quantity + zombie event-only
+  rows on the week → `delete_event` unmerges from `linked_week` first.
+- **#10** re-dating an auto-merged event never moved its grocery (
+  `_resolve_target_week` short-circuited on `linked_week_id`) → `apply_auto_merge_policy`
+  unmerges from the stale week when `event_date` moves off it, then re-resolves.
+- **#11** editing a manually-merged potluck (`auto_merge_grocery=False`) silently
+  dropped the merge → new **`events.manually_merged`** flag (migration 0048) pins
+  a user merge; policy keeps it + never auto-unmerges; `regenerate` uses
+  `keep_link=True` so the pinned week survives a rebuild.
+- **#37** renaming after merge stranded event-only rows (unmerge matched the
+  mutable `event:{name}` marker) → detection is now name-agnostic (`event:`
+  prefix); the displayed marker stays the name.
+- **#38** AI menu regen collided `sort_order` with preserved manual meals →
+  offset the supplied 0-based order by `start_index`.
+- 6 new tests (`tests/test_t4_event_grocery.py`); **suite 528 passed**, ruff clean.
+  Live-verified the event create/patch/merge/delete routes + migration up/down/up.
+
 **Remaining from the bug bash (not started):** 36 mediums + 20 lows + most of the
-62 architecture findings — all in the report. Highest-value next clusters:
+62 architecture findings — all in the report. Highest-value clusters left:
 freemium-not-enforced (arch T5: ungated recipe_import/pricing + uncapped
-assistant turns — has product decisions), event-grocery merge lifecycle (T4, 5
-bugs), remaining IDOR (T3: subscription /verify takeover #5, preference/feedback
-upserts #13/#17).
+assistant turns — has product decisions, monetization-adjacent), remaining IDOR
+(T3: subscription /verify takeover #5, preference/feedback upserts #13/#17), plus
+the T7 follow-ups (~30 `detail=str(exc)` sites, streaming/vision unwrapped
+provider calls, truncation detection).
 
 ## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
 

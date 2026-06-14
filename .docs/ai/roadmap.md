@@ -184,6 +184,11 @@ unfinished M21 household pivot.
   'cancelled' to AssistantMessageOut.status Literal), #33 import "1/0"
   ZeroDivisionError (guarded), #1 kid-friendly preset tuple-comma corruption.
   5 new tests, suite 523 green.
+- [x] **T4 — event↔week grocery merge lifecycle (5 bugs) — DONE `9446002`** (2026-06-14).
+  #9 delete-event grocery orphan, #10 re-date doesn't re-point, #11 manual-merge
+  dropped on edit (new events.manually_merged flag, migration 0048 + keep_link),
+  #37 rename strands rows (name-agnostic marker), #38 AI-regen sort_order collision.
+  6 new tests, suite 528 green, live-verified routes + migration round-trip.
 - [ ] **Remaining bug-bash findings** — 36 mediums + 20 lows + most of 62 arch
   findings, all itemized in the report (file:line + trigger + fix). Highest-value
   clusters left: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
