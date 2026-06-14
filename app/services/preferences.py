@@ -45,6 +45,8 @@ def upsert_preference_signals(session: Session, user_id: str, signals: list[Pref
         signal = None
         if payload.preference_id:
             signal = session.get(PreferenceSignal, payload.preference_id)
+            if signal is not None and signal.user_id != user_id:
+                signal = None
         if signal is None:
             signal = session.scalar(
                 select(PreferenceSignal).where(

@@ -626,6 +626,32 @@ def import_recipe_from_text(
 
 _MAX_IMPORT_REDIRECTS = 5
 
+# RFC 6598 carrier-grade NAT (shared address) space. Python's ipaddress
+# reports it as none of is_private/is_reserved/etc., so it slips past the
+# predicate checks below; some networks route it to internal infrastructure,
+# making it a live SSRF target. Reject it explicitly.
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when `ip` points at a private/internal/reserved address that the
+    URL importer must never connect to."""
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    ):
+        return True
+    # CGNAT space (and its IPv4-mapped IPv6 form, e.g. ::ffff:100.64.0.1).
+    mapped = getattr(ip, "ipv4_mapped", None)
+    candidate = mapped if mapped is not None else ip
+    if isinstance(candidate, ipaddress.IPv4Address) and candidate in _CGNAT_NETWORK:
+        return True
+    return False
+
 
 def _validated_ip_for(url: str) -> tuple[str, str]:
     """Resolve `url`'s host, reject if ANY resolved address is internal, and
@@ -652,14 +678,7 @@ def _validated_ip_for(url: str) -> tuple[str, str]:
     pinned: str | None = None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        ):
+        if _is_blocked_ip(ip):
             raise ValueError("URLs pointing to private or internal addresses are not allowed.")
         if pinned is None:
             pinned = str(info[4][0])

@@ -31,6 +31,7 @@ from app.services.ai import (
 )
 from app.services.assistant_ai import extract_json_object
 from app.services.provider_models import openai_chat_body
+from app.services.week_planner import AIProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -145,15 +146,29 @@ def _run_vision_provider(
                 "temperature": 0.2,
             },
         )
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=body,
-            )
-        response.raise_for_status()
-        payload = response.json()
-        return str(payload["choices"][0]["message"]["content"])
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+            response.raise_for_status()
+            payload = response.json()
+            return str(payload["choices"][0]["message"]["content"])
+        except httpx.HTTPError as exc:
+            # Timeout / connection / 4xx-5xx from the provider. Log the raw
+            # error (it carries the upstream URL/status) and surface a clean,
+            # body-free message so the route's detail=str(exc) can't leak it.
+            logger.warning("vision AI call failed (openai/%s): %s", target.model, exc)
+            raise AIProviderError(
+                "The vision AI is temporarily unavailable. Please try again."
+            ) from exc
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            logger.warning("vision AI returned an unexpected response shape (openai): %s", exc)
+            raise AIProviderError(
+                "The vision AI returned an unexpected response. Please try again."
+            ) from exc
 
     if target.provider_name == "anthropic":
         api_mime = normalized_mime if normalized_mime in _ANTHROPIC_SAFE_MIMES else "image/jpeg"
@@ -182,17 +197,28 @@ def _run_vision_provider(
                 }
             ],
         }
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers=headers,
-                json=body,
-            )
-        response.raise_for_status()
-        payload = response.json()
-        content = payload.get("content", [])
-        text_chunks = [item.get("text", "") for item in content if item.get("type") == "text"]
-        return "\n".join(chunk for chunk in text_chunks if chunk).strip()
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=body,
+                )
+            response.raise_for_status()
+            payload = response.json()
+            content = payload.get("content", [])
+            text_chunks = [item.get("text", "") for item in content if item.get("type") == "text"]
+            return "\n".join(chunk for chunk in text_chunks if chunk).strip()
+        except httpx.HTTPError as exc:
+            logger.warning("vision AI call failed (anthropic/%s): %s", target.model, exc)
+            raise AIProviderError(
+                "The vision AI is temporarily unavailable. Please try again."
+            ) from exc
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            logger.warning("vision AI returned an unexpected response shape (anthropic): %s", exc)
+            raise AIProviderError(
+                "The vision AI returned an unexpected response. Please try again."
+            ) from exc
 
     raise RuntimeError(f"Unsupported vision provider: {target.provider_name}")
 

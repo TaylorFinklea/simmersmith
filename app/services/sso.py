@@ -33,6 +33,7 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -356,7 +357,16 @@ def find_or_create_apple_user(session: Session, claims: dict) -> User:
             created_at=utcnow(),
         )
         session.add(user)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError:
+            # Concurrent first web-SSO sign-in for the same Apple identity:
+            # the other request won the unique-constraint race. Recover by
+            # adopting the row it created instead of 500ing (M15 parity).
+            session.rollback()
+            user = session.scalars(
+                select(User).where(User.apple_sub == apple_sub)
+            ).one()
     return user
 
 
@@ -383,5 +393,14 @@ def find_or_create_google_user(session: Session, claims: dict) -> User:
             created_at=utcnow(),
         )
         session.add(user)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError:
+            # Concurrent first web-SSO sign-in for the same Google identity:
+            # the other request won the unique-constraint race. Recover by
+            # adopting the row it created instead of 500ing (M15 parity).
+            session.rollback()
+            user = session.scalars(
+                select(User).where(User.google_sub == google_sub)
+            ).one()
     return user

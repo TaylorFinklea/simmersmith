@@ -84,6 +84,22 @@ def verify_client_transaction(
                 verified.original_transaction_id,
             )
             raise HTTPException(status_code=409, detail="This receipt is bound to a different account.")
+        # Ownership guard: the row already belongs to another user. Never
+        # silently migrate it to the caller on the verify path — that's an
+        # account takeover when the iOS client doesn't set appAccountToken
+        # (the conflict guard above is inert with both tokens null). Only
+        # allow re-binding when the receipt positively binds to the caller
+        # via a matching, non-null appAccountToken.
+        if existing.user_id != current_user.id and not (
+            verified.app_account_token
+            and existing.app_account_token
+            and verified.app_account_token == existing.app_account_token
+        ):
+            logger.warning(
+                "Subscription verify rejected: originalTransactionId=%s owned by another account",
+                verified.original_transaction_id,
+            )
+            raise HTTPException(status_code=409, detail="This receipt is bound to a different account.")
         # Replaying an older/equal transaction — return the current row
         # unchanged rather than re-applying stale state.
         if transaction_is_stale(verified.transaction_id, existing.last_transaction_id):
@@ -213,7 +229,14 @@ def apple_webhook(
             existing.current_period_ends_at = verified.expires_date
         if notification_type.upper() == "DID_CHANGE_RENEWAL_STATUS":
             existing.auto_renew = subtype.upper() == "AUTO_RENEW_ENABLED"
-        existing.last_transaction_id = verified.transaction_id
+        # Only advance last_transaction_id when the notification actually
+        # changed state. Unmapped types (new_status None — PRICE_INCREASE,
+        # DID_CHANGE_RENEWAL_PREF, …) share the same transactionId as the
+        # later EXPIRED/REFUND in the same billing period; bumping it here
+        # would make that terminal notification look stale and get dropped,
+        # leaving the user Pro after expiry/refund.
+        if new_status is not None:
+            existing.last_transaction_id = verified.transaction_id
         if verified.app_account_token and not existing.app_account_token:
             existing.app_account_token = verified.app_account_token
 

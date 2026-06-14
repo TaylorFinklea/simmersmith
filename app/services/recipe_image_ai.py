@@ -38,6 +38,56 @@ _DEFAULT_MIME = "image/png"
 
 _VALID_PROVIDERS = ("openai", "gemini")
 
+# MIME types a user-uploaded recipe image may declare. Anything else is
+# rejected before the bytes are stored, so the fetch endpoint can never be
+# coaxed into serving e.g. text/html back on the API origin.
+_UPLOAD_IMAGE_MIMES = {
+    "image/jpeg": ("image/jpeg", "image/jpg"),
+    "image/png": ("image/png",),
+    "image/webp": ("image/webp",),
+    "image/gif": ("image/gif",),
+}
+# Reverse lookup: any accepted alias -> its canonical MIME.
+_UPLOAD_MIME_ALIASES = {
+    alias: canonical
+    for canonical, aliases in _UPLOAD_IMAGE_MIMES.items()
+    for alias in aliases
+}
+
+
+def sniff_image_mime(image_bytes: bytes) -> str | None:
+    """Return the canonical image MIME inferred from `image_bytes`' magic
+    bytes, or None if the leading bytes don't match a supported format."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if image_bytes[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def validate_upload_image(image_bytes: bytes, mime_type: str | None) -> str:
+    """Validate a user-uploaded recipe image and return the canonical MIME.
+
+    Rejects (via ``ValueError``) any declared MIME outside the image
+    allow-list, and any bytes whose magic header doesn't match a supported
+    image format or contradicts the declared type."""
+    declared = (mime_type or "").strip().lower()
+    canonical = _UPLOAD_MIME_ALIASES.get(declared)
+    if canonical is None:
+        raise ValueError(f"Unsupported image type: {mime_type!r}")
+    sniffed = sniff_image_mime(image_bytes)
+    if sniffed is None:
+        raise ValueError("Uploaded bytes are not a recognized image.")
+    if sniffed != canonical:
+        raise ValueError(
+            f"Declared type {canonical} does not match image contents ({sniffed})."
+        )
+    return canonical
+
 
 class RecipeImageError(RuntimeError):
     """Recipe image generation failed (provider key not configured,

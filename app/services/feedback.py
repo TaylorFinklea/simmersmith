@@ -189,6 +189,8 @@ def upsert_feedback_entries(session: Session, user_id: str, week: Week, entries:
             continue
 
         entry = session.get(FeedbackEntry, payload.feedback_id) if payload.feedback_id else None
+        if entry is not None and entry.week_id != week.id:
+            entry = None
         if entry is None:
             entry = FeedbackEntry(week_id=week.id, target_type=payload.target_type, target_name=payload.target_name)
             session.add(entry)

@@ -20,6 +20,7 @@ from app.services.recipe_image_ai import (
     generate_recipe_image,
     is_image_gen_configured,
     persist_recipe_image,
+    validate_upload_image,
 )
 from app.services.image_usage import record_image_gen
 from app.services.recipes import get_recipe
@@ -76,6 +77,11 @@ def fetch_recipe_image(
         headers={
             "ETag": etag,
             "Cache-Control": "public, max-age=31536000, immutable",
+            # Stored content-type / XSS hardening: never let a browser sniff
+            # the bytes into an executable type, and force inline display
+            # rather than treating the response as a document to render.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": "inline",
         },
     )
 
@@ -101,7 +107,13 @@ def regenerate_recipe_image_route(
             recipe, settings=settings, user_settings=user_settings
         )
     except RecipeImageError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # The error message can embed the raw provider response body — log it
+        # server-side but return a clean, body-free message to the client.
+        logger.warning("Recipe image regeneration failed for %s: %s", recipe.id, exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Image generation failed. Please try again.",
+        ) from exc
     persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
     record_image_gen(
         session,
@@ -131,10 +143,13 @@ def upload_recipe_image_route(
     if len(payload.image_base64) > _MAX_PHOTO_BASE64_BYTES:
         raise HTTPException(status_code=413, detail="Photo too large")
     try:
-        image_bytes = base64.b64decode(payload.image_base64)
+        image_bytes = base64.b64decode(payload.image_base64, validate=True)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid base64: {exc}") from exc
-    mime = (payload.mime_type or "image/jpeg").strip() or "image/jpeg"
+    try:
+        mime = validate_upload_image(image_bytes, payload.mime_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     persist_recipe_image(session, recipe.id, image_bytes, mime, prompt="user upload")
     session.commit()
     return _refreshed_payload(session, current_user.household_id, recipe.id)
