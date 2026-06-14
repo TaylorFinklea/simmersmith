@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 from collections.abc import AsyncIterator
 
@@ -237,6 +238,15 @@ async def respond_route(
     page_context = payload.page_context
     page_context_week_id = page_context.week_id if page_context else None
     effective_linked_week_id = page_context_week_id or thread.linked_week_id
+    # The client-supplied page_context.week_id is untrusted: a stale/bogus id
+    # would later be inserted as AIRun.week_id (a FK to weeks), making the
+    # final persist flush() raise an FK IntegrityError and marking an
+    # otherwise-completed turn as failed. Validate ownership/existence the
+    # same way create_thread_route does and drop it when it doesn't resolve.
+    if effective_linked_week_id is not None and (
+        get_week(session, current_user.household_id, effective_linked_week_id) is None
+    ):
+        effective_linked_week_id = None
     # We treat ANY message that carries a week_id (via page_context or thread
     # linkage) as a planning turn — that's when the tool loop fires.
     thread_kind = (
@@ -506,6 +516,12 @@ async def respond_route(
                     push_task.add_done_callback(_background_tasks.discard)
         except Exception as exc:
             detail = str(exc) or "Assistant response failed."
+            # The raw exception string can embed a provider URL / request body
+            # (e.g. an httpx error escaping a path that didn't wrap it). Keep
+            # the full detail for the server-side audit log + AIRun.error
+            # column, but only surface a sanitized message to the client SSE
+            # and the stored message bubble (T7).
+            client_detail = _sanitize_error_detail(detail)
             logger.exception("Assistant turn failed for thread %s", thread_id)
             with session_scope() as stream_session:
                 live_thread = get_thread(stream_session, user_id, thread_id)
@@ -515,8 +531,8 @@ async def respond_route(
                         live_thread,
                         live_message,
                         status="failed",
-                        content_markdown=f"Assistant request failed: {detail}",
-                        error=detail,
+                        content_markdown=f"Assistant request failed: {client_detail}",
+                        error=client_detail,
                     )
                 stream_session.add(
                     AIRun(
@@ -542,7 +558,7 @@ async def respond_route(
                 )
             yield encode_sse(
                 "assistant.error",
-                {"message_id": assistant_message_id, "detail": detail},
+                {"message_id": assistant_message_id, "detail": client_detail},
             )
         except GeneratorExit:
             # Client disconnected and Starlette closed the generator. Signal
@@ -670,3 +686,18 @@ def chunk_text(value: str, size: int = 180) -> list[str]:
     if not collapsed:
         return []
     return [collapsed[index : index + size] for index in range(0, len(collapsed), size)]
+
+
+# Matches an http(s) URL so a raw provider error (e.g. an httpx status error
+# carrying "...for url 'https://api.openai.com/v1/...'") can't leak the
+# upstream endpoint into a client-facing SSE error or message bubble (T7).
+_URL_RE = re.compile(r"https?://\S+")
+
+
+def _sanitize_error_detail(detail: str) -> str:
+    """Strip provider URLs from a user-facing error string. Returns a clean
+    fallback when redaction would leave nothing useful behind."""
+    cleaned = _URL_RE.sub("[provider endpoint]", detail).strip()
+    if not cleaned or cleaned == "[provider endpoint]":
+        return "The assistant provider is temporarily unavailable. Please try again."
+    return cleaned

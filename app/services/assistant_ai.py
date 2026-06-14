@@ -734,27 +734,46 @@ def _run_provider_tool_loop(
         completed_calls: list[StreamToolCall] = []
         terminal = False
 
-        with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
-            with client.stream(
-                "POST",
-                adapter.request_url(),
-                headers=adapter.request_headers(),
-                json=adapter.request_body(),
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if _is_aborted():
-                        cancelled = True
-                        break
-                    for ev in adapter.parse_stream_line(line):
-                        if ev.kind == "text_delta":
-                            turn_text += ev.text
-                            accumulated_text += ev.text
-                            _emit("assistant.delta", {"delta": ev.text})
-                        elif ev.kind == "tool_call_complete" and ev.tool_call is not None:
-                            completed_calls.append(ev.tool_call)
-                        elif ev.kind == "turn_done":
-                            terminal = ev.is_terminal
+        try:
+            with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
+                with client.stream(
+                    "POST",
+                    adapter.request_url(),
+                    headers=adapter.request_headers(),
+                    json=adapter.request_body(),
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if _is_aborted():
+                            cancelled = True
+                            break
+                        for ev in adapter.parse_stream_line(line):
+                            if ev.kind == "text_delta":
+                                turn_text += ev.text
+                                accumulated_text += ev.text
+                                _emit("assistant.delta", {"delta": ev.text})
+                            elif ev.kind == "tool_call_complete" and ev.tool_call is not None:
+                                completed_calls.append(ev.tool_call)
+                            elif ev.kind == "turn_done":
+                                terminal = ev.is_terminal
+        except httpx.HTTPError as exc:
+            # Provider 401/429/5xx, timeout, connection error, or a shape
+            # change mid-stream. The raw httpx error embeds the provider URL
+            # and (for status errors) the request URL, so log it server-side
+            # and raise a clean RuntimeError — mirrors the non-streaming
+            # run_direct_provider / week_planner._call_ai_provider wrap (M6).
+            # Without this the bare httpx error escapes the worker thread,
+            # surfaces as a generic 500, and leaks the endpoint into the SSE
+            # assistant.error detail.
+            logger.warning(
+                "Assistant stream provider call failed (%s/%s): %s",
+                target.provider_name,
+                target.model,
+                exc,
+            )
+            raise RuntimeError(
+                "The assistant AI provider is temporarily unavailable. Please try again."
+            ) from exc
         if cancelled:
             break
 
@@ -962,10 +981,23 @@ def run_direct_provider(
             response.raise_for_status()
         except httpx.HTTPError as exc:
             # Surface provider 401/429/5xx as RuntimeError so the routes map
-            # it to a clean 502 instead of a generic 500 (M6).
-            raise RuntimeError(f"AI provider request failed: {exc}") from exc
-        payload = response.json()
-        return str(payload["choices"][0]["message"]["content"])
+            # it to a clean 502 instead of a generic 500 (M6). The raw httpx
+            # error carries the provider URL, so log it and raise a clean
+            # message rather than embedding `exc` in the response.
+            logger.warning("Assistant openai call failed (%s): %s", target.model, exc)
+            raise RuntimeError(
+                "The assistant AI provider is temporarily unavailable. Please try again."
+            ) from exc
+        try:
+            payload = response.json()
+            return str(payload["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, ValueError) as exc:
+            # Missing choices/content or a non-JSON body — an unexpected wire
+            # shape. Don't let a bare KeyError escape as a 500.
+            logger.warning("Assistant openai returned an unexpected shape: %s", exc)
+            raise RuntimeError(
+                "The assistant AI provider returned an unexpected response. Please try again."
+            ) from exc
 
     if target.provider_name == "anthropic":
         headers["x-api-key"] = resolve_direct_api_key("anthropic", settings=settings, user_settings=user_settings)
@@ -985,10 +1017,21 @@ def run_direct_provider(
         try:
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"AI provider request failed: {exc}") from exc
-        payload = response.json()
-        content = payload.get("content", [])
-        text_chunks = [item.get("text", "") for item in content if item.get("type") == "text"]
+            # Raw httpx error carries the provider URL; log it and raise a
+            # clean message rather than embedding `exc` in the response (M6).
+            logger.warning("Assistant anthropic call failed (%s): %s", target.model, exc)
+            raise RuntimeError(
+                "The assistant AI provider is temporarily unavailable. Please try again."
+            ) from exc
+        try:
+            payload = response.json()
+            content = payload.get("content", [])
+            text_chunks = [item.get("text", "") for item in content if item.get("type") == "text"]
+        except (KeyError, IndexError, ValueError, AttributeError) as exc:
+            logger.warning("Assistant anthropic returned an unexpected shape: %s", exc)
+            raise RuntimeError(
+                "The assistant AI provider returned an unexpected response. Please try again."
+            ) from exc
         return "\n".join(chunk for chunk in text_chunks if chunk).strip()
 
     raise RuntimeError(f"Unsupported direct provider: {target.provider_name}")

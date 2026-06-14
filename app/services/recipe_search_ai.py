@@ -200,7 +200,14 @@ def _search_openai(
         response.raise_for_status()
     except httpx.HTTPError as exc:
         # Map provider 401/429/5xx to RuntimeError -> 502 at the route (M6).
-        raise RuntimeError(f"AI provider request failed: {exc}") from exc
+        # The raw httpx error embeds the provider URL, and the discovery
+        # route surfaces this RuntimeError's message verbatim as the 502
+        # detail — log the raw error and raise a clean message so the
+        # endpoint isn't leaked to the client.
+        logger.warning("Recipe web search openai call failed (%s): %s", target.model, exc)
+        raise RuntimeError(
+            "The recipe web-search provider is temporarily unavailable. Please try again."
+        ) from exc
     return _extract_text_from_openai_payload(response.json())
 
 
@@ -256,7 +263,13 @@ def _search_anthropic(
     try:
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"AI provider request failed: {exc}") from exc
+        # Raw httpx error embeds the provider URL and the discovery route
+        # surfaces this message verbatim as the 502 detail — log it and
+        # raise a clean message so the endpoint isn't leaked to the client.
+        logger.warning("Recipe web search anthropic call failed (%s): %s", target.model, exc)
+        raise RuntimeError(
+            "The recipe web-search provider is temporarily unavailable. Please try again."
+        ) from exc
     return _extract_text_from_anthropic_payload(response.json())
 
 
