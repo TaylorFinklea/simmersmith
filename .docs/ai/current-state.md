@@ -93,13 +93,40 @@ Five interconnected merge-lifecycle bugs (the buggiest subsystem):
 - 6 new tests (`tests/test_t4_event_grocery.py`); **suite 528 passed**, ruff clean.
   Live-verified the event create/patch/merge/delete routes + migration up/down/up.
 
-**Remaining from the bug bash (not started):** 36 mediums + 20 lows + most of the
-62 architecture findings — all in the report. Highest-value clusters left:
-freemium-not-enforced (arch T5: ungated recipe_import/pricing + uncapped
-assistant turns — has product decisions, monetization-adjacent), remaining IDOR
-(T3: subscription /verify takeover #5, preference/feedback upserts #13/#17), plus
-the T7 follow-ups (~30 `detail=str(exc)` sites, streaming/vision unwrapped
-provider calls, truncation detection).
+### Backend backlog sweep — 19 findings via 11-lane workflow — `2c84c05`, `478f9b8`, `bd4a9fb`
+
+Cleared the **remaining backend bug-bash findings** (T3 IDOR + backend mediums/lows
++ T7 follow-ups) with an 11-lane file-disjoint workflow (implement → adversarial
+review), then integrated. Report still `.docs/ai/phases/bugbash-2026-06-13-report.md`.
+- **Security (`2c84c05`):** subscription /verify IDOR (409 on cross-user receipt),
+  webhook last_transaction_id guard (no Pro-after-refund), preference/feedback IDOR
+  ownership checks, recipe-image content-type allow-list + nosniff, SSRF CGNAT,
+  web-SSO IntegrityError recovery, vision_ai provider wrapping.
+- **Correctness (`478f9b8`):** catalog merge-all-preferences + archived-variation
+  guard, /resolve commit, split_summary sentence-split, apply_ai_draft WeekMealSide
+  delete, recipe-save image savepoint, pantry week_start cadence, import_pricing
+  up-front validation, rebalance AI-before-delete (data-loss), score_macro_drift
+  resolves recipe ingredients, APNs 410 by status code.
+- **Assistant/T7 (`bd4a9fb`):** page_context.week_id ownership validation; streaming
+  + non-streaming provider errors wrapped (no bare 500); SSE + persisted
+  AssistantMessage.error sanitized (thread-detail URL-leak closed).
+- **Adversarial review caught 5 real bugs** before commit (split-summary inline
+  markers, pantry pre-existing-test break, SSO over-sanitization, planner test
+  monkeypatch target, assistant stored-error leak) — all fixed in integration.
+- **92 new tests** (11 `tests/test_batch_*.py` + 2 updated); **full suite 592 passed**,
+  ruff clean. **Live AI verified:** week-gen 200 + 21 meals + macro-drift note now
+  populates; assistant streaming turn completed with content.
+
+**Remaining from the bug bash (NOT done):**
+- **16 iOS findings + 2 shopping-skill** — deferred to a build-capable pass (Swift
+  can't be compiled/verified headless; won't ship unverified client code). Itemized
+  in the report under the `ios-*` slices (e.g. #15 FAB overwrites occupied slot, #25
+  swallowed errors, #29 locale weekday, #41/#42 MealIcon substring, #44 comma-decimal).
+- **T5 freemium-not-enforced** — has product decisions (entitlement unit, assistant
+  gating); monetization-adjacent, deferred.
+- **Architecture STRUCTURAL findings** (FKs on household_id, metadata naming_convention,
+  RLS/defense-in-depth, pagination, AI truncation detection, JSON-extractor unification)
+  — design-heavy, not line-bug fixes; tackle as focused efforts.
 
 ## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
 

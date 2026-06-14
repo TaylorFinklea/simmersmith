@@ -189,16 +189,20 @@ unfinished M21 household pivot.
   dropped on edit (new events.manually_merged flag, migration 0048 + keep_link),
   #37 rename strands rows (name-agnostic marker), #38 AI-regen sort_order collision.
   6 new tests, suite 528 green, live-verified routes + migration round-trip.
-- [ ] **Remaining bug-bash findings** — 36 mediums + 20 lows + most of 62 arch
-  findings, all itemized in the report (file:line + trigger + fix). Highest-value
-  clusters left: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
-  uncapped assistant turns = unbounded paid-LLM spend; paywall has no e2e test —
-  note: has product decisions, monetization-adjacent), **T4 event-grocery merge
-  lifecycle** (5 bugs: delete/re-date/manual-merge/rename leave orphaned or stale
-  grocery state), **T3 remaining IDOR** (subscription /verify takeover #5,
-  preference/feedback upserts #13/#17), plus the T7 follow-ups noted above
-  (~30 `detail=str(exc)` sites, streaming/vision unwrapped provider calls,
-  truncation detection). tier_floor: per-item in report · complexity: mixed.
+- [x] **Backend backlog sweep (19 findings) — DONE `2c84c05`,`478f9b8`,`bd4a9fb`** (2026-06-14).
+  All remaining BACKEND bug-bash findings (T3 IDOR #5/#13/#17, backend mediums/lows,
+  T7 follow-ups) via an 11-lane file-disjoint workflow (implement → adversarial
+  review → integrate). Adversarial review caught 5 real bugs pre-commit. 92 new
+  tests, suite 592 green, live AI verified (week-gen + macro-drift + assistant stream).
+- [ ] **Remaining bug-bash findings (NOT backend)** — itemized in the report:
+  - **16 iOS findings + 2 shopping-skill** — deferred to a build-capable pass (Swift
+    can't be compiled/verified headless). e.g. #15 FAB overwrites occupied slot, #25
+    swallowed errors, #29 locale weekday, #41/#42 MealIcon substring, #44 comma-decimal.
+  - **T5 freemium-not-enforced** — ungated recipe_import/pricing + uncapped assistant
+    turns; has product decisions (entitlement unit, assistant gating), monetization-adjacent.
+  - **Architecture STRUCTURAL** — FKs on household_id, metadata naming_convention,
+    RLS/defense-in-depth, pagination, AI truncation detection, JSON-extractor unification.
+    Design-heavy, not line-bug fixes. tier_floor: lead/senior · complexity: mixed.
 
 ## Backlog — bug sweep 2026-05-30 (unfixed confirmed findings)
 
