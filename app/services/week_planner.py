@@ -544,13 +544,20 @@ def score_macro_drift(
     if goal is None or goal.daily_calories <= 0:
         return []
 
+    recipes_by_name: dict[str, list] = {}
+    for recipe in plan.get("recipes", []):
+        name = str(recipe.get("name") or "").strip().lower()
+        if name:
+            recipes_by_name[name] = recipe.get("ingredients") or []
+
     daily_calories: dict[str, float] = {}
     daily_day_name: dict[str, str] = {}
     for meal in plan.get("meal_plan", []):
         day_key = str(meal.get("meal_date") or "")
         if not day_key:
             continue
-        ingredients = meal.get("ingredients") or []
+        recipe_key = str(meal.get("recipe_name") or "").strip().lower()
+        ingredients = recipes_by_name.get(recipe_key) or meal.get("ingredients") or []
         macros = calculate_meal_macros(session, ingredients)
         if macros.is_empty:
             continue

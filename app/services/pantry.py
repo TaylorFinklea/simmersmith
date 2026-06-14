@@ -215,7 +215,16 @@ def delete_pantry_item(session: Session, *, item: Staple) -> None:
 def _is_due(item: Staple, *, week_start: date, now: datetime) -> bool:
     """Decide whether a pantry item's recurring should fire for the
     given week. `weekly` always fires; `biweekly` / `monthly` need
-    the gap from `last_applied_at` to be wide enough."""
+    the gap to be wide enough.
+
+    The cadence gap is measured against `week_start` — the week being
+    planned — not wall-clock `now`. `last_applied_at` stores the
+    `week_start` of the last week this item was folded into (encoded as
+    a midnight-UTC datetime; see `apply_pantry_recurrings`). Gating on
+    the planned-week gap lets a user plan several future weeks in one
+    sitting without the biweekly/monthly restock being dropped on every
+    week after the first, and stops the gate mis-firing when the same
+    week is re-planned after enough real time passes."""
     if item.recurring_cadence == "none":
         return False
     if not item.is_active:
@@ -227,7 +236,8 @@ def _is_due(item: Staple, *, week_start: date, now: datetime) -> bool:
         return False
     if item.last_applied_at is None or min_days == 0:
         return True
-    gap = (now - item.last_applied_at).days
+    last_applied_week = item.last_applied_at.date()
+    gap = (week_start - last_applied_week).days
     return gap >= min_days
 
 
@@ -247,6 +257,14 @@ def apply_pantry_recurrings(
     """
     invalidate_week(session, week)
     now_ts = now or datetime.now(timezone.utc)
+    # `last_applied_at` is reinterpreted as the *week_start* this item was
+    # last folded into (encoded as a midnight-UTC datetime), so the cadence
+    # gate in `_is_due` measures the gap between planned weeks rather than
+    # wall-clock apply time. No schema change: the existing DateTime column
+    # holds the week_start baseline.
+    applied_marker = datetime(
+        week.week_start.year, week.week_start.month, week.week_start.day, tzinfo=timezone.utc
+    )
 
     items = list(
         session.scalars(
@@ -299,7 +317,7 @@ def apply_pantry_recurrings(
             is_user_added=True,
         )
         session.add(row)
-        item.last_applied_at = now_ts
+        item.last_applied_at = applied_marker
         landed.append(row)
     session.flush()
     return landed

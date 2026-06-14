@@ -12,7 +12,7 @@ The existing staple-filter behavior is regression-tested in
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 
@@ -103,16 +103,18 @@ def test_apply_pantry_recurrings_is_idempotent() -> None:
 
 
 def test_biweekly_cadence_skips_until_gap_met() -> None:
-    """A biweekly recurring shouldn't add to a week within 13 days of
-    the prior application; weekly bumps the timestamp on every run."""
-    now = datetime.now(timezone.utc)
+    """A biweekly recurring shouldn't add to a week within 13 days (measured by
+    week_start, not wall-clock) of the prior application; a later week past the
+    gap lands it. Cadence is keyed on the week being planned so a user can plan
+    several future weeks in one sitting without dropping the restock."""
     with session_scope() as session:
-        week = create_or_get_week(
-            session,
-            user_id=_uid,
-            household_id=_uid,
-            week_start=date(2026, 6, 15),
-            notes="cadence test",
+        week_early = create_or_get_week(
+            session, user_id=_uid, household_id=_uid,
+            week_start=date(2026, 6, 8), notes="cadence early",
+        )
+        week_late = create_or_get_week(
+            session, user_id=_uid, household_id=_uid,
+            week_start=date(2026, 6, 15), notes="cadence late",
         )
         item = add_pantry_item(
             session,
@@ -123,28 +125,29 @@ def test_biweekly_cadence_skips_until_gap_met() -> None:
             recurring_unit="ea",
             recurring_cadence="biweekly",
         )
-        # Fake a prior apply 5 days ago — biweekly needs 13+.
-        item.last_applied_at = now - timedelta(days=5)
+        # Fake a prior apply for the 2026-06-01 week — biweekly needs a 13-day
+        # week_start gap.
+        item.last_applied_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
         session.flush()
 
-        apply_pantry_recurrings(session, week=week, household_id=_uid, now=now)
+        # 2026-06-08 is only 7 days past 2026-06-01 -> not due.
+        apply_pantry_recurrings(session, week=week_early, household_id=_uid)
         early = list(
             session.scalars(
                 select(GroceryItem).where(
-                    GroceryItem.week_id == week.id,
+                    GroceryItem.week_id == week_early.id,
                     GroceryItem.source_meals.like("pantry:recurring:%"),
                 )
             ).all()
         )
         assert len(early) == 0
 
-        # Move the clock forward — now we're past the 13-day gap.
-        future = now + timedelta(days=14)
-        apply_pantry_recurrings(session, week=week, household_id=_uid, now=future)
+        # 2026-06-15 is 14 days past 2026-06-01 -> due.
+        apply_pantry_recurrings(session, week=week_late, household_id=_uid)
         landed = list(
             session.scalars(
                 select(GroceryItem).where(
-                    GroceryItem.week_id == week.id,
+                    GroceryItem.week_id == week_late.id,
                     GroceryItem.source_meals.like("pantry:recurring:%"),
                 )
             ).all()

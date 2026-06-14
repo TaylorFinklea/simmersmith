@@ -236,10 +236,12 @@ def test_send_push_marks_disabled_on_410() -> None:
         device = _make_user_with_device(session, user_id, device_token="token410" + "a" * 55)
         session.flush()
 
-        # Mock aioapns result
+        # Mock aioapns result — real contract: status holds the HTTP code,
+        # description holds the reason string.
         mock_result = MagicMock()
         mock_result.is_successful = False
-        mock_result.status = "Unregistered"
+        mock_result.status = "410"
+        mock_result.description = "Unregistered"
 
         mock_client = MagicMock()
         mock_client.send_notification = AsyncMock(return_value=mock_result)

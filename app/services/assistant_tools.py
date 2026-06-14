@@ -553,13 +553,12 @@ def _run_rebalance_day(
 
     existing = [m for m in week.meals if m.meal_date == target_date]
     day_name = existing[0].day_name if existing else target_date.strftime("%A")
-    for meal in existing:
-        session.execute(
-            WeekMealIngredient.__table__.delete().where(WeekMealIngredient.week_meal_id == meal.id)
-        )
-        session.execute(WeekMeal.__table__.delete().where(WeekMeal.id == meal.id))
-    session.flush()
 
+    # Call the AI provider BEFORE deleting the day's meals. If run_rebalance
+    # raises (provider failure), we return ok=False by a normal return, which
+    # skips the run_tool crash-rollback and lets session_scope COMMIT. Deleting
+    # first would therefore permanently wipe the day's meals on a reported
+    # failure. Mirror generate_week_plan: mutate only after the AI succeeds.
     try:
         draft_data = run_rebalance(
             settings=settings,
@@ -571,6 +570,13 @@ def _run_rebalance_day(
         )
     except RuntimeError as exc:
         return AssistantToolResult(ok=False, detail=f"Rebalance failed: {exc}")
+
+    for meal in existing:
+        session.execute(
+            WeekMealIngredient.__table__.delete().where(WeekMealIngredient.week_meal_id == meal.id)
+        )
+        session.execute(WeekMeal.__table__.delete().where(WeekMeal.id == meal.id))
+    session.flush()
 
     draft = DraftFromAIRequest.model_validate(draft_data)
     apply_ai_draft(session, week, draft)

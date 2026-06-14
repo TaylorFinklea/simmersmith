@@ -484,7 +484,7 @@ def resolve_ingredient_route(
 ) -> dict[str, object]:
     # Scope any newly-minted base ingredient to the caller's household so an
     # explicit resolve doesn't write into the shared global catalog (M63).
-    return resolve_ingredient(
+    resolution = resolve_ingredient(
         session,
         ingredient_name=payload.ingredient_name,
         normalized_name=payload.normalized_name,
@@ -494,7 +494,12 @@ def resolve_ingredient_route(
         category=payload.category,
         notes=payload.notes,
         household_id=current_user.household_id,
-    ).as_payload()
+    )
+    # resolve_ingredient may mint a BaseIngredient/IngredientVariation via
+    # session.flush() only; commit so the returned id survives (get_session
+    # does not commit), matching the other mutating routes in this module.
+    session.commit()
+    return resolution.as_payload()
 
 
 @preferences_router.get("", response_model=list[IngredientPreferenceOut])

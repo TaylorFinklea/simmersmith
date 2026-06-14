@@ -459,16 +459,17 @@ def merge_base_ingredients(session: Session, *, source_id: str, target_id: str) 
             merge_variations(session, source_id=row.id, target_id=duplicate.id)
             continue
         row.base_ingredient_id = target.id
-    # Merge user preferences — all preferences for the source base ingredient
-    # are reassigned to the target regardless of user, so query without user_id.
-    preference = session.scalar(
+    # Merge user preferences — every preference for the source base ingredient
+    # (any user, any rank) is reassigned to the target, so iterate all rows and
+    # guard the (user_id, base_ingredient_id, rank) unique on collision.
+    for preference in session.scalars(
         select(IngredientPreference).where(IngredientPreference.base_ingredient_id == source.id)
-    )
-    if preference is not None:
+    ).all():
         existing = session.scalar(
             select(IngredientPreference).where(
                 IngredientPreference.base_ingredient_id == target.id,
                 IngredientPreference.user_id == preference.user_id,
+                IngredientPreference.rank == preference.rank,
             )
         )
         if existing is None:
@@ -625,8 +626,14 @@ def choice_for_base_ingredient(
                 select(IngredientVariation).where(
                     IngredientVariation.base_ingredient_id == base.id,
                     IngredientVariation.brand.ilike(preference.preferred_brand),
+                    IngredientVariation.archived_at.is_(None),
+                    IngredientVariation.active.is_(True),
                 )
             )
+        if chosen_variation is not None and (
+            chosen_variation.archived_at is not None or not chosen_variation.active
+        ):
+            chosen_variation = None
         if chosen_variation is not None:
             return base, chosen_variation, "resolved"
 

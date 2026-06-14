@@ -65,9 +65,18 @@ def import_pricing(session: Session, week: Week, payload: PricingImportRequest) 
     session.flush()
 
     try:
+        # Validate the entire payload UP FRONT — unknown items and duplicate
+        # (grocery_item_id, retailer) pairs — before mutating anything. A bad
+        # payload must leave the existing prices untouched (the route commits
+        # the failed PricingRun on ValueError).
+        seen_pairs: set[tuple[str, str]] = set()
         for entry in payload.items:
             if entry.grocery_item_id not in item_lookup:
                 raise ValueError(f"Unknown grocery item '{entry.grocery_item_id}' for week {week.id}.")
+            pair = (entry.grocery_item_id, entry.retailer)
+            if pair in seen_pairs:
+                raise ValueError(f"Duplicate pricing import row for item {entry.grocery_item_id} and {entry.retailer}.")
+            seen_pairs.add(pair)
 
         if payload.replace_existing:
             if week_items:
@@ -77,13 +86,7 @@ def import_pricing(session: Session, week: Week, payload: PricingImportRequest) 
             for item in week_items:
                 item.review_flag = ""
 
-        seen_pairs: set[tuple[str, str]] = set()
         for entry in payload.items:
-            pair = (entry.grocery_item_id, entry.retailer)
-            if pair in seen_pairs:
-                raise ValueError(f"Duplicate pricing import row for item {entry.grocery_item_id} and {entry.retailer}.")
-            seen_pairs.add(pair)
-
             if not payload.replace_existing:
                 session.execute(
                     delete(RetailerPrice).where(

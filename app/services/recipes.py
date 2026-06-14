@@ -95,8 +95,14 @@ def split_summary_into_steps(summary: str) -> list[str]:
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     if len(lines) > 1:
         return [re.sub(r"^\d+[\).\s-]+", "", line).strip() for line in lines]
-    parts = re.split(r"(?:\s*\d+[\).\s-]+)|(?:\.\s+)", cleaned)
-    normalized = [part.strip() for part in parts if part and part.strip()]
+    parts = re.split(r"\.\s+", cleaned)
+    normalized: list[str] = []
+    for part in parts:
+        piece = re.sub(r"^\d+[\).\s-]+", "", part).strip()
+        # Drop a fragment left as a bare numbered-list marker by the sentence
+        # split (e.g. "1. Foo. 2. Bar" -> the standalone "1"/"2" pieces).
+        if piece and not re.fullmatch(r"\d+", piece):
+            normalized.append(piece)
     return normalized or [cleaned]
 
 

@@ -17,6 +17,7 @@ from app.models import (
     WeekChangeEvent,
     WeekMeal,
     WeekMealIngredient,
+    WeekMealSide,
     utcnow,
 )
 from app.schemas import DraftFromAIRequest, MealUpdatePayload, RecipePayload
@@ -369,6 +370,7 @@ def apply_ai_draft(session: Session, week: Week, payload: DraftFromAIRequest) ->
     meal_ids = list(session.scalars(select(WeekMeal.id).where(WeekMeal.week_id == week.id)).all())
     if meal_ids:
         session.execute(delete(WeekMealIngredient).where(WeekMealIngredient.week_meal_id.in_(meal_ids)))
+        session.execute(delete(WeekMealSide).where(WeekMealSide.week_meal_id.in_(meal_ids)))
     batch_ids = list(
         session.scalars(select(WeekChangeBatch.id).where(WeekChangeBatch.week_id == week.id)).all()
     )

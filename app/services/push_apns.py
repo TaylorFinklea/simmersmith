@@ -156,7 +156,7 @@ async def send_push(
             result = await client.send_notification(request)
             if result.is_successful:
                 delivered += 1
-            elif hasattr(result, "status") and result.status == "Unregistered":
+            elif getattr(result, "status", "") == "410" or getattr(result, "description", "") == "Unregistered":
                 # APNs 410 — device unregistered; soft-disable so we never retry
                 logger.info(
                     "send_push: device unregistered (410) user=%s token=%.12s…",

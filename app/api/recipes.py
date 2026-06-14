@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
@@ -269,15 +270,24 @@ def save_recipe(
                 bytes_, mime, prompt, provider, model = generate_recipe_image(
                     recipe, settings=settings, user_settings=user_settings
                 )
-                persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
-                record_image_gen(
-                    session,
-                    user_id=current_user.id,
-                    recipe_id=recipe.id,
-                    provider=provider,
-                    model=model,
-                    trigger="save",
-                )
+                # Run the image write in a SAVEPOINT so a concurrent-create
+                # IntegrityError on the RecipeImage PK can't poison the
+                # session and roll back the recipe save at commit time. On
+                # conflict the image already exists, so just continue.
+                try:
+                    with session.begin_nested():
+                        persist_recipe_image(session, recipe.id, bytes_, mime, prompt)
+                        record_image_gen(
+                            session,
+                            user_id=current_user.id,
+                            recipe_id=recipe.id,
+                            provider=provider,
+                            model=model,
+                            trigger="save",
+                        )
+                        session.flush()
+                except IntegrityError as exc:
+                    logger.info("Recipe image already present (concurrent save): %s", exc)
         except RecipeImageError as exc:
             logger.info("Recipe image generation skipped: %s", exc)
         except Exception as exc:  # noqa: BLE001
@@ -436,7 +446,10 @@ def refine_recipe_draft_route(
             context_hint=payload.context_hint,
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("Recipe draft refine failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="The AI provider could not refine the draft. Please try again."
+        ) from exc
     return refined
 
 
@@ -611,7 +624,11 @@ def recipe_ingredient_substitute_route(
             hint=payload.hint,
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("Substitution suggestion failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="The AI provider could not suggest substitutions. Please try again.",
+        ) from exc
 
     session.add(
         AIRun(
@@ -651,7 +668,10 @@ def recipe_pairings_route(
             user_settings=user_settings,
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("Pairing suggestion failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="The AI provider could not suggest pairings. Please try again."
+        ) from exc
 
     return RecipePairingsResponse(
         recipe_id=recipe_id,
@@ -709,7 +729,10 @@ def recipe_cook_check_route(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("Cook check failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="The AI provider could not check this step. Please try again."
+        ) from exc
 
     return CookCheckOut(
         verdict=result.verdict,
