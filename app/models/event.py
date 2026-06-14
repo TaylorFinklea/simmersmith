@@ -83,6 +83,11 @@ class Event(Base):
     # change. Flip to False for events where guests bring food (potluck)
     # — the toggle is exposed in the iOS Event detail view.
     auto_merge_grocery: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # M22 follow-up (T4): set when the user explicitly merges this event into a
+    # specific week via POST /grocery/merge. While True the auto-merge policy
+    # keeps the event pinned to `linked_week_id` and never auto-unmerges or
+    # auto-re-points it; the explicit unmerge endpoint clears it.
+    manually_merged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False

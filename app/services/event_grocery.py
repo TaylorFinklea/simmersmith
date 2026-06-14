@@ -241,7 +241,10 @@ def regenerate_event_grocery(
             )
         )
         if prev_week is not None:
-            unmerge_event_from_week(session, event=event, week=prev_week)
+            # keep_link: this is a rebuild-then-remerge, not a teardown — keep
+            # linked_week_id so apply_auto_merge_policy (incl. a manual pin) can
+            # re-merge into the same week after the rows are rebuilt.
+            unmerge_event_from_week(session, event=event, week=prev_week, keep_link=True)
 
     session.execute(
         delete(EventGroceryItem).where(EventGroceryItem.event_id == event.id)
@@ -427,16 +430,36 @@ def apply_auto_merge_policy(
     user_id: str,
     household_id: str,
 ) -> None:
-    """Reconcile `event.auto_merge_grocery` with the event's actual merge
-    state. Call this after any mutation that touches event meals OR
-    flips the toggle itself.
+    """Reconcile the event's grocery merge with its target week. Call this
+    after any mutation that touches event meals OR flips a merge toggle.
 
-    When True: idempotently merge the event's grocery rows into the
-    week covering `event.event_date` (or `linked_week_id`).
-    When False: if the event was previously merged into a week,
-    unmerge from that week.
+    - ``manually_merged``: the user pinned this event to ``linked_week_id`` via
+      the explicit merge endpoint — keep it merged there, never auto-unmerge or
+      auto-re-point. Only the explicit unmerge endpoint clears the pin.
+    - ``auto_merge_grocery``: idempotently merge into the week covering
+      ``event.event_date``. If the date moved off the currently-linked week,
+      unmerge from it first so it re-merges into the now-covering week.
+    - otherwise: if previously auto-linked, unmerge from that week.
     """
+    def _week(week_id: str) -> Week | None:
+        return session.scalar(
+            select(Week).where(Week.id == week_id, Week.household_id == household_id)
+        )
+
+    if event.manually_merged:
+        if event.linked_week_id:
+            target = _week(event.linked_week_id)
+            if target is not None:
+                merge_event_into_week(session, user_id=user_id, event=event, week=target)
+        return
+
     if event.auto_merge_grocery:
+        if event.linked_week_id and event.event_date is not None:
+            linked = _week(event.linked_week_id)
+            if linked is not None and not (linked.week_start <= event.event_date <= linked.week_end):
+                # Date moved off the linked week — drop the stale merge so the
+                # re-resolve below lands it on the week that now covers the date.
+                unmerge_event_from_week(session, event=event, week=linked)
         target = _resolve_target_week(session, event, household_id)
         if target is not None:
             merge_event_into_week(session, user_id=user_id, event=event, week=target)
@@ -444,22 +467,23 @@ def apply_auto_merge_policy(
 
     if event.linked_week_id is None:
         return
-    week = session.scalar(
-        select(Week).where(
-            Week.id == event.linked_week_id,
-            Week.household_id == household_id,
-        )
-    )
+    week = _week(event.linked_week_id)
     if week is not None:
         unmerge_event_from_week(session, event=event, week=week)
 
 
-def unmerge_event_from_week(session: Session, *, event: Event, week: Week) -> int:
+def unmerge_event_from_week(
+    session: Session, *, event: Event, week: Week, keep_link: bool = False
+) -> int:
     """Reverse a prior merge. Subtracts each event grocery row's
     contribution from the matching weekly row's `event_quantity`. If
     the row was event-only (no week-meal contribution) and its
     `event_quantity` goes to zero with no user investment, delete it.
     Returns how many rows were touched.
+
+    `keep_link=True` leaves `event.linked_week_id` intact — used by
+    `regenerate_event_grocery`, which unmerges only to rebuild + re-merge into
+    the same week. The default clears the link (a real teardown).
     """
     touched = 0
     for ev_row in list(event.grocery_items):
@@ -479,10 +503,10 @@ def unmerge_event_from_week(session: Session, *, event: Event, week: Week) -> in
                 )
             # Event-only rows (created by the merge) self-delete when
             # their event contribution is gone and the user hasn't
-            # invested in them. We detect "event-only" by the
-            # `source_meals == "event:<name>"` marker the merge code
-            # writes when creating a fresh row.
-            event_only = (target.source_meals or "").startswith(f"event:{event.name}")
+            # invested in them. Detect "event-only" by the `source_meals`
+            # "event:" prefix the merge writes — name-agnostic, so renaming
+            # the event between merge and unmerge can't strand a zombie row.
+            event_only = (target.source_meals or "").startswith("event:")
             no_remaining_qty = (target.total_quantity or 0) <= 0 and (target.event_quantity or 0) <= 0
             no_user_investment = (
                 target.quantity_override is None
@@ -496,6 +520,6 @@ def unmerge_event_from_week(session: Session, *, event: Event, week: Week) -> in
         ev_row.merged_into_week_id = None
         ev_row.merged_into_grocery_item_id = None
         touched += 1
-    if event.linked_week_id == week.id:
+    if not keep_link and event.linked_week_id == week.id:
         event.linked_week_id = None
     return touched

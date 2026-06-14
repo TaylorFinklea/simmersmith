@@ -176,6 +176,9 @@ def update_event(
         _sync_attendees(session, event, attendees, household_id=household_id)
     if auto_merge_grocery is not _UNSET:
         event.auto_merge_grocery = bool(auto_merge_grocery)
+        # Explicitly choosing the auto/off behavior overrides a prior manual
+        # pin, so the policy resumes auto-merge / auto-unmerge semantics.
+        event.manually_merged = False
     return event
 
 
@@ -214,6 +217,23 @@ def _sync_attendees(
 
 
 def delete_event(session: Session, event: Event) -> None:
+    # Reconcile the linked week's grocery before deleting. The
+    # Event→EventGroceryItem cascade drops the event's own rows, but won't
+    # subtract the event_quantity this event added to the week's GroceryItems
+    # (or remove the event-only rows it created) — leaving the week with stale
+    # totals + zombie rows. Unmerge first.
+    if event.linked_week_id:
+        from app.models import Week
+        from app.services.event_grocery import unmerge_event_from_week
+
+        week = session.scalar(
+            select(Week).where(
+                Week.id == event.linked_week_id,
+                Week.household_id == event.household_id,
+            )
+        )
+        if week is not None:
+            unmerge_event_from_week(session, event=event, week=week)
     session.delete(event)
 
 
@@ -263,7 +283,10 @@ def replace_event_meals(
             servings=entry.get("servings"),
             scale_multiplier=float(entry.get("scale_multiplier", 1.0) or 1.0),
             notes=str(entry.get("notes", "")),
-            sort_order=int(entry.get("sort_order", start_index + index)),
+            # Offset by start_index so AI dishes (which carry their own 0-based
+            # sort_order) land AFTER preserved manual meals instead of colliding
+            # at the same sort_order. start_index is 0 on the non-preserve path.
+            sort_order=start_index + int(entry.get("sort_order", index)),
             ai_generated=bool(entry.get("ai_generated", True)),
             approved=bool(entry.get("approved", False)),
             assigned_guest_id=entry.get("assigned_guest_id"),

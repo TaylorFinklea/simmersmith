@@ -636,6 +636,9 @@ def merge_event_grocery_route(
         raise HTTPException(status_code=404, detail="Week not found")
 
     merge_event_into_week(session, user_id=current_user.id, event=event, week=week)
+    # Pin it: a manual merge survives later edits (regenerate + auto-merge
+    # policy) until the user explicitly unmerges.
+    event.manually_merged = True
     session.commit()
 
     from app.db import session_scope
@@ -667,6 +670,8 @@ def unmerge_event_grocery_route(
     if week is None:
         raise HTTPException(status_code=404, detail="Week not found")
     unmerge_event_from_week(session, event=event, week=week)
+    # Explicit unmerge clears the manual pin so the auto-merge policy resumes.
+    event.manually_merged = False
     session.commit()
 
     from app.db import session_scope
