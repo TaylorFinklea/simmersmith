@@ -469,7 +469,7 @@ def rebalance_day_endpoint(
         day_name = target_date.strftime("%A")
     for meal in existing:
         session.execute(
-            WeekMealIngredient.__table__.delete().where(WeekMealIngredient.meal_id == meal.id)
+            WeekMealIngredient.__table__.delete().where(WeekMealIngredient.week_meal_id == meal.id)
         )
         session.execute(WeekMeal.__table__.delete().where(WeekMeal.id == meal.id))
     session.flush()

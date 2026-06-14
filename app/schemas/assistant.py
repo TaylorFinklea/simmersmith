@@ -58,7 +58,7 @@ class AssistantMessageOut(BaseModel):
     message_id: str
     thread_id: str
     role: Literal["user", "assistant", "system"]
-    status: Literal["queued", "streaming", "completed", "failed"]
+    status: Literal["queued", "streaming", "completed", "failed", "cancelled"]
     content_markdown: str = ""
     recipe_draft: RecipePayload | None = None
     attached_recipe_id: str | None = None

@@ -174,13 +174,22 @@ def parse_quantity_text(value: str) -> float | None:
     except ValueError:
         pass
 
+    # Fraction() raises ZeroDivisionError on a zero denominator ("1/0") and
+    # ValueError on a malformed token — neither should 500 the import; treat the
+    # token as un-parseable (None) so it stays part of the ingredient name.
     mixed_match = re.fullmatch(r"(\d+)\s+(\d+/\d+)", text)
     if mixed_match:
-        return float(int(mixed_match.group(1)) + Fraction(mixed_match.group(2)))
+        try:
+            return float(int(mixed_match.group(1)) + Fraction(mixed_match.group(2)))
+        except (ZeroDivisionError, ValueError):
+            return None
 
     fraction_match = re.fullmatch(r"\d+/\d+", text)
     if fraction_match:
-        return float(Fraction(text))
+        try:
+            return float(Fraction(text))
+        except (ZeroDivisionError, ValueError):
+            return None
 
     return None
 

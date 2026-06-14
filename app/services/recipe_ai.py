@@ -112,7 +112,7 @@ VARIATION_PRESETS: tuple[VariationPreset, ...] = (
         guidance_note="Tone down heat, simplify flavors, and keep textures approachable.",
         ingredient_rules=(
             VariationRule(("jalapeno", "jalapeño", "serrano", "chili", "red pepper flakes", "hot sauce"), "mild bell pepper", "Swap heat-heavy ingredients for a milder pepper."),
-            VariationRule(("onion"), "finely diced onion", "Use smaller onion pieces for a softer texture."),
+            VariationRule(("onion",), "finely diced onion", "Use smaller onion pieces for a softer texture."),
         ),
     ),
     VariationPreset(
