@@ -55,13 +55,30 @@ Closed the arch-T7 gap that *swallowed* today's 500:
   body AND logs `week-plan AI call failed (openai/gpt-5.5): The read operation
   timed out` (was a bare 500 + swallowed traceback). Readiness probe returns ready.
 
+### T6 — crashes / dead features fixed — `f770815`
+
+Four crash/dead-feature bugs:
+- **#18** rebalance-day endpoint deleted via `WeekMealIngredient.meal_id` (FK is
+  `week_meal_id`) → AttributeError → 500, feature dead. Fixed the column.
+  **Live-verified**: added 2 meals to a day, rebalanced → **200** with a real AI
+  day (deleted the old meals via the fixed column, no crash).
+- **#3** cancelled turn persisted `status='cancelled'`, not in
+  `AssistantMessageOut.status` Literal → GET thread 500'd. Added `'cancelled'` to
+  the Literal (iOS `AIAssistantSheetView:331` already renders it; DB col is free
+  String).
+- **#33** recipe-import `parse_quantity_text` built `Fraction("1/0")` →
+  ZeroDivisionError → 500. Guard ZeroDivisionError/ValueError → token stays name.
+- **#1** kid-friendly preset `VariationRule(("onion"), …)` was a string not a
+  1-tuple → every `rule.terms` walk iterated chars o/n/i/o/n and re.sub-corrupted
+  every step/ingredient. Added the trailing comma.
+- 5 new tests (`tests/test_t6_crashes.py`); **suite 523 passed**, ruff clean.
+
 **Remaining from the bug bash (not started):** 36 mediums + 20 lows + most of the
 62 architecture findings — all in the report. Highest-value next clusters:
 freemium-not-enforced (arch T5: ungated recipe_import/pricing + uncapped
-assistant turns), event-grocery merge lifecycle (T4, 5 bugs), remaining IDOR
-(T3: subscription /verify takeover #5, preference/feedback upserts #13/#17),
-crashes (T6: #18 rebalance-day 500, #3 cancelled-turn unreadable thread, #33
-import "1/0", #1 kid-friendly preset).
+assistant turns — has product decisions), event-grocery merge lifecycle (T4, 5
+bugs), remaining IDOR (T3: subscription /verify takeover #5, preference/feedback
+upserts #13/#17).
 
 ## Last session (2026-06-02 pm) — SHIPPED: deploy + TestFlight + cleanup
 

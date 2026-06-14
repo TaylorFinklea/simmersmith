@@ -178,17 +178,22 @@ unfinished M21 household pivot.
   (forced timeout → 503 + logged). Remaining T7 follow-ups (separate scope): the
   ~30 `detail=str(exc)` route sites + the streaming-loop/vision_ai unwrapped
   provider calls + truncation detection (arch report AI-LLM + error-handling).
+- [x] **T6 — crashes / dead features (4 bugs) — DONE `f770815`** (2026-06-13). #18
+  rebalance-day AttributeError 500 (WeekMealIngredient.meal_id→week_meal_id;
+  live-verified 200 with real AI), #3 cancelled-turn unreadable thread (added
+  'cancelled' to AssistantMessageOut.status Literal), #33 import "1/0"
+  ZeroDivisionError (guarded), #1 kid-friendly preset tuple-comma corruption.
+  5 new tests, suite 523 green.
 - [ ] **Remaining bug-bash findings** — 36 mediums + 20 lows + most of 62 arch
   findings, all itemized in the report (file:line + trigger + fix). Highest-value
-  clusters: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
-  uncapped assistant turns = unbounded paid-LLM spend; paywall has no e2e test),
-  **T7 observability** (no logging config, no global exception handler — masked
-  today's 500; provider URLs leak into responses), **T4 event-grocery merge
-  lifecycle** (5 bugs), **T3 remaining IDOR** (subscription /verify takeover #5,
-  preference/feedback upserts #13/#17), **T6 crashes** (#18 rebalance-day endpoint
-  AttributeError 500, #3 cancelled-turn unreadable thread, #33 import "1/0"
-  ZeroDivisionError, #1 kid-friendly preset corruption). tier_floor: per-item in
-  report · complexity: mixed.
+  clusters left: **T5 freemium-not-enforced** (ungated recipe_import/pricing actions +
+  uncapped assistant turns = unbounded paid-LLM spend; paywall has no e2e test —
+  note: has product decisions, monetization-adjacent), **T4 event-grocery merge
+  lifecycle** (5 bugs: delete/re-date/manual-merge/rename leave orphaned or stale
+  grocery state), **T3 remaining IDOR** (subscription /verify takeover #5,
+  preference/feedback upserts #13/#17), plus the T7 follow-ups noted above
+  (~30 `detail=str(exc)` sites, streaming/vision unwrapped provider calls,
+  truncation detection). tier_floor: per-item in report · complexity: mixed.
 
 ## Backlog — bug sweep 2026-05-30 (unfixed confirmed findings)
 
