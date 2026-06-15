@@ -6,6 +6,30 @@
 
 `main`
 
+## Plan — CloudKit migration de-risking spikes (set 2026-06-15)
+
+Direction: Apple-native / offline-first rearchitecture. Spec
+`phases/cloudkit-migration-spikes-spec.md`; decisions in `decisions.md` (2026-06-15).
+Spike-first before SP-A (CloudKit data plane) / SP-B (AI tiering).
+
+- [ ] **Spike 1 — CloudKit offline grocery-merge across 2 devices.** Port the
+  `regenerate_grocery_for_week` (`app/services/grocery.py:500`) classification core
+  to Swift; two-peer concurrent test of 4 failure modes (tombstone resurrection,
+  event_quantity double-count, override survival, check-state convergence). Output:
+  `CKSyncEngine` vs `NSPersistentCloudKitContainer` verdict + grocery-safe-on-client
+  vs keep-on-server. Verify: 2-device scenario runs, 4 assertions report pass/fail,
+  report section written.
+- [ ] **Spike 2 — week-gen quality A/B.** Lift `week_planner.py` prompt +
+  `gather_planning_context`; 8 contexts × {gpt-5.5, Claude, AFM 3 on-device, PCC};
+  rubric (allergy=hard-fail, macros, variety, reuse-cap, dedup, latency). Verify:
+  table populated + per-tier week-gen go/no-go in the report.
+- Report lands at `phases/cloudkit-migration-spikes-report.md`.
+
+Blockers / notes: both spikes need Apple-Intelligence hardware + WWDC26 SDKs
+(AFM 3 / PCC) and live OpenAI/Anthropic keys; Spike 1 device setup is a build-time
+call (two iCloud accounts ideal, else two containers, document fidelity). Throwaway —
+deleted after the report. OpenRouter→FOSS provider lane deferred.
+
 ## Last session (2026-06-13) — ultracode bug bash + T1 household-scoping cluster fixed
 
 Ran a 149-agent ultracode workflow (23 bug-finders + 11 architecture agents,

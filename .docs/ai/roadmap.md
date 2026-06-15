@@ -14,6 +14,18 @@ Active items. Trim as completed.
 
 ### Now
 
+**CloudKit / Apple-native rearchitecture (direction set 2026-06-15).**
+Move the data plane to CloudKit and the AI plane to the WWDC26 Foundation
+Models framework (on-device AFM 3 / Private Cloud Compute / BYO-key /
+credits), shrinking — not eliminating — the central server. Decisions in
+`decisions.md` (2026-06-15); spec `phases/cloudkit-migration-spikes-spec.md`.
+**Immediate action: build the two de-risking spikes** (current-state `## Plan`)
+before committing to SP-A/SP-B. Locked: Apple-only accepted · MCP connector
+dropped · no forced payment (BYO-key or AI credits) · spike-first.
+Landmine: if Spike 1 shows grocery smart-merge can't be made CloudKit-safe
+under concurrent edits, a server slice survives for it (and event↔week merge),
+defeating the zero-server default — decide after the spike, don't presume.
+
 iOS is on build 93 (TestFlight). Admin portal v2 (builds 94–95)
 deployed to Fly + Cloudflare on 2026-05-13 — operator visibility into
 per-user usage + estimated cost, plus manual Pro grant/revoke at

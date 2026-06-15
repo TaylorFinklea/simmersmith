@@ -41,8 +41,10 @@ iOS app = the whole product
          CloudKit shared DB   → recipes, pantry, weeks, events, aliases, memories
          CloudKit public DB   → ingredient + nutrition catalog (read-mostly)
          (NSPersistentCloudKitContainer / CKSyncEngine for offline-first sync)
-  AI     Foundation Models framework, one call site:
-           on-device AFM 3 (free) · Private Cloud Compute (free <2M dls) · BYO key
+  AI     Foundation Models framework, one call site (provider-agnostic):
+           on-device AFM 3 (free) · Private Cloud Compute (free <2M dls) ·
+           cloud via BYO-key or our credits → {OpenAI, Anthropic, Gemini,
+           OpenRouter→FOSS}
   PLATFORM  StoreKit 2 entitlement · local notifications · EventKit · Vision · voice
   (optional, later) Credits gateway — Sign in with Apple + credit ledger + our key,
                     revenue-funded, only users who buy credits ever touch it
@@ -153,8 +155,10 @@ a tier that needs a cloud frontier model (BYO-key/credits)?
 - Assemble ~8 representative planning contexts spanning: a couple of dietary
   goals, ≥2 allergy sets, varied preference signals, and a non-empty history (to
   test dedup + reuse caps).
-- Run each context through three backends:
-  - **Baseline** — gpt-5.5 via the current backend path (the bar to match).
+- Run each context through these backends:
+  - **Cloud baselines (the bar)** — **gpt-5.5** (current backend path) AND a
+    **Claude** model (the realistic BYO-key/credits upgrade tier). OpenRouter→FOSS
+    models are a deferred follow-up lane, not tested in this spike.
   - **AFM 3 on-device** — Foundation Models framework, guided generation
     (`@Generable`) for the 21-meal structured output.
   - **Private Cloud Compute** — same framework call site, PCC tier, if reachable
@@ -193,12 +197,13 @@ are NOT re-tested here; only week-gen, the hard case, is measured.)
 - No data migration, no server retirement, no credits gateway.
 - No production code. Both spikes are deleted once the report is written.
 
-## Open questions for the user before building
-1. Spike 2 baseline/cloud: test against **gpt-5.5 only**, or also a **Claude** model
-   (since BYO-key routes to Claude/Gemini natively)? Default: gpt-5.5 only as the
-   bar; note Claude as a follow-up if on-device underperforms.
-2. Spike 1 device setup: do you have **two iCloud test accounts / two devices**
-   available, or should the harness simulate two peers via two CloudKit containers
-   under one account where possible? (Affects fidelity of the concurrency test.)
-3. Include household invite re-keying as a third Spike-1 probe, or keep it deferred
-   to SP-A (current plan)?
+## Resolved (2026-06-15)
+1. **Spike 2 baseline = gpt-5.5 + Claude.** Both frontier models are the bar (Claude
+   is the realistic BYO-key/credits upgrade tier). OpenRouter→FOSS is a deferred
+   provider lane in the end-state, not part of this spike.
+2. **Spike 1 device setup = build-time call.** Pick the most practical setup
+   (two iCloud accounts/devices for high fidelity, else two CloudKit container
+   instances under one account) and **document the fidelity caveat** in the report.
+3. **Household invite re-keying = deferred to SP-A.** Spike 1 stays focused on
+   steady-state grocery concurrency; re-keying is designed alongside the CKShare
+   topology.
