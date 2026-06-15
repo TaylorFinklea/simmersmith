@@ -12,11 +12,15 @@ let package = Package(
         .library(name: "GroceryMerge", targets: ["GroceryMerge"]),
         .library(name: "AIProviderKit", targets: ["AIProviderKit"]),
         .library(name: "CloudKitProvisioning", targets: ["CloudKitProvisioning"]),
+        .library(name: "CoexistenceSpike", targets: ["CoexistenceSpike"]),
     ],
     targets: [
         .target(name: "GroceryMerge"),
         .target(name: "AIProviderKit"),
         .target(name: "CloudKitProvisioning"),
+        // Phase 0.5 spike — runs on device; Swift 5 mode to keep Core Data /
+        // CloudKit value types out of strict-concurrency churn for a throwaway.
+        .target(name: "CoexistenceSpike", swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "GroceryMergeTests", dependencies: ["GroceryMerge"]),
         .testTarget(name: "AIProviderKitTests", dependencies: ["AIProviderKit"]),
         .testTarget(name: "CloudKitProvisioningTests", dependencies: ["CloudKitProvisioning"]),

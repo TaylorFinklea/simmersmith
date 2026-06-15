@@ -64,7 +64,13 @@ shippable + Verify):
   `cktool validate-schema` + `import-schema` (dev env) → `verifyRoundTrip()` from an
   iCloud-entitled target. Schema GROWS per phase (CloudKit additive); do NOT promote
   to Production until recordName/index decisions are final.
-- [ ] 0.5 — coexistence spike: CKShare-participant + NSPCKC/CKSyncEngine dual-stack (validates §4.2 BEFORE Phase 2).
+- [~] 0.5 — coexistence spike. **Harness BUILT + compiles** `SimmerSmithCloudKit/
+  CoexistenceSpike` (NSPCKC private mirror + manual CloudKit zone/record/subscription
+  — the CKSyncEngine primitives — in one container). **User-run (1 account):** call
+  `await CoexistenceSpike().run()` from the entitled app on an iCloud-signed-in sim →
+  both ✅ ⇒ Phase 1 uses NSPCKC; ❌ ⇒ CKSyncEngine-everywhere. CKShare cross-account
+  half (2nd account: wife's) is separate + manual — I can't automate iCloud sign-in /
+  share-accept. Decides Phase 1's mechanism before Phase 2.
 - [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
   live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
   AssistantThread/AssistantMessage/MigrationReceipt). **CODE mechanism pending Phase
