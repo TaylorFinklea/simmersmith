@@ -55,22 +55,24 @@ In-place migration to CloudKit/iOS-26 now; AFM3/PCC at GA. Spec
 §11). **BLOCKING GATE: a CloudKit container provisioned under the dev team** (Phase
 0.5 + Phase 2 also need Production schema + two Apple IDs + TestFlight). Phases (each
 shippable + Verify):
-- [?] **0 — schema + recordName policy + provisioner: DONE 2026-06-15; awaiting user-run deploy + round-trip.**
-  Container `iCloud.app.simmersmith.cloud` live. Artifacts: `phases/cloudkit-sp-a-phase0-schema.md`
-  (recordName policy + queryable indexes + ref/asset graph — irreversible, decided),
-  `phases/phase0-schema.ckdb` (deployable CKDSL, HouseholdProfile),
-  `SimmerSmithCloudKit/CloudKitProvisioning` (RecordNames + HouseholdZoneProvisioner,
-  compiles, 4 tests). **User-run Verify:** `cktool save-token --type management` →
-  `cktool validate-schema` + `import-schema` (dev env) → `verifyRoundTrip()` from an
-  iCloud-entitled target. Schema GROWS per phase (CloudKit additive); do NOT promote
-  to Production until recordName/index decisions are final.
+- [x] **0 — schema + recordName policy + provisioner: DONE + VALIDATED 2026-06-15.**
+  Container `iCloud.app.simmersmith.cloud` live. Schema deployed to dev (HouseholdProfile
+  + 8 Phase-1 types, confirmed via `cktool export-schema`). **Record CRUD validated
+  headlessly** (created + deleted a real HouseholdProfile via the saved USER token).
+  Artifacts: `phases/cloudkit-sp-a-phase0-schema.md` (irreversible recordName/index/ref
+  decisions), `phases/phase0-schema.ckdb` (cumulative CKDSL), `SimmerSmithCloudKit/
+  CloudKitProvisioning` (RecordNames 4 tests + HouseholdZoneProvisioner). cktool works
+  here (management+user tokens). Custom-zone round-trip + coexistence run in-app (below).
+  Don't promote schema to Production until decisions are final.
 - [~] 0.5 — coexistence spike. **Harness BUILT + compiles** `SimmerSmithCloudKit/
   CoexistenceSpike` (NSPCKC private mirror + manual CloudKit zone/record/subscription
   — the CKSyncEngine primitives — in one container). **User-run (1 account):** call
-  `await CoexistenceSpike().run()` from the entitled app on an iCloud-signed-in sim →
-  both ✅ ⇒ Phase 1 uses NSPCKC; ❌ ⇒ CKSyncEngine-everywhere. CKShare cross-account
-  half (2nd account: wife's) is separate + manual — I can't automate iCloud sign-in /
-  share-accept. Decides Phase 1's mechanism before Phase 2.
+  the in-app **Settings → Developer → CloudKit checks** panel (DEBUG only, wired
+  2026-06-15, app BUILD SUCCEEDED) on an iCloud-signed-in sim → both ✅ ⇒ Phase 1 uses
+  NSPCKC; ❌ ⇒ CKSyncEngine-everywhere. That same panel also runs the Phase 0
+  custom-zone round-trip. CKShare cross-account half (2nd account: wife's) is separate +
+  manual — I can't automate iCloud sign-in / share-accept. Decides Phase 1's mechanism
+  before Phase 2. **→ NEXT: Taylor runs the panel on a signed-in sim, reports results.**
 - [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
   live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
   AssistantThread/AssistantMessage/MigrationReceipt). **CODE mechanism pending Phase

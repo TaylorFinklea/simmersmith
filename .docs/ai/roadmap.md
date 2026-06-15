@@ -45,15 +45,12 @@ Open follow-ups:
   current-state.md note). Next milestone-planning pass resolves this.
 
 ### Awaiting User / External
-- **Uncommitted (intentional, user to commit): `SimmerSmith.entitlements`** — adds
-  `com.apple.developer.icloud-container-identifiers = [iCloud.app.simmersmith.cloud]`
-  + CloudKit service (Taylor added on roshar; verified correct, left as user's change
-  to commit). May also need the iCloud capability in `project.yml` for a clean CI
-  archive. Pairs with Phase 0.
-- **Phase 0 Verify (user-run):** `cktool` validate+import `phases/phase0-schema.ckdb`
-  to dev (team `K7CBQW6MPG`, container `iCloud.app.simmersmith.cloud`) + run
-  `HouseholdZoneProvisioner().verifyRoundTrip()` from the entitled app target. Then
-  next build is Phase 0.5 (coexistence spike — needs a 2nd iCloud test account).
+- **⟶ NEXT (user-run, 1 account): run the in-app CloudKit checks.** Launch the app on
+  an iCloud-signed-in iPhone-16 sim → Settings → Developer → **CloudKit checks** → tap
+  Phase 0 round-trip + Phase 0.5 coexistence. The coexistence result picks Phase 1's
+  mechanism (both ✅ → NSPCKC; ❌ → CKSyncEngine-everywhere). Report results back.
+  (Schema + record CRUD already validated headlessly via cktool; entitlements committed
+  `8558410`.) Cross-account CKShare (wife's account, 2 sims) stays manual, comes at Phase 2.
 - **CloudKit container provisioned** `iCloud.app.simmersmith.cloud` (2026-06-15).
   Phase 0 (schema + recordName policy + provisioner) DONE; **awaiting the user-run
   Phase 0 Verify above**, then Phase 0.5. Spec: `phases/cloudkit-sp-a-spec.md`;
