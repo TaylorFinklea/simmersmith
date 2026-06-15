@@ -12,13 +12,16 @@ Direction: Apple-native / offline-first rearchitecture. Spec
 `phases/cloudkit-migration-spikes-spec.md`; decisions in `decisions.md` (2026-06-15).
 Spike-first before SP-A (CloudKit data plane) / SP-B (AI tiering).
 
-- [ ] **Spike 1 — CloudKit offline grocery-merge across 2 devices.** Port the
-  `regenerate_grocery_for_week` (`app/services/grocery.py:500`) classification core
-  to Swift; two-peer concurrent test of 4 failure modes (tombstone resurrection,
-  event_quantity double-count, override survival, check-state convergence). Output:
-  `CKSyncEngine` vs `NSPersistentCloudKitContainer` verdict + grocery-safe-on-client
-  vs keep-on-server. Verify: 2-device scenario runs, 4 assertions report pass/fail,
-  report section written.
+- [x] **Spike 1 — CloudKit grocery-merge (algorithmic verdict).** DONE 2026-06-15
+  via deterministic simulation `spikes/spike1-cloudkit-grocery-merge/` (`swift test`
+  8/8). **Verdict: GO — grocery stays client-side ONLY on `CKSyncEngine` + custom
+  field-merge resolver; `NSPersistentCloudKitContainer` blanket LWW is UNSAFE**
+  (resurrects tombstones, drops event_quantity, clobbers overrides; check-state is
+  fine under LWW). → SP-A runs grocery + event↔week on CKSyncEngine; plain data on
+  NSPersistentCloudKitContainer. Report: `phases/cloudkit-migration-spikes-report.md`.
+  - [?] **Real two-device CloudKit confirmation** — deferred to SP-A (needs a
+    provisioned CloudKit container under the dev team). The sim de-risks the
+    algorithm; the device test de-risks the integration.
 - [ ] **Spike 2 — week-gen quality A/B.** Lift `week_planner.py` prompt +
   `gather_planning_context`; 8 contexts × {gpt-5.5, Claude, AFM 3 on-device, PCC};
   rubric (allergy=hard-fail, macros, variety, reuse-cap, dedup, latency). Verify:
