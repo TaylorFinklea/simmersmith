@@ -72,7 +72,12 @@ shippable + Verify):
   NSPCKC; ❌ ⇒ CKSyncEngine-everywhere. That same panel also runs the Phase 0
   custom-zone round-trip. CKShare cross-account half (2nd account: wife's) is separate +
   manual — I can't automate iCloud sign-in / share-accept. Decides Phase 1's mechanism
-  before Phase 2. **→ NEXT: Taylor runs the panel on a signed-in sim, reports results.**
+  before Phase 2. **VERIFIED on-sim 2026-06-15** (agent drove simctl/idb): panel works,
+  Phase 0 round-trip returns a clean `CKError 9/1002 "Not Authenticated"` — caught, no
+  crash. ⚠️ Build SIGNED for sim CloudKit (NOT `CODE_SIGNING_ALLOWED=NO` — that strips
+  entitlements → CloudKit hard-crashes; see decisions). **→ ONLY step left: Taylor signs
+  the sim into iCloud (Simulator → Settings → Sign in; manual Apple ID + 2FA, can't be
+  automated), then re-tap → expect ✅ + the coexistence verdict that picks Phase 1's mechanism.**
 - [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
   live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
   AssistantThread/AssistantMessage/MigrationReceipt). **CODE mechanism pending Phase

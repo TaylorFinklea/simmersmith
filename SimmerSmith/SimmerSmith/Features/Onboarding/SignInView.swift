@@ -87,6 +87,14 @@ struct SignInView: View {
                     }
                     .font(SMFont.caption)
                     .foregroundStyle(SMColor.textTertiary)
+
+                    #if DEBUG
+                    NavigationLink("CloudKit checks (debug)") {
+                        CloudKitDebugView()
+                    }
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+                    #endif
                 }
 
                 if let error = appState.lastErrorMessage {
