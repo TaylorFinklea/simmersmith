@@ -48,6 +48,30 @@ OpenAI + Anthropic keys. Spike 1 device setup is a build-time call (two iCloud
 accounts ideal, else two containers, document fidelity). Throwaway — deleted after
 the report. OpenRouter→FOSS provider lane deferred.
 
+## Plan — SP-A CloudKit data plane (spec written 2026-06-15)
+
+In-place migration to CloudKit/iOS-26 now; AFM3/PCC at GA. Spec
+`phases/cloudkit-sp-a-spec.md` (11-agent blueprint, adversarially reviewed, fixes in
+§11). **BLOCKING GATE: a CloudKit container provisioned under the dev team** (Phase
+0.5 + Phase 2 also need Production schema + two Apple IDs + TestFlight). Phases (each
+shippable + Verify):
+- [ ] 0 — container + schema + recordName-policy table + queryable-fields (irreversible).
+- [ ] 0.5 — coexistence spike: CKShare-participant + NSPCKC/CKSyncEngine dual-stack (validates §4.2 BEFORE Phase 2).
+- [ ] 1 — per-user PRIVATE plane (NSPersistentCloudKitContainer).
+- [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).
+- [ ] 3 — CKAsset imagery.
+- [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
+- [ ] 5 — event↔week cross-aggregate merge.
+- [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
+- [ ] 7 — migration import + cutover (MigrationReceipt sentinel).
+- [ ] 8 — AI seam + on-device platform handoff.
+- [ ] 9 — migration cutover close (status ledger; gates SP-D).
+
+Residual decisions (§11): ownership-transfer (pin-to-owner rec.) · dormant-user
+sunset · SP-E curator soon vs frozen PUBLIC seed. Buildable-without-container now: the
+field-merge resolver + AI seam as isolated unit-tested modules (extend the Spike 1
+code) ahead of provisioning.
+
 ## Last session (2026-06-13) — ultracode bug bash + T1 household-scoping cluster fixed
 
 Ran a 149-agent ultracode workflow (23 bug-finders + 11 architecture agents,

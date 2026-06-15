@@ -19,12 +19,15 @@ Move the data plane to CloudKit and the AI plane to the WWDC26 Foundation
 Models framework (on-device AFM 3 / Private Cloud Compute / BYO-key /
 credits), shrinking — not eliminating — the central server. Decisions in
 `decisions.md` (2026-06-15); spec `phases/cloudkit-migration-spikes-spec.md`.
-**Immediate action: build the two de-risking spikes** (current-state `## Plan`)
-before committing to SP-A/SP-B. Locked: Apple-only accepted · MCP connector
-dropped · no forced payment (BYO-key or AI credits) · spike-first.
-Landmine: if Spike 1 shows grocery smart-merge can't be made CloudKit-safe
-under concurrent edits, a server slice survives for it (and event↔week merge),
-defeating the zero-server default — decide after the spike, don't presume.
+**Status (2026-06-15):** spikes done — Spike 1 **GO** (grocery is CloudKit-safe on
+`CKSyncEngine` + a field-merge resolver; blanket LWW unsafe), Spike 2 harness ready
+(run at iOS 27 GA). **SP-A data-plane spec written** (`phases/cloudkit-sp-a-spec.md`,
+11-agent blueprint, adversarially reviewed). **Next action: provision a CloudKit
+container under the dev team** — it gates Phase 0 onward (see current-state
+`## Plan — SP-A`). Locked: Apple-only accepted · MCP dropped · no forced payment
+(BYO-key/credits) · in-place migration. Landmine: CloudKit schema is additive-only —
+the Phase 0 recordName-policy + field table is irreversible; **freeze the Production
+schema before any user data syncs.**
 
 iOS is on build 93 (TestFlight). Admin portal v2 (builds 94–95)
 deployed to Fly + Cloudflare on 2026-05-13 — operator visibility into
