@@ -45,12 +45,20 @@ Open follow-ups:
   current-state.md note). Next milestone-planning pass resolves this.
 
 ### Awaiting User / External
-- **⟶ ACTIVE UNBLOCK: provision a CloudKit container under the dev team** (decided
-  2026-06-15, paused here). A standalone container for SP-A is cleanest (e.g.
-  `iCloud.app.simmersmith.cloud`). Gates SP-A Phases 0-9. When ready, next session
-  starts Phase 0 (schema + recordName-policy table) + Phase 0.5 (coexistence spike).
-  Spec: `phases/cloudkit-sp-a-spec.md`. Pre-built + tested ahead of it:
-  `SimmerSmithCloudKit/` (resolver + AI seam, 25 tests green).
+- **Uncommitted (intentional, user to commit): `SimmerSmith.entitlements`** — adds
+  `com.apple.developer.icloud-container-identifiers = [iCloud.app.simmersmith.cloud]`
+  + CloudKit service (Taylor added on roshar; verified correct, left as user's change
+  to commit). May also need the iCloud capability in `project.yml` for a clean CI
+  archive. Pairs with Phase 0.
+- **Phase 0 Verify (user-run):** `cktool` validate+import `phases/phase0-schema.ckdb`
+  to dev (team `K7CBQW6MPG`, container `iCloud.app.simmersmith.cloud`) + run
+  `HouseholdZoneProvisioner().verifyRoundTrip()` from the entitled app target. Then
+  next build is Phase 0.5 (coexistence spike — needs a 2nd iCloud test account).
+- **CloudKit container provisioned** `iCloud.app.simmersmith.cloud` (2026-06-15).
+  Phase 0 (schema + recordName policy + provisioner) DONE; **awaiting the user-run
+  Phase 0 Verify above**, then Phase 0.5. Spec: `phases/cloudkit-sp-a-spec.md`;
+  Phase 0 detail: `phases/cloudkit-sp-a-phase0-schema.md`. Foundation pre-built:
+  `SimmerSmithCloudKit/` (resolver + AI seam + provisioning, 29 tests green).
 - **CloudKit-spike AFM 3 / PCC measurement deferred to iOS 27 GA** (decided
   2026-06-15) — wait for general availability, not the beta. The AFM 3 (20B) +
   third-party-PCC half of Spike 2 can't run on this machine's Xcode 26 / iOS 26.
