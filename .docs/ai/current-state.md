@@ -117,11 +117,28 @@ review), then integrated. Report still `.docs/ai/phases/bugbash-2026-06-13-repor
   ruff clean. **Live AI verified:** week-gen 200 + 21 meals + macro-drift note now
   populates; assistant streaming turn completed with content.
 
+### iOS bug-bash findings (16) fixed + build 107 — `9b50280`
+
+All 16 iOS findings (the `ios-*` slices) implemented, **xcodebuild BUILD SUCCEEDED**
+(iPhone 16 sim), and **sim-verified live**: app launches + connects to a local
+backend; **MealIcon #2/#3 confirmed in a screenshot** (Grilled Steak → meat icon
+not coffee, Eggplant Parmesan → generic not egg, Iced Tea → coffee, Scrambled Eggs
+→ egg); `/terms` route returns 200.
+- HIGH: #13 FAB targets an open slot + in-place replace (no overwrite data loss),
+  #12 aliases preserve input + surface error, #16 reminders mapping saved in a
+  defer (no duplicate reminders).
+- MED: #14 UTC weekday name, #6 events delete error surfaced, #7 paywall Terms →
+  new `/terms` EULA page (app/main.py) + Privacy link, #8 stale-JWS cleared, #10
+  draft step off-by-one, #15 push token persisted after registration.
+- LOW: #1 guest re-sort, #4 CookCheck clamped index, #5 comma-decimal qty, #9
+  revoked transaction drops entitlement, #11 bulk-delete by recipeId.
+- `project.yml` 106→107. ⚠️ The `.xcodeproj/project.pbxproj` is NOT regenerated —
+  `scripts/release-ios.sh` / xcodegen regenerates it at TestFlight time (the sim
+  build I verified used 106; the bump applies on the next archive).
+
 **Remaining from the bug bash (NOT done):**
-- **16 iOS findings + 2 shopping-skill** — deferred to a build-capable pass (Swift
-  can't be compiled/verified headless; won't ship unverified client code). Itemized
-  in the report under the `ios-*` slices (e.g. #15 FAB overwrites occupied slot, #25
-  swallowed errors, #29 locale weekday, #41/#42 MealIcon substring, #44 comma-decimal).
+- **2 shopping-skill findings** — already re-swept in a prior session (commit
+  `98376b9`); the bash's 2 were against pre-sweep code. Re-confirm if revisiting.
 - **T5 freemium-not-enforced** — has product decisions (entitlement unit, assistant
   gating); monetization-adjacent, deferred.
 - **Architecture STRUCTURAL findings** (FKs on household_id, metadata naming_convention,
