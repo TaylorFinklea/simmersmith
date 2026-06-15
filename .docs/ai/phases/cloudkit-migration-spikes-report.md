@@ -75,7 +75,24 @@ technique to it.
 
 ## Spike 2 — Week-gen quality: AFM 3 / PCC vs gpt-5.5 + Claude
 
-**Status: pending.** Cloud baselines (gpt-5.5 + Claude) + a conservative first-gen
-3B on-device floor are runnable now on Xcode 26; the headline AFM 3 (20B) +
-third-party-PCC measurement is deferred to **iOS 27 GA** (this machine's iOS 26 SDK
-ships only first-gen Foundation Models). Section to be filled in.
+**Status: harness BUILT + verified (2026-06-15); RUN deferred to iOS 27 GA.**
+
+Per the 2026-06-15 decision the whole A/B run waits for iOS 27 GA (this machine's
+Xcode 26 / iOS 26 ships only first-gen Foundation Models, not AFM 3 20B / third-party
+PCC). What's ready now in `spikes/spike2-weekgen-quality/`:
+
+- **8-context corpus** (`corpus.py`) — 2 dietary goals, ≥2 allergy sets, varied
+  preferences, a history-heavy case for reuse/dedup stress.
+- **Rubric scorer** (`rubric.py`) — allergy violations (hard fail), avoid hits,
+  reuse-cap ≤3, history dedup, variety, ±15% macro drift, latency. Mirrors the
+  production checks (`score_meal_candidate`, `score_macro_drift`).
+- **Production-shape ingest** (`backends.plan_from_json`) so cloud JSON and the
+  GA Swift on-device tool feed one scorer.
+- **13 unit tests** (`test_rubric.py`, `python3 -m unittest test_rubric` → 13/13).
+
+Deferred to GA: wire the 4 backend stubs (gpt-5.5, Claude, AFM 3 on-device, PCC),
+lifting the real prompt from `week_planner.py::_build_system_prompt`, then run
+`runner.py` and paste the comparison table here.
+
+### Verdict
+TBD at GA. Hard gate: any allergy violation fails that tier for week-gen.

@@ -22,10 +22,13 @@ Spike-first before SP-A (CloudKit data plane) / SP-B (AI tiering).
   - [?] **Real two-device CloudKit confirmation** — deferred to SP-A (needs a
     provisioned CloudKit container under the dev team). The sim de-risks the
     algorithm; the device test de-risks the integration.
-- [ ] **Spike 2 — week-gen quality A/B.** Lift `week_planner.py` prompt +
-  `gather_planning_context`; 8 contexts × {gpt-5.5, Claude, AFM 3 on-device, PCC};
-  rubric (allergy=hard-fail, macros, variety, reuse-cap, dedup, latency). Verify:
-  table populated + per-tier week-gen go/no-go in the report.
+- [x] **Spike 2 — harness built + verified (2026-06-15).** `spikes/spike2-weekgen-quality/`:
+  8-context corpus + rubric scorer (allergy=hard-fail, macros ±15%, variety, reuse-cap
+  ≤3, dedup, latency) + production-shape ingest + 13 unit tests (`python3 -m unittest
+  test_rubric` → 13/13). Backends stubbed.
+  - [?] **Run deferred to iOS 27 GA.** Wire the 4 backend stubs (gpt-5.5, Claude,
+    AFM 3 on-device, PCC) lifting the real `week_planner._build_system_prompt`, run
+    `runner.py`, paste the table. Hard gate: any allergy violation fails that tier.
 - Report lands at `phases/cloudkit-migration-spikes-report.md`.
 
 **In progress (chosen 2026-06-15): do the no-beta work FIRST.** This machine is
