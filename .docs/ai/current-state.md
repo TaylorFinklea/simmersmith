@@ -68,9 +68,15 @@ shippable + Verify):
 - [ ] 9 — migration cutover close (status ledger; gates SP-D).
 
 Residual decisions (§11): ownership-transfer (pin-to-owner rec.) · dormant-user
-sunset · SP-E curator soon vs frozen PUBLIC seed. Buildable-without-container now: the
-field-merge resolver + AI seam as isolated unit-tested modules (extend the Spike 1
-code) ahead of provisioning.
+sunset · SP-E curator soon vs frozen PUBLIC seed.
+
+**Pre-built ahead of provisioning (DONE 2026-06-15):** `SimmerSmithCloudKit/` SwiftPM
+package — **GroceryMerge** (Phase 4 core: `FieldMergeResolver` + `ConflictRepair`,
+generalizes Spike 1; incl. the M68 semantic-dedupe + EventGroceryItem repoint) and
+**AIProviderKit** (Phase 8 core: `ProviderRouter` + `KeyStore` + `AIClient`, real
+backends stubbed for SP-B). `swift test` → **25/25**. CloudKit-free, not yet wired
+into the app target. Remaining SP-A work is the container-gated Phases 0-9 (the
+CKSyncEngine/CKShare/NSPCKC adapters + real-device tests).
 
 ## Last session (2026-06-13) — ultracode bug bash + T1 household-scoping cluster fixed
 
