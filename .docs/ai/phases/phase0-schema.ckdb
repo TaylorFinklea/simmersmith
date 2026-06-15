@@ -1,12 +1,11 @@
 // CloudKit schema (CKDSL) for SP-A — DEVELOPMENT environment.
 // Container: iCloud.app.simmersmith.cloud
 //
-// Phase 0 deploys ONLY HouseholdProfile (+ the custom zone the provisioning code
-// creates) — enough for the Phase 0 round-trip verify. CloudKit schema is additive,
-// so each later phase appends its record types (Phase 1: ProfileSetting/DietaryGoal/…,
-// Phase 2: Recipe/Guest/…, Phase 4: Week/GroceryItem/…). The full record-type set +
-// the irreversible recordName policy + queryable indexes are decided in
-// cloudkit-sp-a-phase0-schema.md; this file grows to match as phases land.
+// CUMULATIVE SP-A schema — re-import the whole file each phase (additive, safe).
+// Currently: Phase 0 (HouseholdProfile) + Phase 1 (per-user PRIVATE plane). Later
+// phases append: Phase 2 Recipe/Guest/…, Phase 4 Week/GroceryItem/…. The full
+// record-type set + the irreversible recordName policy + queryable indexes are
+// decided in cloudkit-sp-a-phase0-schema.md.
 //
 // VALIDATE before importing:
 //   xcrun cktool validate-schema --team-id <TEAM_ID> \
@@ -21,4 +20,73 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_icloud"
+    );
+
+    // ---- Phase 1: per-user PRIVATE plane (NSPersistentCloudKitContainer) ----
+
+    RECORD TYPE ProfileSetting (
+        key   STRING QUERYABLE,
+        value STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE DietaryGoal (
+        goalType      STRING,
+        dailyCalories INT64,
+        proteinG      INT64,
+        carbsG        INT64,
+        fatG          INT64,
+        fiberG        INT64,
+        notes         STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE PreferenceSignal (
+        signalType     STRING QUERYABLE,
+        name           STRING,
+        normalizedName STRING QUERYABLE,
+        score          DOUBLE,
+        active         INT64,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE IngredientPreference (
+        baseIngredientID STRING QUERYABLE,
+        choiceMode       STRING,
+        rank             INT64,
+        active           INT64,
+        brand            STRING,
+        variation        STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE AssistantThread (
+        title        STRING,
+        createdAt    TIMESTAMP SORTABLE,
+        linkedWeekID STRING,
+        archived     INT64,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE AssistantMessage (
+        thread           REFERENCE QUERYABLE,
+        role             STRING,
+        content          STRING,
+        createdAt        TIMESTAMP SORTABLE,
+        status           STRING,
+        attachedRecipeID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE MigrationReceipt (
+        scope     STRING,
+        createdAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
     );

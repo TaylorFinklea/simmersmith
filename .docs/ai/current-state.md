@@ -65,7 +65,13 @@ shippable + Verify):
   iCloud-entitled target. Schema GROWS per phase (CloudKit additive); do NOT promote
   to Production until recordName/index decisions are final.
 - [ ] 0.5 — coexistence spike: CKShare-participant + NSPCKC/CKSyncEngine dual-stack (validates §4.2 BEFORE Phase 2).
-- [ ] 1 — per-user PRIVATE plane (NSPersistentCloudKitContainer).
+- [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
+  live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
+  AssistantThread/AssistantMessage/MigrationReceipt). **CODE mechanism pending Phase
+  0.5**: NSPersistentCloudKitContainer auto-manages CD_-prefixed schema + LWW (doesn't
+  use the hand-authored types/recordName policy/resolver) — so 0.5's NSPCKC↔CKSyncEngine
+  coexistence result decides NSPCKC (easy) vs CKSyncEngine-everywhere (uniform). cktool
+  schema ops work headlessly (management token); record ops need a user token.
 - [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).
 - [ ] 3 — CKAsset imagery.
 - [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
