@@ -42,6 +42,13 @@ Open follow-ups:
   current-state.md note). Next milestone-planning pass resolves this.
 
 ### Awaiting User / External
+- **CloudKit-spike AFM 3 / PCC measurement deferred to iOS 27 GA** (decided
+  2026-06-15) — wait for general availability, not the beta. The AFM 3 (20B) +
+  third-party-PCC half of Spike 2 can't run on this machine's Xcode 26 / iOS 26.
+  No-beta work (Spike 1 + Spike 2 cloud baselines + first-gen-3B floor) proceeds
+  now per `phases/cloudkit-migration-spikes-spec.md`. At GA: re-run Spike 2's
+  on-device tier; also provision a CloudKit container under the dev team for the
+  real-device Spike 1 confirmation.
 - Ongoing TestFlight dogfood feedback (Taylor + Savanne).
 - Register at developer.kroger.com — `client_id` + `client_secret`.
 - `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.

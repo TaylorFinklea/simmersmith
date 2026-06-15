@@ -25,10 +25,22 @@ Spike-first before SP-A (CloudKit data plane) / SP-B (AI tiering).
   table populated + per-tier week-gen go/no-go in the report.
 - Report lands at `phases/cloudkit-migration-spikes-report.md`.
 
-Blockers / notes: both spikes need Apple-Intelligence hardware + WWDC26 SDKs
-(AFM 3 / PCC) and live OpenAI/Anthropic keys; Spike 1 device setup is a build-time
-call (two iCloud accounts ideal, else two containers, document fidelity). Throwaway —
-deleted after the report. OpenRouter→FOSS provider lane deferred.
+**In progress (chosen 2026-06-15): do the no-beta work FIRST.** This machine is
+Xcode 26.0.1 / iOS 26 = first-gen Foundation Models (~3B, on-device-only, no
+third-party PCC). Proceeding now with everything runnable on iOS 26: Spike 1
+(CloudKit merge — `CKSyncEngine` is iOS 17+, plus a deterministic LWW-semantics
+simulation as the fast first signal) and Spike 2's cloud baselines (gpt-5.5 +
+Claude) + a conservative first-gen-3B on-device floor. **Deferred to Xcode 27
+beta — wait for **iOS 27 GA (fall 2026)**, not the beta: only the AFM 3 (20B) +
+third-party-PCC measurement** that the iOS-26 SDK can't run. Everything else
+proceeds now.
+
+Other notes: Spike 1 also needs a CloudKit container provisioned under the dev team
+(app currently has NO CloudKit entitlement — only applesignin + APNs); a standalone
+spike app with its own container is cleanest. Spike 2 cloud baselines need live
+OpenAI + Anthropic keys. Spike 1 device setup is a build-time call (two iCloud
+accounts ideal, else two containers, document fidelity). Throwaway — deleted after
+the report. OpenRouter→FOSS provider lane deferred.
 
 ## Last session (2026-06-13) — ultracode bug bash + T1 household-scoping cluster fixed
 
