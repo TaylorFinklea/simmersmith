@@ -55,7 +55,15 @@ In-place migration to CloudKit/iOS-26 now; AFM3/PCC at GA. Spec
 §11). **BLOCKING GATE: a CloudKit container provisioned under the dev team** (Phase
 0.5 + Phase 2 also need Production schema + two Apple IDs + TestFlight). Phases (each
 shippable + Verify):
-- [ ] 0 — container + schema + recordName-policy table + queryable-fields (irreversible).
+- [?] **0 — schema + recordName policy + provisioner: DONE 2026-06-15; awaiting user-run deploy + round-trip.**
+  Container `iCloud.app.simmersmith.cloud` live. Artifacts: `phases/cloudkit-sp-a-phase0-schema.md`
+  (recordName policy + queryable indexes + ref/asset graph — irreversible, decided),
+  `phases/phase0-schema.ckdb` (deployable CKDSL, HouseholdProfile),
+  `SimmerSmithCloudKit/CloudKitProvisioning` (RecordNames + HouseholdZoneProvisioner,
+  compiles, 4 tests). **User-run Verify:** `cktool save-token --type management` →
+  `cktool validate-schema` + `import-schema` (dev env) → `verifyRoundTrip()` from an
+  iCloud-entitled target. Schema GROWS per phase (CloudKit additive); do NOT promote
+  to Production until recordName/index decisions are final.
 - [ ] 0.5 — coexistence spike: CKShare-participant + NSPCKC/CKSyncEngine dual-stack (validates §4.2 BEFORE Phase 2).
 - [ ] 1 — per-user PRIVATE plane (NSPersistentCloudKitContainer).
 - [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).

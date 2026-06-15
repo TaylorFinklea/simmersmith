@@ -1,0 +1,24 @@
+// CloudKit schema (CKDSL) for SP-A — DEVELOPMENT environment.
+// Container: iCloud.app.simmersmith.cloud
+//
+// Phase 0 deploys ONLY HouseholdProfile (+ the custom zone the provisioning code
+// creates) — enough for the Phase 0 round-trip verify. CloudKit schema is additive,
+// so each later phase appends its record types (Phase 1: ProfileSetting/DietaryGoal/…,
+// Phase 2: Recipe/Guest/…, Phase 4: Week/GroceryItem/…). The full record-type set +
+// the irreversible recordName policy + queryable indexes are decided in
+// cloudkit-sp-a-phase0-schema.md; this file grows to match as phases land.
+//
+// VALIDATE before importing:
+//   xcrun cktool validate-schema --team-id <TEAM_ID> \
+//     --container-id iCloud.app.simmersmith.cloud --environment development \
+//     --file .docs/ai/phases/phase0-schema.ckdb
+
+DEFINE SCHEMA
+
+    RECORD TYPE HouseholdProfile (
+        name      STRING QUERYABLE,
+        createdAt TIMESTAMP SORTABLE,
+        GRANT WRITE TO "_creator",
+        GRANT CREATE TO "_icloud",
+        GRANT READ TO "_icloud"
+    );

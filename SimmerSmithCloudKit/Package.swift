@@ -11,11 +11,14 @@ let package = Package(
     products: [
         .library(name: "GroceryMerge", targets: ["GroceryMerge"]),
         .library(name: "AIProviderKit", targets: ["AIProviderKit"]),
+        .library(name: "CloudKitProvisioning", targets: ["CloudKitProvisioning"]),
     ],
     targets: [
         .target(name: "GroceryMerge"),
         .target(name: "AIProviderKit"),
+        .target(name: "CloudKitProvisioning"),
         .testTarget(name: "GroceryMergeTests", dependencies: ["GroceryMerge"]),
         .testTarget(name: "AIProviderKitTests", dependencies: ["AIProviderKit"]),
+        .testTarget(name: "CloudKitProvisioningTests", dependencies: ["CloudKitProvisioning"]),
     ]
 )
