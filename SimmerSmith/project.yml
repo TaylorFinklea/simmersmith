@@ -8,6 +8,8 @@ settings:
 packages:
   SimmerSmithKit:
     path: ../SimmerSmithKit
+  SimmerSmithCloudKit:
+    path: ../SimmerSmithCloudKit
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: "8.0.0"
@@ -20,6 +22,10 @@ targets:
       - path: SimmerSmith
     dependencies:
       - package: SimmerSmithKit
+      - package: SimmerSmithCloudKit
+        product: CloudKitProvisioning
+      - package: SimmerSmithCloudKit
+        product: CoexistenceSpike
       - package: GoogleSignIn
         product: GoogleSignIn
       - package: GoogleSignIn
