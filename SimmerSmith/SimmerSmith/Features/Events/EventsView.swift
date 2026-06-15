@@ -7,7 +7,6 @@ struct EventsView: View {
     @Environment(AppState.self) private var appState
     @State private var isCreating = false
     @State private var selectedEventID: String?
-    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -141,7 +140,10 @@ struct EventsView: View {
             do {
                 try await appState.deleteEvent(summary)
             } catch {
-                errorMessage = error.localizedDescription
+                // Surface via the global banner — the local @State was never
+                // rendered, so the failure was invisible (and the row reappears
+                // on the next render since deleteEvent didn't mutate the list).
+                appState.lastErrorMessage = error.localizedDescription
             }
         }
     }

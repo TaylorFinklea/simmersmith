@@ -36,8 +36,9 @@ extension AppState {
             guests[index] = updated
         } else {
             guests.append(updated)
-            guests.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
+        // Re-sort after both update and append so a rename keeps the list ordered.
+        guests.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return updated
     }
 

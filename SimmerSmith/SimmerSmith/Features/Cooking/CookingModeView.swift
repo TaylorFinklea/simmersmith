@@ -181,13 +181,16 @@ struct CookingModeView: View {
     // MARK: - Step area
 
     private func stepArea(recipe: RecipeSummary, steps: [RecipeStep]) -> some View {
-        let step = steps[min(stepIndex, steps.count - 1)]
+        // Clamp once: if the recipe shrank while cook mode is open (e.g. an
+        // assistant edit), the checked step must match what's on screen.
+        let safeIndex = min(stepIndex, steps.count - 1)
+        let step = steps[safeIndex]
         return ScrollView {
             VStack(alignment: .leading, spacing: SMSpacing.lg) {
                 // Build 58 — Oswald stencil step number with ember glow.
                 // The Forge takes over: this is the moment cooking
                 // becomes a hot-iron event in the Smith's Notebook.
-                Text(String(format: "%02d", stepIndex + 1))
+                Text(String(format: "%02d", safeIndex + 1))
                     .font(SMFont.stencil(96, bold: true))
                     .foregroundStyle(SMColor.ember)
                     .shadow(color: SMColor.ember.opacity(0.7), radius: 12)
@@ -200,7 +203,7 @@ struct CookingModeView: View {
                     .onLongPressGesture {
                         cookCheckContext = CookCheckSheetContext(
                             recipeID: recipe.recipeId,
-                            stepNumber: stepIndex,
+                            stepNumber: safeIndex,
                             stepText: step.instruction
                         )
                     }
@@ -229,7 +232,7 @@ struct CookingModeView: View {
                 Button {
                     cookCheckContext = CookCheckSheetContext(
                         recipeID: recipe.recipeId,
-                        stepNumber: stepIndex,
+                        stepNumber: safeIndex,
                         stepText: step.instruction
                     )
                 } label: {

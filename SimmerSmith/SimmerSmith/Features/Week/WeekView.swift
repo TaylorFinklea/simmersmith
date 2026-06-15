@@ -147,12 +147,16 @@ struct WeekView: View {
                     aiCoordinator.present()
                 },
                 .quickAdd: {
-                    let today = Date()
-                    let dayName = today.formatted(.dateTime.weekday(.wide))
+                    // UTC-midnight + en_US_POSIX weekday so day_name matches the
+                    // server convention (a locale weekday like "Freitag" would
+                    // create a divergent duplicate). Target an OPEN slot so quick-
+                    // add doesn't silently overwrite an occupied one.
+                    let today = Self.weekCalendar.startOfDay(for: Date())
+                    let dayName = DayKey.weekdayName(today)
                     quickAddSlot = (
                         dayName: dayName,
                         mealDate: today,
-                        slot: defaultSlotName()
+                        slot: firstOpenSlot(dayName: dayName)
                     )
                 },
                 .refresh: {
@@ -1316,10 +1320,23 @@ struct WeekView: View {
                 notes: m.notes, approved: m.approved
             )
         }
-        meals.append(MealUpdateRequest(
-            dayName: dayName, mealDate: mealDate, slot: slot,
-            recipeId: recipeId, recipeName: recipeName
-        ))
+        if let idx = meals.firstIndex(where: { $0.dayName == dayName && $0.slot == slot }) {
+            // Slot already occupied (e.g. every slot is full): replace the recipe
+            // in place, preserving the existing mealId, instead of appending a
+            // nil-mealId entry the server would treat as an overwrite/duplicate.
+            let existing = meals[idx]
+            meals[idx] = MealUpdateRequest(
+                mealId: existing.mealId, dayName: existing.dayName, mealDate: existing.mealDate,
+                slot: existing.slot, recipeId: recipeId, recipeName: recipeName,
+                servings: existing.servings, scaleMultiplier: existing.scaleMultiplier,
+                notes: existing.notes, approved: existing.approved
+            )
+        } else {
+            meals.append(MealUpdateRequest(
+                dayName: dayName, mealDate: mealDate, slot: slot,
+                recipeId: recipeId, recipeName: recipeName
+            ))
+        }
         do {
             let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
@@ -1781,6 +1798,22 @@ struct WeekView: View {
     /// the first non-snack configured slot.
     private func defaultSlotName() -> String {
         configuredSlots.first { $0.lowercased() != "snack" && $0.lowercased() != "snacks" } ?? "dinner"
+    }
+
+    /// First configured non-snack slot for `dayName` that has no meal yet,
+    /// preferring the default slot — so the Week FAB's quick-add doesn't
+    /// silently overwrite an occupied slot. Falls back to the default slot when
+    /// every slot is already taken (addQuickMeal then replaces in place).
+    private func firstOpenSlot(dayName: String) -> String {
+        let taken = Set((displayedWeek?.meals ?? [])
+            .filter { $0.dayName == dayName }
+            .map { $0.slot.lowercased() })
+        let preferred = defaultSlotName()
+        if !taken.contains(preferred.lowercased()) { return preferred }
+        let candidates = configuredSlots.filter {
+            $0.lowercased() != "snack" && $0.lowercased() != "snacks"
+        }
+        return candidates.first { !taken.contains($0.lowercased()) } ?? preferred
     }
 
     /// Build 59: bulk-approve every unapproved meal on the displayed

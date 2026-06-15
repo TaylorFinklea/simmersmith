@@ -316,6 +316,43 @@ async def privacy_policy():
 </body></html>""")
 
 
+@app.get("/terms", include_in_schema=False)
+async def terms_of_use():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SimmerSmith Terms of Use</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;max-width:680px;margin:2rem auto;padding:0 1rem;color:#333;line-height:1.6}h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:2rem}p{margin:0.5rem 0}</style>
+</head><body>
+<h1>SimmerSmith Terms of Use</h1>
+<p><em>Last updated: June 14, 2026</em></p>
+
+<h2>Acceptance</h2>
+<p>By using SimmerSmith you agree to these Terms of Use. If you do not agree, do not use the app.</p>
+
+<h2>The Service</h2>
+<p>SimmerSmith is an AI-assisted meal-planning app. AI-generated meal plans, recipes, and grocery lists are suggestions only — review them for dietary suitability, allergies, and food safety before relying on them.</p>
+
+<h2>Subscriptions</h2>
+<p>SimmerSmith Pro is an auto-renewing subscription billed through your Apple ID. Payment is charged at confirmation of purchase. The subscription renews automatically for the same period and price unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings &gt; Apple ID &gt; Subscriptions. Any unused portion of a free trial is forfeited when you purchase a subscription.</p>
+
+<h2>Acceptable Use</h2>
+<p>Do not misuse the service: no unlawful, abusive, or automated bulk use, and no attempts to disrupt or reverse-engineer the service.</p>
+
+<h2>Disclaimer</h2>
+<p>SimmerSmith is provided "as is" without warranties. AI output may be inaccurate or incomplete; we are not responsible for meals, purchases, or dietary decisions made using the app. Always verify allergens and food safety yourself.</p>
+
+<h2>Limitation of Liability</h2>
+<p>To the extent permitted by law, SimmerSmith is not liable for indirect or consequential damages arising from use of the app.</p>
+
+<h2>Changes</h2>
+<p>We may update these terms; continued use after an update constitutes acceptance.</p>
+
+<h2>Contact</h2>
+<p>Questions? Email <a href="mailto:support@simmersmith.app">support@simmersmith.app</a>.</p>
+</body></html>""")
+
+
 # Mount the MCP sub-app LAST, as a root catch-all. Its transport path is
 # "/mcp" (set in app/mcp/build_http_app), so `POST /mcp` resolves directly
 # with no trailing-slash redirect — the MCP client does not follow a 307,

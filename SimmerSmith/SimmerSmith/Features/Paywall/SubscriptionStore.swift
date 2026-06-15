@@ -78,15 +78,16 @@ final class SubscriptionStore {
         for await entitlement in Transaction.currentEntitlements {
             if case .verified(let txn) = entitlement,
                Self.productIds.contains(txn.productID),
+               txn.revocationDate == nil,
                (txn.expirationDate ?? .distantFuture) > Date() {
                 entitled = true
                 latestJWS = entitlement.jwsRepresentation
             }
         }
         isEntitled = entitled
-        if let latestJWS {
-            lastSignedTransaction = latestJWS
-        }
+        // Set unconditionally — clear the stale JWS to nil when there's no
+        // current entitlement, so restore() can't return an expired transaction.
+        lastSignedTransaction = latestJWS
     }
 
     /// Initiate a purchase for the given product. Returns the JWS string
@@ -142,8 +143,16 @@ final class SubscriptionStore {
     }
 
     private func applyVerifiedTransaction(_ transaction: Transaction, jws: String) async {
-        if Self.productIds.contains(transaction.productID),
-           (transaction.expirationDate ?? .distantFuture) > Date() {
+        guard Self.productIds.contains(transaction.productID) else { return }
+        // A revocation (refund / family-sharing removal) is delivered here via
+        // Transaction.updates with revocationDate set but expirationDate still in
+        // the future — drop entitlement rather than honoring it.
+        if transaction.revocationDate != nil {
+            isEntitled = false
+            lastSignedTransaction = nil
+            return
+        }
+        if (transaction.expirationDate ?? .distantFuture) > Date() {
             isEntitled = true
             lastSignedTransaction = jws
         }

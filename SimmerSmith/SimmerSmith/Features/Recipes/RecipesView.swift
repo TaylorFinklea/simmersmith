@@ -509,24 +509,25 @@ struct RecipesView: View {
         isBulkDeleting = true
         defer { isBulkDeleting = false }
         let snapshot = appState.recipes.filter { selectedRecipeIDs.contains($0.recipeId) }
-        var failed: [String] = []
+        var failedNames: [String] = []
+        var failedIDs: [String] = []
         for recipe in snapshot {
             do {
                 try await appState.deleteRecipe(recipe)
             } catch {
-                failed.append(recipe.name)
+                failedNames.append(recipe.name)
+                failedIDs.append(recipe.recipeId)
             }
         }
-        if failed.isEmpty {
+        if failedIDs.isEmpty {
             exitSelectionMode()
         } else {
             // Surface partial failure but keep selection so the user
-            // can retry the failed ones. The successful ones are
-            // gone from `appState.recipes` already.
-            appState.lastErrorMessage = "Couldn't delete: \(failed.joined(separator: ", "))"
-            selectedRecipeIDs = Set(failed.compactMap { name in
-                appState.recipes.first(where: { $0.name == name })?.recipeId
-            })
+            // can retry the failed ones. Reselect by stable recipeId, not
+            // name — two recipes can share a name and a name-based reselect
+            // could target the wrong one.
+            appState.lastErrorMessage = "Couldn't delete: \(failedNames.joined(separator: ", "))"
+            selectedRecipeIDs = Set(failedIDs)
         }
     }
 

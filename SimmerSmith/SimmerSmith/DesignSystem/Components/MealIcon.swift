@@ -137,11 +137,13 @@ public enum MealIcon: String, CaseIterable, Codable, Hashable, Sendable {
             return .cookie
         }
         if name.contains("coffee") || name.contains("latte") || name.contains("cappuccino")
-            || name.contains("tea") {
+            // "tea" as a whole word only — raw contains matches "steak"/"steamed".
+            || name.split(whereSeparator: { !$0.isLetter }).map(String.init).contains("tea") {
             return .coffee
         }
-        if name.contains("egg") || name.contains("omelet") || name.contains("frittata")
-            || name.contains("quiche") || name.contains("scramble") {
+        // Exclude "eggplant" — raw contains("egg") would give a vegetable an egg icon.
+        if (name.contains("egg") && !name.contains("eggplant")) || name.contains("omelet")
+            || name.contains("frittata") || name.contains("quiche") || name.contains("scramble") {
             return .egg
         }
         if name.contains("fish") || name.contains("salmon") || name.contains("tuna")

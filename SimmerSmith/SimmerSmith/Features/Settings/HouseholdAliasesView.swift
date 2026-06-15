@@ -104,7 +104,13 @@ struct HouseholdAliasesView: View {
         guard !term.isEmpty, !expansion.isEmpty else { return }
         isWorking = true
         defer { isWorking = false }
-        await appState.upsertHouseholdAlias(term: term, expansion: expansion, notes: newNotes)
+        let ok = await appState.upsertHouseholdAlias(term: term, expansion: expansion, notes: newNotes)
+        guard ok else {
+            // Preserve the typed input and surface the failure locally —
+            // don't clear the fields before the save is confirmed.
+            errorMessage = appState.lastErrorMessage ?? "Couldn't save the term. Please try again."
+            return
+        }
         newTerm = ""
         newExpansion = ""
         newNotes = ""

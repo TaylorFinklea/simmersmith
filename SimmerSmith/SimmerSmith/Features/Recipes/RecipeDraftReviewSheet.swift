@@ -186,7 +186,7 @@ struct RecipeDraftReviewSheet: View {
                             .font(SMFont.label)
                             .foregroundStyle(SMColor.textTertiary)
                         ForEach(draft.steps.prefix(3)) { step in
-                            Text("\(step.sortOrder + 1). \(step.instruction)")
+                            Text("\(step.sortOrder). \(step.instruction)")
                                 .font(SMFont.caption)
                                 .foregroundStyle(SMColor.textSecondary)
                         }

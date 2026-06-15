@@ -66,10 +66,14 @@ final class PushService {
         let previousToken = UserDefaults.standard.string(forKey: lastTokenKey)
         guard token != previousToken else { return }
 
-        UserDefaults.standard.set(token, forKey: lastTokenKey)
         Task {
             do {
                 try await apiClient.registerPushDevice(token: token, environment: environment, bundleID: bundleID)
+                // Persist the dedup key only AFTER a successful registration. If
+                // the first attempt fails offline, leaving the key unset lets the
+                // next bootstrap retry (iOS hands back the same token, so an
+                // early set would make the guard above suppress every retry).
+                UserDefaults.standard.set(token, forKey: lastTokenKey)
             } catch {
                 print("[PushService] registerPushDevice failed: \(error)")
             }

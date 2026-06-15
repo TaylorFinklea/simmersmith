@@ -145,6 +145,10 @@ extension AppState {
         }
         let items = week.groceryItems
         var mapping = GroceryReminderMapping.shared.load(calendarID: calendarID)
+        // Persist the mapping on EVERY exit (including a partial upsert failure)
+        // so reminders already created in this pass keep their grocery-id links
+        // and aren't re-created as duplicates on the next sync.
+        defer { GroceryReminderMapping.shared.save(mapping, calendarID: calendarID) }
 
         // Propagate tombstones first so the upsert pass sees a clean state.
         let visible = items.filter { !$0.isUserRemoved }
@@ -168,7 +172,6 @@ extension AppState {
                 items: visible,
                 mapping: &mapping
             )
-            GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
             let now = Date()
             lastReminderSyncAt = now
             UserDefaults.standard.set(now, forKey: Self.lastSyncedAtKey)

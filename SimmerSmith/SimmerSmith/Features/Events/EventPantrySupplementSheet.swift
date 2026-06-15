@@ -105,7 +105,9 @@ struct EventPantrySupplementSheet: View {
                     .disabled(
                         isSaving ||
                         pantryItemId.isEmpty ||
-                        Double(quantityText) ?? 0 <= 0
+                        // Match save()'s comma normalization so a comma-decimal
+                        // locale ("1,5") doesn't permanently disable Save.
+                        (Double(quantityText.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0
                     )
                 }
             }

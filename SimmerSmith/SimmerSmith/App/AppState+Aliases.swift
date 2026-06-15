@@ -16,7 +16,8 @@ extension AppState {
         }
     }
 
-    func upsertHouseholdAlias(term: String, expansion: String, notes: String = "") async {
+    @discardableResult
+    func upsertHouseholdAlias(term: String, expansion: String, notes: String = "") async -> Bool {
         do {
             let alias = try await apiClient.upsertHouseholdAlias(
                 body: SimmerSmithAPIClient.HouseholdTermAliasUpsertBody(
@@ -30,8 +31,10 @@ extension AppState {
                 householdAliases.append(alias)
             }
             householdAliases.sort(by: { $0.term < $1.term })
+            return true
         } catch {
             lastErrorMessage = error.localizedDescription
+            return false
         }
     }
 
