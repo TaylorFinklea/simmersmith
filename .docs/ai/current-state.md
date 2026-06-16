@@ -122,7 +122,13 @@ shippable + Verify):
     The whole share-accept flow is AUTOMATABLE (no UICloudSharingController tap needed). Debug
     buttons "Phase 2c OWNER/PARTICIPANT". Single-household enforcement + ownership-transfer policy
     (§11) still TODO.
-  - [ ] 2d — WeekChangeBatch/Event audit retention/prune.
+  - [x] **2d — audit retention/prune. DONE (headless) 2026-06-16 via 5-model head-to-head.**
+    `GroceryMerge/AuditRetention.swift`: `WeekChangeBatch` + `pruneAuditBatches` (keep N newest
+    per week, createdAt-desc + recordName-desc tiebreak; max<=0 prunes all). Built by dispatching
+    the SAME spec to Sonnet/Haiku/minimax-m3/qwen3.7-max/kimi-k2.7-code — ALL 5 passed all hidden
+    cases (objective verify in `AuditRetentionH2HTests`); shipped qwen's. Scored in
+    `~/.claude/model-scorecard.md`. Engine-wiring of the prune (apply over a weekID-scoped batch
+    set, like the dedupe repair) is a thin follow-on.
 - [ ] 3 — CKAsset imagery.
 - [~] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
   - [x] **4 groundwork — corrected `ConflictRepair.dedupeGrocery` (critical fix) 2026-06-15.**
