@@ -23,12 +23,33 @@ func dedupeSemanticKeeperAndRepoint() {
     // assert the semantic policy: source_meals-populated wins)
     #expect(r.keepers.count == 1)
     #expect(r.keepers[0].recordName == "G_auto")
-    #expect(r.deletedRecordNames == ["G_stray"])
+    // loser is TOMBSTONED (isUserRemoved=true), not hard-deleted
+    #expect(r.tombstoned.map(\.recordName) == ["G_stray"])
+    #expect(r.tombstoned[0].isUserRemoved == true)
     // the M68 fix: the event link is repointed onto the keeper, not left dangling
     #expect(r.repointedLinks.count == 1)
     #expect(r.repointedLinks[0].mergedIntoGroceryItemID == "G_auto")
     // rolled-up quantity
     #expect(r.keepers[0].totalQuantity == 3)   // 2 + 1
+}
+
+@Test("dedupe tombstones (not deletes), merges source_meals, and is idempotent on re-run")
+func dedupeTombstoneIdempotentAndSourceMeals() {
+    let a = GroceryItem(recordName: "G_a", unit: "cup", normalizedName: "tomato",
+                        totalQuantity: 2, sourceMeals: "meal:mon", createdAt: 1)
+    let b = GroceryItem(recordName: "G_b", unit: "cup", normalizedName: "tomato",
+                        totalQuantity: 3, sourceMeals: "meal:tue", createdAt: 2)
+    let first = ConflictRepair.dedupeGrocery(items: [a, b], eventLinks: [])
+    #expect(first.keepers[0].totalQuantity == 5)
+    #expect(first.keepers[0].sourceMeals == "meal:mon; meal:tue")   // merged + sorted
+    #expect(first.tombstoned.map(\.recordName) == ["G_b"])
+
+    // Re-run over keeper + tombstone (what a peer's store holds): the tombstone is
+    // filtered out, so no double-count and no new tombstones — idempotent/convergent.
+    let again = ConflictRepair.dedupeGrocery(items: first.keepers + first.tombstoned, eventLinks: [])
+    #expect(again.tombstoned.isEmpty)
+    #expect(again.keepers.count == 1)
+    #expect(again.keepers[0].totalQuantity == 5)   // NOT 8
 }
 
 @Test("dedupe with no duplicates is a no-op")
@@ -37,7 +58,7 @@ func dedupeNoDuplicates() {
     let b = GroceryItem(recordName: "G2", unit: "lb", normalizedName: "beef", sourceMeals: "m")
     let r = ConflictRepair.dedupeGrocery(items: [a, b], eventLinks: [])
     #expect(r.keepers.count == 2)
-    #expect(r.deletedRecordNames.isEmpty)
+    #expect(r.tombstoned.isEmpty)
     #expect(r.repointedLinks.isEmpty)
 }
 

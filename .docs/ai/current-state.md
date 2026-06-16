@@ -117,7 +117,16 @@ shippable + Verify):
     (**two-account manual verify** — savanne's iCloud on the iPhone-16 sim).
   - [ ] 2d — WeekChangeBatch/Event audit retention/prune.
 - [ ] 3 — CKAsset imagery.
-- [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
+- [~] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
+  - [x] **4 groundwork — corrected `ConflictRepair.dedupeGrocery` (critical fix) 2026-06-15.**
+    The 18-agent review caught that the committed resolver HARD-DELETED dedupe losers; production
+    `dedupe_week_grocery` (grocery.py:739) TOMBSTONES them (`is_user_removed=true`) + filters
+    tombstoned rows from input + merges `source_meals` + promotes sticky overrides/check to the
+    keeper. Ported verbatim; result shape `deletedRecordNames`→`tombstoned`. New idempotency test
+    proves a re-run over keeper+tombstone doesn't double-count. 47/47 package tests green.
+  - [ ] 4 main — GroceryItem/Week/WeekMeal record types + codec; wire `FieldMergeResolver` into the
+    engine merge seam (replace blanket LWW in `applyRemoteModification` for grocery/event records);
+    on-sim sticky-field convergence test (Spike 1's scenario). `FieldMergeResolver` itself is built+tested.
 - [ ] 5 — event↔week cross-aggregate merge.
 - [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
 - [ ] 7 — migration import + cutover (MigrationReceipt sentinel).

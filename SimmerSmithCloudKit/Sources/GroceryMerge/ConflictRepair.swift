@@ -9,75 +9,112 @@ public enum ConflictRepair {
     // MARK: - Grocery dedupe (semantic keeper + EventGroceryItem repointing — M68)
 
     public struct GroceryDedupeResult: Equatable {
-        public var keepers: [GroceryItem]            // survivors (rolled-up)
-        public var deletedRecordNames: [String]      // losers to delete
+        public var keepers: [GroceryItem]             // survivors (rolled-up), to SAVE
+        public var tombstoned: [GroceryItem]          // losers, isUserRemoved=true, to SAVE (NOT delete)
         public var repointedLinks: [EventGroceryItem] // links whose merged_into moved
     }
 
-    /// Port of `dedupe_week_grocery` (grocery.py:739-855), keeper policy verbatim:
-    /// prefer the auto-aggregated row with `source_meals` populated, else the
-    /// earliest-created — then **repoint every `EventGroceryItem.mergedIntoGroceryItemID`
-    /// onto the keeper** (the M68 fix, grocery.py:768-780) so a later unmerge
-    /// subtracts from the surviving row, not a deleted one. A structural
-    /// "lower recordName" rule would strand these pointers — that was the bug the
-    /// adversarial review caught.
+    /// Port of `dedupe_week_grocery` (grocery.py:739-856). Losers are TOMBSTONED
+    /// (`isUserRemoved = true`), never hard-deleted — a hard delete breaks idempotency
+    /// (a peer that hasn't seen the dedup re-rolls the loser's quantity into the keeper →
+    /// double count) and loses the sticky tombstone the resolver relies on. The input is
+    /// filtered to live (non-tombstoned) rows for the same reason (grocery.py:763).
+    ///
+    /// Keeper policy verbatim: prefer the earliest-created auto-aggregated row
+    /// (`source_meals` populated AND not user-added), else the earliest-created row. The
+    /// keeper absorbs the loser's quantities (rounded), merged `source_meals`, and any
+    /// sticky user investment it lacks (overrides + check state), then every
+    /// `EventGroceryItem.mergedIntoGroceryItemID` off the loser is repointed onto the
+    /// keeper (M68) so a later unmerge subtracts from the surviving row.
     public static func dedupeGrocery(
         items: [GroceryItem], eventLinks: [EventGroceryItem]
     ) -> GroceryDedupeResult {
-        // group by the collapse key (normalized_name, unit)
+        let live = items.filter { !$0.isUserRemoved }   // grocery.py:763 — tombstones don't dedupe
+
+        var linksByTarget: [String: [EventGroceryItem]] = [:]
+        for link in eventLinks {
+            if let target = link.mergedIntoGroceryItemID {
+                linksByTarget[target, default: []].append(link)
+            }
+        }
+
+        // Group by (normalized_name, unit), preserving created order within each group.
+        var order: [String] = []
         var groups: [String: [GroceryItem]] = [:]
-        for item in items {
-            groups["\(item.normalizedName.lowercased())\u{1}\(item.unit.lowercased())", default: []].append(item)
+        for item in live.sorted(by: { ($0.createdAt, $0.recordName) < ($1.createdAt, $1.recordName) }) {
+            let key = "\(item.normalizedName.lowercased())\u{1}\(item.unit.lowercased())"
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(item)
         }
 
         var keepers: [GroceryItem] = []
-        var deleted: [String] = []
-        var loserToKeeper: [String: String] = [:]   // loser recordName → keeper recordName
+        var tombstoned: [GroceryItem] = []
+        var repointed: [String: EventGroceryItem] = [:]   // by recordName
 
-        for (_, group) in groups {
-            guard group.count > 1 else { keepers.append(contentsOf: group); continue }
+        for key in order {
+            let group = groups[key]!
+            guard group.count > 1 else { keepers.append(group[0]); continue }
             var keeper = Self.keeper(of: group)
             for loser in group where loser.recordName != keeper.recordName {
-                // roll the loser's auto + event portion into the keeper
-                keeper.totalQuantity = Self.sum(keeper.totalQuantity, loser.totalQuantity)
-                keeper.eventQuantity = Self.sum(keeper.eventQuantity, loser.eventQuantity)
-                deleted.append(loser.recordName)
-                loserToKeeper[loser.recordName] = keeper.recordName
+                keeper.totalQuantity = Self.roundedSum(keeper.totalQuantity, loser.totalQuantity)
+                keeper.eventQuantity = Self.roundedSum(keeper.eventQuantity, loser.eventQuantity)
+                if !loser.sourceMeals.trimmingCharacters(in: .whitespaces).isEmpty {
+                    keeper.sourceMeals = Self.mergeSourceMeals(keeper.sourceMeals, loser.sourceMeals)
+                }
+                // Promote user investment the keeper lacks.
+                if keeper.quantityOverride == nil { keeper.quantityOverride = loser.quantityOverride }
+                if (keeper.unitOverride ?? "").isEmpty, let u = loser.unitOverride, !u.isEmpty { keeper.unitOverride = u }
+                if (keeper.notesOverride ?? "").isEmpty, let n = loser.notesOverride, !n.isEmpty { keeper.notesOverride = n }
+                if loser.check.isChecked && !keeper.check.isChecked { keeper.check = loser.check }
+                // Downgrade a user-added keeper if a non-user-added duplicate exists.
+                if keeper.isUserAdded && !loser.isUserAdded { keeper.isUserAdded = false }
+                // Repoint event links off the loser onto the keeper (M68).
+                for var link in linksByTarget[loser.recordName] ?? [] {
+                    link.mergedIntoGroceryItemID = keeper.recordName
+                    repointed[link.recordName] = link
+                    linksByTarget[keeper.recordName, default: []].append(link)
+                }
+                // TOMBSTONE the loser (sticky, monotonic) — never hard-delete.
+                var dead = loser
+                dead.isUserRemoved = true
+                tombstoned.append(dead)
             }
             keepers.append(keeper)
         }
 
-        // repoint every event link off a deleted row onto its keeper
-        var repointed: [EventGroceryItem] = []
-        for var link in eventLinks {
-            if let target = link.mergedIntoGroceryItemID, let keeper = loserToKeeper[target] {
-                link.mergedIntoGroceryItemID = keeper
-                repointed.append(link)
-            }
-        }
-
         return GroceryDedupeResult(
             keepers: keepers.sorted { $0.recordName < $1.recordName },
-            deletedRecordNames: deleted.sorted(),
-            repointedLinks: repointed.sorted { $0.recordName < $1.recordName }
+            tombstoned: tombstoned.sorted { $0.recordName < $1.recordName },
+            repointedLinks: repointed.values.sorted { $0.recordName < $1.recordName }
         )
     }
 
+    /// Keeper-pick (grocery.py:798-805): earliest-created auto-aggregated row (source_meals
+    /// populated, not user-added), else the earliest-created row. recordName breaks ties.
     static func keeper(of group: [GroceryItem]) -> GroceryItem {
-        let autoAggregated = group.filter { !$0.isUserAdded && !$0.isEventOnly && !$0.sourceMeals.isEmpty }
-        if let k = autoAggregated.min(by: { ($0.createdAt, $0.recordName) < ($1.createdAt, $1.recordName) }) {
+        let auto = group.filter { !$0.isUserAdded && !$0.sourceMeals.trimmingCharacters(in: .whitespaces).isEmpty }
+        if let k = auto.min(by: { ($0.createdAt, $0.recordName) < ($1.createdAt, $1.recordName) }) {
             return k
         }
         return group.min(by: { ($0.createdAt, $0.recordName) < ($1.createdAt, $1.recordName) })!
     }
 
-    static func sum(_ a: Double?, _ b: Double?) -> Double? {
+    static func roundedSum(_ a: Double?, _ b: Double?) -> Double? {
         switch (a, b) {
         case (nil, nil): return nil
         case let (x?, nil): return x
         case let (nil, y?): return y
-        case let (x?, y?): return x + y
+        case let (x?, y?): return ((x + y) * 100).rounded() / 100   // round(…, 2) like prod
         }
+    }
+
+    /// Concatenate + dedupe + sort `source_meals` entries (grocery.py:821-827).
+    static func mergeSourceMeals(_ a: String, _ b: String) -> String {
+        let parts = (a + ";" + b)
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return Set(parts).sorted().joined(separator: "; ")
     }
 
     // MARK: - Duplicate slot repair (the swap had no DEFERRABLE equivalent)
