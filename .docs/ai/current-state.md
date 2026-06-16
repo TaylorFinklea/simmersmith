@@ -113,8 +113,15 @@ shippable + Verify):
     IngredientVariation.baseIngredient CASCADE; merged_into_id cross-DB String).
     Blueprints: `phases/cloudkit-sp-a-2b-5-blueprints.md`. **User TODO: validate-schema +
     deploy the appended 2b CKDSL** (management token) before it's usable on-device beyond auto-dev-schema.
-  - [ ] 2c — CKShare invite/accept + owner/participant + single-household enforcement
-    (**two-account manual verify** — savanne's iCloud on the iPhone-16 sim).
+  - [x] **2c — cross-account CKShare. VERIFIED LIVE across TWO iCloud accounts 2026-06-16.**
+    `HouseholdShareFlow` (CloudKitProvisioning): owner creates zone+HouseholdProfile+CKShare
+    (publicPermission .readWrite), publishes the share URL via the PUBLIC db; participant fetches
+    the URL, `CKFetchShareMetadataOperation`+`CKAcceptSharesOperation`, reads the owner's profile
+    from `sharedCloudDatabase`. Ran OWNER on the iPad (savanne) + PARTICIPANT on the iPhone-16
+    (different account) → participant userRecordID ≠ owner's, owner's data read cross-account ✅.
+    The whole share-accept flow is AUTOMATABLE (no UICloudSharingController tap needed). Debug
+    buttons "Phase 2c OWNER/PARTICIPANT". Single-household enforcement + ownership-transfer policy
+    (§11) still TODO.
   - [ ] 2d — WeekChangeBatch/Event audit retention/prune.
 - [ ] 3 — CKAsset imagery.
 - [~] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.

@@ -777,6 +777,24 @@ Driving the SimmerSmith app on a sim to test the CloudKit debug panel surfaced t
 - **CloudKit ops need the SIM signed into iCloud.** With entitlements present but no iCloud account, the op returns a clean `CKError "Not Authenticated" (9/1002)` — caught + shown by the panel, no crash. Signing a sim into iCloud (Simulator → Settings → "Sign in to your iPhone") needs a real Apple ID + 2FA and **cannot be automated** by an agent — it's a manual user step. The agent CAN do everything else: `simctl` install/launch/screenshot, `idb ui tap` by coordinate.
 - **idb/simctl multi-sim gotcha:** with several booted sims, `simctl ... booted` and `idb --udid <X>` can target *different* devices (here the app was on "OF Shot iPad13", not the "iPhone 16" idb was querying). Always resolve the exact udid running the app and use it for both. Debug panel made reachable pre-auth via a `#if DEBUG` link on SignInView so CloudKit checks don't require backend sign-in.
 
+## 2026-06-16 — Phase 2c: cross-account CKShare is fully automatable (no UI tap)
+
+The earlier "can't automate share-accept" caveat was wrong — it only applied to the
+`UICloudSharingController` tap-a-link UI. The programmatic path works headlessly across two real
+iCloud accounts: owner creates the zone + `HouseholdProfile` + a `CKShare` with
+`publicPermission = .readWrite`, then `CKFetchShareMetadataOperation(shareURLs:)` +
+`CKAcceptSharesOperation` on the participant side accepts it; the participant then reads the root
+record from `container.sharedCloudDatabase`. The share URL hands off cross-account through the PUBLIC
+database (both accounts can read a public record). Verified live: OWNER on the iPad (one account) +
+PARTICIPANT on the iPhone-16 (a DIFFERENT account) — the two CloudKit user-record IDs differ and the
+participant reads the owner's profile. So the whole two-device/two-account suite (the standing SP-A
+residual) is automatable; sign-IN still needs a human (Apple ID + 2FA), but everything after is driveable.
+
+Sim/account topology used: iPad "OF Shot iPad13" (60369457) = savanne's iCloud; iPhone 16 (BDF51260) =
+a different account. App installed on both; the iPhone reaches the debug panel via Settings (gear) →
+scroll to Developer → CloudKit checks (it's signed into the backend, so the pre-auth SignInView link
+isn't shown there).
+
 ## 2026-06-16 — Phase 5: field-merge only on a pending local edit + send-then-fetch ordering
 
 Two related CKSyncEngine correctness rules surfaced wiring the event↔week merge on-sim:

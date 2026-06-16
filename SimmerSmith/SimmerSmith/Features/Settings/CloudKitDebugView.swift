@@ -49,6 +49,12 @@ struct CloudKitDebugView: View {
                 Button("Phase 5d — grocery dedupe repair") {
                     runString { await runDedupeRepairCheck() }
                 }
+                Button("Phase 2c — OWNER: create + publish share") {
+                    runString { await runShareOwnerCheck() }
+                }
+                Button("Phase 2c — PARTICIPANT: accept + read share") {
+                    runString { await runShareParticipantCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -740,6 +746,41 @@ func runDedupeRepairCheck() async -> String {
 
         engineA.delete(gid(ga)); engineA.delete(gid(gb)); try? await engineA.sendUntilDrained()
         return "✅ Phase 5d grocery dedupe repair\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 2c OWNER side (run on one sim): create a shareable household + publish the share URL.
+func runShareOwnerCheck() async -> String {
+    do {
+        let flow = HouseholdShareFlow()
+        let result = try await flow.createAndPublishShare(householdID: "phase2c-shared", name: "Shared Household")
+        return """
+        ✅ Phase 2c OWNER
+        owner userRecordID = \(result.ownerStamp)
+        share created (publicPermission .readWrite) + URL published to the public DB ✅
+        url = \(result.url.absoluteString)
+        → now run PARTICIPANT on the OTHER sim (a DIFFERENT iCloud account)
+        """
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 2c PARTICIPANT side (run on the OTHER sim / account): fetch + accept the share,
+/// then read the owner's HouseholdProfile from the shared database. Proves cross-account sharing.
+func runShareParticipantCheck() async -> String {
+    do {
+        let flow = HouseholdShareFlow()
+        let url = try await flow.fetchPublishedURL()
+        let result = try await flow.acceptAndRead(url: url)
+        var log = ["fetched the published share URL + accepted the share ✅"]
+        log.append("participant userRecordID = \(result.participantStamp)")
+        log.append("owner userRecordID (from shared record) = \(result.ownerStamp)")
+        log.append("shared household name = \(result.householdName)")
+        let crossAccount = !result.ownerStamp.isEmpty && result.participantStamp != result.ownerStamp
+        try expect(crossAccount,
+                   "NOT cross-account: participant == owner (\(result.ownerStamp)). Both sims on the same iCloud account?")
+        try expect(!result.householdName.isEmpty, "shared profile unreadable (empty name)")
+        log.append("✅ GENUINE CROSS-ACCOUNT: participant ≠ owner, owner's data read via sharedCloudDatabase")
+        return "✅ Phase 2c PARTICIPANT\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
 #endif
