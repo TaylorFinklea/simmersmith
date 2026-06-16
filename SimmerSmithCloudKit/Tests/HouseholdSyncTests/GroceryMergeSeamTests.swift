@@ -93,6 +93,24 @@ private func evRecord(_ item: EventGroceryItem) -> CKRecord { EventGroceryCodec.
     #expect(result.needsResave == true)
 }
 
+@Test func eventMergerKeepsPinUnderConcurrentRename() {
+    func eventRecord(name: String, updatedAt: Double, pin: Bool) -> CKRecord {
+        let r = CKRecord(recordType: "Event", recordID: CKRecord.ID(recordName: "EV", zoneID: zoneID))
+        r["name"] = name
+        r["updatedAt"] = Date(timeIntervalSince1970: updatedAt)
+        r["manuallyMerged"] = pin ? 1 : 0
+        return r
+    }
+    // Local pinned the event (older); remote renamed it (newer, not pinned). LWW name from remote,
+    // but the pin is sticky and must survive.
+    let result = EventSyncMerger().resolve(
+        local: eventRecord(name: "Party", updatedAt: 5, pin: true),
+        remote: eventRecord(name: "Big Party", updatedAt: 6, pin: false))
+    #expect(result.record["name"] as? String == "Big Party")   // later write wins the LWW field
+    #expect(result.record["manuallyMerged"] as? Int == 1)      // pin preserved
+    #expect(result.needsResave == true)
+}
+
 @Test func dispatchingMergerRoutesByType() {
     let dispatcher = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger()])
     #expect(dispatcher.handles("GroceryItem"))

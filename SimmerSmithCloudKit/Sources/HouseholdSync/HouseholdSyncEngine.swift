@@ -149,10 +149,14 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             let pendingSaves = pendingSaveIDs()
             for modification in changes.modifications {
                 let remote = modification.record
-                // Sticky types (grocery/event): field-merge the local copy with the incoming
-                // remote so blanket LWW can't drop a tombstone / override / check-state. Push
-                // the merge back only if we hold state the server lacks (avoids ping-pong).
-                if let merger, merger.handles(remote.recordType),
+                let hasPendingEdit = pendingSaves.contains(remote.recordID)
+                // Field-merge ONLY on a genuine concurrent edit — i.e. we hold an UNSYNCED local
+                // edit for this record. Without a pending edit the remote is authoritative (a
+                // peer's later write, including a deliberate unmerge that clears event_quantity);
+                // merging our stale local would resurrect dropped state via the sticky rules.
+                // (The other side of a conflict — our save losing the race — is handled at the
+                // serverRecordChanged seam.)
+                if hasPendingEdit, let merger, merger.handles(remote.recordType),
                    let local = store.record(for: remote.recordID) {
                     let result = merger.resolve(local: local, remote: remote)
                     store.setRecord(result.record)
@@ -162,10 +166,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                     note("merged fetched \(remote.recordID.recordName) resave=\(result.needsResave)")
                     continue
                 }
-                // Plain records: don't let a fetch clobber an unsynced local edit (the edit
-                // must reach the server first; a genuine conflict then surfaces as
-                // serverRecordChanged on send).
-                if pendingSaves.contains(remote.recordID) {
+                // A pending edit on a non-merge record must reach the server first (don't let the
+                // fetch clobber it; the conflict surfaces as serverRecordChanged on send).
+                if hasPendingEdit {
                     note("skip fetched mod (local pending) \(remote.recordID.recordName)")
                     continue
                 }

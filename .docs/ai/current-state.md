@@ -157,10 +157,15 @@ shippable + Verify):
     invested-row-kept). **Adversarial 3-lens Sonnet fidelity review DONE + fixes folded in**
     (`e2c3b6b`): added GroceryItem.ingredientName/category (event-created rows had no display
     name/aisle) + fixed a latent GroceryCodec silent-drop of weekID/storeLabel. 67/67 tests.
-  - [ ] Layers B/E/F: B Event sticky merger (reuse 2b Event record, map updatedAt→clock); E post-batch
-    repair pass wired to engine (dedupe+slot+sort over the week's weekID-scoped siblings); F on-sim
-    event↔week (merge on engine A while B edits a shared row → converge; unmerge hard-deletes both
-    sides) + codecs/CKDSL for EventGroceryItem identity + Week + the engine adapter.
+  - [x] **Layers B/E/F — DONE + VERIFIED LIVE 2026-06-16.** B: `EventSyncMerger` (LWW-by-updatedAt
+    + sticky manuallyMerged pin on the 2b Event record). E: `EventMergeAdapter.dedupeWeekGrocery`
+    (ConflictRepair.dedupeGrocery over weekID-scoped siblings → tombstone losers). F:
+    `EventMergeAdapter` merge/unmerge (reads week rows from the store, runs EventMergeEngine, saves
+    updated/created GroceryItems + hard-deletes event-only rows). `DispatchingMerger` now holds
+    [Grocery, EventGrocery, Event]. EventGroceryCodec expanded to identity fields; store.records(ofType:).
+    **Engine fix:** field-merge gated on a PENDING local edit (a no-edit fetch takes the remote — else
+    a deliberate unmerge's nil event_quantity gets resurrected). On-sim 5b/5c/5d all ✅; 4/4b regression ✅.
+    68 package tests. **Phase 5 COMPLETE.**
 - [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
 - [ ] 7 — migration import + cutover (MigrationReceipt sentinel).
 - [ ] 8 — AI seam + on-device platform handoff.

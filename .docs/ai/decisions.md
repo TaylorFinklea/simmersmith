@@ -777,6 +777,27 @@ Driving the SimmerSmith app on a sim to test the CloudKit debug panel surfaced t
 - **CloudKit ops need the SIM signed into iCloud.** With entitlements present but no iCloud account, the op returns a clean `CKError "Not Authenticated" (9/1002)` — caught + shown by the panel, no crash. Signing a sim into iCloud (Simulator → Settings → "Sign in to your iPhone") needs a real Apple ID + 2FA and **cannot be automated** by an agent — it's a manual user step. The agent CAN do everything else: `simctl` install/launch/screenshot, `idb ui tap` by coordinate.
 - **idb/simctl multi-sim gotcha:** with several booted sims, `simctl ... booted` and `idb --udid <X>` can target *different* devices (here the app was on "OF Shot iPad13", not the "iPhone 16" idb was querying). Always resolve the exact udid running the app and use it for both. Debug panel made reachable pre-auth via a `#if DEBUG` link on SignInView so CloudKit checks don't require backend sign-in.
 
+## 2026-06-16 — Phase 5: field-merge only on a pending local edit + send-then-fetch ordering
+
+Two related CKSyncEngine correctness rules surfaced wiring the event↔week merge on-sim:
+
+1. **The fetch-seam field-merge runs ONLY when we hold an unsynced PENDING local edit** for that
+   record (a genuine concurrent edit). Without a pending edit the remote is authoritative — take it
+   (LWW). The earlier code merged on every fetch where a local copy existed; that let a deliberate
+   unmerge (which clears `event_quantity` to nil) get *resurrected*: a peer with a stale local copy
+   (event_quantity=3) and no edit of its own would run `mergeEventQuantity(3, nil)` → keep 3 (the
+   "a stale regen never drops a contribution" writer-ownership rule), so the unmerge never landed.
+   Gating on a pending edit fixes it; the other side of a true conflict is still caught at the
+   serverRecordChanged seam.
+
+2. **Manual fetch/send must be SEND-then-FETCH.** In the test harness we drive `sendChanges()` /
+   `fetchChanges()` by hand. The fetch token lags our own sends, so `fetchChanges()` AFTER a local
+   edit re-delivers our OWN previously-sent (now-stale) records as "remote" changes; combined with a
+   pending newer edit, the merger resolves our new edit against our stale self-echo and resurrects
+   the old value. Ordering each op as `sendUntilDrained()` THEN `fetchChanges()` (drain self-echoes
+   while nothing is pending) mirrors what `automaticallySync` does continuously in the real app — so
+   this is a harness artifact, not a real-app bug, but the gate (rule 1) makes it robust either way.
+
 ## 2026-06-16 — Phase 4: field-merge applies at BOTH conflict seams (not just fetch)
 
 The sticky grocery merge (`FieldMergeResolver`, already built) must run wherever two versions of a

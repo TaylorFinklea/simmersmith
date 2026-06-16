@@ -40,6 +40,15 @@ struct CloudKitDebugView: View {
                 Button("Phase 4b — event-grocery field-merge") {
                     runString { await runEventGroceryMergeCheck() }
                 }
+                Button("Phase 5b — event manuallyMerged pin") {
+                    runString { await runEventPinCheck() }
+                }
+                Button("Phase 5c — event↔week merge + unmerge") {
+                    runString { await runEventWeekCheck() }
+                }
+                Button("Phase 5d — grocery dedupe repair") {
+                    runString { await runDedupeRepairCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -324,7 +333,7 @@ func runHouseholdRecordsCheck() async -> String {
                       "prepMinutes": .int(20), "createdAt": .date(created)],
             refs: ["recipeTemplateID": "tmpl-9"])
         saveEncoded(recipe)
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await waitInB(present: rtName, expect: true)
         guard let fetched = storeB.record(for: id(rtName)) else {
             throw PrivatePlaneCheckFailure(description: "engineB never received the Recipe")
@@ -340,7 +349,7 @@ func runHouseholdRecordsCheck() async -> String {
             scalars: ["ingredientName": .string("beef"), "normalizedName": .string("beef")], refs: ["recipe": rc]))
         saveEncoded(HouseholdRecordValue(type: .recipeStep, recordName: rs,
             scalars: ["sortOrder": .int(0), "instruction": .string("simmer")], refs: ["recipe": rc]))
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await waitInB(present: ri, expect: true)
         try expect(storeB.record(for: id(rc)) != nil && storeB.record(for: id(rs)) != nil,
                    "engineB missing recipe/step before cascade")
@@ -358,7 +367,7 @@ func runHouseholdRecordsCheck() async -> String {
         saveEncoded(HouseholdRecordValue(type: .recipe, recordName: base, scalars: ["name": .string("Base")]))
         saveEncoded(HouseholdRecordValue(type: .recipe, recordName: variant,
             scalars: ["name": .string("Variant")], refs: ["baseRecipe": base]))
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await waitInB(present: variant, expect: true)
         engineA.delete(id(base))   // plain delete (SET-NULL edge must NOT sweep the variant)
         try await engineA.sendUntilDrained()
@@ -426,12 +435,12 @@ func runGroceryMergeCheck() async -> String {
         engineA.save(GroceryCodec.makeRecord(
             GroceryMerge.GroceryItem(recordName: g1, unit: "cup", normalizedName: "tomato",
                         totalQuantity: 2, sourceMeals: "meal:mon", createdAt: 1, modifiedAt: 1), zoneID: zoneID))
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await itemInB(g1)   // engineB now holds the base row (tagged)
 
         // engineA regens a bigger quantity (later clock).
         editAndSave(engineA, storeA, g1) { $0.totalQuantity = 3; $0.modifiedAt = 6 }
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         // engineB, from its STALE base, checks the row + sets an override (earlier clock) → conflict → merge.
         editAndSave(engineB, storeB, g1) {
             $0.check = CheckState(isChecked: true, at: 5, by: "savanne"); $0.quantityOverride = 9; $0.modifiedAt = 5
@@ -453,12 +462,12 @@ func runGroceryMergeCheck() async -> String {
         engineA.save(GroceryCodec.makeRecord(
             GroceryMerge.GroceryItem(recordName: g2, unit: "ea", normalizedName: "salt",
                         totalQuantity: 1, createdAt: 1, modifiedAt: 1), zoneID: zoneID))
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await itemInB(g2)
 
         // engineA regen (later clock) from its base; engineB removes from its stale base → conflict → merge.
         editAndSave(engineA, storeA, g2) { $0.totalQuantity = 4; $0.modifiedAt = 11 }
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         editAndSave(engineB, storeB, g2) { $0.isUserRemoved = true; $0.modifiedAt = 10 }
         try await engineB.sendUntilDrained()
 
@@ -524,12 +533,12 @@ func runEventGroceryMergeCheck() async -> String {
         engineA.save(EventGroceryCodec.makeRecord(
             GroceryMerge.EventGroceryItem(recordName: name, mergedIntoGroceryItemID: "G",
                                           mergedIntoWeekID: "W", eventQuantity: 2, modifiedAt: 1), zoneID: zoneID))
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await itemInB()
 
         // engineA UNMERGES (nils the pointer, later clock).
         editAndSave(engineA, storeA) { $0.mergedIntoGroceryItemID = nil; $0.mergedIntoWeekID = nil; $0.modifiedAt = 6 }
-        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         // engineB, from its stale base, keeps the merge live + bumps the contribution → conflict → merge.
         editAndSave(engineB, storeB) { $0.eventQuantity = 5; $0.modifiedAt = 5 }
         try await engineB.sendUntilDrained()
@@ -549,5 +558,188 @@ func runEventGroceryMergeCheck() async -> String {
     } catch {
         return "❌ \(error)"
     }
+}
+
+private func phase5Engines(_ zoneName: String) -> (CKRecordZone.ID, CKDatabase, () -> DispatchingMerger) {
+    let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+    let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
+    return (zoneID, db, { DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()]) })
+}
+
+/// SP-A Phase 5 Layer B: the Event manuallyMerged pin is sticky under a concurrent rename.
+func runEventPinCheck() async -> String {
+    let (zoneID, db, makeMerger) = phase5Engines("household-phase5b-test")
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p5b-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p5b-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let name = "EV-\(String(UUID().uuidString.prefix(8)))"
+    do {
+        let storeA = HouseholdLocalStore(); let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA); engineA.merger = makeMerger()
+        let storeB = HouseholdLocalStore(); let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB); engineB.merger = makeMerger()
+        let rid = CKRecord.ID(recordName: name, zoneID: zoneID)
+        func eventInB() async throws -> CKRecord? {
+            for _ in 0...3 { try await engineB.fetchChanges(); if let r = storeB.record(for: rid) { return r }; try? await Task.sleep(nanoseconds: 800_000_000) }
+            return storeB.record(for: rid)
+        }
+        func editAndSave(_ e: HouseholdSyncEngine, _ s: HouseholdLocalStore, _ mutate: (CKRecord) -> Void) {
+            guard let r = s.record(for: rid) else { return }; mutate(r); e.save(r)
+        }
+        var log = ["DispatchingMerger(+EventSyncMerger) on two engines ✅"]
+
+        let rec = CKRecord(recordType: "Event", recordID: rid)
+        rec["name"] = "Party"; rec["updatedAt"] = Date(timeIntervalSince1970: 1_000); rec["manuallyMerged"] = 0
+        engineA.save(rec)
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await eventInB()
+
+        // A renames (later); B pins (earlier) from its stale base → conflict → merge.
+        editAndSave(engineA, storeA) { $0["name"] = "Big Party"; $0["updatedAt"] = Date(timeIntervalSince1970: 2_000) }
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        editAndSave(engineB, storeB) { $0["manuallyMerged"] = 1; $0["updatedAt"] = Date(timeIntervalSince1970: 1_500) }
+        try await engineB.sendUntilDrained()
+
+        guard let conv = try await eventInB() else { throw PrivatePlaneCheckFailure(description: "event missing in B") }
+        try await engineA.fetchChanges()
+        let convA = storeA.record(for: rid)
+        try expect((conv["name"] as? String) == "Big Party" && (conv["manuallyMerged"] as? Int) == 1,
+                   "B not converged: name=\(conv["name"] as? String ?? "?") pin=\(conv["manuallyMerged"] as? Int ?? -1)")
+        try expect((convA?["name"] as? String) == "Big Party" && (convA?["manuallyMerged"] as? Int) == 1,
+                   "A not converged")
+        log.append("rename(later) + concurrent pin(earlier) → BOTH converge name=Big Party + pin=1 ✅")
+        engineA.delete(rid); try? await engineA.sendUntilDrained()
+        return "✅ Phase 5b event pin\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 5 Layer F: merge an event into a week (event_quantity + event-only rows), then
+/// unmerge (HARD-delete the event-only rows) — converging across two engines.
+func runEventWeekCheck() async -> String {
+    let (zoneID, db, makeMerger) = phase5Engines("household-phase5c-test")
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p5c-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p5c-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(6))
+    let gTomato = "Gt-\(sfx)", e1 = "E1-\(sfx)", e2 = "E2-\(sfx)", ev = "EV-\(sfx)", week = "W-\(sfx)"
+    do {
+        let storeA = HouseholdLocalStore(); let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA); engineA.merger = makeMerger()
+        let storeB = HouseholdLocalStore(); let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB); engineB.merger = makeMerger()
+        let adapter = EventMergeAdapter(engine: engineA, zoneID: zoneID)
+        func gid(_ n: String) -> CKRecord.ID { CKRecord.ID(recordName: n, zoneID: zoneID) }
+        func syncBUntil(_ check: () -> Bool) async throws -> Bool {
+            for _ in 0...4 { try await engineB.fetchChanges(); if check() { return true }; try? await Task.sleep(nanoseconds: 800_000_000) }
+            return check()
+        }
+        func bGrocery(_ n: String) -> GroceryMerge.GroceryItem? { storeB.record(for: gid(n)).map(GroceryCodec.decode) }
+        func bEventOnly() -> GroceryMerge.GroceryItem? {
+            storeB.records(ofType: "GroceryItem").map(GroceryCodec.decode).first { $0.sourceMeals.hasPrefix("event:") && $0.weekID == week }
+        }
+        var log = ["event↔week adapter on two engines ✅"]
+
+        // Seed: a week tomato row (meal-derived) + an Event + two event rows (1 matches, 1 doesn't).
+        engineA.save(GroceryCodec.makeRecord(GroceryMerge.GroceryItem(
+            recordName: gTomato, weekID: week, baseIngredientID: "b1", unit: "cup", normalizedName: "tomato",
+            totalQuantity: 2, sourceMeals: "meal:mon"), zoneID: zoneID))
+        let evRec = CKRecord(recordType: "Event", recordID: gid(ev)); evRec["name"] = "Party"; evRec["updatedAt"] = Date()
+        engineA.save(evRec)
+        engineA.save(EventGroceryCodec.makeRecord(GroceryMerge.EventGroceryItem(
+            recordName: e1, eventQuantity: 3, baseIngredientID: "b1", normalizedName: "tomato", unit: "cup"), zoneID: zoneID))
+        engineA.save(EventGroceryCodec.makeRecord(GroceryMerge.EventGroceryItem(
+            recordName: e2, eventQuantity: 5, ingredientName: "Balloons", normalizedName: "balloons", unit: "ea"), zoneID: zoneID))
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await syncBUntil { bGrocery(gTomato) != nil }
+
+        // MERGE.
+        let event = GroceryMerge.Event(recordName: ev, name: "Party")
+        let eventRows = [GroceryMerge.EventGroceryItem(recordName: e1, eventQuantity: 3, baseIngredientID: "b1", normalizedName: "tomato", unit: "cup"),
+                         GroceryMerge.EventGroceryItem(recordName: e2, eventQuantity: 5, ingredientName: "Balloons", normalizedName: "balloons", unit: "ea")]
+        let merged = adapter.merge(event: event, eventRows: eventRows, intoWeek: week)
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await syncBUntil { bGrocery(gTomato)?.eventQuantity == 3 && bEventOnly() != nil }
+        try expect(bGrocery(gTomato)?.eventQuantity == 3, "B: tomato event_quantity not 3")
+        try expect(bEventOnly()?.eventQuantity == 5, "B: event-only balloons row missing/wrong")
+        log.append("merge → B sees tomato event_qty=3 + a new event-only row (balloons, qty=5) ✅")
+
+        // UNMERGE (event now linked to the week).
+        let linkedEvent = GroceryMerge.Event(recordName: ev, name: "Party", linkedWeekID: week)
+        let createdName = bEventOnly()?.recordName
+        let unmergeOut = adapter.unmerge(event: linkedEvent, eventRows: merged.eventRows, fromWeek: week)
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await syncBUntil { bGrocery(gTomato)?.eventQuantity == nil && bEventOnly() == nil }
+        if bGrocery(gTomato)?.eventQuantity != nil || bEventOnly() != nil {
+            let serverTomato = (try? await db.record(for: gid(gTomato))).map(GroceryCodec.decode)
+            return """
+            ❌ unmerge didn't converge
+            unmerge outcome: weekRows.eventQty=\(unmergeOut.weekRows.map { $0.eventQuantity }) hardDeleted=\(unmergeOut.hardDeletedRecordNames)
+            A store tomato.eventQty=\(storeA.record(for: gid(gTomato)).map(GroceryCodec.decode)?.eventQuantity as Any)
+            server tomato.eventQty=\(serverTomato?.eventQuantity as Any)
+            B store tomato.eventQty=\(bGrocery(gTomato)?.eventQuantity as Any)
+            B eventOnly present=\(bEventOnly() != nil)
+            B trace tail: \(engineB.eventTrace.suffix(6))
+            """
+        }
+        try expect(bGrocery(gTomato)?.eventQuantity == nil, "B: tomato event_quantity not cleared")
+        try expect(bEventOnly() == nil, "B: event-only row not hard-deleted")
+        log.append("unmerge → B: tomato event_qty cleared + event-only row HARD-deleted ✅")
+
+        // cleanup
+        engineA.delete(gid(gTomato)); engineA.delete(gid(ev)); engineA.delete(gid(e1)); engineA.delete(gid(e2))
+        if let c = createdName { engineA.delete(gid(c)) }
+        try? await engineA.sendUntilDrained()
+        return "✅ Phase 5c event↔week merge + unmerge\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 5 Layer E: the post-batch grocery dedupe repair collapses duplicates to one
+/// rolled-up keeper + a tombstone, converging across two engines, idempotently.
+func runDedupeRepairCheck() async -> String {
+    let (zoneID, db, makeMerger) = phase5Engines("household-phase5d-test")
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p5d-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p5d-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(6))
+    let ga = "Ga-\(sfx)", gb = "Gb-\(sfx)", week = "W-\(sfx)"
+    do {
+        let storeA = HouseholdLocalStore(); let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA); engineA.merger = makeMerger()
+        let storeB = HouseholdLocalStore(); let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB); engineB.merger = makeMerger()
+        let adapter = EventMergeAdapter(engine: engineA, zoneID: zoneID)
+        func gid(_ n: String) -> CKRecord.ID { CKRecord.ID(recordName: n, zoneID: zoneID) }
+        func bGrocery(_ n: String) -> GroceryMerge.GroceryItem? { storeB.record(for: gid(n)).map(GroceryCodec.decode) }
+        func syncBUntil(_ check: () -> Bool) async throws -> Bool {
+            for _ in 0...4 { try await engineB.fetchChanges(); if check() { return true }; try? await Task.sleep(nanoseconds: 800_000_000) }
+            return check()
+        }
+        var log = ["dedupe repair adapter on two engines ✅"]
+
+        // Two duplicate tomato rows on the same week (different source_meals + createdAt).
+        engineA.save(GroceryCodec.makeRecord(GroceryMerge.GroceryItem(
+            recordName: ga, weekID: week, unit: "cup", normalizedName: "tomato", totalQuantity: 2,
+            sourceMeals: "meal:mon", createdAt: 1), zoneID: zoneID))
+        engineA.save(GroceryCodec.makeRecord(GroceryMerge.GroceryItem(
+            recordName: gb, weekID: week, unit: "cup", normalizedName: "tomato", totalQuantity: 3,
+            sourceMeals: "meal:tue", createdAt: 2), zoneID: zoneID))
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await syncBUntil { bGrocery(ga) != nil && bGrocery(gb) != nil }
+        log.append("B sees 2 duplicate tomato rows ✅")
+
+        // Repair on A → keeper rolls up, loser tombstoned.
+        let result = adapter.dedupeWeekGrocery(weekID: week)
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        _ = try await syncBUntil { bGrocery(ga)?.totalQuantity == 5 && bGrocery(gb)?.isUserRemoved == true }
+        try expect(bGrocery(ga)?.totalQuantity == 5, "B: keeper not rolled up to 5")
+        try expect(bGrocery(gb)?.isUserRemoved == true, "B: loser not tombstoned")
+        try expect(result.tombstoned.count == 1, "expected 1 tombstone, got \(result.tombstoned.count)")
+        log.append("dedupe → keeper qty=5 + loser TOMBSTONED (not deleted), B converges ✅")
+
+        // Idempotent re-run.
+        let again = adapter.dedupeWeekGrocery(weekID: week)
+        try expect(again.tombstoned.isEmpty, "re-run produced new tombstones (\(again.tombstoned.count))")
+        log.append("re-run → no new tombstones, no double-count (idempotent) ✅")
+
+        engineA.delete(gid(ga)); engineA.delete(gid(gb)); try? await engineA.sendUntilDrained()
+        return "✅ Phase 5d grocery dedupe repair\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
 }
 #endif

@@ -23,6 +23,17 @@ public enum EventGroceryCodec {
         record["mergedIntoGroceryItemID"] = item.mergedIntoGroceryItemID as CKRecordValue?
         record["mergedIntoWeekID"] = item.mergedIntoWeekID as CKRecordValue?
         record["eventQuantity"] = item.eventQuantity as CKRecordValue?
+        record["baseIngredientID"] = item.baseIngredientID as CKRecordValue?
+        record["ingredientVariationID"] = item.ingredientVariationID as CKRecordValue?
+        record["ingredientName"] = item.ingredientName as CKRecordValue
+        record["normalizedName"] = item.normalizedName as CKRecordValue
+        record["unit"] = item.unit as CKRecordValue
+        record["quantityText"] = item.quantityText as CKRecordValue
+        record["category"] = item.category as CKRecordValue
+        record["sourceMeals"] = item.sourceMeals as CKRecordValue
+        record["notes"] = item.notes as CKRecordValue
+        record["reviewFlag"] = item.reviewFlag as CKRecordValue
+        record["resolutionStatus"] = item.resolutionStatus as CKRecordValue
         record["modifiedAtClock"] = item.modifiedAt as CKRecordValue
     }
 
@@ -32,6 +43,17 @@ public enum EventGroceryCodec {
             mergedIntoGroceryItemID: record["mergedIntoGroceryItemID"] as? String,
             mergedIntoWeekID: record["mergedIntoWeekID"] as? String,
             eventQuantity: record["eventQuantity"] as? Double,
+            baseIngredientID: record["baseIngredientID"] as? String,
+            ingredientVariationID: record["ingredientVariationID"] as? String,
+            ingredientName: record["ingredientName"] as? String ?? "",
+            normalizedName: record["normalizedName"] as? String ?? "",
+            unit: record["unit"] as? String ?? "",
+            quantityText: record["quantityText"] as? String ?? "",
+            category: record["category"] as? String ?? "",
+            sourceMeals: record["sourceMeals"] as? String ?? "",
+            notes: record["notes"] as? String ?? "",
+            reviewFlag: record["reviewFlag"] as? String ?? "",
+            resolutionStatus: record["resolutionStatus"] as? String ?? "unresolved",
             modifiedAt: record["modifiedAtClock"] as? Int ?? 0
         )
     }

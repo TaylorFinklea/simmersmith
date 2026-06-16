@@ -24,6 +24,13 @@ public final class HouseholdLocalStore {
         return Array(records.values)
     }
 
+    /// All locally-mirrored records of a given CloudKit type (e.g. the week's GroceryItems
+    /// for the event-merge / post-batch dedupe sibling set).
+    public func records(ofType recordType: String) -> [CKRecord] {
+        lock.lock(); defer { lock.unlock() }
+        return records.values.filter { $0.recordType == recordType }
+    }
+
     public func count() -> Int {
         lock.lock(); defer { lock.unlock() }
         return records.count

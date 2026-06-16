@@ -62,6 +62,31 @@ public struct EventGrocerySyncMerger: RecordMerger {
     }
 }
 
+/// The Event sticky merger. An Event is otherwise LWW (last `updatedAt` wins the record), but
+/// `manuallyMerged` (the user's pin to a week) is sticky-monotonic — a concurrent edit that
+/// clears it must not win. Operates directly on the Phase-2b Event record (no second Event
+/// model): reads `updatedAt` (TIMESTAMP) for recency and `manuallyMerged` (INT64) for the pin.
+public struct EventSyncMerger: RecordMerger {
+    public init() {}
+    public func handles(_ recordType: String) -> Bool { recordType == "Event" }
+    public func resolve(local: CKRecord, remote: CKRecord) -> MergeResult {
+        let localMod = (local["updatedAt"] as? Date)?.timeIntervalSince1970 ?? 0
+        let remoteMod = (remote["updatedAt"] as? Date)?.timeIntervalSince1970 ?? 0
+        let remotePin = (remote["manuallyMerged"] as? Int ?? 0) != 0
+        let pin = ((local["manuallyMerged"] as? Int ?? 0) != 0) || remotePin
+
+        let result = remote   // tag bearer
+        let localNewer = localMod > remoteMod
+        if localNewer {
+            // Local is the later write: its LWW fields win — copy onto the server-tagged record.
+            for key in local.allKeys() { result[key] = local[key] }
+        }
+        result["manuallyMerged"] = (pin ? 1 : 0) as CKRecordValue   // re-assert the sticky pin
+        // Push back when we hold state the server lacks: a pin it doesn't have, or a newer record.
+        return MergeResult(record: result, needsResave: (pin != remotePin) || localNewer)
+    }
+}
+
 /// Composes multiple type-specific mergers (grocery + event-grocery + …) behind the engine's
 /// single `merger` seam: the first registered merger that `handles` the record type resolves it.
 public struct DispatchingMerger: RecordMerger {
