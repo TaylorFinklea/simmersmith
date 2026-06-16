@@ -45,17 +45,18 @@ Open follow-ups:
   current-state.md note). Next milestone-planning pass resolves this.
 
 ### Awaiting User / External
-- **⟶ NEXT (user-run, 1 account): run the in-app CloudKit checks.** Launch the app on
-  an iCloud-signed-in iPhone-16 sim → Settings → Developer → **CloudKit checks** → tap
-  Phase 0 round-trip + Phase 0.5 coexistence. The coexistence result picks Phase 1's
-  mechanism (both ✅ → NSPCKC; ❌ → CKSyncEngine-everywhere). Report results back.
-  (Schema + record CRUD already validated headlessly via cktool; entitlements committed
-  `8558410`.) Cross-account CKShare (wife's account, 2 sims) stays manual, comes at Phase 2.
-- **CloudKit container provisioned** `iCloud.app.simmersmith.cloud` (2026-06-15).
-  Phase 0 (schema + recordName policy + provisioner) DONE; **awaiting the user-run
-  Phase 0 Verify above**, then Phase 0.5. Spec: `phases/cloudkit-sp-a-spec.md`;
-  Phase 0 detail: `phases/cloudkit-sp-a-phase0-schema.md`. Foundation pre-built:
-  `SimmerSmithCloudKit/` (resolver + AI seam + provisioning, 29 tests green).
+- **CloudKit Phases 0 / 0.5 / 1 — DONE + VERIFIED LIVE on-sim (2026-06-15).** iPad sim
+  signed into Taylor's iCloud, DEBUG CloudKit-checks panel: Phase 0 zone round-trip ✅,
+  Phase 0.5 coexistence ✅ both (→ **verdict: Phase 1 uses NSPersistentCloudKitContainer**),
+  Phase 1 private-plane CRUD ✅ all invariants. Container `iCloud.app.simmersmith.cloud`;
+  entitlements committed `8558410`. Specs: `phases/cloudkit-sp-a-{spec,phase0-schema,phase1-spec}.md`.
+  Foundation: `SimmerSmithCloudKit/` (resolver + AI seam + provisioning) + `SimmerSmithKit/
+  Persistence/PrivatePlane*` (private plane).
+- **⟶ NEXT manual residual (deferred): two-device + cross-account tests.** Two-device
+  convergence on one iCloud account (Phase 1 verify) + cross-account CKShare (savanne's
+  iCloud on the iPhone-16 sim) both need a 2nd signed-in device — can't automate iCloud
+  sign-in/share-accept. Comes with Phase 2 (household zone + CKShare). Phase 2 build itself
+  is unblocked and proceeds in code.
 - **CloudKit-spike AFM 3 / PCC measurement deferred to iOS 27 GA** (decided
   2026-06-15) — wait for general availability, not the beta. The AFM 3 (20B) +
   third-party-PCC half of Spike 2 can't run on this machine's Xcode 26 / iOS 26.

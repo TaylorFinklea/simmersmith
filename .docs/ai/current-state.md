@@ -76,14 +76,22 @@ shippable + Verify):
   SIGNED for sim CloudKit (NOT `CODE_SIGNING_ALLOWED=NO` — strips entitlements → hard-crash;
   see decisions). CKShare cross-account half (2nd account = savanne's iCloud, on the iPhone 16
   sim) is separate + manual at Phase 2 — can't automate iCloud sign-in / share-accept.
-- [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
-  live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
-  AssistantThread/AssistantMessage/MigrationReceipt). **MECHANISM DECIDED (Phase 0.5):
-  NSPersistentCloudKitContainer** — auto-manages CD_-prefixed schema + LWW for the bulk
-  per-user types; the hand-authored types/recordName policy/resolver are reserved for the
-  grocery-merge types (Phase 4) on a custom stack, which 0.5 proved can coexist. Next: wire
-  NSPCKC into the app target. cktool schema ops work headlessly (management token); record
-  ops need a user token.
+- [~] 1 — per-user PRIVATE plane. **BUILT + VERIFIED LIVE (single-device) 2026-06-15.**
+  Mechanism = **SwiftData-over-CloudKit** (= NSPersistentCloudKitContainer; matches the
+  app's existing SwiftData cache idiom). Spec/report: `phases/cloudkit-sp-a-phase1-spec.md`.
+  - New in `SimmerSmithKit/Persistence/`: `PrivatePlaneModels` (7 CloudKit-safe @Model types,
+    `Private`-prefixed), `PrivatePlaneContainer` (separate "SimmerSmithPrivate" store,
+    `cloudKitDatabase: .private(iCloud.app.simmersmith.cloud)`), `PrivatePlaneStore`
+    (fetch-before-insert upsert/invariant enforcement). 7 headless invariant tests
+    (`swift test` green). DEBUG panel "Phase 1 — private plane CRUD" check added.
+  - **On-sim ✅**: all checks pass incl. "CloudKit-backed private store loaded ✅" (NSPCKC
+    inits against the real account+entitlement+container, generates CD_ schema), upsert
+    dedupe, singletons, transcript ordering, migration sentinel, cascade delete.
+  - ⚠️ **CD_ schema ≠ hand-authored types**: NSPCKC makes its own `CD_*` types; the
+    cktool-deployed `ProfileSetting`/etc. are unused here, reserved for the SHARED zone's
+    custom stack (Phase 2+) + as the Phase-7 migration target shape. Both coexist (additive).
+  - **Residual (manual, deferred):** two-device convergence on one iCloud account (needs a
+    2nd signed-in device — same gate as CKShare). Single-device + all invariants proven.
 - [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).
 - [ ] 3 — CKAsset imagery.
 - [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
