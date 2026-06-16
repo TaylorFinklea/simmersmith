@@ -66,3 +66,39 @@ private func record(_ item: GroceryItem) -> CKRecord { GroceryCodec.makeRecord(i
     let merged = GroceryCodec.decode(GrocerySyncMerger().resolve(local: record(local), remote: record(remote)).record)
     #expect(merged.eventQuantity == 4)   // writer-ownership: a nil regen never drops a contribution
 }
+
+// MARK: EventGroceryItem codec + merger + DispatchingMerger (Phase 5 Layer A)
+
+private func evRecord(_ item: EventGroceryItem) -> CKRecord { EventGroceryCodec.makeRecord(item, zoneID: zoneID) }
+
+@Test func eventGroceryCodecRoundTrips() {
+    let item = EventGroceryItem(recordName: "E1", mergedIntoGroceryItemID: "G",
+                                mergedIntoWeekID: "W", eventQuantity: 3.5, modifiedAt: 7)
+    #expect(EventGroceryCodec.decode(EventGroceryCodec.makeRecord(item, zoneID: zoneID)) == item)
+}
+
+@Test func eventGroceryMergerLivePointerBeatsConcurrentNil() {
+    // A concurrent unmerge that NILs the pointer (later clock) must NOT clobber an active
+    // merge pointer; eventQuantity is preserved (writer-ownership). Blanket LWW would lose both.
+    let unmerge = EventGroceryItem(recordName: "E", mergedIntoGroceryItemID: nil,
+                                   mergedIntoWeekID: nil, eventQuantity: 2, modifiedAt: 6)
+    let active = EventGroceryItem(recordName: "E", mergedIntoGroceryItemID: "G",
+                                  mergedIntoWeekID: "W", eventQuantity: 5, modifiedAt: 5)
+    let result = EventGrocerySyncMerger().resolve(local: evRecord(active), remote: evRecord(unmerge))
+    let merged = EventGroceryCodec.decode(result.record)
+    #expect(merged.mergedIntoGroceryItemID == "G")   // live pointer survives the later nil
+    #expect(merged.eventQuantity == 5)               // max contribution kept
+    #expect(result.needsResave == true)
+}
+
+@Test func dispatchingMergerRoutesByType() {
+    let dispatcher = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger()])
+    #expect(dispatcher.handles("GroceryItem"))
+    #expect(dispatcher.handles("EventGroceryItem"))
+    #expect(dispatcher.handles("Recipe") == false)   // plain records fall through to LWW
+    // routes an EventGroceryItem to the event merger
+    let r = dispatcher.resolve(
+        local: evRecord(EventGroceryItem(recordName: "E", mergedIntoGroceryItemID: "G", modifiedAt: 5)),
+        remote: evRecord(EventGroceryItem(recordName: "E", mergedIntoGroceryItemID: nil, modifiedAt: 6)))
+    #expect(EventGroceryCodec.decode(r.record).mergedIntoGroceryItemID == "G")
+}

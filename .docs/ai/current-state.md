@@ -137,7 +137,21 @@ shippable + Verify):
   - [ ] 4 remainder (optional follow-on): Week/WeekMeal record types + the ConflictRepair repair
     passes (slot-swap, week-collapse, sort-order) wired to the engine; EventGroceryItem/Event merger
     cases (resolver already built). Phase 5 (event↔week) builds on these.
-- [ ] 5 — event↔week cross-aggregate merge.
+- [~] 5 — event↔week cross-aggregate merge. **Corrected spec + Layer A done 2026-06-16.**
+  Design via a Sonnet/Haiku design+review workflow (saved Opus rate limits; scored in
+  `~/.claude/model-scorecard.md`); the multi-lens review caught multiple BLOCKING bugs in the
+  first draft (unmerge=hard-delete NOT tombstone; mis-ported apply_auto_merge_policy branches;
+  EventGroceryItem total_quantity↔eventQuantity collision; post-batch double-save/monotonicity).
+  Corrected, layered spec: `phases/cloudkit-sp-a-phase5-spec.md` (raw: `-phase5-blueprints.md`).
+  - [x] **Layer A — multi-merger seam + EventGroceryItem merger. VERIFIED LIVE.** `DispatchingMerger`
+    (engine seam now holds [RecordMerger]), `EventGroceryCodec` (thin merger subset — no value-type
+    expansion, sidesteps every blocker), `EventGrocerySyncMerger` (wraps the tested resolver). 3
+    headless + on-sim ✅: a concurrent unmerge (nil ptr, later clock) does NOT clobber an active
+    merge pointer; eventQuantity preserved. 55/55 package tests.
+  - [ ] Layers B–F (Phase 5 proper): B Event sticky merger (reuse 2b Event record, map updatedAt→clock);
+    C value-type expansion + GroceryItem.weekID + Week.weekEnd + codecs + CKDSL; D EventMergeEngine
+    (port merge_event_into_week/unmerge VERBATIM — hard-delete vs tombstone distinct); E post-batch
+    repair pass (dedupe+slot+sort over the week's siblings, needs weekID index); F on-sim event↔week.
 - [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
 - [ ] 7 — migration import + cutover (MigrationReceipt sentinel).
 - [ ] 8 — AI seam + on-device platform handoff.

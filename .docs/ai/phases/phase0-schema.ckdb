@@ -336,3 +336,16 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Phase 5: EventGroceryItem (event-side contribution; field-merged — a concurrent
+    //      unmerge-nil loses to an active merge pointer). event ref is the CASCADE parent. ----
+
+    RECORD TYPE EventGroceryItem (
+        mergedIntoGroceryItemID STRING,
+        mergedIntoWeekID STRING,
+        eventQuantity DOUBLE,
+        modifiedAtClock INT64,
+        event REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );

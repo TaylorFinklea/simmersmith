@@ -45,4 +45,34 @@ public struct GrocerySyncMerger: RecordMerger {
         return MergeResult(record: mergedRecord, needsResave: merged != remoteValue)
     }
 }
+
+/// The event-side contribution merger. A concurrent unmerge that nils a `mergedInto` pointer
+/// loses to an active merge (preferLive); `eventQuantity` is writer-owned (a stale nil regen
+/// never drops a contribution). Wraps the pure `FieldMergeResolver.merge(EventGroceryItem)`.
+public struct EventGrocerySyncMerger: RecordMerger {
+    public init() {}
+    public func handles(_ recordType: String) -> Bool { recordType == EventGroceryCodec.recordType }
+    public func resolve(local: CKRecord, remote: CKRecord) -> MergeResult {
+        let localValue = EventGroceryCodec.decode(local)
+        let remoteValue = EventGroceryCodec.decode(remote)
+        let merged = FieldMergeResolver.merge(localValue, remoteValue)
+        let mergedRecord = remote
+        EventGroceryCodec.encode(merged, into: mergedRecord)
+        return MergeResult(record: mergedRecord, needsResave: merged != remoteValue)
+    }
+}
+
+/// Composes multiple type-specific mergers (grocery + event-grocery + …) behind the engine's
+/// single `merger` seam: the first registered merger that `handles` the record type resolves it.
+public struct DispatchingMerger: RecordMerger {
+    public let mergers: [RecordMerger]
+    public init(_ mergers: [RecordMerger]) { self.mergers = mergers }
+    public func handles(_ recordType: String) -> Bool { mergers.contains { $0.handles(recordType) } }
+    public func resolve(local: CKRecord, remote: CKRecord) -> MergeResult {
+        for merger in mergers where merger.handles(remote.recordType) {
+            return merger.resolve(local: local, remote: remote)
+        }
+        return MergeResult(record: remote, needsResave: false)   // unreachable: gated by handles()
+    }
+}
 #endif
