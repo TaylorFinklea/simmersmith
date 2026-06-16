@@ -64,27 +64,26 @@ shippable + Verify):
   CloudKitProvisioning` (RecordNames 4 tests + HouseholdZoneProvisioner). cktool works
   here (management+user tokens). Custom-zone round-trip + coexistence run in-app (below).
   Don't promote schema to Production until decisions are final.
-- [~] 0.5 — coexistence spike. **Harness BUILT + compiles** `SimmerSmithCloudKit/
-  CoexistenceSpike` (NSPCKC private mirror + manual CloudKit zone/record/subscription
-  — the CKSyncEngine primitives — in one container). **User-run (1 account):** call
-  the in-app **Settings → Developer → CloudKit checks** panel (DEBUG only, wired
-  2026-06-15, app BUILD SUCCEEDED) on an iCloud-signed-in sim → both ✅ ⇒ Phase 1 uses
-  NSPCKC; ❌ ⇒ CKSyncEngine-everywhere. That same panel also runs the Phase 0
-  custom-zone round-trip. CKShare cross-account half (2nd account: wife's) is separate +
-  manual — I can't automate iCloud sign-in / share-accept. Decides Phase 1's mechanism
-  before Phase 2. **VERIFIED on-sim 2026-06-15** (agent drove simctl/idb): panel works,
-  Phase 0 round-trip returns a clean `CKError 9/1002 "Not Authenticated"` — caught, no
-  crash. ⚠️ Build SIGNED for sim CloudKit (NOT `CODE_SIGNING_ALLOWED=NO` — that strips
-  entitlements → CloudKit hard-crashes; see decisions). **→ ONLY step left: Taylor signs
-  the sim into iCloud (Simulator → Settings → Sign in; manual Apple ID + 2FA, can't be
-  automated), then re-tap → expect ✅ + the coexistence verdict that picks Phase 1's mechanism.**
+- [x] 0.5 — coexistence spike. **DONE + VERDICT LIVE 2026-06-15.** Harness
+  `SimmerSmithCloudKit/CoexistenceSpike` (NSPCKC private mirror + manual CloudKit
+  zone/record/subscription — the CKSyncEngine primitives — in one container), run via the
+  in-app **CloudKit checks** DEBUG panel on the iPad sim signed into Taylor's iCloud.
+  **Both ✅** — NSPCKC store loaded + note written (count=1) AND manual CloudKit zone+record
+  round-trip + subscription succeeded in the same container, no token/zone/notification
+  clash. **VERDICT: Phase 1 uses NSPersistentCloudKitContainer** (NSPCKC + a custom
+  CKSyncEngine-style stack coexist → don't need CKSyncEngine-everywhere). Same panel's
+  Phase 0 custom-zone round-trip also returned ✅ `round-trip name = Phase 0 Test`. ⚠️ Build
+  SIGNED for sim CloudKit (NOT `CODE_SIGNING_ALLOWED=NO` — strips entitlements → hard-crash;
+  see decisions). CKShare cross-account half (2nd account = savanne's iCloud, on the iPhone 16
+  sim) is separate + manual at Phase 2 — can't automate iCloud sign-in / share-accept.
 - [~] 1 — per-user PRIVATE plane. **Schema DONE + validated headlessly** (8 types
   live in dev: ProfileSetting/DietaryGoal/PreferenceSignal/IngredientPreference/
-  AssistantThread/AssistantMessage/MigrationReceipt). **CODE mechanism pending Phase
-  0.5**: NSPersistentCloudKitContainer auto-manages CD_-prefixed schema + LWW (doesn't
-  use the hand-authored types/recordName policy/resolver) — so 0.5's NSPCKC↔CKSyncEngine
-  coexistence result decides NSPCKC (easy) vs CKSyncEngine-everywhere (uniform). cktool
-  schema ops work headlessly (management token); record ops need a user token.
+  AssistantThread/AssistantMessage/MigrationReceipt). **MECHANISM DECIDED (Phase 0.5):
+  NSPersistentCloudKitContainer** — auto-manages CD_-prefixed schema + LWW for the bulk
+  per-user types; the hand-authored types/recordName policy/resolver are reserved for the
+  grocery-merge types (Phase 4) on a custom stack, which 0.5 proved can coexist. Next: wire
+  NSPCKC into the app target. cktool schema ops work headlessly (management token); record
+  ops need a user token.
 - [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).
 - [ ] 3 — CKAsset imagery.
 - [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
