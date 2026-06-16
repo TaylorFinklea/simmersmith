@@ -25,7 +25,9 @@ let package = Package(
         .target(name: "CoexistenceSpike", swiftSettings: [.swiftLanguageMode(.v5)]),
         // Phase 2 household-zone CKSyncEngine driver. Swift 5 mode: CKSyncEngine's
         // delegate + CKRecord value types predate strict-concurrency annotation.
-        .target(name: "HouseholdSync", swiftSettings: [.swiftLanguageMode(.v5)]),
+        // Depends on GroceryMerge for the Phase-4 field-merge resolver + codec.
+        .target(name: "HouseholdSync", dependencies: ["GroceryMerge"],
+                swiftSettings: [.swiftLanguageMode(.v5)]),
         // Phase 2b typed household-record manifest + CKRecord codec + CKDSL generator.
         // Swift 5 mode for the CloudKit-guarded codec.
         .target(name: "HouseholdRecords", swiftSettings: [.swiftLanguageMode(.v5)]),
@@ -33,6 +35,8 @@ let package = Package(
         .testTarget(name: "AIProviderKitTests", dependencies: ["AIProviderKit"]),
         .testTarget(name: "CloudKitProvisioningTests", dependencies: ["CloudKitProvisioning"]),
         .testTarget(name: "HouseholdRecordsTests", dependencies: ["HouseholdRecords"],
+                    swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "HouseholdSyncTests", dependencies: ["HouseholdSync", "GroceryMerge"],
                     swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )

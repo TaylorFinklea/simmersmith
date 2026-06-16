@@ -307,3 +307,32 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Phase 4: sticky-merge GroceryItem (field-merged via FieldMergeResolver,
+    //      NOT blanket LWW). Clocks stored as INT64 logical clocks. ----
+
+    RECORD TYPE GroceryItem (
+        baseIngredientID STRING,
+        ingredientVariationID STRING,
+        resolutionStatus STRING,
+        unit STRING,
+        quantityText STRING,
+        normalizedName STRING QUERYABLE,
+        totalQuantity DOUBLE,
+        notes STRING,
+        sourceMeals STRING,
+        reviewFlag STRING,
+        isUserAdded INT64,
+        isUserRemoved INT64,
+        quantityOverride DOUBLE,
+        unitOverride STRING,
+        notesOverride STRING,
+        isChecked INT64,
+        checkedBy STRING,
+        checkedAtClock INT64,
+        eventQuantity DOUBLE,
+        createdAtClock INT64,
+        modifiedAtClock INT64,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );

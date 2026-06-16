@@ -124,9 +124,19 @@ shippable + Verify):
     tombstoned rows from input + merges `source_meals` + promotes sticky overrides/check to the
     keeper. Ported verbatim; result shape `deletedRecordNames`→`tombstoned`. New idempotency test
     proves a re-run over keeper+tombstone doesn't double-count. 47/47 package tests green.
-  - [ ] 4 main — GroceryItem/Week/WeekMeal record types + codec; wire `FieldMergeResolver` into the
-    engine merge seam (replace blanket LWW in `applyRemoteModification` for grocery/event records);
-    on-sim sticky-field convergence test (Spike 1's scenario). `FieldMergeResolver` itself is built+tested.
+  - [x] **4 main — sticky grocery field-merge wired + VERIFIED LIVE 2026-06-16.** New in
+    `HouseholdSync`: `GroceryCodec` (GroceryItem↔CKRecord, clocks as INT64), `RecordMerger`
+    protocol + `GrocerySyncMerger` (wraps `FieldMergeResolver`). Engine gained a `merger` seam
+    consulted at BOTH conflict points — the fetch handler AND `serverRecordChanged` (a plain
+    copy-local-over-server rebase would clobber the peer's sticky fields). `needsResave` flag
+    avoids ping-pong; `sendUntilDrained` now tolerates the thrown serverRecordChanged (delegate
+    re-enqueues the merged save). GroceryItem CKDSL appended to phase0-schema.ckdb. 5 headless +
+    on-sim ✅: a later auto-regen concurrent with a peer's check/override → BOTH converge (qty + check
+    + override preserved; blanket LWW would drop the check = Spike-1 corruption); tombstone monotonic
+    under concurrent regen. 52/52 package tests green.
+  - [ ] 4 remainder (optional follow-on): Week/WeekMeal record types + the ConflictRepair repair
+    passes (slot-swap, week-collapse, sort-order) wired to the engine; EventGroceryItem/Event merger
+    cases (resolver already built). Phase 5 (event↔week) builds on these.
 - [ ] 5 — event↔week cross-aggregate merge.
 - [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
 - [ ] 7 — migration import + cutover (MigrationReceipt sentinel).

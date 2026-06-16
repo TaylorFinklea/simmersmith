@@ -777,6 +777,25 @@ Driving the SimmerSmith app on a sim to test the CloudKit debug panel surfaced t
 - **CloudKit ops need the SIM signed into iCloud.** With entitlements present but no iCloud account, the op returns a clean `CKError "Not Authenticated" (9/1002)` — caught + shown by the panel, no crash. Signing a sim into iCloud (Simulator → Settings → "Sign in to your iPhone") needs a real Apple ID + 2FA and **cannot be automated** by an agent — it's a manual user step. The agent CAN do everything else: `simctl` install/launch/screenshot, `idb ui tap` by coordinate.
 - **idb/simctl multi-sim gotcha:** with several booted sims, `simctl ... booted` and `idb --udid <X>` can target *different* devices (here the app was on "OF Shot iPad13", not the "iPhone 16" idb was querying). Always resolve the exact udid running the app and use it for both. Debug panel made reachable pre-auth via a `#if DEBUG` link on SignInView so CloudKit checks don't require backend sign-in.
 
+## 2026-06-16 — Phase 4: field-merge applies at BOTH conflict seams (not just fetch)
+
+The sticky grocery merge (`FieldMergeResolver`, already built) must run wherever two versions of a
+record meet, which on a CKSyncEngine is TWO places: the fetch handler (a peer's change arrives) AND
+`serverRecordChanged` on send (our save lost the etag race). The 2a engine's serverRecordChanged
+rebase copied ALL local fields onto the server record (local-wins LWW) — for a grocery record that
+clobbers the other device's tombstone/override/check-state. So a pluggable `RecordMerger` is consulted
+at both seams: grocery → `GrocerySyncMerger` (field-merge), plain records → unchanged LWW. The merger
+writes merged fields onto a copy of the REMOTE record so the server change tag is preserved (the
+re-save matches). A `needsResave` flag (merged ≠ remote) gates the push-back so two devices don't
+ping-pong. `GroceryCodec` stores the logical clocks (createdAt/modifiedAt/check.at) as INT64 — exact
+ordering; app-wiring (Phase 7) maps real timestamps → clocks. Verified live: a later auto-regen
+concurrent with a peer's check+override converges with BOTH preserved (blanket LWW drops the check —
+the Spike-1 corruption); tombstone stays monotonic under a concurrent regen.
+
+Gotcha: CKSyncEngine.sendChanges() can BOTH deliver a serverRecordChanged to the delegate (which
+re-enqueues the merged save) AND throw it as a CKError(2) partial failure. `sendUntilDrained` catches
+the throw and keeps draining while the delegate left pending work — rethrows only if nothing is pending.
+
 ## 2026-06-15 (pm) — Phase 2b household records: manifest-driven codec (single source of truth)
 
 The 12 household plain-CRUD record types are modeled by ONE pure-Swift manifest

@@ -23,6 +23,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private var syncEngine: CKSyncEngine!
     private var zoneEnsured = false
 
+    /// Optional sticky field-merger (Phase 4). When set, records whose type it `handles`
+    /// are field-merged at the fetch + serverRecordChanged seams instead of blanket LWW.
+    public var merger: RecordMerger?
+
     private let traceLock = NSLock()
     private var trace: [String] = []
     /// Diagnostic trace of sent/failed/fetched events (DEBUG round-trip uses it).
@@ -107,11 +111,18 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         !syncEngine.state.pendingRecordZoneChanges.isEmpty
     }
 
-    /// Send repeatedly until nothing is pending (drains rebase-and-retry), capped.
-    public func sendUntilDrained(maxPasses: Int = 4) async throws {
+    /// Send repeatedly until nothing is pending. A per-record conflict (serverRecordChanged)
+    /// can both be delivered to the delegate (which re-enqueues a merged save) AND thrown from
+    /// `sendChanges()`; catch it and keep draining while the delegate left pending work, so the
+    /// merged retry goes out. Rethrow only if nothing is pending (a real, unhandled failure).
+    public func sendUntilDrained(maxPasses: Int = 8) async throws {
         for _ in 0..<maxPasses {
-            try await syncEngine.sendChanges()
-            if !hasPendingRecordChanges { return }
+            do {
+                try await syncEngine.sendChanges()
+                if !hasPendingRecordChanges { return }
+            } catch {
+                if !hasPendingRecordChanges { throw error }
+            }
         }
     }
 
@@ -135,18 +146,31 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             Self.saveState(update.stateSerialization, to: stateURL)
 
         case .fetchedRecordZoneChanges(let changes):
-            // Don't let an incoming fetch clobber a record we have an unsynced local
-            // edit for — that edit must reach the server first (a genuine conflict then
-            // surfaces as serverRecordChanged on send). Grocery/event field-merge will
-            // hook this same skip point at Phase 4.
             let pendingSaves = pendingSaveIDs()
             for modification in changes.modifications {
-                if pendingSaves.contains(modification.record.recordID) {
-                    note("skip fetched mod (local pending) \(modification.record.recordID.recordName)")
+                let remote = modification.record
+                // Sticky types (grocery/event): field-merge the local copy with the incoming
+                // remote so blanket LWW can't drop a tombstone / override / check-state. Push
+                // the merge back only if we hold state the server lacks (avoids ping-pong).
+                if let merger, merger.handles(remote.recordType),
+                   let local = store.record(for: remote.recordID) {
+                    let result = merger.resolve(local: local, remote: remote)
+                    store.setRecord(result.record)
+                    if result.needsResave {
+                        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(result.record.recordID)])
+                    }
+                    note("merged fetched \(remote.recordID.recordName) resave=\(result.needsResave)")
                     continue
                 }
-                store.applyRemoteModification(modification.record)
-                note("fetched mod \(modification.record.recordID.recordName)=\(modification.record["value"] as? String ?? "?")")
+                // Plain records: don't let a fetch clobber an unsynced local edit (the edit
+                // must reach the server first; a genuine conflict then surfaces as
+                // serverRecordChanged on send).
+                if pendingSaves.contains(remote.recordID) {
+                    note("skip fetched mod (local pending) \(remote.recordID.recordName)")
+                    continue
+                }
+                store.applyRemoteModification(remote)
+                note("fetched mod \(remote.recordID.recordName)")
             }
             for deletion in changes.deletions {
                 store.removeRecord(deletion.recordID)
@@ -194,16 +218,21 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         let recordID = failure.record.recordID
         switch failure.error.code {
         case .serverRecordChanged:
-            // Our change tag is stale (a concurrent writer, or our first save's
-            // server tag wasn't adopted yet). Standard CKSyncEngine resolution: rebase
-            // our local field values onto the server record (which carries the current
-            // tag) and re-enqueue the save so the retry matches. Plain records are LWW —
-            // local fields win; grocery/event types swap in the field-merge at Phase 4.
+            // Our change tag is stale (a concurrent writer, or our first save's server tag
+            // wasn't adopted yet). Rebase onto the server record (which carries the current
+            // tag) and re-enqueue so the retry matches. Sticky types field-merge here too —
+            // a plain copy-local-over-server would clobber the other device's tombstone /
+            // override / check-state; plain types keep local-wins LWW.
             if let serverRecord = failure.error.serverRecord {
-                if let local = store.record(for: recordID) {
+                if let merger, merger.handles(serverRecord.recordType) {
+                    let result = merger.resolve(local: failure.record, remote: serverRecord)
+                    store.setRecord(result.record)
+                } else if let local = store.record(for: recordID) {
                     for key in local.allKeys() { serverRecord[key] = local[key] }
+                    store.setRecord(serverRecord)
+                } else {
+                    store.setRecord(serverRecord)
                 }
-                store.setRecord(serverRecord)
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
             }
         case .zoneNotFound, .userDeletedZone:

@@ -6,6 +6,7 @@ import CloudKitProvisioning
 import CoexistenceSpike
 import HouseholdSync
 import HouseholdRecords
+import GroceryMerge
 import SimmerSmithKit
 
 /// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
@@ -32,6 +33,9 @@ struct CloudKitDebugView: View {
                 }
                 Button("Phase 2b — typed record + cascade round-trip") {
                     runString { await runHouseholdRecordsCheck() }
+                }
+                Button("Phase 4 — sticky grocery field-merge") {
+                    runString { await runGroceryMergeCheck() }
                 }
             } header: {
                 SmithSectionHeader("cloudkit checks")
@@ -365,6 +369,108 @@ func runHouseholdRecordsCheck() async -> String {
         engineA.delete(id(variant)); try? await engineA.sendUntilDrained()
 
         return "✅ Phase 2b typed records + cascade\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-A Phase 4 verification: the sticky grocery field-merge on the real CKSyncEngine.
+/// Two engines (a 2nd device on this account), each with GrocerySyncMerger installed. Proves
+/// that concurrent edits CONVERGE without blanket LWW corrupting the sticky fields — the
+/// Spike-1 finding: a later auto-regen must NOT drop a peer's check/override, and a tombstone
+/// must survive a concurrent regen.
+func runGroceryMergeCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase4-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let stateA = tmp.appendingPathComponent("gm-stateA-\(UUID().uuidString).json")
+    let stateB = tmp.appendingPathComponent("gm-stateB-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: stateA); try? FileManager.default.removeItem(at: stateB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: stateA)
+        engineA.merger = GrocerySyncMerger()
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: stateB)
+        engineB.merger = GrocerySyncMerger()
+
+        func id(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func itemInB(_ name: String) async throws -> GroceryMerge.GroceryItem? {
+            for _ in 0...3 {
+                try await engineB.fetchChanges()
+                if let r = storeB.record(for: id(name)) { return GroceryCodec.decode(r) }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return storeB.record(for: id(name)).map(GroceryCodec.decode)
+        }
+        // Edit a store's existing (server-tagged) record in place and save it.
+        func editAndSave(_ engine: HouseholdSyncEngine, _ store: HouseholdLocalStore,
+                         _ name: String, _ mutate: (inout GroceryMerge.GroceryItem) -> Void) {
+            guard let rec = store.record(for: id(name)) else { return }
+            var v = GroceryCodec.decode(rec)
+            mutate(&v)
+            GroceryCodec.encode(v, into: rec)   // preserves the server change tag
+            engine.save(rec)
+        }
+
+        var log = ["two engines + GrocerySyncMerger on one zone ✅"]
+
+        // ===== Scenario 1: later auto-regen must NOT drop a peer's check + override =====
+        let g1 = "G1-\(sfx)"
+        engineA.save(GroceryCodec.makeRecord(
+            GroceryMerge.GroceryItem(recordName: g1, unit: "cup", normalizedName: "tomato",
+                        totalQuantity: 2, sourceMeals: "meal:mon", createdAt: 1, modifiedAt: 1), zoneID: zoneID))
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        _ = try await itemInB(g1)   // engineB now holds the base row (tagged)
+
+        // engineA regens a bigger quantity (later clock).
+        editAndSave(engineA, storeA, g1) { $0.totalQuantity = 3; $0.modifiedAt = 6 }
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        // engineB, from its STALE base, checks the row + sets an override (earlier clock) → conflict → merge.
+        editAndSave(engineB, storeB, g1) {
+            $0.check = CheckState(isChecked: true, at: 5, by: "savanne"); $0.quantityOverride = 9; $0.modifiedAt = 5
+        }
+        try await engineB.sendUntilDrained()
+
+        guard let conv = try await itemInB(g1) else { throw PrivatePlaneCheckFailure(description: "G1 missing in B") }
+        try await engineA.fetchChanges()
+        let convA = storeA.record(for: id(g1)).map(GroceryCodec.decode)
+        try expect(conv.totalQuantity == 3 && conv.check.isChecked && conv.quantityOverride == 9,
+                   "B not converged: qty=\(String(describing: conv.totalQuantity)) checked=\(conv.check.isChecked) override=\(String(describing: conv.quantityOverride))")
+        try expect(convA?.totalQuantity == 3 && convA?.check.isChecked == true && convA?.quantityOverride == 9,
+                   "A not converged: \(String(describing: convA))")
+        log.append("regen(qty=3) + concurrent check/override → BOTH converge qty=3 + checked + override=9 ✅")
+        log.append("(blanket LWW would have dropped the check — the Spike-1 corruption)")
+
+        // ===== Scenario 2: tombstone survives a concurrent later regen =====
+        let g2 = "G2-\(sfx)"
+        engineA.save(GroceryCodec.makeRecord(
+            GroceryMerge.GroceryItem(recordName: g2, unit: "ea", normalizedName: "salt",
+                        totalQuantity: 1, createdAt: 1, modifiedAt: 1), zoneID: zoneID))
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        _ = try await itemInB(g2)
+
+        // engineA regen (later clock) from its base; engineB removes from its stale base → conflict → merge.
+        editAndSave(engineA, storeA, g2) { $0.totalQuantity = 4; $0.modifiedAt = 11 }
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        editAndSave(engineB, storeB, g2) { $0.isUserRemoved = true; $0.modifiedAt = 10 }
+        try await engineB.sendUntilDrained()
+
+        guard let tomb = try await itemInB(g2) else { throw PrivatePlaneCheckFailure(description: "G2 missing in B") }
+        try await engineA.fetchChanges()
+        let tombA = storeA.record(for: id(g2)).map(GroceryCodec.decode)
+        try expect(tomb.isUserRemoved && tomb.totalQuantity == 4,
+                   "B tombstone lost: removed=\(tomb.isUserRemoved) qty=\(String(describing: tomb.totalQuantity))")
+        try expect(tombA?.isUserRemoved == true && tombA?.totalQuantity == 4, "A tombstone lost: \(String(describing: tombA))")
+        log.append("regen(qty=4) + concurrent remove → BOTH converge removed=true + qty=4 (monotonic) ✅")
+
+        // cleanup
+        engineA.delete(id(g1)); engineA.delete(id(g2)); try? await engineA.sendUntilDrained()
+
+        return "✅ Phase 4 sticky grocery field-merge\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }
