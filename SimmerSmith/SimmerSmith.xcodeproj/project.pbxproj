@@ -53,7 +53,7 @@
 		53D3903682897BECC71E2611 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D65D0437D1EB3F7E7704FFE /* PushService.swift */; };
 		53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */; };
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
-		59652E38F8C270B8BED713CB /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */; };
+		59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
 		5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DB39B05047967856041B5 /* AssistantToolCallCard.swift */; };
@@ -107,6 +107,7 @@
 		B11F36C1CC7CE592858BA603 /* MacroRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DF4C402A2B4FBFF4C1D3D4 /* MacroRing.swift */; };
 		B3A1BE0F8986881FCB386F8F /* CloudKitProvisioning in Frameworks */ = {isa = PBXBuildFile; productRef = 25D3B27DDE18E5E9D1A3F106 /* CloudKitProvisioning */; };
 		B48E0E604963B99AD08A04CA /* MealIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFD40679A0A648A290B348CF /* MealIcon.swift */; };
+		B575BF64ABD19AE4165BD7E9 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 41A88D3F5C64A7005794412A /* GoogleSignInSwift */; };
 		B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */; };
 		B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F2A8FAD850D02995516AE /* GroceryView.swift */; };
 		B7B2F00406124D3054AA36E1 /* RecipeIconOverrides.swift in Sources */ = {isa = PBXBuildFile; fileRef = E07B8DC4C015FF1D7CD886E7 /* RecipeIconOverrides.swift */; };
@@ -141,7 +142,7 @@
 		E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */; };
 		E6E569431165A47479D5427D /* RecipeFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9935E945427DEAA0FE104C29 /* RecipeFilterSheet.swift */; };
 		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
-		EDED0ED9873237E8890430AB /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 41A88D3F5C64A7005794412A /* GoogleSignInSwift */; };
+		EDED0ED9873237E8890430AB /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
 		F21F3980304ABC29BC2EF021 /* RecipeDraftReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE589C264A925AD63115DCA8 /* RecipeDraftReviewSheet.swift */; };
@@ -336,8 +337,9 @@
 				B3A1BE0F8986881FCB386F8F /* CloudKitProvisioning in Frameworks */,
 				E0378532886B9D2564206062 /* CoexistenceSpike in Frameworks */,
 				A241F23B878BE1627D27E482 /* HouseholdSync in Frameworks */,
-				59652E38F8C270B8BED713CB /* GoogleSignIn in Frameworks */,
-				EDED0ED9873237E8890430AB /* GoogleSignInSwift in Frameworks */,
+				59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */,
+				EDED0ED9873237E8890430AB /* GoogleSignIn in Frameworks */,
+				B575BF64ABD19AE4165BD7E9 /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -782,6 +784,7 @@
 				25D3B27DDE18E5E9D1A3F106 /* CloudKitProvisioning */,
 				8F388FA299630E67E9BAB7BF /* CoexistenceSpike */,
 				2040F6BEA94497101D5A4E38 /* HouseholdSync */,
+				841B0CE52871964165366435 /* HouseholdRecords */,
 				28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */,
 				41A88D3F5C64A7005794412A /* GoogleSignInSwift */,
 			);
@@ -1350,6 +1353,10 @@
 		7779C3AC094B731B66C8E38B /* SimmerSmithKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SimmerSmithKit;
+		};
+		841B0CE52871964165366435 /* HouseholdRecords */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HouseholdRecords;
 		};
 		8F388FA299630E67E9BAB7BF /* CoexistenceSpike */ = {
 			isa = XCSwiftPackageProductDependency;

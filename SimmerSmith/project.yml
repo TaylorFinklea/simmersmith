@@ -28,6 +28,8 @@ targets:
         product: CoexistenceSpike
       - package: SimmerSmithCloudKit
         product: HouseholdSync
+      - package: SimmerSmithCloudKit
+        product: HouseholdRecords
       - package: GoogleSignIn
         product: GoogleSignIn
       - package: GoogleSignIn

@@ -52,6 +52,11 @@ Open follow-ups:
   entitlements committed `8558410`. Specs: `phases/cloudkit-sp-a-{spec,phase0-schema,phase1-spec}.md`.
   Foundation: `SimmerSmithCloudKit/` (resolver + AI seam + provisioning) + `SimmerSmithKit/
   Persistence/PrivatePlane*` (private plane).
+- **⟶ User TODO: validate + deploy the Phase 2b CKDSL** (12 household record types appended to
+  `phases/phase0-schema.ckdb` by 2b). `xcrun cktool validate-schema --team-id K7CBQW6MPG
+  --container-id iCloud.app.simmersmith.cloud --environment development --file
+  .docs/ai/phases/phase0-schema.ckdb` then deploy with the management token. (Dev auto-creates types
+  on first write, so the on-sim 2b check already passed; deploy locks the QUERYABLE/SORTABLE indexes.)
 - **⟶ NEXT manual residual (deferred): two-device + cross-account tests.** Two-device
   convergence on one iCloud account (Phase 1 verify) + cross-account CKShare (savanne's
   iCloud on the iPhone-16 sim) both need a 2nd signed-in device — can't automate iCloud

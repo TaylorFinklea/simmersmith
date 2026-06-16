@@ -5,6 +5,7 @@ import CloudKit
 import CloudKitProvisioning
 import CoexistenceSpike
 import HouseholdSync
+import HouseholdRecords
 import SimmerSmithKit
 
 /// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
@@ -28,6 +29,9 @@ struct CloudKitDebugView: View {
                 }
                 Button("Phase 2 — household sync engine round-trip") {
                     runString { await runHouseholdSyncCheck() }
+                }
+                Button("Phase 2b — typed record + cascade round-trip") {
+                    runString { await runHouseholdRecordsCheck() }
                 }
             } header: {
                 SmithSectionHeader("cloudkit checks")
@@ -263,6 +267,104 @@ func runHouseholdSyncCheck() async -> String {
         log.append("engineA delete → engineB record removed ✅")
 
         return "✅ Phase 2 household sync engine\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-A Phase 2b verification: the typed-record codec + cascade graph on the real
+/// CKSyncEngine. Two engines on one shared zone (engineB = a 2nd device on this account).
+/// Proves: (1) encode/decode round-trip survives Bool→INT64 + Date; (2) a CASCADE delete
+/// sweeps children client-side; (3) a SET-NULL self-ref does NOT cascade.
+func runHouseholdRecordsCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase2b-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let stateA = tmp.appendingPathComponent("hr-stateA-\(UUID().uuidString).json")
+    let stateB = tmp.appendingPathComponent("hr-stateB-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: stateA); try? FileManager.default.removeItem(at: stateB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: stateA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: stateB)
+
+        func id(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...3 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: id(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: id(recordName)) != nil) == want
+        }
+        func saveEncoded(_ value: HouseholdRecordValue) {
+            engineA.save(HouseholdRecordCodec.encode(value, zoneID: zoneID))
+        }
+
+        var log = ["typed codec on two engines / one zone ✅"]
+
+        // 1. ENCODE/ROUND-TRIP.
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let rtName = "recipe-rt-\(sfx)"
+        let recipe = HouseholdRecordValue(
+            type: .recipe, recordName: rtName,
+            scalars: ["name": .string("Pad Thai"), "cuisine": .string("thai"),
+                      "favorite": .bool(true), "kidFriendly": .bool(false),
+                      "prepMinutes": .int(20), "createdAt": .date(created)],
+            refs: ["recipeTemplateID": "tmpl-9"])
+        saveEncoded(recipe)
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        _ = try await waitInB(present: rtName, expect: true)
+        guard let fetched = storeB.record(for: id(rtName)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB never received the Recipe")
+        }
+        let decoded = HouseholdRecordCodec.decode(fetched, as: .recipe)
+        try expect(decoded == recipe, "round-trip mismatch: decoded \(decoded) != original")
+        log.append("Recipe encode→fetch→decode equal (Bool→INT64 + Date survive) ✅")
+
+        // 2. CASCADE: recipe + 2 .deleteSelf children → deleteCascading sweeps all 3.
+        let rc = "rc-\(sfx)", ri = "ri-\(sfx)", rs = "rs-\(sfx)"
+        saveEncoded(HouseholdRecordValue(type: .recipe, recordName: rc, scalars: ["name": .string("Stew")]))
+        saveEncoded(HouseholdRecordValue(type: .recipeIngredient, recordName: ri,
+            scalars: ["ingredientName": .string("beef"), "normalizedName": .string("beef")], refs: ["recipe": rc]))
+        saveEncoded(HouseholdRecordValue(type: .recipeStep, recordName: rs,
+            scalars: ["sortOrder": .int(0), "instruction": .string("simmer")], refs: ["recipe": rc]))
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        _ = try await waitInB(present: ri, expect: true)
+        try expect(storeB.record(for: id(rc)) != nil && storeB.record(for: id(rs)) != nil,
+                   "engineB missing recipe/step before cascade")
+        log.append("engineB sees recipe + 2 children ✅")
+        engineA.deleteCascading(id(rc))
+        try await engineA.sendUntilDrained()
+        let goneRecipe = try await waitInB(present: rc, expect: false)
+        let goneChild = try await waitInB(present: ri, expect: false)
+        try expect(goneRecipe && goneChild && storeB.record(for: id(rs)) == nil,
+                   "cascade incomplete: recipe/children still present in engineB")
+        log.append("deleteCascading(recipe) → engineB converges to 0 recipe + 0 children ✅")
+
+        // 3. SET-NULL self-ref: deleting the base does NOT cascade-delete the variant.
+        let base = "rb-\(sfx)", variant = "rv-\(sfx)"
+        saveEncoded(HouseholdRecordValue(type: .recipe, recordName: base, scalars: ["name": .string("Base")]))
+        saveEncoded(HouseholdRecordValue(type: .recipe, recordName: variant,
+            scalars: ["name": .string("Variant")], refs: ["baseRecipe": base]))
+        try await engineA.fetchChanges(); try await engineA.sendUntilDrained()
+        _ = try await waitInB(present: variant, expect: true)
+        engineA.delete(id(base))   // plain delete (SET-NULL edge must NOT sweep the variant)
+        try await engineA.sendUntilDrained()
+        let baseGone = try await waitInB(present: base, expect: false)
+        try expect(baseGone, "base recipe not deleted")
+        try expect(storeB.record(for: id(variant)) != nil,
+                   "SET-NULL violated: variant was cascade-deleted with its base")
+        log.append("delete(base) → variant survives (SET-NULL self-ref, no cascade) ✅")
+
+        // Cleanup leftover from sub-test 3.
+        engineA.delete(id(variant)); try? await engineA.sendUntilDrained()
+
+        return "✅ Phase 2b typed records + cascade\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }

@@ -777,6 +777,31 @@ Driving the SimmerSmith app on a sim to test the CloudKit debug panel surfaced t
 - **CloudKit ops need the SIM signed into iCloud.** With entitlements present but no iCloud account, the op returns a clean `CKError "Not Authenticated" (9/1002)` — caught + shown by the panel, no crash. Signing a sim into iCloud (Simulator → Settings → "Sign in to your iPhone") needs a real Apple ID + 2FA and **cannot be automated** by an agent — it's a manual user step. The agent CAN do everything else: `simctl` install/launch/screenshot, `idb ui tap` by coordinate.
 - **idb/simctl multi-sim gotcha:** with several booted sims, `simctl ... booted` and `idb --udid <X>` can target *different* devices (here the app was on "OF Shot iPad13", not the "iPhone 16" idb was querying). Always resolve the exact udid running the app and use it for both. Debug panel made reachable pre-auth via a `#if DEBUG` link on SignInView so CloudKit checks don't require backend sign-in.
 
+## 2026-06-15 (pm) — Phase 2b household records: manifest-driven codec (single source of truth)
+
+The 12 household plain-CRUD record types are modeled by ONE pure-Swift manifest
+(`HouseholdRecords.HouseholdRecordType`) carrying each type's recordName policy (PK passthrough vs
+DET), field name+CloudKit type, and the CASCADE/SET-NULL reference graph. The manifest drives BOTH
+the CKRecord codec AND the generated CKDSL schema (`allCKDSL()` → appended to phase0-schema.ckdb), so
+schema and code cannot drift. Chosen over 12 bespoke value structs because 2b records are inert LWW
+pass-through — a generic field-bag value (`HouseholdRecordValue`) carries them; typed domain structs
+arrive at app-wiring (Phase 7).
+
+Irreversible classifications locked (verified vs production SQLAlchemy ondelete + spec §6.3 +
+phase0-schema §A/§C, with adversarial-review corrections): CASCADE (`.deleteSelf` CKReference) =
+recipeIngredient/recipeStep→recipe, recipeStep→parentStep (self), eventAttendee/eventMeal→event,
+eventMealIngredient→eventMeal, ingredientVariation→baseIngredient. SET-NULL in-zone (plain
+CKReference) = recipe→baseRecipe (self), eventMeal→recipe/assignedGuest, eventAttendee→guest (spec
+§6.3 overrides the Postgres guest CASCADE). Cross-DB/forward refs (plain STRING key, never a
+CKReference — survives a shared→PUBLIC merge or a not-yet-defined Phase-4 target) = recipeTemplateID,
+catalog baseIngredientID/ingredientVariationID, merged_into_id chains, event.linkedWeekID.
+Bool→INT64 0/1; household_id/user_id dropped (zone identity replaces them). Deferred to Phase 4:
+WeekChangeBatch/WeekChangeEvent/FeedbackEntry (their Week/WeekMeal/GroceryItem parents are Phase-4
+records — landing them now would dangle refs + risk validate-schema rejecting an undefined REFERENCE
+target). CASCADE is swept client-side by `HouseholdSyncEngine.deleteCascading` (CloudKit's
+`.deleteSelf` only fires on the deleting device); the sweep scans the local store for `.deleteSelf`
+edges, so it's manifest-independent. `hset:` (deployed) supersedes the stale spec §6 `hsetting:`.
+
 ## 2026-06-15 (pm) — Phase 0.5 coexistence verdict: Phase 1 uses NSPersistentCloudKitContainer
 
 Ran the `CoexistenceSpike` live on the iPad sim signed into Taylor's iCloud (container `iCloud.app.simmersmith.cloud`). **Both halves passed in the same container, same process:**

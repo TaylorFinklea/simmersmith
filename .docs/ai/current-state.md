@@ -101,7 +101,18 @@ shippable + Verify):
     `HouseholdLocalStore`. DEBUG check drives TWO engines on ONE shared zone (= a 2nd
     device on this account): save→fetch→update→delete all ✅ on the iPad sim. The
     `applyRemoteModification`/pending-skip point is where Phase 4 grocery field-merge hooks.
-  - [ ] 2b — typed plain-CRUD household records + cascade/SET-NULL graph (~12 types).
+  - [x] **2b — typed records + cascade graph. BUILT + VERIFIED LIVE 2026-06-15.** New
+    `SimmerSmithCloudKit/HouseholdRecords` target: manifest (`HouseholdRecordType`) is the
+    single source of truth for recordName policy + field types + the CASCADE/SET-NULL ref
+    graph (12 types), driving BOTH the CKRecord codec AND the generated CKDSL (appended to
+    phase0-schema.ckdb). Engine gained `deleteCascading` (client-side `.deleteSelf` subtree
+    sweep) + store scan; LWW fetch seam untouched. 17 headless tests + on-sim ✅ (codec
+    round-trip Bool→INT64/Date, cascade sweep, SET-NULL self-ref no-cascade). Designed via
+    the 18-agent ultracode workflow; adversarial corrections folded in (deferred
+    WeekChangeBatch/Event/FeedbackEntry to Phase 4; `hset:` not stale `hsetting:`;
+    IngredientVariation.baseIngredient CASCADE; merged_into_id cross-DB String).
+    Blueprints: `phases/cloudkit-sp-a-2b-5-blueprints.md`. **User TODO: validate-schema +
+    deploy the appended 2b CKDSL** (management token) before it's usable on-device beyond auto-dev-schema.
   - [ ] 2c — CKShare invite/accept + owner/participant + single-household enforcement
     (**two-account manual verify** — savanne's iCloud on the iPhone-16 sim).
   - [ ] 2d — WeekChangeBatch/Event audit retention/prune.

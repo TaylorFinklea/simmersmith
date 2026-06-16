@@ -73,6 +73,25 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
     }
 
+    /// Delete a record AND sweep its local CASCADE subtree. CloudKit's `.deleteSelf` only
+    /// fires on the deleting device, so the client must enqueue child deletes itself; this
+    /// recurses the local store's `.deleteSelf` edges (recipe→ingredient/step→child-step,
+    /// event→meal→ingredient, baseIngredient→variation). The sweep lives ONLY here on the
+    /// issuing engine — the fetch handler stays the untouched LWW seam.
+    public func deleteCascading(_ recordID: CKRecord.ID) {
+        deleteCascading(recordID, visited: [])
+    }
+
+    private func deleteCascading(_ recordID: CKRecord.ID, visited: Set<String>) {
+        guard !visited.contains(recordID.recordName) else { return }
+        var visited = visited
+        visited.insert(recordID.recordName)
+        for childID in store.recordIDsCascadingFrom(recordID.recordName) {
+            deleteCascading(childID, visited: visited)
+        }
+        delete(recordID)
+    }
+
     /// Fetch remote changes then push local ones. Manual drive for deterministic tests;
     /// the app can also rely on `automaticallySync`.
     public func sync() async throws {

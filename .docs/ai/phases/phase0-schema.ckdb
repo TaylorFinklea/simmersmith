@@ -90,3 +90,220 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Phase 2b: household zone plain-CRUD records (generated from
+    //      HouseholdRecords.HouseholdRecordType.allCKDSL() — single source of truth) ----
+
+    RECORD TYPE HouseholdSetting (
+        key STRING QUERYABLE,
+        value STRING,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE HouseholdTermAlias (
+        term STRING QUERYABLE,
+        expansion STRING,
+        notes STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE Recipe (
+        name STRING,
+        mealType STRING,
+        cuisine STRING QUERYABLE,
+        servings DOUBLE,
+        prepMinutes INT64,
+        cookMinutes INT64,
+        tags STRING,
+        instructionsSummary STRING,
+        favorite INT64,
+        archived INT64,
+        source STRING,
+        sourceLabel STRING,
+        sourceURL STRING,
+        notes STRING,
+        memories STRING,
+        overridePayloadJSON STRING,
+        iconKey STRING,
+        lastUsed TIMESTAMP,
+        difficultyScore INT64,
+        kidFriendly INT64,
+        archivedAt TIMESTAMP,
+        createdAt TIMESTAMP SORTABLE,
+        updatedAt TIMESTAMP,
+        baseRecipe REFERENCE,
+        recipeTemplateID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE RecipeIngredient (
+        ingredientName STRING,
+        normalizedName STRING,
+        quantity DOUBLE,
+        unit STRING,
+        prep STRING,
+        category STRING,
+        notes STRING,
+        resolutionStatus STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        recipe REFERENCE,
+        baseIngredientID STRING,
+        ingredientVariationID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE RecipeStep (
+        sortOrder INT64,
+        instruction STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        recipe REFERENCE,
+        parentStep REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE Guest (
+        name STRING,
+        relationshipLabel STRING,
+        dietaryNotes STRING,
+        allergies STRING,
+        ageGroup STRING,
+        active INT64,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE Event (
+        name STRING,
+        eventDate TIMESTAMP SORTABLE,
+        occasion STRING,
+        attendeeCount INT64,
+        notes STRING,
+        status STRING,
+        autoMergeGrocery INT64,
+        manuallyMerged INT64,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        linkedWeekID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE EventAttendee (
+        plusOnes INT64,
+        createdAt TIMESTAMP,
+        event REFERENCE,
+        guest REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE EventMeal (
+        role STRING,
+        recipeName STRING,
+        servings DOUBLE,
+        scaleMultiplier DOUBLE,
+        notes STRING,
+        sortOrder INT64,
+        aiGenerated INT64,
+        approved INT64,
+        constraintCoverage STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        event REFERENCE,
+        recipe REFERENCE,
+        assignedGuest REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE EventMealIngredient (
+        ingredientName STRING,
+        normalizedName STRING,
+        quantity DOUBLE,
+        unit STRING,
+        prep STRING,
+        category STRING,
+        notes STRING,
+        resolutionStatus STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        eventMeal REFERENCE,
+        baseIngredientID STRING,
+        ingredientVariationID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE BaseIngredient (
+        name STRING,
+        normalizedName STRING QUERYABLE,
+        submissionStatus STRING,
+        category STRING,
+        defaultUnit STRING,
+        notes STRING,
+        sourceName STRING,
+        sourceRecordID STRING,
+        sourceURL STRING,
+        sourcePayloadJSON STRING,
+        overridePayloadJSON STRING,
+        provisional INT64,
+        active INT64,
+        archivedAt TIMESTAMP,
+        nutritionReferenceAmount DOUBLE,
+        nutritionReferenceUnit STRING,
+        calories DOUBLE,
+        proteinG DOUBLE,
+        carbsG DOUBLE,
+        fatG DOUBLE,
+        fiberG DOUBLE,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        mergedIntoID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE IngredientVariation (
+        name STRING,
+        normalizedName STRING QUERYABLE,
+        brand STRING,
+        upc STRING,
+        packageSizeAmount DOUBLE,
+        packageSizeUnit STRING,
+        countPerPackage DOUBLE,
+        productURL STRING,
+        retailerHint STRING,
+        notes STRING,
+        sourceName STRING,
+        sourceRecordID STRING,
+        sourceURL STRING,
+        sourcePayloadJSON STRING,
+        overridePayloadJSON STRING,
+        active INT64,
+        archivedAt TIMESTAMP,
+        nutritionReferenceAmount DOUBLE,
+        nutritionReferenceUnit STRING,
+        calories DOUBLE,
+        proteinG DOUBLE,
+        carbsG DOUBLE,
+        fatG DOUBLE,
+        fiberG DOUBLE,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        baseIngredient REFERENCE,
+        mergedIntoID STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
