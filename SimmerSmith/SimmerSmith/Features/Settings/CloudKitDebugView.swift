@@ -1,8 +1,10 @@
 #if DEBUG
 import SwiftUI
 import SwiftData
+import CloudKit
 import CloudKitProvisioning
 import CoexistenceSpike
+import HouseholdSync
 import SimmerSmithKit
 
 /// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
@@ -24,10 +26,13 @@ struct CloudKitDebugView: View {
                 Button("Phase 1 — private plane CRUD") {
                     runString { await runPrivatePlaneCheck() }
                 }
+                Button("Phase 2 — household sync engine round-trip") {
+                    runString { await runHouseholdSyncCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
-                Text("Phase 0 proves zone + record write/read. Phase 0.5 proves NSPCKC + a CKSyncEngine-style stack coexist. Phase 1 loads the CloudKit-backed private store + checks upsert dedupe, singletons, transcript ordering, and the migration sentinel.")
+                Text("Phase 0 proves zone + record write/read. Phase 0.5 proves NSPCKC + a CKSyncEngine-style stack coexist. Phase 1 loads the CloudKit-backed private store + checks invariants. Phase 2 drives two CKSyncEngine instances on one shared zone (= a 2nd device on this account) to prove household send/fetch/update/delete sync.")
             }
 
             Section {
@@ -169,6 +174,95 @@ func runPrivatePlaneCheck() async -> String {
         log.append("Delete round-trip → cascade clean, store reset ✅")
 
         return "✅ Phase 1 private plane\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-A Phase 2a verification: drives TWO HouseholdSyncEngine instances against ONE
+/// shared household zone on this account — engineB with its own local state stands in
+/// for a second device. Proves the household CKSyncEngine round-trip (send → fetch →
+/// update → delete) single-device. Cross-account CKShare is the manual two-account test.
+func runHouseholdSyncCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase2-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let stateA = tmp.appendingPathComponent("hh-stateA-\(UUID().uuidString).json")
+    let stateB = tmp.appendingPathComponent("hh-stateB-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: stateA); try? FileManager.default.removeItem(at: stateB) }
+
+    let recordName = "hset:phase2-\(UUID().uuidString.prefix(8))"
+    let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: stateA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: stateB)
+
+        // Re-fetch engineB until the record reaches the expected value (CloudKit
+        // propagation between the two engines isn't instant).
+        func valueInB(expected: String) async throws -> String? {
+            for _ in 0...3 {
+                try await engineB.fetchChanges()
+                let v = storeB.record(for: recordID)?["value"] as? String
+                if v == expected { return v }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return storeB.record(for: recordID)?["value"] as? String
+        }
+
+        var log = ["two CKSyncEngine instances on one shared zone ✅"]
+
+        // 1. SEND: engineA writes a HouseholdSetting and pushes it.
+        let record = CKRecord(recordType: "HouseholdSetting", recordID: recordID)
+        record["key"] = "theme"
+        record["value"] = "dark"
+        engineA.save(record)
+        try await engineA.sync()
+        log.append("engineA save+send → server has hset:theme=dark ✅")
+
+        // 2. FETCH: engineB (fresh state = a 2nd device) pulls it.
+        let fetched = try await valueInB(expected: "dark")
+        try expect(fetched == "dark", "engineB fetch: expected value=dark, got \(fetched ?? "nil")")
+        log.append("engineB fetch → sees hset:theme=dark ✅")
+
+        // 3. UPDATE: engineA edits the CURRENT (server-tagged) record; engineB converges.
+        // Must edit storeA's copy — after the send, it carries the server change tag;
+        // reusing the pre-send instance would trip serverRecordChanged.
+        guard let current = storeA.record(for: recordID) else {
+            throw PrivatePlaneCheckFailure(description: "engineA lost its record after send")
+        }
+        current["value"] = "light"
+        engineA.save(current)
+        try await engineA.fetchChanges()
+        try await engineA.sendUntilDrained()
+        let updated = try await valueInB(expected: "light")
+        if updated != "light" {
+            let serverValue = (try? await database.record(for: recordID))?["value"] as? String ?? "nil"
+            return """
+            ❌ engineB update: expected light, got \(updated ?? "nil")
+            server direct-read value=\(serverValue)
+            engineA trace: \(engineA.eventTrace)
+            engineB trace: \(engineB.eventTrace)
+            """
+        }
+        log.append("engineA edit → engineB converges to value=light ✅")
+
+        // 4. DELETE: engineA deletes; engineB sees the tombstone.
+        engineA.delete(recordID)
+        try await engineA.sync()
+        var gone = false
+        for _ in 0...3 {
+            try await engineB.fetchChanges()
+            if storeB.record(for: recordID) == nil { gone = true; break }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+        try expect(gone, "engineB delete: record still present after engineA delete")
+        log.append("engineA delete → engineB record removed ✅")
+
+        return "✅ Phase 2 household sync engine\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }

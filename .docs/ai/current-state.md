@@ -92,7 +92,19 @@ shippable + Verify):
     custom stack (Phase 2+) + as the Phase-7 migration target shape. Both coexist (additive).
   - **Residual (manual, deferred):** two-device convergence on one iCloud account (needs a
     2nd signed-in device — same gate as CKShare). Single-device + all invariants proven.
-- [ ] 2 — household zone + CKShare + plain CRUD (+ audit prune).
+- [~] 2 — household zone + CKShare + plain CRUD (+ audit prune). Decomposed 2a–2d in
+  `phases/cloudkit-sp-a-phase2-spec.md`.
+  - [x] **2a — household-zone CKSyncEngine driver. BUILT + VERIFIED LIVE 2026-06-15.**
+    New `SimmerSmithCloudKit/HouseholdSync` target: `HouseholdSyncEngine`
+    (CKSyncEngineDelegate — state persistence, send/fetch, LWW pass-through, rebase on
+    serverRecordChanged, **fetch skips records with a pending local edit**) + thread-safe
+    `HouseholdLocalStore`. DEBUG check drives TWO engines on ONE shared zone (= a 2nd
+    device on this account): save→fetch→update→delete all ✅ on the iPad sim. The
+    `applyRemoteModification`/pending-skip point is where Phase 4 grocery field-merge hooks.
+  - [ ] 2b — typed plain-CRUD household records + cascade/SET-NULL graph (~12 types).
+  - [ ] 2c — CKShare invite/accept + owner/participant + single-household enforcement
+    (**two-account manual verify** — savanne's iCloud on the iPhone-16 sim).
+  - [ ] 2d — WeekChangeBatch/Event audit retention/prune.
 - [ ] 3 — CKAsset imagery.
 - [ ] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
 - [ ] 5 — event↔week cross-aggregate merge.

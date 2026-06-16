@@ -26,6 +26,8 @@ targets:
         product: CloudKitProvisioning
       - package: SimmerSmithCloudKit
         product: CoexistenceSpike
+      - package: SimmerSmithCloudKit
+        product: HouseholdSync
       - package: GoogleSignIn
         product: GoogleSignIn
       - package: GoogleSignIn
