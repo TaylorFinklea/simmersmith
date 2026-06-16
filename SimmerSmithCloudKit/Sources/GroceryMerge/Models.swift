@@ -33,6 +33,7 @@ public struct CheckState: Equatable {
 /// The merge-relevant subset of the production GroceryItem (app/models/week.py:184).
 public struct GroceryItem: Mergeable, Equatable {
     public let recordName: String
+    public var weekID: String               // week scope (prod week_id) — for event-merge + post-batch repair
     // merge-key inputs
     public var baseIngredientID: String?
     public var ingredientVariationID: String?
@@ -45,6 +46,7 @@ public struct GroceryItem: Mergeable, Equatable {
     public var notes: String
     public var sourceMeals: String
     public var reviewFlag: String
+    public var storeLabel: String           // pass-through (prod store_label); LWW
     // sticky semantics
     public var isUserAdded: Bool
     public var isUserRemoved: Bool          // tombstone — monotonic
@@ -58,19 +60,22 @@ public struct GroceryItem: Mergeable, Equatable {
     public var modifiedAt: SyncClock
 
     public init(
-        recordName: String, baseIngredientID: String? = nil, ingredientVariationID: String? = nil,
+        recordName: String, weekID: String = "", baseIngredientID: String? = nil,
+        ingredientVariationID: String? = nil,
         resolutionStatus: String = "unresolved", unit: String = "", quantityText: String = "",
         normalizedName: String = "", totalQuantity: Double? = nil, notes: String = "",
-        sourceMeals: String = "", reviewFlag: String = "", isUserAdded: Bool = false,
+        sourceMeals: String = "", reviewFlag: String = "", storeLabel: String = "",
+        isUserAdded: Bool = false,
         isUserRemoved: Bool = false, quantityOverride: Double? = nil, unitOverride: String? = nil,
         notesOverride: String? = nil, check: CheckState = CheckState(), eventQuantity: Double? = nil,
         createdAt: SyncClock = 0, modifiedAt: SyncClock = 0
     ) {
-        self.recordName = recordName; self.baseIngredientID = baseIngredientID
+        self.recordName = recordName; self.weekID = weekID; self.baseIngredientID = baseIngredientID
         self.ingredientVariationID = ingredientVariationID; self.resolutionStatus = resolutionStatus
         self.unit = unit; self.quantityText = quantityText; self.normalizedName = normalizedName
         self.totalQuantity = totalQuantity; self.notes = notes; self.sourceMeals = sourceMeals
-        self.reviewFlag = reviewFlag; self.isUserAdded = isUserAdded; self.isUserRemoved = isUserRemoved
+        self.reviewFlag = reviewFlag; self.storeLabel = storeLabel
+        self.isUserAdded = isUserAdded; self.isUserRemoved = isUserRemoved
         self.quantityOverride = quantityOverride; self.unitOverride = unitOverride
         self.notesOverride = notesOverride; self.check = check; self.eventQuantity = eventQuantity
         self.createdAt = createdAt; self.modifiedAt = modifiedAt
@@ -96,12 +101,36 @@ public struct EventGroceryItem: Mergeable, Equatable {
     public let recordName: String
     public var mergedIntoGroceryItemID: String?   // → a week GroceryItem.recordName
     public var mergedIntoWeekID: String?
+    /// THIS event row's contribution (= prod `total_quantity`). Distinct from a week
+    /// GroceryItem.eventQuantity, which ACCUMULATES contributions across events.
     public var eventQuantity: Double?
+    // Ingredient identity — used to build the event↔week match key and to create a new
+    // event-only week GroceryItem when no match exists (Phase 5 merge_event_into_week).
+    public var baseIngredientID: String?
+    public var ingredientVariationID: String?
+    public var ingredientName: String
+    public var normalizedName: String
+    public var unit: String
+    public var quantityText: String
+    public var category: String
+    public var sourceMeals: String
+    public var notes: String
+    public var reviewFlag: String
+    public var resolutionStatus: String
     public var modifiedAt: SyncClock
     public init(recordName: String, mergedIntoGroceryItemID: String? = nil,
-                mergedIntoWeekID: String? = nil, eventQuantity: Double? = nil, modifiedAt: SyncClock = 0) {
+                mergedIntoWeekID: String? = nil, eventQuantity: Double? = nil,
+                baseIngredientID: String? = nil, ingredientVariationID: String? = nil,
+                ingredientName: String = "", normalizedName: String = "", unit: String = "",
+                quantityText: String = "", category: String = "", sourceMeals: String = "",
+                notes: String = "", reviewFlag: String = "", resolutionStatus: String = "unresolved",
+                modifiedAt: SyncClock = 0) {
         self.recordName = recordName; self.mergedIntoGroceryItemID = mergedIntoGroceryItemID
         self.mergedIntoWeekID = mergedIntoWeekID; self.eventQuantity = eventQuantity
+        self.baseIngredientID = baseIngredientID; self.ingredientVariationID = ingredientVariationID
+        self.ingredientName = ingredientName; self.normalizedName = normalizedName; self.unit = unit
+        self.quantityText = quantityText; self.category = category; self.sourceMeals = sourceMeals
+        self.notes = notes; self.reviewFlag = reviewFlag; self.resolutionStatus = resolutionStatus
         self.modifiedAt = modifiedAt
     }
 }
@@ -127,9 +156,13 @@ public struct WeekMeal: Mergeable, Equatable {
 public struct Week: Mergeable, Equatable {
     public let recordName: String
     public var weekStart: String
+    /// Inclusive range end (prod `week_end`). With `weekStart`, defines the covering range
+    /// `_resolve_target_week` matches an event date against (ISO-8601 → lexical = chronological).
+    public var weekEnd: String
     public var modifiedAt: SyncClock
-    public init(recordName: String, weekStart: String, modifiedAt: SyncClock = 0) {
-        self.recordName = recordName; self.weekStart = weekStart; self.modifiedAt = modifiedAt
+    public init(recordName: String, weekStart: String, weekEnd: String = "", modifiedAt: SyncClock = 0) {
+        self.recordName = recordName; self.weekStart = weekStart
+        self.weekEnd = weekEnd; self.modifiedAt = modifiedAt
     }
 }
 

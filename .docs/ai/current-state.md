@@ -148,10 +148,17 @@ shippable + Verify):
     expansion, sidesteps every blocker), `EventGrocerySyncMerger` (wraps the tested resolver). 3
     headless + on-sim ✅: a concurrent unmerge (nil ptr, later clock) does NOT clobber an active
     merge pointer; eventQuantity preserved. 55/55 package tests.
-  - [ ] Layers B–F (Phase 5 proper): B Event sticky merger (reuse 2b Event record, map updatedAt→clock);
-    C value-type expansion + GroceryItem.weekID + Week.weekEnd + codecs + CKDSL; D EventMergeEngine
-    (port merge_event_into_week/unmerge VERBATIM — hard-delete vs tombstone distinct); E post-batch
-    repair pass (dedupe+slot+sort over the week's siblings, needs weekID index); F on-sim event↔week.
+  - [x] **Layers C+D — value-type expansion + EventMergeEngine port. DONE (headless) 2026-06-16.**
+    Expanded EventGroceryItem (identity fields), GroceryItem (weekID/storeLabel), Week (weekEnd);
+    Event.eventDate "" = no-date. `GroceryNormalize` (normalize_name + UNIT_MAP verbatim).
+    `EventMergeEngine` (pure): matchKeys, mergeEventIntoWeek (idempotent), unmergeEventFromWeek
+    (HARD-delete event-only rows — NOT tombstone), resolveTargetWeek, applyAutoMergePolicy (exact
+    branch conditions). 12 headless tests (3→6→9 guard, re-date unmerge+remerge, manuallyMerged pin,
+    invested-row-kept). 67/67 package tests. Adversarial fidelity review queued.
+  - [ ] Layers B/E/F: B Event sticky merger (reuse 2b Event record, map updatedAt→clock); E post-batch
+    repair pass wired to engine (dedupe+slot+sort over the week's weekID-scoped siblings); F on-sim
+    event↔week (merge on engine A while B edits a shared row → converge; unmerge hard-deletes both
+    sides) + codecs/CKDSL for EventGroceryItem identity + Week + the engine adapter.
 - [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
 - [ ] 7 — migration import + cutover (MigrationReceipt sentinel).
 - [ ] 8 — AI seam + on-device platform handoff.
