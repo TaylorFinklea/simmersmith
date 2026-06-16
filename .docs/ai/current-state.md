@@ -154,7 +154,9 @@ shippable + Verify):
     `EventMergeEngine` (pure): matchKeys, mergeEventIntoWeek (idempotent), unmergeEventFromWeek
     (HARD-delete event-only rows — NOT tombstone), resolveTargetWeek, applyAutoMergePolicy (exact
     branch conditions). 12 headless tests (3→6→9 guard, re-date unmerge+remerge, manuallyMerged pin,
-    invested-row-kept). 67/67 package tests. Adversarial fidelity review queued.
+    invested-row-kept). **Adversarial 3-lens Sonnet fidelity review DONE + fixes folded in**
+    (`e2c3b6b`): added GroceryItem.ingredientName/category (event-created rows had no display
+    name/aisle) + fixed a latent GroceryCodec silent-drop of weekID/storeLabel. 67/67 tests.
   - [ ] Layers B/E/F: B Event sticky merger (reuse 2b Event record, map updatedAt→clock); E post-batch
     repair pass wired to engine (dedupe+slot+sort over the week's weekID-scoped siblings); F on-sim
     event↔week (merge on engine A while B edits a shared row → converge; unmerge hard-deletes both
