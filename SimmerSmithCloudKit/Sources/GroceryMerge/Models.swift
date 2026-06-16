@@ -41,6 +41,8 @@ public struct GroceryItem: Mergeable, Equatable {
     public var unit: String
     public var quantityText: String
     public var normalizedName: String
+    public var ingredientName: String       // human display name (prod ingredient_name)
+    public var category: String             // grocery aisle/group (prod category)
     // auto-managed payload
     public var totalQuantity: Double?
     public var notes: String
@@ -63,7 +65,8 @@ public struct GroceryItem: Mergeable, Equatable {
         recordName: String, weekID: String = "", baseIngredientID: String? = nil,
         ingredientVariationID: String? = nil,
         resolutionStatus: String = "unresolved", unit: String = "", quantityText: String = "",
-        normalizedName: String = "", totalQuantity: Double? = nil, notes: String = "",
+        normalizedName: String = "", ingredientName: String = "", category: String = "",
+        totalQuantity: Double? = nil, notes: String = "",
         sourceMeals: String = "", reviewFlag: String = "", storeLabel: String = "",
         isUserAdded: Bool = false,
         isUserRemoved: Bool = false, quantityOverride: Double? = nil, unitOverride: String? = nil,
@@ -73,6 +76,7 @@ public struct GroceryItem: Mergeable, Equatable {
         self.recordName = recordName; self.weekID = weekID; self.baseIngredientID = baseIngredientID
         self.ingredientVariationID = ingredientVariationID; self.resolutionStatus = resolutionStatus
         self.unit = unit; self.quantityText = quantityText; self.normalizedName = normalizedName
+        self.ingredientName = ingredientName; self.category = category
         self.totalQuantity = totalQuantity; self.notes = notes; self.sourceMeals = sourceMeals
         self.reviewFlag = reviewFlag; self.storeLabel = storeLabel
         self.isUserAdded = isUserAdded; self.isUserRemoved = isUserRemoved

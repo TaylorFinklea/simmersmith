@@ -32,7 +32,8 @@ private func counter() -> () -> String { var n = 0; return { n += 1; return "new
 }
 
 @Test func mergeCreatesEventOnlyRowWhenNoMatch() {
-    let ev = [EventGroceryItem(recordName: "E1", eventQuantity: 5, normalizedName: "salt", unit: "ea")]
+    let ev = [EventGroceryItem(recordName: "E1", eventQuantity: 5, ingredientName: "Sea Salt",
+                               normalizedName: "salt", unit: "ea", category: "Pantry")]
     let out = EventMergeEngine.mergeEventIntoWeek(event: Event(recordName: "EV", name: "Party"),
                                                   eventRows: ev, weekRows: [], weekID: "W", makeID: counter())
     #expect(out.created == 1)
@@ -41,6 +42,8 @@ private func counter() -> () -> String { var n = 0; return { n += 1; return "new
     #expect(created?.totalQuantity == nil)
     #expect(created?.sourceMeals == "event:Party")
     #expect(created?.weekID == "W")
+    #expect(created?.ingredientName == "Sea Salt")   // display name carried (review fix)
+    #expect(created?.category == "Pantry")           // category carried (review fix)
     #expect(out.eventRows[0].mergedIntoGroceryItemID == "new-1")
 }
 

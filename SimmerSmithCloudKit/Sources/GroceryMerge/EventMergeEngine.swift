@@ -81,7 +81,8 @@ public enum EventMergeEngine {
                     recordName: newID, weekID: weekID,
                     baseIngredientID: ev.baseIngredientID, ingredientVariationID: ev.ingredientVariationID,
                     resolutionStatus: ev.resolutionStatus, unit: ev.unit, quantityText: ev.quantityText,
-                    normalizedName: ev.normalizedName, totalQuantity: nil, notes: ev.notes,
+                    normalizedName: ev.normalizedName, ingredientName: ev.ingredientName, category: ev.category,
+                    totalQuantity: nil, notes: ev.notes,
                     sourceMeals: "event:\(event.name)", reviewFlag: ev.reviewFlag,
                     eventQuantity: contribution)
                 rowsByName[newID] = newRow
@@ -169,13 +170,19 @@ public enum EventMergeEngine {
 
     // MARK: _resolve_target_week (event_grocery.py:396)
 
+    /// `weeks` MUST be the household's weeks only. Prod enforces `household_id` in the query
+    /// (py:404-416); on CloudKit the household zone IS that scope, so the caller passes zone weeks.
     public static func resolveTargetWeek(event: Event, weeks: [Week]) -> Week? {
         if let linked = event.linkedWeekID, !linked.isEmpty {
             return weeks.first { $0.recordName == linked }
         }
         if event.eventDate.isEmpty { return nil }   // event_date is None
         let covering = weeks.filter { $0.weekStart <= event.eventDate && $0.weekEnd >= event.eventDate }
-        // Prefer the latest-starting covering week (M71), recordName breaks ties deterministically.
+        // Prefer the latest-starting covering week (M71). Prod's `ORDER BY week_start DESC LIMIT 1`
+        // leaves same-week_start ties arbitrary; we add a recordName tie-break ON PURPOSE — there is
+        // no server resolving this anymore (the Python is being replaced), so determinism here is
+        // what makes two DEVICES converge on the same week for the same data. Server-arbitrary order
+        // would instead let two devices pick different weeks.
         return covering.max { ($0.weekStart, $0.recordName) < ($1.weekStart, $1.recordName) }
     }
 

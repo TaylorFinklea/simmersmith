@@ -22,13 +22,17 @@ public enum GroceryCodec {
         func setOpt(_ key: String, _ value: CKRecordValue?) {
             if let value { record[key] = value } else { record[key] = nil }
         }
+        record["weekID"] = item.weekID as CKRecordValue
         record["resolutionStatus"] = item.resolutionStatus as CKRecordValue
         record["unit"] = item.unit as CKRecordValue
         record["quantityText"] = item.quantityText as CKRecordValue
         record["normalizedName"] = item.normalizedName as CKRecordValue
+        record["ingredientName"] = item.ingredientName as CKRecordValue
+        record["category"] = item.category as CKRecordValue
         record["notes"] = item.notes as CKRecordValue
         record["sourceMeals"] = item.sourceMeals as CKRecordValue
         record["reviewFlag"] = item.reviewFlag as CKRecordValue
+        record["storeLabel"] = item.storeLabel as CKRecordValue
         setOpt("baseIngredientID", item.baseIngredientID as CKRecordValue?)
         setOpt("ingredientVariationID", item.ingredientVariationID as CKRecordValue?)
         setOpt("totalQuantity", item.totalQuantity as CKRecordValue?)
@@ -48,16 +52,20 @@ public enum GroceryCodec {
     public static func decode(_ record: CKRecord) -> GroceryItem {
         GroceryItem(
             recordName: record.recordID.recordName,
+            weekID: record["weekID"] as? String ?? "",
             baseIngredientID: record["baseIngredientID"] as? String,
             ingredientVariationID: record["ingredientVariationID"] as? String,
             resolutionStatus: record["resolutionStatus"] as? String ?? "unresolved",
             unit: record["unit"] as? String ?? "",
             quantityText: record["quantityText"] as? String ?? "",
             normalizedName: record["normalizedName"] as? String ?? "",
+            ingredientName: record["ingredientName"] as? String ?? "",
+            category: record["category"] as? String ?? "",
             totalQuantity: record["totalQuantity"] as? Double,
             notes: record["notes"] as? String ?? "",
             sourceMeals: record["sourceMeals"] as? String ?? "",
             reviewFlag: record["reviewFlag"] as? String ?? "",
+            storeLabel: record["storeLabel"] as? String ?? "",
             isUserAdded: (record["isUserAdded"] as? Int ?? 0) != 0,
             isUserRemoved: (record["isUserRemoved"] as? Int ?? 0) != 0,
             quantityOverride: record["quantityOverride"] as? Double,

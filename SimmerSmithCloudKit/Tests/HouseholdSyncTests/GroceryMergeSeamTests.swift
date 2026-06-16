@@ -12,9 +12,10 @@ private let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefa
 
 @Test func groceryCodecRoundTrips() {
     let item = GroceryItem(
-        recordName: "G1", baseIngredientID: "b1", resolutionStatus: "locked", unit: "cup",
-        quantityText: "2", normalizedName: "tomato", totalQuantity: 3, notes: "n",
-        sourceMeals: "meal:mon", isUserAdded: true, isUserRemoved: false,
+        recordName: "G1", weekID: "W7", baseIngredientID: "b1", resolutionStatus: "locked", unit: "cup",
+        quantityText: "2", normalizedName: "tomato", ingredientName: "Roma Tomato", category: "Produce",
+        totalQuantity: 3, notes: "n", sourceMeals: "meal:mon", storeLabel: "Aisle 3",
+        isUserAdded: true, isUserRemoved: false,
         quantityOverride: 9, unitOverride: "g", notesOverride: "no",
         check: CheckState(isChecked: true, at: 42, by: "savanne"),
         eventQuantity: 1.5, createdAt: 7, modifiedAt: 11)
@@ -22,7 +23,8 @@ private let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefa
     #expect(record.recordType == "GroceryItem")
     #expect(record["isUserAdded"] as? Int == 1)         // Bool → INT64
     #expect(record["checkedAtClock"] as? Int == 42)
-    #expect(GroceryCodec.decode(record) == item)
+    #expect(record["weekID"] as? String == "W7")
+    #expect(GroceryCodec.decode(record) == item)        // round-trips weekID/ingredientName/category/storeLabel
 }
 
 private func record(_ item: GroceryItem) -> CKRecord { GroceryCodec.makeRecord(item, zoneID: zoneID) }

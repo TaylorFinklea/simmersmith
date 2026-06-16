@@ -312,12 +312,16 @@ DEFINE SCHEMA
     //      NOT blanket LWW). Clocks stored as INT64 logical clocks. ----
 
     RECORD TYPE GroceryItem (
+        weekID STRING QUERYABLE,
         baseIngredientID STRING,
         ingredientVariationID STRING,
         resolutionStatus STRING,
         unit STRING,
         quantityText STRING,
         normalizedName STRING QUERYABLE,
+        ingredientName STRING,
+        category STRING,
+        storeLabel STRING,
         totalQuantity DOUBLE,
         notes STRING,
         sourceMeals STRING,
