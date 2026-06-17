@@ -842,7 +842,7 @@ func runMigrationCheck() async -> String {
     let sB = tmp.appendingPathComponent("p7-B-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
     let sfx = String(UUID().uuidString.prefix(6))
-    let g1 = "GM1-\(sfx)", g2 = "GM2-\(sfx)", e1 = "EM1-\(sfx)", scope = "hh-\(sfx)"
+    let g1 = "GM1-\(sfx)", g2 = "GM2-\(sfx)", e1 = "EM1-\(sfx)", r1 = "RC1-\(sfx)", scope = "hh-\(sfx)"
 
     do {
         let storeA = HouseholdLocalStore()
@@ -865,31 +865,49 @@ func runMigrationCheck() async -> String {
             eventGroceryItems: [
                 ["id": e1, "merged_into_grocery_item_id": g1, "normalized_name": "tomato",
                  "unit": "cup", "total_quantity": NSNumber(value: 3)],
+            ],
+            // A plain-CRUD type through the manifest-driven transform + HouseholdRecordCodec:
+            // a Recipe (acronym columns, a bool, a date, an in-zone SET-NULL self-ref).
+            householdRecords: [
+                .recipe: [
+                    ["id": r1, "name": "Lasagna", "meal_type": "dinner",
+                     "source_url": "https://x.test/l", "override_payload_json": "{\"k\":1}",
+                     "favorite": NSNumber(value: true), "servings": NSNumber(value: 6),
+                     "created_at": "2026-06-16T20:22:00Z"],
+                    ["meal_type": "lunch"],   // no id → skipped (defensive)
+                ],
             ])
         let runner = HouseholdMigrationRunner(engine: engineA, zoneID: zoneID)
         var log = ["HouseholdMigrationRunner on two engines ✅"]
 
         let first = runner.migrate(scope: scope, export: export)
-        try expect(!first.alreadyMigrated && first.groceryCount == 2 && first.eventGroceryCount == 1 && first.skippedRows == 1,
+        try expect(!first.alreadyMigrated && first.groceryCount == 2 && first.eventGroceryCount == 1
+                   && first.householdRecordCount == 1 && first.skippedRows == 2,
                    "first migrate: \(first)")
-        log.append("migrate → 2 grocery + 1 event-grocery written, 1 PK-less row skipped ✅")
+        log.append("migrate → 2 grocery + 1 event-grocery + 1 recipe written, 2 PK-less rows skipped ✅")
         try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
 
-        for _ in 0...4 { try await engineB.fetchChanges(); if bHas(g1) && bHas(g2) && bHas(e1) { break }; try? await Task.sleep(nanoseconds: 800_000_000) }
-        try expect(bHas(g1) && bHas(g2) && bHas(e1), "engineB missing migrated records")
+        for _ in 0...4 { try await engineB.fetchChanges(); if bHas(g1) && bHas(g2) && bHas(e1) && bHas(r1) { break }; try? await Task.sleep(nanoseconds: 800_000_000) }
+        try expect(bHas(g1) && bHas(g2) && bHas(e1) && bHas(r1), "engineB missing migrated records")
         let bG1 = storeB.record(for: gid(g1)).map(GroceryCodec.decode)
         try expect(bG1?.totalQuantity == 2 && bG1?.isUserAdded == true && bG1?.normalizedName == "tomato",
                    "migrated grocery fields wrong: \(String(describing: bG1))")
         let bE1 = storeB.record(for: gid(e1)).map(EventGroceryCodec.decode)
         try expect(bE1?.eventQuantity == 3 && bE1?.mergedIntoGroceryItemID == g1, "migrated event-grocery wrong")
-        log.append("engineB sees all migrated rows with correct fields (qty=2 user-added, event qty=3) ✅")
+        // The migrated Recipe decodes via the manifest codec — acronym column, bool, date all survive.
+        let bR1 = storeB.record(for: gid(r1)).map { HouseholdRecordCodec.decode($0, as: .recipe) }
+        try expect(bR1?.scalars["name"] == .string("Lasagna") && bR1?.scalars["mealType"] == .string("dinner")
+                   && bR1?.scalars["sourceURL"] == .string("https://x.test/l")
+                   && bR1?.scalars["favorite"] == .bool(true),
+                   "migrated recipe fields wrong: \(String(describing: bR1?.scalars))")
+        log.append("engineB sees all migrated rows w/ correct fields (grocery qty=2 user-added, event qty=3, recipe name+mealType+sourceURL+favorite) ✅")
 
         // Idempotency: re-run on A → the receipt short-circuits, nothing written.
         let second = runner.migrate(scope: scope, export: export)
         try expect(second.alreadyMigrated && second.groceryCount == 0, "re-run not idempotent: \(second)")
         log.append("re-run → alreadyMigrated=true, 0 writes (MigrationReceipt gate) ✅")
 
-        for n in [g1, g2, e1, HouseholdMigrationRunner.receiptRecordName(scope: scope)] { engineA.delete(gid(n)) }
+        for n in [g1, g2, e1, r1, HouseholdMigrationRunner.receiptRecordName(scope: scope)] { engineA.delete(gid(n)) }
         try? await engineA.sendUntilDrained()
         return "✅ Phase 7 migrate household\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }

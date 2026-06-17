@@ -211,12 +211,23 @@ shippable + Verify):
   Postgres-row(JSON snake_case) → value-type transform (NSNull/NSNumber/Bool-as-Int/type-mismatch → default;
   missing PK → nil). Built via a 5-model H2H (all 5 correct on the 24-field M-sized transform; canonical is the
   most-defensive synthesis; scored). Idempotency reuses `PrivatePlaneStore.claimMigrationScope` (Phase 1
-  MigrationReceipt). + `parseQuantity` (legacy quantity_text). **Remaining 7:** the rest of the per-type
-  transforms (Recipe/Guest/… → HouseholdRecordValue, same pattern), the `MigrationRunner` (claim scope →
-  transform in dep order → write via the zone codecs/engines), an on-sim migrate-a-household round-trip.
+  MigrationReceipt). + `parseQuantity` (legacy quantity_text).
   **Value-type transforms DONE 2026-06-17** via a distributed fleet fan-out (1 per model): migrateGroceryItem,
   migrateEventGroceryItem (total_quantity→eventQuantity), migrateEvent (auto_merge default true), migrateWeek,
-  migrateWeekMeal, migrateWeekChangeBatch — all in `MigrationTransforms.swift`, 90 tests green. Gates SP-D.
+  migrateWeekMeal, migrateWeekChangeBatch — all in `MigrationTransforms.swift`.
+  **MigrationRunner DONE + VERIFIED LIVE 2026-06-17** (`HouseholdSync/HouseholdMigrationRunner.swift`, commit
+  3916a8f): claim-scope → transform → write via zone codecs/engines; MigrationReceipt (`migrated:<scope>`)
+  gates re-runs (stamped LAST; PK-preserving upserts make retry idempotent). On-sim round-trip on the iPhone-16
+  (real CloudKit private DB): engineA migrate → engineB (2nd device) sees rows w/ correct fields → re-run no-op.
+  ⚠️ iPad's iCloud was stuck "Account Temporarily Unavailable (36)" (needs manual password re-verify) — ran on
+  the iPhone's healthy account instead; same-account 2-engine test doesn't need cross-account.
+  **Household-record transforms DONE + FLEET-REVIEWED 2026-06-17** (`HouseholdRecords/HouseholdRecordMigration.swift`,
+  commit after): ONE manifest-driven `migrateHouseholdRecord(type:row:)` for all 12 plain-CRUD types (not 12
+  hand-mapped) — column derives via acronym-aware snake_case; sole override Guest.relationship; .pk/.det
+  recordName via RecordNames. 5-model adversarial review (column contract unanimously clean; hardened the date
+  parser per qwen/kimi/sonnet). Wired into MigrationRunner (`householdRecords` Export map) + on-sim recipe path.
+  98 package tests green. Gates SP-D. **Remaining 7:** the real Postgres→JSON export endpoint (the runner's
+  input shape) — under-specified until cutover; the transforms accept Postgres-column snake_case keys.
 - [ ] 8 — AI seam + on-device platform handoff.
 - [ ] 9 — migration cutover close (status ledger; gates SP-D).
 
