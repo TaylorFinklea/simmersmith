@@ -129,7 +129,14 @@ shippable + Verify):
     cases (objective verify in `AuditRetentionH2HTests`); shipped qwen's. Scored in
     `~/.claude/model-scorecard.md`. Engine-wiring of the prune (apply over a weekID-scoped batch
     set, like the dedupe repair) is a thin follow-on.
-- [ ] 3 — CKAsset imagery.
+- [x] **3 — CKAsset imagery. DONE + VERIFIED LIVE 2026-06-16.** `RecipeImageCodec` (HouseholdSync):
+  RecipeImage (rimg:<recipeID>, image_bytes→CKAsset, recipe .deleteSelf CASCADE, mime/prompt/generatedAt).
+  CKDSL RecipeImage block (ASSET field — validated via cktool). On-sim: a 128 KB image round-trips through
+  the CKSyncEngine (engine A uploads, engine B downloads, bytes match EXACTLY + metadata). Hardened from a
+  dual adversarial review (sonnet + qwen3.7-max-with-tools, both 5/5, scored): stable Caches staging (no
+  temp leak / no OS-eviction / survives the rebase URL-copy), throw on unprefixed recordName, zero-byte
+  guard, and a distinct assetNotDownloaded error (CKAsset downloads separately from metadata). RecipeMemory
+  (per-recipe notes + optional image) is the thin follow-on (same CKAsset pattern).
 - [~] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
   - [x] **4 groundwork — corrected `ConflictRepair.dedupeGrocery` (critical fix) 2026-06-15.**
     The 18-agent review caught that the committed resolver HARD-DELETED dedupe losers; production

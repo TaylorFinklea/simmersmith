@@ -55,6 +55,9 @@ struct CloudKitDebugView: View {
                 Button("Phase 2c — PARTICIPANT: accept + read share") {
                     runString { await runShareParticipantCheck() }
                 }
+                Button("Phase 3 — recipe image (CKAsset) round-trip") {
+                    runString { await runRecipeImageCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -781,6 +784,48 @@ func runShareParticipantCheck() async -> String {
         try expect(!result.householdName.isEmpty, "shared profile unreadable (empty name)")
         log.append("✅ GENUINE CROSS-ACCOUNT: participant ≠ owner, owner's data read via sharedCloudDatabase")
         return "✅ Phase 2c PARTICIPANT\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 3: a recipe header image stored as a CKAsset round-trips through the household
+/// CKSyncEngine — engine A writes the bytes, engine B downloads + decodes the asset, bytes match.
+func runRecipeImageCheck() async -> String {
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase3-test", ownerName: CKCurrentUserDefaultName)
+    let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p3-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p3-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let recipeID = "recipe-\(String(UUID().uuidString.prefix(8)))"
+    let imageData = Data((0..<131072).map { UInt8($0 % 251) })   // 128 KB deterministic blob
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB)
+        let rid = CKRecord.ID(recordName: RecipeImageCodec.recordName(forRecipe: recipeID), zoneID: zoneID)
+        var log = ["128 KB image as CKAsset on two engines ✅"]
+
+        let image = RecipeImage(recipeID: recipeID, mimeType: "image/png", prompt: "a test plate",
+                                generatedAt: Date(timeIntervalSince1970: 1_700_000_000), imageData: imageData)
+        engineA.save(try RecipeImageCodec.makeRecord(image, zoneID: zoneID))
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        log.append("engineA saved RecipeImage (\(imageData.count) bytes) + uploaded asset ✅")
+
+        var fetched: RecipeImage?
+        for _ in 0...4 {
+            try await engineB.fetchChanges()
+            if let r = storeB.record(for: rid) { fetched = try? RecipeImageCodec.decode(r); if fetched != nil { break } }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        guard let got = fetched else { throw PrivatePlaneCheckFailure(description: "engineB never received/decoded the RecipeImage asset") }
+        try expect(got.imageData == imageData, "asset bytes mismatch: got \(got.imageData.count) of \(imageData.count)")
+        try expect(got.mimeType == "image/png" && got.prompt == "a test plate", "metadata mismatch")
+        log.append("engineB downloaded the asset → \(got.imageData.count) bytes match EXACTLY + metadata intact ✅")
+
+        engineA.delete(rid); try? await engineA.sendUntilDrained()
+        return "✅ Phase 3 recipe image CKAsset\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
 #endif

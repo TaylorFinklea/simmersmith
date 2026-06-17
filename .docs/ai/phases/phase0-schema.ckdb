@@ -353,3 +353,16 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Phase 3: recipe imagery (CKAsset). 1:1 recipe header image; recipe is the
+    //      .deleteSelf CASCADE parent. image_bytes (LargeBinary) -> ASSET. ----
+
+    RECORD TYPE RecipeImage (
+        mimeType STRING,
+        prompt STRING,
+        generatedAt TIMESTAMP SORTABLE,
+        imageAsset ASSET,
+        recipe REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
