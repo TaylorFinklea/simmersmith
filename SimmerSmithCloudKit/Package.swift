@@ -29,8 +29,10 @@ let package = Package(
         .target(name: "HouseholdSync", dependencies: ["GroceryMerge"],
                 swiftSettings: [.swiftLanguageMode(.v5)]),
         // Phase 2b typed household-record manifest + CKRecord codec + CKDSL generator.
-        // Swift 5 mode for the CloudKit-guarded codec.
-        .target(name: "HouseholdRecords", swiftSettings: [.swiftLanguageMode(.v5)]),
+        // Swift 5 mode for the CloudKit-guarded codec. Depends on CloudKitProvisioning for
+        // RecordNames (the Phase-7 migration transform's det-key policy).
+        .target(name: "HouseholdRecords", dependencies: ["CloudKitProvisioning"],
+                swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "GroceryMergeTests", dependencies: ["GroceryMerge"]),
         .testTarget(name: "AIProviderKitTests", dependencies: ["AIProviderKit"]),
         .testTarget(name: "CloudKitProvisioningTests", dependencies: ["CloudKitProvisioning"]),
