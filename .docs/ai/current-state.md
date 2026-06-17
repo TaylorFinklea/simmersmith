@@ -2,6 +2,25 @@
 
 > Updated at the end of every work session. Read this first.
 
+## Last session (2026-06-17) — full-stack architectural review written
+
+Produced a comprehensive architectural review covering the FastAPI backend,
+iOS/SwiftUI client, CloudKit migration, AI/provider architecture, security,
+operations, and testing. Findings synthesized from codebase inspection plus the
+2026-06-13 ultracode bug-bash architecture report. Written to:
+
+- `.docs/ai/review/review-claude-opus-4-2026-06-17.md` (41 KB, 561 lines)
+
+Top themes:
+- **Data integrity:** `household_id` needs real FKs; adopt SQLAlchemy `naming_convention`.
+- **AI robustness:** detect truncation, gate assistant turns, capture token usage, unify JSON extraction.
+- **iOS state hygiene:** centralize displayed-week slot model; add centralized 401→sign-in handler.
+- **CloudKit transition:** decide ownership-transfer policy now; harden zone-creation race.
+- **Security/ops:** enforce MCP scopes, pin OAuth issuer, structured logging/metrics.
+
+Prioritized as P0/P1/P2. No code changes made. Verification: file written and
+word-count checked (561 lines, ~41 KB).
+
 ## Active Branch
 
 `main`
