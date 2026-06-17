@@ -58,6 +58,9 @@ struct CloudKitDebugView: View {
                 Button("Phase 3 — recipe image (CKAsset) round-trip") {
                     runString { await runRecipeImageCheck() }
                 }
+                Button("Phase 7 — migrate household round-trip") {
+                    runString { await runMigrationCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -826,6 +829,69 @@ func runRecipeImageCheck() async -> String {
 
         engineA.delete(rid); try? await engineA.sendUntilDrained()
         return "✅ Phase 3 recipe image CKAsset\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+/// SP-A Phase 7: the HouseholdMigrationRunner imports a sample household export into the zone —
+/// engine B sees the migrated records; a re-run is an idempotent no-op (the MigrationReceipt gates it).
+func runMigrationCheck() async -> String {
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase7-test", ownerName: CKCurrentUserDefaultName)
+    let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p7-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p7-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(6))
+    let g1 = "GM1-\(sfx)", g2 = "GM2-\(sfx)", e1 = "EM1-\(sfx)", scope = "hh-\(sfx)"
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA)
+        engineA.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger()])
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB)
+        engineB.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger()])
+        func gid(_ n: String) -> CKRecord.ID { CKRecord.ID(recordName: n, zoneID: zoneID) }
+        func bHas(_ n: String) -> Bool { storeB.record(for: gid(n)) != nil }
+
+        // A legacy household export (decoded JSON rows, snake_case) — two grocery rows + one event-grocery row.
+        let export = HouseholdMigrationRunner.Export(
+            groceryItems: [
+                ["id": g1, "week_id": "Wmig", "normalized_name": "tomato", "unit": "cup",
+                 "ingredient_name": "Tomato", "total_quantity": NSNumber(value: 2), "is_user_added": NSNumber(value: true)],
+                ["id": g2, "week_id": "Wmig", "normalized_name": "salt", "unit": "tsp", "total_quantity": NSNumber(value: 1)],
+                ["week_id": "Wmig"],   // no id → skipped (defensive)
+            ],
+            eventGroceryItems: [
+                ["id": e1, "merged_into_grocery_item_id": g1, "normalized_name": "tomato",
+                 "unit": "cup", "total_quantity": NSNumber(value: 3)],
+            ])
+        let runner = HouseholdMigrationRunner(engine: engineA, zoneID: zoneID)
+        var log = ["HouseholdMigrationRunner on two engines ✅"]
+
+        let first = runner.migrate(scope: scope, export: export)
+        try expect(!first.alreadyMigrated && first.groceryCount == 2 && first.eventGroceryCount == 1 && first.skippedRows == 1,
+                   "first migrate: \(first)")
+        log.append("migrate → 2 grocery + 1 event-grocery written, 1 PK-less row skipped ✅")
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+
+        for _ in 0...4 { try await engineB.fetchChanges(); if bHas(g1) && bHas(g2) && bHas(e1) { break }; try? await Task.sleep(nanoseconds: 800_000_000) }
+        try expect(bHas(g1) && bHas(g2) && bHas(e1), "engineB missing migrated records")
+        let bG1 = storeB.record(for: gid(g1)).map(GroceryCodec.decode)
+        try expect(bG1?.totalQuantity == 2 && bG1?.isUserAdded == true && bG1?.normalizedName == "tomato",
+                   "migrated grocery fields wrong: \(String(describing: bG1))")
+        let bE1 = storeB.record(for: gid(e1)).map(EventGroceryCodec.decode)
+        try expect(bE1?.eventQuantity == 3 && bE1?.mergedIntoGroceryItemID == g1, "migrated event-grocery wrong")
+        log.append("engineB sees all migrated rows with correct fields (qty=2 user-added, event qty=3) ✅")
+
+        // Idempotency: re-run on A → the receipt short-circuits, nothing written.
+        let second = runner.migrate(scope: scope, export: export)
+        try expect(second.alreadyMigrated && second.groceryCount == 0, "re-run not idempotent: \(second)")
+        log.append("re-run → alreadyMigrated=true, 0 writes (MigrationReceipt gate) ✅")
+
+        for n in [g1, g2, e1, HouseholdMigrationRunner.receiptRecordName(scope: scope)] { engineA.delete(gid(n)) }
+        try? await engineA.sendUntilDrained()
+        return "✅ Phase 7 migrate household\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
 #endif
