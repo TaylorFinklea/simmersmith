@@ -156,7 +156,7 @@ shippable + Verify):
   temp leak / no OS-eviction / survives the rebase URL-copy), throw on unprefixed recordName, zero-byte
   guard, and a distinct assetNotDownloaded error (CKAsset downloads separately from metadata). RecipeMemory
   (per-recipe notes + optional image) is the thin follow-on (same CKAsset pattern).
-- [~] 4 — field-merge resolver + sticky grocery (ports grocery.py verbatim; real 2-device test). HIGHEST RISK.
+- [x] 4 — field-merge resolver + sticky grocery + Week/WeekMeal/audit repair. COMPLETE 2026-06-17 (all sub-items verified live). HIGHEST RISK — cleared.
   - [x] **4 groundwork — corrected `ConflictRepair.dedupeGrocery` (critical fix) 2026-06-15.**
     The 18-agent review caught that the committed resolver HARD-DELETED dedupe losers; production
     `dedupe_week_grocery` (grocery.py:739) TOMBSTONES them (`is_user_removed=true`) + filters
