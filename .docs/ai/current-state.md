@@ -212,9 +212,11 @@ shippable + Verify):
   missing PK → nil). Built via a 5-model H2H (all 5 correct on the 24-field M-sized transform; canonical is the
   most-defensive synthesis; scored). Idempotency reuses `PrivatePlaneStore.claimMigrationScope` (Phase 1
   MigrationReceipt). + `parseQuantity` (legacy quantity_text). **Remaining 7:** the rest of the per-type
-  transforms (Recipe/Event/Week/EventGroceryItem/… — same pattern, fan out to the fleet), the `MigrationRunner`
-  (claim scope → transform in dep order → write via the zone codecs/engines), an on-sim migrate-a-household
-  round-trip. Gates SP-D (server retirement).
+  transforms (Recipe/Guest/… → HouseholdRecordValue, same pattern), the `MigrationRunner` (claim scope →
+  transform in dep order → write via the zone codecs/engines), an on-sim migrate-a-household round-trip.
+  **Value-type transforms DONE 2026-06-17** via a distributed fleet fan-out (1 per model): migrateGroceryItem,
+  migrateEventGroceryItem (total_quantity→eventQuantity), migrateEvent (auto_merge default true), migrateWeek,
+  migrateWeekMeal, migrateWeekChangeBatch — all in `MigrationTransforms.swift`, 90 tests green. Gates SP-D.
 - [ ] 8 — AI seam + on-device platform handoff.
 - [ ] 9 — migration cutover close (status ledger; gates SP-D).
 

@@ -71,3 +71,69 @@ public func migrateGroceryItem(_ row: [String: Any]) -> GroceryItem? {
         createdAt: migClock(row, "created_at_clock"),
         modifiedAt: migClock(row, "updated_at_clock"))
 }
+
+/// Migrate one legacy event-grocery row. Returns nil only when the primary key ("id") is absent/empty.
+public func migrateEventGroceryItem(_ row: [String: Any]) -> EventGroceryItem? {
+    guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+    return EventGroceryItem(
+        recordName: id,
+        mergedIntoGroceryItemID: migOptString(row, "merged_into_grocery_item_id"),
+        mergedIntoWeekID: migOptString(row, "merged_into_week_id"),
+        eventQuantity: migOptDouble(row, "total_quantity"),
+        baseIngredientID: migOptString(row, "base_ingredient_id"),
+        ingredientVariationID: migOptString(row, "ingredient_variation_id"),
+        ingredientName: migString(row, "ingredient_name"),
+        normalizedName: migString(row, "normalized_name"),
+        unit: migString(row, "unit"),
+        quantityText: migString(row, "quantity_text"),
+        category: migString(row, "category"),
+        sourceMeals: migString(row, "source_meals"),
+        notes: migString(row, "notes"),
+        reviewFlag: migString(row, "review_flag"),
+        resolutionStatus: migString(row, "resolution_status", "unresolved"),
+        modifiedAt: migClock(row, "updated_at_clock"))
+}
+
+/// Migrate one legacy audit batch row. Returns nil only when the primary key ("id") is absent/empty.
+public func migrateWeekChangeBatch(_ row: [String: Any]) -> WeekChangeBatch? {
+    guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+    return WeekChangeBatch(
+        recordName: id,
+        weekID: migString(row, "week_id"),
+        createdAt: migClock(row, "created_at_clock"))
+}
+
+/// Migrate one legacy event row. `auto_merge_grocery` defaults to TRUE (prod default).
+public func migrateEvent(_ row: [String: Any]) -> Event? {
+    guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+    return Event(
+        recordName: id,
+        name: migString(row, "name"),
+        eventDate: migString(row, "event_date"),
+        linkedWeekID: migOptString(row, "linked_week_id"),
+        manuallyMerged: migBool(row, "manually_merged"),
+        autoMergeGrocery: migBool(row, "auto_merge_grocery", true),
+        modifiedAt: migClock(row, "updated_at_clock"))
+}
+
+/// Migrate one legacy week row.
+public func migrateWeek(_ row: [String: Any]) -> Week? {
+    guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+    return Week(
+        recordName: id,
+        weekStart: migString(row, "week_start"),
+        weekEnd: migString(row, "week_end"),
+        modifiedAt: migClock(row, "updated_at_clock"))
+}
+
+/// Migrate one legacy week-meal row.
+public func migrateWeekMeal(_ row: [String: Any]) -> WeekMeal? {
+    guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+    return WeekMeal(
+        recordName: id,
+        weekID: migString(row, "week_id"),
+        dayName: migString(row, "day_name"),
+        slot: migString(row, "slot"),
+        sortOrder: migClock(row, "sort_order"),
+        modifiedAt: migClock(row, "updated_at_clock"))
+}
