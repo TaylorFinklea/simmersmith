@@ -61,6 +61,9 @@ struct CloudKitDebugView: View {
                 Button("Phase 7 — migrate household round-trip") {
                     runString { await runMigrationCheck() }
                 }
+                Button("Phase 4 — week repair (slot/collapse/prune)") {
+                    runString { await runWeekRepairCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -910,6 +913,84 @@ func runMigrationCheck() async -> String {
         for n in [g1, g2, e1, r1, HouseholdMigrationRunner.receiptRecordName(scope: scope)] { engineA.delete(gid(n)) }
         try? await engineA.sendUntilDrained()
         return "✅ Phase 7 migrate household\n" + log.joined(separator: "\n")
+    } catch { return "❌ \(error)" }
+}
+
+// Phase 4-remainder: the WeekRepairAdapter over real CloudKit — slot-swap, week-collapse, and
+// audit-prune on engine A, then convergence on a 2nd engine. Exercises the manifest Week/WeekMeal/
+// WeekChangeBatch records + the adapter's CKRecord↔value-type bridge + the engine save/delete/
+// cascade wiring (the pure ConflictRepair passes are headless-tested in GroceryMergeTests).
+func runWeekRepairCheck() async -> String {
+    let zoneID = CKRecordZone.ID(zoneName: "household-phase4-repair", ownerName: CKCurrentUserDefaultName)
+    let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("p4-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("p4-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(6))
+    let wA = "Wa-\(sfx)", wB = "Wb-\(sfx)"   // Wa < Wb so collapse keeps Wa
+    let m1 = "M1-\(sfx)", m2 = "M2-\(sfx)", m3 = "M3-\(sfx)"
+    let b0 = "B0-\(sfx)", e0 = "E0-\(sfx)"
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeA, stateURL: sA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: db, zoneID: zoneID, store: storeB, stateURL: sB)
+        let adapter = WeekRepairAdapter(engine: engineA, zoneID: zoneID)
+        func gid(_ n: String) -> CKRecord.ID { CKRecord.ID(recordName: n, zoneID: zoneID) }
+        func save(_ type: HouseholdRecordType, _ row: [String: Any]) {
+            engineA.save(HouseholdRecordCodec.encode(migrateHouseholdRecord(type, row)!, zoneID: zoneID))
+        }
+        func slotA(_ n: String) -> String? { storeA.record(for: gid(n))?["slot"] as? String }
+        func weekRefA(_ n: String) -> String? { (storeA.record(for: gid(n))?["week"] as? CKRecord.Reference)?.recordID.recordName }
+        var log: [String] = []
+
+        // 1. slot-swap: two meals collide on (Monday, dinner).
+        save(.week, ["id": wA, "week_start": "2026-06-29", "week_end": "2026-07-05"])
+        save(.weekMeal, ["id": m1, "week_id": wA, "day_name": "Monday", "slot": "dinner", "sort_order": NSNumber(value: 0), "recipe_name": "A"])
+        save(.weekMeal, ["id": m2, "week_id": wA, "day_name": "Monday", "slot": "dinner", "sort_order": NSNumber(value: 1), "recipe_name": "B"])
+        let moved = adapter.repairSlots(weekID: wA, slots: ["breakfast", "lunch", "dinner", "snack"])
+        try expect(slotA(m1) == "dinner" && slotA(m2) == "breakfast" && moved.count == 1,
+                   "slot repair: m1=\(slotA(m1) ?? "?") m2=\(slotA(m2) ?? "?") moved=\(moved.count)")
+        log.append("slot-swap → keeper M1 stays 'dinner', M2 moved to free 'breakfast' (1 re-saved) ✅")
+
+        // 2. week-collapse: a duplicate week (same week_start) + a meal under it.
+        save(.week, ["id": wB, "week_start": "2026-06-29", "week_end": "2026-07-05"])
+        save(.weekMeal, ["id": m3, "week_id": wB, "day_name": "Tuesday", "slot": "dinner", "recipe_name": "C"])
+        let collapses = try await adapter.collapseWeeks()
+        try expect(collapses.count == 1 && collapses[0].keeper == wA && collapses[0].losers == [wB], "collapse: \(collapses)")
+        try expect(storeA.record(for: gid(wB)) == nil && weekRefA(m3) == wA,
+                   "collapse repoint: wB present=\(storeA.record(for: gid(wB)) != nil) m3.week=\(weekRefA(m3) ?? "?")")
+        log.append("week-collapse → keeper Wa kept, loser Wb deleted, M3 re-parented onto Wa ✅")
+
+        // 3. audit-prune: 4 batches (+ an event under the oldest), keep the 2 newest.
+        for (i, day) in ["01", "02", "03", "04"].enumerated() {
+            save(.weekChangeBatch, ["id": "B\(i)-\(sfx)", "week_id": wA, "created_at": "2026-06-\(day)T00:00:00Z", "summary": "s\(i)"])
+        }
+        save(.weekChangeEvent, ["id": e0, "batch_id": b0, "entity_type": "WeekMeal", "field_name": "slot"])
+        let pruned = adapter.pruneAudit(weekID: wA, keep: 2)
+        try expect(pruned.prune.count == 2 && pruned.keep.count == 2, "prune counts: \(pruned)")
+        try expect(storeA.record(for: gid(b0)) == nil && storeA.record(for: gid(e0)) == nil,
+                   "prune cascade: oldest batch + its event should be swept")
+        log.append("audit-prune → 4 batches → keep 2 newest, 2 oldest + their event cascade-deleted ✅")
+
+        // 4. it all converges on a 2nd device.
+        try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
+        func bSlot(_ n: String) -> String? { storeB.record(for: gid(n))?["slot"] as? String }
+        for _ in 0...5 {
+            try await engineB.fetchChanges()
+            if storeB.record(for: gid(wA)) != nil && bSlot(m2) == "breakfast" && storeB.record(for: gid(wB)) == nil { break }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+        try expect(storeB.record(for: gid(wA)) != nil && storeB.record(for: gid(wB)) == nil, "engineB week state")
+        try expect(bSlot(m1) == "dinner" && bSlot(m2) == "breakfast", "engineB slot state")
+        try expect(storeB.record(for: gid(b0)) == nil, "engineB should not see the pruned batch")
+        log.append("engineB (2nd device) converges: keeper week, distinct slots, pruned batches gone ✅")
+
+        engineA.deleteCascading(gid(wA))   // sweeps M1/M2/M3 + the kept batches
+        try? await engineA.sendUntilDrained()
+        return "✅ Phase 4 week repair\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
 #endif

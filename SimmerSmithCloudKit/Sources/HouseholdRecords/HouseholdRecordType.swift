@@ -65,10 +65,11 @@ public enum RecordNamePolicy: Equatable {
 
 /// Every household-scoped plain-CRUD record type landed in Phase 2b.
 ///
-/// DEFERRED to Phase 4 (their Week / WeekMeal / GroceryItem parents are Phase-4 records;
-/// landing them now would dangle refs + risk validate-schema rejecting a REFERENCE whose
-/// target type is undefined): WeekChangeBatch, WeekChangeEvent, FeedbackEntry. HouseholdProfile
-/// shipped in Phase 0. Grocery/Event-grocery types land with their merge logic in Phase 4/5.
+/// HouseholdProfile shipped in Phase 0. Grocery/Event-grocery types carry field-merge logic and
+/// keep dedicated codecs (GroceryCodec/EventGroceryCodec). Week / WeekMeal / WeekChangeBatch /
+/// WeekChangeEvent landed in Phase 4-remainder as plain LWW manifest records (their cross-record
+/// repair — slot-swap, week-collapse, sort-order, audit-prune — runs as an adapter over the
+/// engine, not in the codec). FeedbackEntry remains deferred (independent; no repair machinery).
 public enum HouseholdRecordType: String, CaseIterable, Equatable {
     case householdSetting
     case householdTermAlias
@@ -82,6 +83,10 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
     case eventMealIngredient
     case baseIngredient
     case ingredientVariation
+    case week
+    case weekMeal
+    case weekChangeBatch
+    case weekChangeEvent
 
     /// The CloudKit record type name.
     public var recordTypeName: String {
@@ -98,6 +103,10 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .eventMealIngredient: return "EventMealIngredient"
         case .baseIngredient: return "BaseIngredient"
         case .ingredientVariation: return "IngredientVariation"
+        case .week: return "Week"
+        case .weekMeal: return "WeekMeal"
+        case .weekChangeBatch: return "WeekChangeBatch"
+        case .weekChangeEvent: return "WeekChangeEvent"
         }
     }
 
@@ -171,6 +180,23 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
                     F("nutritionReferenceUnit", .string), F("calories", .double), F("proteinG", .double),
                     F("carbsG", .double), F("fatG", .double), F("fiberG", .double),
                     F("createdAt", .date), F("updatedAt", .date)]
+        case .week:
+            return [F("weekStart", .date, queryable: true, sortable: true), F("weekEnd", .date),
+                    F("status", .string), F("notes", .string), F("readyForAIAt", .date),
+                    F("approvedAt", .date), F("pricedAt", .date),
+                    F("createdAt", .date), F("updatedAt", .date)]
+        case .weekMeal:
+            return [F("dayName", .string), F("mealDate", .date), F("slot", .string),
+                    F("recipeName", .string), F("servings", .double), F("scaleMultiplier", .double),
+                    F("source", .string), F("approved", .bool), F("notes", .string),
+                    F("aiGenerated", .bool), F("sortOrder", .int),
+                    F("createdAt", .date), F("updatedAt", .date)]
+        case .weekChangeBatch:
+            return [F("actorType", .string), F("actorLabel", .string), F("summary", .string),
+                    F("createdAt", .date)]
+        case .weekChangeEvent:
+            return [F("entityType", .string), F("entityID", .string), F("fieldName", .string),
+                    F("beforeValue", .string), F("afterValue", .string), F("createdAt", .date)]
         }
     }
 
@@ -222,6 +248,20 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
             // base_ingredient_id is ondelete=CASCADE (catalog.py:137) → the cascade parent.
             return [R("baseIngredient", .cascadeParent, target: "BaseIngredient"),
                     R("mergedIntoID", .crossDBString, target: "IngredientVariation")]
+        case .week:
+            // Aggregate root of the household zone (spec §6.3 "Week→subtree" CASCADE). No outbound refs.
+            return []
+        case .weekMeal:
+            // week_id CASCADE (week.py:96); recipe_id SET NULL (week.py:100, spec §6.3 soft edge).
+            return [R("week", .cascadeParent, target: "Week"),
+                    R("recipe", .setNullInZone, target: "Recipe")]
+        case .weekChangeBatch:
+            // week_id CASCADE (week.py:283) — audit batches die with their week.
+            return [R("week", .cascadeParent, target: "Week")]
+        case .weekChangeEvent:
+            // batch_id CASCADE (week.py:301) — events die with their batch (so the audit-prune,
+            // which deletes batches, sweeps their events via the engine's local cascade).
+            return [R("batch", .cascadeParent, target: "WeekChangeBatch")]
         }
     }
 

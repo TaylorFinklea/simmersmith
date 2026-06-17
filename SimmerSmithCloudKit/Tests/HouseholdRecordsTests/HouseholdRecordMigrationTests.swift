@@ -137,6 +137,53 @@ import CloudKit
     #expect(v?.scalars["prepMinutes"] == nil)
 }
 
+// MARK: Phase-4-remainder week types — classification + migrate + cascade (irreversible)
+
+@Test func migrateWeek_mapsDatesNoRefs() {
+    let v = migrateHouseholdRecord(.week, [
+        "id": "W1", "week_start": "2026-06-29", "week_end": "2026-07-05", "status": "approved",
+        "notes": "n", "ready_for_ai_at": "2026-06-28T12:00:00Z", "approved_at": NSNull()])
+    #expect(v?.recordName == "W1")
+    #expect(v?.scalars["status"] == .string("approved"))
+    #expect(v?.refs.isEmpty == true)                              // aggregate root, no outbound refs
+    #expect({ if case .date? = v?.scalars["weekStart"] { return true }; return false }())
+    #expect({ if case .date? = v?.scalars["readyForAIAt"] { return true }; return false }())
+    #expect(v?.scalars["approvedAt"] == nil)                      // NSNull → absent
+    #expect(HouseholdRecordType.week.refs.isEmpty)
+}
+
+@Test func migrateWeekMeal_cascadeWeekSetNullRecipe() {
+    let row: [String: Any] = [
+        "id": "M1", "week_id": "W1", "recipe_id": "R1", "day_name": "Monday", "meal_date": "2026-06-29",
+        "slot": "dinner", "recipe_name": "Tacos", "servings": NSNumber(value: 4),
+        "scale_multiplier": NSNumber(value: 1.5), "approved": NSNumber(value: true),
+        "ai_generated": NSNumber(value: 0), "sort_order": NSNumber(value: 2)]
+    let v = migrateHouseholdRecord(.weekMeal, row)!
+    #expect(v.refs["week"] == "W1" && v.refs["recipe"] == "R1")
+    #expect(v.scalars["slot"] == .string("dinner") && v.scalars["sortOrder"] == .int(2))
+    #expect(v.scalars["approved"] == .bool(true) && v.scalars["aiGenerated"] == .bool(false))
+    // Cascade vs SET-NULL ref kinds round-trip through the codec.
+    let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefaultName)
+    let rec = HouseholdRecordCodec.encode(v, zoneID: zoneID)
+    #expect((rec["week"] as? CKRecord.Reference)?.action == .deleteSelf)        // CASCADE
+    #expect((rec["recipe"] as? CKRecord.Reference)?.action == CKRecord.ReferenceAction.none) // SET-NULL
+}
+
+@Test func migrateAuditTypes_cascadeChain() {
+    let b = migrateHouseholdRecord(.weekChangeBatch, [
+        "id": "B1", "week_id": "W1", "actor_type": "user", "actor_label": "Sam",
+        "summary": "added 3 meals", "created_at": "2026-06-29T10:00:00Z"])!
+    #expect(b.refs["week"] == "W1" && b.scalars["actorLabel"] == .string("Sam"))
+    let e = migrateHouseholdRecord(.weekChangeEvent, [
+        "id": "E1", "batch_id": "B1", "entity_type": "WeekMeal", "entity_id": "M1",
+        "field_name": "slot", "before_value": "lunch", "after_value": "dinner"])!
+    #expect(e.refs["batch"] == "B1" && e.scalars["entityID"] == .string("M1"))
+    #expect(e.scalars["fieldName"] == .string("slot") && e.scalars["afterValue"] == .string("dinner"))
+    // batch → WeekChangeBatch and batch's week → Week are both CASCADE (prune sweeps events).
+    #expect(HouseholdRecordType.weekChangeEvent.refs.first?.kind == .cascadeParent)
+    #expect(HouseholdRecordType.weekChangeBatch.refs.first?.kind == .cascadeParent)
+}
+
 // MARK: full migrate → encode → decode round-trip (headless CloudKit)
 
 @Test func migrate_roundTripsThroughCodec() {

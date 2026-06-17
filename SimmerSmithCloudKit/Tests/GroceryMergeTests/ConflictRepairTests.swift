@@ -85,6 +85,24 @@ func duplicateSlotRepair() {
     #expect(monSlots.contains("dinner"))         // keeper (lower sortOrder) stays
 }
 
+@Test("loser never steals a slot held by a non-colliding same-day meal (pre-seed)")
+func slotRepairDoesNotCreateNewCollision() {
+    // A+B collide on dinner; C already holds breakfast. The relocated loser (B) must NOT land on
+    // breakfast — pre-seeding `occupied` with C's slot is what prevents a fresh duplicate.
+    let a = WeekMeal(recordName: "MA", weekID: "W", dayName: "Mon", slot: "dinner", sortOrder: 0)
+    let b = WeekMeal(recordName: "MB", weekID: "W", dayName: "Mon", slot: "dinner", sortOrder: 1)
+    let c = WeekMeal(recordName: "MC", weekID: "W", dayName: "Mon", slot: "breakfast", sortOrder: 2)
+    // Run several times: the bug was order-dependent (unordered dict iteration), so a single pass
+    // could pass by luck. Every permutation must keep all three slots distinct.
+    for input in [[a, b, c], [c, b, a], [b, c, a], [c, a, b]] {
+        let fixed = ConflictRepair.repairDuplicateSlots(input, slots: ["breakfast", "lunch", "dinner"])
+        let slots = fixed.map(\.slot)
+        #expect(Set(slots).count == 3, "collision introduced: \(slots)")
+        #expect(fixed.first { $0.recordName == "MA" }?.slot == "dinner")    // keeper stays
+        #expect(fixed.first { $0.recordName == "MC" }?.slot == "breakfast") // untouched singleton stays
+    }
+}
+
 @Test("slot repair falls back to a synthetic slot when the vocabulary is full")
 func slotRepairSyntheticFallback() {
     let a = WeekMeal(recordName: "Ma", weekID: "W", dayName: "Tue", slot: "dinner", sortOrder: 0)

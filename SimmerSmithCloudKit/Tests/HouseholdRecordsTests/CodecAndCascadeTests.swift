@@ -72,12 +72,14 @@ import CloudKit
     }
 }
 
-@Test func deferredTypesAreAbsent() {
-    // WeekChangeBatch/WeekChangeEvent/FeedbackEntry are deferred to Phase 4.
+@Test func weekTypesLandedFeedbackStillDeferred() {
+    // Phase 4-remainder added Week/WeekMeal/WeekChangeBatch/WeekChangeEvent (16 types total).
+    // FeedbackEntry is the sole remaining deferred type (independent; no repair machinery).
     let names = HouseholdRecordType.allCases.map(\.recordTypeName)
-    #expect(names.contains("WeekChangeBatch") == false)
+    #expect(names.contains("Week") && names.contains("WeekMeal"))
+    #expect(names.contains("WeekChangeBatch") && names.contains("WeekChangeEvent"))
     #expect(names.contains("FeedbackEntry") == false)
-    #expect(names.count == 12)
+    #expect(names.count == 16)
 }
 
 // MARK: Field typing

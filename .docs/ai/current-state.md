@@ -173,9 +173,16 @@ shippable + Verify):
     on-sim ✅: a later auto-regen concurrent with a peer's check/override → BOTH converge (qty + check
     + override preserved; blanket LWW would drop the check = Spike-1 corruption); tombstone monotonic
     under concurrent regen. 52/52 package tests green.
-  - [ ] 4 remainder (optional follow-on): Week/WeekMeal record types + the ConflictRepair repair
-    passes (slot-swap, week-collapse, sort-order) wired to the engine; EventGroceryItem/Event merger
-    cases (resolver already built). Phase 5 (event↔week) builds on these.
+  - [x] **4 remainder — Week/WeekMeal/audit manifest types + repair adapter. DONE + VERIFIED LIVE 2026-06-17.**
+    Added `.week/.weekMeal/.weekChangeBatch/.weekChangeEvent` to the HouseholdRecordType manifest
+    (plain-LWW; classification §6.3-confirmed: Week→subtree CASCADE, recipe_id SET-NULL, batch/week
+    CASCADE; .pk recordNames) → auto codec + `migrateHouseholdRecord` + CKDSL (validated clean via
+    cktool). New `HouseholdSync/WeekRepairAdapter` wires the EXISTING pure ConflictRepair passes to
+    the engine: `repairSlots` (slot-swap), `reconcileSortOrder`, `collapseWeeks` (re-parents loser's
+    WeekMeal/WeekChangeBatch refs + GroceryItem weekID strings onto the keeper, then deleteCascading),
+    `pruneAudit` (keep N newest batches/week, cascade-sweep events). 101 package tests; on-sim
+    "Phase 4 — week repair" ✅ all four ops + 2nd-device convergence. FeedbackEntry is the sole
+    remaining deferred manifest type. EventGroceryItem/Event merger cases already shipped in Phase 5.
 - [~] 5 — event↔week cross-aggregate merge. **Corrected spec + Layer A done 2026-06-16.**
   Design via a Sonnet/Haiku design+review workflow (saved Opus rate limits; scored in
   `~/.claude/model-scorecard.md`); the multi-lens review caught multiple BLOCKING bugs in the

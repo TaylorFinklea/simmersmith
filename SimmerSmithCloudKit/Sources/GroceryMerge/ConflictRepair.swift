@@ -123,21 +123,26 @@ public enum ConflictRepair {
     /// lowest `(sortOrder, recordName)`; the rest move to a free slot from the
     /// vocabulary, else a deterministic synthetic slot (never two-in-one-slot).
     public static func repairDuplicateSlots(_ meals: [WeekMeal], slots: [String]) -> [WeekMeal] {
-        var occupied: [String: Set<String>] = [:]   // "week\u1day" → used slots
         func dayKey(_ m: WeekMeal) -> String { "\(m.weekID)\u{1}\(m.dayName)" }
 
         var byCollision: [String: [WeekMeal]] = [:]  // "week\u1day\u1slot" → meals
         for m in meals { byCollision["\(dayKey(m))\u{1}\(m.slot)", default: []].append(m) }
 
+        // PRE-SEED `occupied` with every KEEPER's slot (each group's idx-0 keeper; a singleton's
+        // sole member). Building it lazily during relocation is order-dependent (Swift dict
+        // iteration is unordered): a loser could be relocated onto a slot a not-yet-visited
+        // singleton/keeper already holds — creating a NEW duplicate. Seeding up front fixes that.
+        var occupied: [String: Set<String>] = [:]   // "week\u1day" → settled slots
+        for (_, group) in byCollision {
+            let keeper = group.min { ($0.sortOrder, $0.recordName) < ($1.sortOrder, $1.recordName) }!
+            occupied[dayKey(keeper), default: []].insert(keeper.slot)
+        }
+
         var result: [WeekMeal] = []
         for (_, group) in byCollision {
             let ordered = group.sorted { ($0.sortOrder, $0.recordName) < ($1.sortOrder, $1.recordName) }
             for (idx, var meal) in ordered.enumerated() {
-                if idx == 0 {
-                    occupied[dayKey(meal), default: []].insert(meal.slot)
-                    result.append(meal)
-                    continue
-                }
+                if idx == 0 { result.append(meal); continue }   // keeper — slot already seeded
                 let used = occupied[dayKey(meal)] ?? []
                 if let free = slots.first(where: { !used.contains($0) }) {
                     meal.slot = free

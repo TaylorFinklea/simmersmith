@@ -308,6 +308,65 @@ DEFINE SCHEMA
         GRANT READ, CREATE TO "_icloud"
     );
 
+    // ---- Phase 4-remainder: Week + WeekMeal + audit (plain-LWW manifest records; cross-record
+    //      repair — slot-swap, week-collapse, sort-order, audit-prune — runs in WeekRepairAdapter). ----
+
+    RECORD TYPE Week (
+        weekStart TIMESTAMP QUERYABLE SORTABLE,
+        weekEnd TIMESTAMP,
+        status STRING,
+        notes STRING,
+        readyForAIAt TIMESTAMP,
+        approvedAt TIMESTAMP,
+        pricedAt TIMESTAMP,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE WeekMeal (
+        dayName STRING,
+        mealDate TIMESTAMP,
+        slot STRING,
+        recipeName STRING,
+        servings DOUBLE,
+        scaleMultiplier DOUBLE,
+        source STRING,
+        approved INT64,
+        notes STRING,
+        aiGenerated INT64,
+        sortOrder INT64,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        week REFERENCE,
+        recipe REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE WeekChangeBatch (
+        actorType STRING,
+        actorLabel STRING,
+        summary STRING,
+        createdAt TIMESTAMP,
+        week REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    RECORD TYPE WeekChangeEvent (
+        entityType STRING,
+        entityID STRING,
+        fieldName STRING,
+        beforeValue STRING,
+        afterValue STRING,
+        createdAt TIMESTAMP,
+        batch REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
     // ---- Phase 4: sticky-merge GroceryItem (field-merged via FieldMergeResolver,
     //      NOT blanket LWW). Clocks stored as INT64 logical clocks. ----
 
