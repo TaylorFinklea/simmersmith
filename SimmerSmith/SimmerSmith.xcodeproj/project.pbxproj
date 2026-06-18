@@ -298,6 +298,7 @@
 		D0EDBF32F733FB6791D90373 /* CookingTimerChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookingTimerChip.swift; sourceTree = "<group>"; };
 		D13A1E8751515FDFF85AC9B2 /* CookingModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookingModeView.swift; sourceTree = "<group>"; };
 		D259DF81D5A9A31461E55E26 /* GroceryTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryTabView.swift; sourceTree = "<group>"; };
+		D412DCA60AF1415C46CA1C48 /* SimmerSmith-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "SimmerSmith-Release.entitlements"; sourceTree = "<group>"; };
 		D518A1171D63ABFD56E8F391 /* AIAssistantCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantCoordinator.swift; sourceTree = "<group>"; };
 		D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPantrySupplementSheet.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -703,6 +704,7 @@
 			children = (
 				7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */,
 				E8ED641FC0046AD669A36898 /* Info.plist */,
+				D412DCA60AF1415C46CA1C48 /* SimmerSmith-Release.entitlements */,
 				577414F6ADB8299D9172472F /* SimmerSmith.entitlements */,
 				4B4A178409352DE229F50741 /* App */,
 				85E10677AB3A0D9FDCF6A879 /* DesignSystem */,
@@ -1049,7 +1051,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 108;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1163,9 +1165,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "SimmerSmith/SimmerSmith-Release.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 108;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
