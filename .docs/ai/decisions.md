@@ -868,3 +868,38 @@ Ran the `CoexistenceSpike` live on the iPad sim signed into Taylor's iCloud (con
 - ✅ **Manual CloudKit** — custom zone + record round-trip ('manual stack') + a `CKDatabaseSubscription`, i.e. the primitives a `CKSyncEngine` drives.
 
 No token/zone/notification clash between the two. **Decision: Phase 1's per-user PRIVATE plane uses `NSPersistentCloudKitContainer`** — it auto-manages the CD_-prefixed schema + LWW for the bulk per-user types (profile/prefs/assistant transcript), and 0.5 proves a custom CKSyncEngine-style stack can coexist in the same container for the grocery-merge types (Phase 4) that need explicit field-merge. We do **NOT** need to go CKSyncEngine-everywhere. (Had either half failed — esp. a change-token/zone/notification clash — the fallback was a single uniform CKSyncEngine stack for all planes.) This unblocks Phase 1 implementation. Phase 0 custom-zone round-trip also returned ✅ live (`round-trip name = Phase 0 Test`), proving the `HouseholdZoneProvisioner` write/read path end-to-end.
+
+## 2026-06-17 — SP-A residual decisions: Phases 6 / 8 / 9 unblocked (build-all directive)
+
+User directed "go through all remaining phases at once," so the three residual §11 decisions are
+taken as defensible defaults (build now; revisit if the product calls for it):
+
+- **PUBLIC catalog (Phase 6) ships as a FROZEN ONE-TIME SEED.** The curator identity (SP-E small
+  server running USDA/OFF ingest + governance promotion) is separate infra not yet scoped, so PUBLIC
+  is curator-seeded once, read-only on device; `submitted`/`rejected` are **inert local flags** until
+  the curation server exists (spec §8.1). The client gets the READ path now (`PublicCatalogReader`:
+  cache common head → `CKQuery` PUBLIC by `normalizedName` on miss → caller mints a `household_only`
+  fallback). No client write-to-PUBLIC path is built (by construction — arbitrary writes would corrupt
+  the global catalog). When SP-E lands, the submission flow (household writes `submission_status='submitted'`
+  to its OWN shared zone; curator republishes approved rows to PUBLIC out-of-band) layers on additively.
+
+- **Dormant-user policy (Phase 9) = INDEFINITE COEXISTENCE HOLD.** The app never force-evicts a
+  household that hasn't launched the iOS-26 build; it keeps working off its last-synced CloudKit state.
+  Rationale: the CloudKit data is the user's own (no server cost pressure to evict), matching the
+  no-forced-payment / low-pressure ethos. No comms-then-sunset date. SP-D (server retirement) proceeds
+  once *active* households confirm their own migration receipt.
+
+- **Migration-completeness signal (Phase 9) lives IN CloudKit, per-household — NO central operator
+  view.** Because the server is being retired, there is no central place to aggregate "X% of households
+  migrated." The per-household `MigrationReceipt` (in-zone, written by Phase 7's runner) IS the
+  completeness signal; a thin client `MigrationLedger` reports the LOCAL household's status
+  (notStarted/complete) + per-type record counts. Aggregate operator reporting is explicitly out of
+  scope in the server-retired end-state (the spec's "operator view of remaining un-migrated households"
+  presumed a surviving server; it doesn't survive).
+
+- **AI seam (Phase 8) SP-A slice = the routing seam + a dropped-table audit; AFM-3 measurement stays
+  iOS-27-GA-gated.** `AIProviderKit` (ProviderRouter tier-selection + KeychainKeyStore + provider
+  stubs) is already built. SP-A's job is to confirm the seam routes light→on-device / heavy→cloud and
+  that NO data-plane code path consults a dropped `Subscription`/`UsageCounter`/server-push record
+  (audit: SP-A CloudKit sources are clean — the only "subscription" hits are legitimate `CKSubscription`).
+  Real backends + the on-device AFM-3 measurement are SP-B / iOS-27 GA.

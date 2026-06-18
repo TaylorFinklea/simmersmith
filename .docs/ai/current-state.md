@@ -212,7 +212,16 @@ shippable + Verify):
     **Engine fix:** field-merge gated on a PENDING local edit (a no-edit fetch takes the remote — else
     a deliberate unmerge's nil event_quantity gets resurrected). On-sim 5b/5c/5d all ✅; 4/4b regression ✅.
     68 package tests. **Phase 5 COMPLETE.**
-- [ ] 6 — PUBLIC catalog read (coupled to SP-E curator infra).
+- [x] **6 — PUBLIC catalog read. DONE 2026-06-17 (frozen-seed decision, decisions.md).** New
+  `CloudKitProvisioning/PublicCatalogReader`: read-only PUBLIC catalog access (spec §8) — actor cache +
+  cursor-paginated CKQuery by normalizedName (resolve order §8.2: cache → PUBLIC query → nil → caller mints
+  household_only), client-side approved+active filter (only normalizedName/builtIn queryable), dedup-on-read by
+  latest updatedAt. RecipeTemplate added to the schema (cktool-validated). NO client write path by construction.
+  Designed via a kimi/minimax pi fan-out; 8-finding Sonnet review folded (cursor pagination, active filter,
+  empty-cache poisoning, Date capture). On-sim ✅: the §8.1 invariant proven LIVE — a client PUBLIC write is
+  REJECTED (catalog is curator-only) — plus graceful read-miss. ⚠️ Happy-path read-back of seeded data needs a
+  curator PUBLIC seed (cktool USER token expired → manual re-auth, or the dashboard); reader logic verified by
+  compile + schema-validation + review. Submissions stay inert until the SP-E curator server exists.
 - [~] 7 — migration import + cutover (MigrationReceipt sentinel). **Transform layer started 2026-06-17.**
   `GroceryMerge/MigrationTransforms.swift`: `migrateGroceryItem([String:Any]) -> GroceryItem?` — defensive
   Postgres-row(JSON snake_case) → value-type transform (NSNull/NSNumber/Bool-as-Int/type-mismatch → default;
@@ -235,8 +244,19 @@ shippable + Verify):
   parser per qwen/kimi/sonnet). Wired into MigrationRunner (`householdRecords` Export map) + on-sim recipe path.
   98 package tests green. Gates SP-D. **Remaining 7:** the real Postgres→JSON export endpoint (the runner's
   input shape) — under-specified until cutover; the transforms accept Postgres-column snake_case keys.
-- [ ] 8 — AI seam + on-device platform handoff.
-- [ ] 9 — migration cutover close (status ledger; gates SP-D).
+- [x] **8 — AI seam (SP-A slice). DONE 2026-06-17 (confirmation).** `AIProviderKit` already implements §7.2
+  routing (`ProviderRouter.tier`: light→on-device, heavy→cloud, on-device-heavy gated on Spike2/iOS27) +
+  `KeychainKeyStore` + provider stubs; 5 `SelectionTests` cover the exact verify criteria. Dropped-table audit
+  CLEAN: zero SP-A data-plane references to dropped Subscription/UsageCounter/server-push records (the
+  "subscription" hits are legit CKSubscription; "credits" is the forward credits-gateway config flag). Real
+  backends + the on-device AFM-3 measurement = SP-B / iOS-27 GA (deferred).
+- [x] **9 — migration cutover close. DONE (headless) 2026-06-17.** New `HouseholdSync/MigrationLedger`:
+  CloudKit-native per-household completeness signal — status (.notStarted/.complete) gated on the
+  MigrationReceipt sentinel (the same one the runner writes + checks), plus a zone census (recordCounts,
+  receipt excluded). Dormant-user policy = `.indefiniteHold` (never force-evict — decisions.md). NO central
+  operator view (server retired; each device owns its zone). Designed via a qwen pi draft; headless test
+  (status + census + sentinel-exclusion); 0 review findings. SP-D retires the server once active households
+  report `.complete`. Gates SP-D.
 
 Residual decisions (§11): ownership-transfer (pin-to-owner rec.) · dormant-user
 sunset · SP-E curator soon vs frozen PUBLIC seed.

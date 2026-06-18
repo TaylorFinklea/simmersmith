@@ -425,3 +425,22 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Phase 6: PUBLIC catalog — RecipeTemplate (built-in templates, curator-owned in the
+    //      PUBLIC db; the recipeTemplateID cross-DB-String target). Read-only on device
+    //      (PublicCatalogReader); the client never writes PUBLIC. builtIn QUERYABLE for the
+    //      template list, slug QUERYABLE for lookup. ----
+
+    RECORD TYPE RecipeTemplate (
+        slug STRING QUERYABLE,
+        name STRING,
+        description STRING,
+        sectionOrderJSON STRING,
+        shareSource INT64,
+        shareMemories INT64,
+        builtIn INT64 QUERYABLE,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
