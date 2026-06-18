@@ -24,6 +24,7 @@ app_data/
 *.pyo
 *.pyd
 AuthKey*.p8
+*.mobileprovision
 .release-ios.env
 client_*.apps.googleusercontent.com.plist
 GoogleService-Info.plist
