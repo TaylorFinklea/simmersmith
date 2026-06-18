@@ -218,10 +218,12 @@ shippable + Verify):
   household_only), client-side approved+active filter (only normalizedName/builtIn queryable), dedup-on-read by
   latest updatedAt. RecipeTemplate added to the schema (cktool-validated). NO client write path by construction.
   Designed via a kimi/minimax pi fan-out; 8-finding Sonnet review folded (cursor pagination, active filter,
-  empty-cache poisoning, Date capture). On-sim ✅: the §8.1 invariant proven LIVE — a client PUBLIC write is
-  REJECTED (catalog is curator-only) — plus graceful read-miss. ⚠️ Happy-path read-back of seeded data needs a
-  curator PUBLIC seed (cktool USER token expired → manual re-auth, or the dashboard); reader logic verified by
-  compile + schema-validation + review. Submissions stay inert until the SP-E curator server exists.
+  empty-cache poisoning, Date capture). On-sim ✅ FULLY VERIFIED LIVE: (1) §8.1 invariant — a client PUBLIC
+  write is REJECTED (catalog is curator-only); (2) graceful read-miss → nil; (3) happy path —
+  resolveBaseIngredient reads a curator-seeded BaseIngredient ('catalogtest-tomato') with correct fields via the
+  cache→CKQuery path; (4) recipeTemplates() reads a built-in via the builtIn==1 query. Fixtures seeded out-of-band
+  via `cktool create-record --database-type public` (the faithful curator path; they persist in PUBLIC dev for
+  the on-sim check). Submissions stay inert until the SP-E curator server exists.
 - [~] 7 — migration import + cutover (MigrationReceipt sentinel). **Transform layer started 2026-06-17.**
   `GroceryMerge/MigrationTransforms.swift`: `migrateGroceryItem([String:Any]) -> GroceryItem?` — defensive
   Postgres-row(JSON snake_case) → value-type transform (NSNull/NSNumber/Bool-as-Int/type-mismatch → default;

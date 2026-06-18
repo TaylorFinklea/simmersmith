@@ -1027,9 +1027,28 @@ func runPublicCatalogCheck() async -> String {
         try expect(miss == nil, "an unseeded name must resolve nil, got \(String(describing: miss))")
         log.append("resolveBaseIngredient on unseeded PUBLIC → nil (graceful degrade) ✅")
 
-        return "✅ Phase 6 PUBLIC catalog read-only\n" + log.joined(separator: "\n")
-            + "\nNOTE: happy-path read-back needs a curator PUBLIC seed (cktool user token / dashboard);"
-            + " reader is schema-validated + adversarially reviewed."
+        // 3. Happy path: a curator-seeded catalog fixture (written out-of-band via cktool) reads back
+        //    through the cache→CKQuery path. PUBLIC index is eventually consistent → retry generously.
+        var row: CatalogRow?
+        for _ in 0...19 {
+            row = await reader.resolveBaseIngredient(normalizedName: "catalogtest-tomato")
+            if row != nil { break }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        try expect(row?.name == "Tomato" && row?.string("category") == "produce" && row?.number("calories") == 18,
+                   "happy-path resolve of catalogtest-tomato: \(String(describing: row))")
+        log.append("resolveBaseIngredient('catalogtest-tomato') → 'Tomato' (category+calories) via PUBLIC CKQuery ✅")
+
+        var templates: [CatalogRow] = []
+        for _ in 0...19 {
+            templates = await reader.recipeTemplates()
+            if templates.contains(where: { $0.name == "Weeknight Standard" }) { break }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        try expect(templates.contains { $0.name == "Weeknight Standard" }, "recipeTemplates: \(templates.map(\.name))")
+        log.append("recipeTemplates() → built-in 'Weeknight Standard' via builtIn==1 query ✅")
+
+        return "✅ Phase 6 PUBLIC catalog read\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
 #endif
