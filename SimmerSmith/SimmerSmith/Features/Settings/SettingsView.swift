@@ -536,17 +536,17 @@ struct SettingsView: View {
                 }
             }
 
-            #if DEBUG
-            Section {
-                NavigationLink {
-                    CloudKitDebugView()
-                } label: {
-                    Label("CloudKit checks", systemImage: "cloud")
+            if DebugGate.showsCloudKitChecks {
+                Section {
+                    NavigationLink {
+                        CloudKitDebugView()
+                    } label: {
+                        Label("CloudKit checks", systemImage: "cloud")
+                    }
+                } header: {
+                    SmithSectionHeader("developer")
                 }
-            } header: {
-                SmithSectionHeader("developer")
             }
-            #endif
         }
         .scrollContentBackground(.hidden)
         .paperBackground()

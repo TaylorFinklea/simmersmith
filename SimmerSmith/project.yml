@@ -39,21 +39,18 @@ targets:
         DEVELOPMENT_TEAM: K7CBQW6MPG
         PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios
         PRODUCT_NAME: SimmerSmith
+        # iCloud/CloudKit entitlement in BOTH configs now: the CloudKit-checks panel is reachable in
+        # TestFlight (gated on DEBUG || isTestFlight), so Release needs CloudKit at runtime to test
+        # the SP-A work on-device. The distribution archive uses AUTOMATIC signing (ExportOptions) so
+        # Xcode regenerates the App Store profile WITH iCloud — manual signing's named profile lacked
+        # it (build 108 had to strip iCloud from Release; build 109 puts it back via automatic signing).
+        CODE_SIGN_ENTITLEMENTS: SimmerSmith/SimmerSmith.entitlements
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: SimmerSmith/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
-        CURRENT_PROJECT_VERSION: 108
+        CURRENT_PROJECT_VERSION: 109
         MARKETING_VERSION: 1.0.0
-      configs:
-        # Debug carries the iCloud/CloudKit entitlement for the SP-A sim work (the DEBUG-only
-        # CloudKit-checks panel). Release drops it — the panel is #if DEBUG so Release uses no
-        # CloudKit at runtime, and the "SimmerSmith App Store" distribution profile (shipped
-        # build 106) has no iCloud capability. Keeps the TestFlight archive signing cleanly.
-        Debug:
-          CODE_SIGN_ENTITLEMENTS: SimmerSmith/SimmerSmith.entitlements
-        Release:
-          CODE_SIGN_ENTITLEMENTS: SimmerSmith/SimmerSmith-Release.entitlements
   SimmerSmithTests:
     type: bundle.unit-test
     platform: iOS

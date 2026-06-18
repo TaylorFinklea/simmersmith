@@ -6,15 +6,13 @@
 	<string>app-store-connect</string>
 	<key>teamID</key>
 	<string>K7CBQW6MPG</string>
+	<!-- AUTOMATIC signing: the app now carries the iCloud entitlement, and the previously-named
+	     manual "SimmerSmith App Store" profile predates iCloud (it lacks the capability, so the
+	     build-108 manual export failed). Automatic + -allowProvisioningUpdates + the ASC API key
+	     lets Xcode regenerate the distribution profile with iCloud (enabled on the App ID). Upload
+	     auth still uses the API key (-authenticationKey* in release-ios.sh), per the 2026-04-29 ADR. -->
 	<key>signingStyle</key>
-	<string>manual</string>
-	<key>provisioningProfiles</key>
-	<dict>
-		<key>app.simmersmith.ios</key>
-		<string>SimmerSmith App Store</string>
-	</dict>
-	<key>signingCertificate</key>
-	<string>Apple Distribution</string>
+	<string>automatic</string>
 	<key>uploadSymbols</key>
 	<true/>
 	<key>destination</key>
