@@ -19,30 +19,33 @@ Move the data plane to CloudKit and the AI plane to the WWDC26 Foundation
 Models framework (on-device AFM 3 / Private Cloud Compute / BYO-key /
 credits), shrinking — not eliminating — the central server. Decisions in
 `decisions.md` (2026-06-15); spec `phases/cloudkit-migration-spikes-spec.md`.
-**Status (2026-06-15):** spikes done — Spike 1 **GO** (grocery is CloudKit-safe on
-`CKSyncEngine` + a field-merge resolver; blanket LWW unsafe), Spike 2 harness ready
-(run at iOS 27 GA). **SP-A data-plane spec written** (`phases/cloudkit-sp-a-spec.md`,
-11-agent blueprint, adversarially reviewed). **Next action: provision a CloudKit
-container under the dev team** — it gates Phase 0 onward (see current-state
-`## Plan — SP-A`). Locked: Apple-only accepted · MCP dropped · no forced payment
-(BYO-key/credits) · in-place migration. Landmine: CloudKit schema is additive-only —
-the Phase 0 recordName-policy + field table is irreversible; **freeze the Production
-schema before any user data syncs.**
+**Status (2026-06-18): SP-A data plane COMPLETE.** All Phases 0–9 built + verified live on-sim against
+real CloudKit, and now exposed for ON-DEVICE testing via **TestFlight build 109**. Container
+`iCloud.app.simmersmith.cloud` provisioned; dev schema deployed + validated. Built + verified (detail in
+current-state `## Plan — SP-A` + `decisions.md`): household zone + CKSyncEngine sync, cross-account
+CKShare, sticky grocery + event↔week field-merge, CKAsset imagery, Week/WeekMeal repair (slot-swap /
+collapse / audit-prune), the Postgres→CloudKit migration runner + all 12 record-type transforms, PUBLIC
+catalog read, the AI-provider seam, and the migration-status ledger. Each piece was adversarially
+reviewed (Sonnet workflows + the pi fleet) — see `~/.claude/model-scorecard.md`.
 
-iOS is on build 93 (TestFlight). Admin portal v2 (builds 94–95)
-deployed to Fly + Cloudflare on 2026-05-13 — operator visibility into
-per-user usage + estimated cost, plus manual Pro grant/revoke at
-admin.simmersmith.app. The Fusion redesign rollout is complete
-(builds 58–79). Builds 80–92 were almost entirely dogfood-driven
-fixes from Taylor + Savanne on TestFlight.
+⚠️ **The CloudKit code is wired into the app ONLY behind the DEBUG/TestFlight CloudKit-checks panel** —
+it does NOT yet back the user-facing features (weeks/grocery/recipes/events still use the Fly backend).
+Locked: Apple-only · MCP dropped · no forced payment · in-place migration. Landmine: CloudKit schema is
+additive-only — the recordName-policy + field table is irreversible.
 
-Open follow-ups:
-- Smoke-test admin v2 in the browser (user-detail page, grant a Pro
-  override, edit a cost rate, confirm spend numbers move).
-- Continue dogfood triage from Taylor + Savanne.
-- Reconcile M5 status — the freemium/subscription/paywall
-  infrastructure exists despite the roadmap marking M5 deferred (see
-  current-state.md note). Next milestone-planning pass resolves this.
+**Pending (user, to finish on-device CloudKit testing of build 109):**
+- CloudKit Dashboard → container → Schema → **"Deploy Schema Changes to Production"** (TestFlight uses
+  the Production CloudKit env; cktool can't deploy to prod). Then the Phase 0–9 checks pass on device.
+- Optional: flip `aps-environment` to `production` (currently `development`) if push should work on TestFlight.
+
+**Next big step (unblocked, needs planning first): wire the CloudKit data plane into the app's real
+features** — replace the Fly API calls for weeks/grocery/recipes/events with the CloudKit stores. That's
+the actual app cutover. SP-D (Fly retirement) follows once migration completeness is confirmed; SP-B (AI
+tiering / on-device AFM) waits for iOS 27 GA.
+
+Older open follow-ups (pre-CloudKit, still valid):
+- Smoke-test admin v2 in the browser; continue dogfood triage from Taylor + Savanne.
+- Reconcile M5 freemium status (infra exists despite the old "deferred" marking — see current-state).
 
 ### Awaiting User / External
 - **CloudKit Phases 0 / 0.5 / 1 — DONE + VERIFIED LIVE on-sim (2026-06-15).** iPad sim

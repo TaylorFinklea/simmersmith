@@ -903,3 +903,29 @@ taken as defensible defaults (build now; revisit if the product calls for it):
   that NO data-plane code path consults a dropped `Subscription`/`UsageCounter`/server-push record
   (audit: SP-A CloudKit sources are clean — the only "subscription" hits are legitimate `CKSubscription`).
   Real backends + the on-device AFM-3 measurement are SP-B / iOS-27 GA.
+
+## 2026-06-18 — On-device TestFlight CloudKit testing + Phase-6 PUBLIC-write finding
+
+SP-A CloudKit data plane verified ON A REAL DEVICE via TestFlight (builds 109–112): the in-app
+"CloudKit checks" panel (Settings → developer, gated DEBUG || TestFlight sandboxReceipt) runs all
+phases against the user's real iCloud account in the **Production** CloudKit environment. Getting
+there required: schema deployed to Production via the CloudKit Dashboard "Deploy Schema Changes to
+Production" (cktool can't write prod schema), iCloud entitlement in Release + a portal-regenerated
+App Store provisioning profile with iCloud (manual signing — the ASC API key can't cloud-create
+profiles), and the catalog fixtures seeded to prod PUBLIC via `cktool create-record --environment
+production` (record CRUD works against prod even though schema import doesn't). Build 110 added a
+"RUN ALL CHECKS" button (unified pass/fail); 111 fixed a false-fail (count a ❌ only when it starts
+a line); 112 auto-retries transient network blips once.
+
+**REAL FINDING (Phase 6 §8.1 invariant, caught on-device): the deployed Production schema grants
+`_icloud` the CREATE permission on the PUBLIC catalog types, so any client can WRITE the global
+catalog** — violating "the client cannot write public; a curator must" (spec §8.1). Root cause: the
+manifest CKDSL generator emits `GRANT READ, CREATE TO "_icloud"` for every type; that's fine for the
+private/shared household types (their writes are owner/participant-authorized, not role-based) but
+WRONG for the PUBLIC catalog types. **Fix (SP-E curator hardening, TODO):** in the CloudKit Dashboard,
+set the `_icloud` role to Read-only (remove Create/Write) on **BaseIngredient, IngredientVariation,
+RecipeTemplate**, then Deploy to Production. Consequence: curator seeding then needs a CloudKit
+server-to-server key (the cktool USER token becomes read-only on those types) — that server-key
+curator path IS the SP-E infrastructure. The share-link publish path + household submissions are
+unaffected (they don't write those catalog types to PUBLIC). Left RED in the on-device run-all as a
+deliberate, tracked exception; the data plane itself is fully green.
