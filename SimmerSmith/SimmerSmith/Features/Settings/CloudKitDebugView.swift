@@ -157,13 +157,19 @@ struct CloudKitDebugView: View {
             var passed = 0
             for (index, item) in checks.enumerated() {
                 output = "Running \(index + 1)/\(checks.count): \(item.0)…\n\n" + lines.joined(separator: "\n")
-                let result = await item.1()
                 // Failure = a line that STARTS with ❌ (an actual status), not a ❌ buried in prose
                 // (e.g. Phase 0.5's "→ Either ❌ ⇒ …" explanation, which is NOT a failure).
-                let hasFailureLine = result.split(separator: "\n").contains {
-                    $0.trimmingCharacters(in: .whitespaces).hasPrefix("❌")
+                func failedLine(_ r: String) -> Bool {
+                    r.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("❌") }
                 }
-                let ok = result.contains("✅") && !hasFailureLine
+                var result = await item.1()
+                // Retry ONCE on a transient blip — a dropped connection / rate-limit in one of 15
+                // network-heavy checks shouldn't sink the whole batch.
+                if failedLine(result), Self.isTransientFailure(result) {
+                    output = "Retrying \(index + 1)/\(checks.count): \(item.0) (transient blip)…\n\n" + lines.joined(separator: "\n")
+                    result = await item.1()
+                }
+                let ok = result.contains("✅") && !failedLine(result)
                 if ok { passed += 1 } else { failures.append("──────── \(item.0) ────────\n\(result)") }
                 lines.append("\(ok ? "✅" : "❌")  \(item.0)")
             }
@@ -177,6 +183,15 @@ struct CloudKitDebugView: View {
             output = out
             running = false
         }
+    }
+
+    /// A failure that's likely a transient blip (dropped connection, rate-limit, service hiccup),
+    /// worth one retry — vs a real assertion failure, which we report as-is.
+    private static func isTransientFailure(_ s: String) -> Bool {
+        let lower = s.lowercased()
+        return ["network failure", "network connection was lost", "nsurlerrordomain",
+                "service unavailable", "request rate", "rate limited", "timed out",
+                "try again", "zone busy"].contains { lower.contains($0) }
     }
 }
 
