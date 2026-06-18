@@ -22,6 +22,19 @@ struct CloudKitDebugView: View {
     var body: some View {
         Form {
             Section {
+                Button {
+                    runAllChecks()
+                } label: {
+                    Label("RUN ALL CHECKS", systemImage: "play.circle.fill")
+                        .fontWeight(.bold)
+                }
+            } header: {
+                SmithSectionHeader("run everything")
+            } footer: {
+                Text("Runs every single-device check in sequence and reports one unified pass/fail summary. (The 2c PARTICIPANT cross-account share is excluded — it needs a 2nd iCloud account on a 2nd device.)")
+            }
+
+            Section {
                 Button("Phase 0 — HouseholdProfile round-trip") {
                     run { "round-trip name = \(try await HouseholdZoneProvisioner().verifyRoundTrip())" }
                 }
@@ -107,6 +120,56 @@ struct CloudKitDebugView: View {
         output = "Running…"
         Task {
             output = await op()
+            running = false
+        }
+    }
+
+    /// Run every single-device check in sequence, streaming progress, then show one unified
+    /// pass/fail summary + the full output of any failures. A check counts as PASSED iff its
+    /// output contains "✅" and no "❌" (so Phase 0.5's partial NSPCKC-✅/manual-❌ reads as a
+    /// failure correctly). 2c PARTICIPANT is excluded — it needs a 2nd account on a 2nd device.
+    private func runAllChecks() {
+        running = true
+        output = "Running ALL checks…"
+        Task {
+            let checks: [(String, () async -> String)] = [
+                ("Phase 0 — HouseholdProfile", {
+                    do { return "✅ round-trip = \(try await HouseholdZoneProvisioner().verifyRoundTrip())" }
+                    catch { return "❌ \(error)" }
+                }),
+                ("Phase 0.5 — coexistence", { await CoexistenceSpike().run() }),
+                ("Phase 1 — private plane", { await runPrivatePlaneCheck() }),
+                ("Phase 2 — household sync", { await runHouseholdSyncCheck() }),
+                ("Phase 2b — typed records", { await runHouseholdRecordsCheck() }),
+                ("Phase 2c — OWNER share", { await runShareOwnerCheck() }),
+                ("Phase 3 — recipe image", { await runRecipeImageCheck() }),
+                ("Phase 4 — sticky grocery", { await runGroceryMergeCheck() }),
+                ("Phase 4b — event-grocery", { await runEventGroceryMergeCheck() }),
+                ("Phase 4 — week repair", { await runWeekRepairCheck() }),
+                ("Phase 5b — event pin", { await runEventPinCheck() }),
+                ("Phase 5c — event↔week", { await runEventWeekCheck() }),
+                ("Phase 5d — grocery dedupe", { await runDedupeRepairCheck() }),
+                ("Phase 6 — PUBLIC catalog", { await runPublicCatalogCheck() }),
+                ("Phase 7 — migrate household", { await runMigrationCheck() }),
+            ]
+            var lines: [String] = []
+            var failures: [String] = []
+            var passed = 0
+            for (index, item) in checks.enumerated() {
+                output = "Running \(index + 1)/\(checks.count): \(item.0)…\n\n" + lines.joined(separator: "\n")
+                let result = await item.1()
+                let ok = result.contains("✅") && !result.contains("❌")
+                if ok { passed += 1 } else { failures.append("──────── \(item.0) ────────\n\(result)") }
+                lines.append("\(ok ? "✅" : "❌")  \(item.0)")
+            }
+            var out = "▶︎ RUN ALL — \(passed)/\(checks.count) passed"
+                + (passed == checks.count ? "  🎉" : "")
+                + "\n\n" + lines.joined(separator: "\n")
+            if !failures.isEmpty {
+                out += "\n\n━━━━━━━ failure details ━━━━━━━\n\n" + failures.joined(separator: "\n\n")
+            }
+            out += "\n\n(2c PARTICIPANT cross-account share = separate 2-device test.)"
+            output = out
             running = false
         }
     }
