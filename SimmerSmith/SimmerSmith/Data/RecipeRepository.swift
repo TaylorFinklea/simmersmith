@@ -24,7 +24,7 @@ import HouseholdSync
 // Derived fields computed in reload() from the full in-memory recipe set:
 //   - isVariant: recipe.baseRecipeId != nil
 //   - variantCount: count of recipes whose baseRecipeId == this recipe's recipeId
-//   - sourceRecipeCount: always 1 (CloudKit recipes don't carry server-aggregated sourcing)
+//   - sourceRecipeCount: always 0 (derived; repository recomputes — never fabricate)
 //   - daysSinceLastUsed: Calendar.current.dateComponents from lastUsed to now (nil when absent)
 //   - familyDaysSinceLastUsed: same from familyLastUsed (always nil — not stored in CloudKit records)
 //
@@ -45,6 +45,10 @@ final class RecipeRepository {
     // MARK: - Observable state
 
     private(set) var recipes: [RecipeSummary] = []
+
+    /// Set when `sendUntilDrained()` fails on any write path. Task 5 / the UI can
+    /// observe this to surface a sync-error banner and retry button.
+    private(set) var lastSyncError: Error?
 
     // MARK: - Plumbing
 
@@ -231,16 +235,30 @@ final class RecipeRepository {
         }
     }
 
+    /// Drain pending CloudKit writes. Logs failures and surfaces them via `lastSyncError`
+    /// so Task 5 / the UI can observe and offer a retry. Does NOT throw — the caller's
+    /// local write already succeeded; this is a background network flush.
+    private func drainSync() async {
+        do {
+            try await session.engine.sendUntilDrained()
+            lastSyncError = nil
+        } catch {
+            print("[RecipeRepository] sendUntilDrained failed: \(error)")
+            lastSyncError = error
+        }
+    }
+
     // MARK: - Save
 
     /// Save a `RecipeDraft`: build a `RecipeSummary`, map to CloudKit records, diff and
     /// apply child changes, reload, and return the reloaded summary. Kicks
-    /// `engine.sendUntilDrained()` in a background task after writes.
+    /// `engine.sendUntilDrained()` in a background task after writes. Throws if the
+    /// draft→summary encoding fails (guards against `RecipeSummary` Codable contract drift).
     @discardableResult
-    func save(_ draft: RecipeDraft) -> RecipeSummary {
+    func save(_ draft: RecipeDraft) throws -> RecipeSummary {
         // Build a RecipeSummary from the draft (the mapper needs a RecipeSummary).
         let recipeID = draft.recipeId ?? UUID().uuidString
-        let summary = draftToSummary(draft, recipeID: recipeID)
+        let summary = try draftToSummary(draft, recipeID: recipeID)
 
         // Map to CloudKit records.
         let mapped = RecipeRecordMapper.records(from: summary)
@@ -258,8 +276,7 @@ final class RecipeRepository {
 
         // Push to CloudKit in background.
         Task { [weak self] in
-            guard let self else { return }
-            try? await self.session.engine.sendUntilDrained()
+            await self?.drainSync()
         }
 
         // Return the reloaded summary (or fall back to the mapped one if not found yet).
@@ -268,12 +285,15 @@ final class RecipeRepository {
 
     /// Build a `RecipeSummary` from a `RecipeDraft` via JSON round-trip. Derived fields
     /// (isVariant etc.) are left as defaults; reload() will recompute them.
-    private func draftToSummary(_ draft: RecipeDraft, recipeID: String) -> RecipeSummary {
+    /// Throws if the hand-built dict no longer matches `RecipeSummary`'s Codable contract.
+    private func draftToSummary(_ draft: RecipeDraft, recipeID: String) throws -> RecipeSummary {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
+        // sourceRecipeCount: 0 (derived; reload() recomputes from the full recipe set —
+        // never fabricate a non-zero value here or it will disagree with reloaded copies).
         var dict: [String: Any] = [
             "recipeId": recipeID,
             "name": draft.name,
@@ -293,17 +313,17 @@ final class RecipeRepository {
             "isVariant": draft.baseRecipeId != nil,
             "overrideFields": [String](),
             "variantCount": 0,
-            "sourceRecipeCount": 1,
-            "updatedAt": ISO8601DateFormatter().string(from: Date()),
+            "sourceRecipeCount": 0,
+            "updatedAt": Self.iso8601Formatter.string(from: Date()),
         ]
-        if let v = draft.servings       { dict["servings"] = v }
-        if let v = draft.prepMinutes    { dict["prepMinutes"] = v }
-        if let v = draft.cookMinutes    { dict["cookMinutes"] = v }
+        if let v = draft.servings        { dict["servings"] = v }
+        if let v = draft.prepMinutes     { dict["prepMinutes"] = v }
+        if let v = draft.cookMinutes     { dict["cookMinutes"] = v }
         if let v = draft.difficultyScore { dict["difficultyScore"] = v }
-        if let v = draft.lastUsed       { dict["lastUsed"] = ISO8601DateFormatter().string(from: v) }
-        if let v = draft.baseRecipeId   { dict["baseRecipeId"] = v }
+        if let v = draft.lastUsed        { dict["lastUsed"] = Self.iso8601Formatter.string(from: v) }
+        if let v = draft.baseRecipeId    { dict["baseRecipeId"] = v }
         if let v = draft.recipeTemplateId { dict["recipeTemplateId"] = v }
-        if let v = draft.imageUrl       { dict["imageUrl"] = v }
+        if let v = draft.imageUrl        { dict["imageUrl"] = v }
 
         // Children (encode via JSONEncoder since RecipeIngredient/RecipeStep are Codable).
         let ingredientDicts: [[String: Any]] = (try? encoder.encode(draft.ingredients))
@@ -313,12 +333,25 @@ final class RecipeRepository {
         dict["ingredients"] = ingredientDicts
         dict["steps"] = stepDicts
 
-        let data = try! JSONSerialization.data(withJSONObject: dict)
-        return try! decoder.decode(RecipeSummary.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: dict)
+        return try decoder.decode(RecipeSummary.self, from: data)
     }
+
+    // MARK: - Date formatting
+
+    /// Shared ISO 8601 formatter — avoids allocating a new instance on every `draftToSummary`
+    /// call (mirrors the static formatter pattern used in RecipeRecordMapper).
+    private static let iso8601Formatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
     /// Diff incoming child records against what's in the store for this recipe.
     /// Save new/changed children; delete removed children individually (not cascading).
+    ///
+    /// Two invariants are load-bearing and must not be "simplified away":
+    ///   1. The `recipe` CKReference filter — substep records carry a `recipe` ref pointing
+    ///      to their parent recipe; filtering by it is what scopes the diff to this recipe.
+    ///   2. RecipeRecordMapper flattens substeps into `steps` — so `newSteps` already
+    ///      contains all step-level records. Removing the filter or changing the mapper's
+    ///      flatten behavior will reintroduce orphaned step records in CloudKit.
     private func diffAndApplyChildren(
         recipeID: String,
         newIngredients: [HouseholdRecordValue],
@@ -363,7 +396,7 @@ final class RecipeRepository {
         existing["updatedAt"] = Date() as CKRecordValue
         session.engine.save(existing)
         reload()
-        Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+        Task { [weak self] in await self?.drainSync() }
     }
 
     func archive(_ recipeId: String) {
@@ -373,7 +406,7 @@ final class RecipeRepository {
         existing["updatedAt"] = Date() as CKRecordValue
         session.engine.save(existing)
         reload()
-        Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+        Task { [weak self] in await self?.drainSync() }
     }
 
     func restore(_ recipeId: String) {
@@ -383,7 +416,7 @@ final class RecipeRepository {
         existing["updatedAt"] = Date() as CKRecordValue
         session.engine.save(existing)
         reload()
-        Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+        Task { [weak self] in await self?.drainSync() }
     }
 
     func delete(_ recipeId: String) {
@@ -398,7 +431,7 @@ final class RecipeRepository {
             session.engine.delete(imageID)
         }
         reload()
-        Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+        Task { [weak self] in await self?.drainSync() }
     }
 
     // MARK: - Images
@@ -435,7 +468,7 @@ final class RecipeRepository {
                 session.engine.save(record)
             }
             reload()
-            Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+            Task { [weak self] in await self?.drainSync() }
         } catch {
             // Staging the asset file failed (disk full, etc.); leave the store untouched.
         }
@@ -448,7 +481,7 @@ final class RecipeRepository {
         guard session.store.record(for: id) != nil else { return }
         session.engine.delete(id)
         reload()
-        Task { [weak self] in try? await self?.session.engine.sendUntilDrained() }
+        Task { [weak self] in await self?.drainSync() }
     }
 }
 #endif
