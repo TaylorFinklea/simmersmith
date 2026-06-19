@@ -65,6 +65,16 @@ final class AppState {
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient
     let subscriptionStore = SubscriptionStore()
+
+    // SP-C Task 5 — CloudKit data plane. Constructed after sign-in once the
+    // household ID is known (from the Fly household snapshot), torn down on
+    // sign-out. nil before sign-in. Guarded by canImport(CloudKit) so the
+    // app target still compiles on platforms without CloudKit.
+    #if canImport(CloudKit)
+    @ObservationIgnored var householdSession: HouseholdSession?
+    @ObservationIgnored var recipeRepository: RecipeRepository?
+    @ObservationIgnored var metadataRepository: MetadataRepository?
+    #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?
@@ -386,6 +396,13 @@ final class AppState {
             await ensurePushBootstrap()
             // Best-effort household snapshot for the Settings UI (M21).
             await refreshHousehold()
+            #if canImport(CloudKit)
+            // SP-C Task 5 — now that the household ID is known (from the Fly snapshot),
+            // construct + boot the CloudKit household session and its repositories. The
+            // recipe data plane reads/writes CloudKit from here on; the CloudKit-aware
+            // overloads in AppState+Recipes route through the repos once this is set.
+            await ensureHouseholdSession()
+            #endif
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
                     .filter(\.isChecked)

@@ -667,7 +667,7 @@ struct RecipeEditorView: View {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             do {
-                let results = try await appState.apiClient.fetchBaseIngredients(query: trimmed, limit: 6)
+                let results = try await appState.fetchBaseIngredients(query: trimmed, limit: 6)
                 if !Task.isCancelled {
                     ingredientSuggestions = results
                 }

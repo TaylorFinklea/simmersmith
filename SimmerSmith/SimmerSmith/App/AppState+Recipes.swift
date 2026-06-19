@@ -2,7 +2,105 @@ import Foundation
 import SimmerSmithKit
 
 extension AppState {
+    // MARK: - SP-C Task 5: CloudKit lifecycle + mirroring
+
+    #if canImport(CloudKit)
+    /// Construct the CloudKit household session + repositories once the household
+    /// ID is known (from the Fly household snapshot). Idempotent — no-op if a
+    /// session already exists. Called from `refreshAll()` after `refreshHousehold()`.
+    func ensureHouseholdSession() async {
+        guard householdSession == nil else { return }
+        guard let householdID = currentHousehold?.householdId, !householdID.isEmpty else { return }
+
+        let session = HouseholdSession(householdID: householdID)
+        await session.start()
+
+        let recipeRepo = RecipeRepository(session: session)
+        let metadataRepo = MetadataRepository(session: session)
+
+        householdSession = session
+        recipeRepository = recipeRepo
+        metadataRepository = metadataRepo
+
+        // Initial kick — the repos auto-reload on session.storeRevision, but need a
+        // first read after construction.
+        recipeRepo.startObserving()
+        metadataRepo.startObserving()
+        recipeRepo.reload()
+        metadataRepo.reloadMetadata()
+
+        // Mirror the repo's projections onto AppState's @Observable stored vars so the
+        // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
+        observeRecipeRepository()
+        observeMetadataRepository()
+        mirrorRecipesFromRepository()
+        mirrorMetadataFromRepository()
+    }
+
+    /// Tear down the CloudKit session + repositories and delete the durable engine
+    /// state so a different household signed in on this device cannot inherit the
+    /// prior sync token. Called from sign-out (`clearHouseholdContext`).
+    func teardownHouseholdSession() {
+        householdSession?.clearState()
+        householdSession = nil
+        recipeRepository = nil
+        metadataRepository = nil
+    }
+
+    /// Re-arm the recipe-repo observation and mirror its `recipes` onto AppState.
+    private func observeRecipeRepository() {
+        guard let repo = recipeRepository else { return }
+        withObservationTracking {
+            _ = repo.recipes
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorRecipesFromRepository()
+                self?.observeRecipeRepository()
+            }
+        }
+    }
+
+    private func observeMetadataRepository() {
+        guard let repo = metadataRepository else { return }
+        withObservationTracking {
+            _ = repo.metadata
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorMetadataFromRepository()
+                self?.observeMetadataRepository()
+            }
+        }
+    }
+
+    private func mirrorRecipesFromRepository() {
+        guard let repo = recipeRepository else { return }
+        recipes = repo.recipes
+        try? cacheStore.saveRecipes(recipes)
+    }
+
+    private func mirrorMetadataFromRepository() {
+        guard let repo = metadataRepository, let metadata = repo.metadata else { return }
+        recipeMetadata = metadata
+        try? cacheStore.saveRecipeMetadata(metadata)
+    }
+    #endif
+
     func refreshRecipes() async {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            // CloudKit data plane: the store is already synced in the background by
+            // HouseholdSession; reload is a local read off the store.
+            syncPhase = .loading
+            repo.reload()
+            metadataRepository?.reloadMetadata()
+            mirrorRecipesFromRepository()
+            mirrorMetadataFromRepository()
+            syncPhase = .synced(.now)
+            return
+        }
+        #endif
+        // Pre-sign-in / no CloudKit session: keep the existing Fly path so cached
+        // content still hydrates (the session is constructed in refreshAll()).
         guard hasSavedConnection else { return }
         syncPhase = .loading
         do {
@@ -13,55 +111,29 @@ extension AppState {
             }
             try? cacheStore.saveRecipes(recipes)
             syncPhase = .synced(.now)
-            // Build 85: migrate any per-device picks taken on
-            // builds 83/84 (UserDefaults) onto the server now that
-            // we have authoritative `recipes` to scope by.
-            Task { [weak self] in await self?.migrateLocalIconOverridesIfNeeded() }
         } catch {
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
         }
     }
 
-    /// One-time migration: takes everything in
-    /// `RecipeIconOverrides.shared.overrides` and PATCHes the
-    /// corresponding server recipe so household members see the
-    /// same glyph. Each successful upload clears the local entry.
-    /// Recipes whose server iconKey is already set are skipped (the
-    /// server is canonical). Recipes that no longer exist locally
-    /// are dropped from UserDefaults.
-    private func migrateLocalIconOverridesIfNeeded() async {
-        let overrides = RecipeIconOverrides.shared.overrides
-        guard !overrides.isEmpty else { return }
-        for (recipeId, iconKey) in overrides {
-            guard let summary = recipes.first(where: { $0.recipeId == recipeId }) else {
-                // Recipe gone — drop the stale entry.
-                RecipeIconOverrides.shared.set(.auto, for: recipeId)
-                continue
-            }
-            if !summary.iconKey.isEmpty {
-                // Server already has a value — local is stale, drop it.
-                RecipeIconOverrides.shared.set(.auto, for: recipeId)
-                continue
-            }
-            var draft = summary.editingDraft()
-            draft.iconKey = iconKey
-            do {
-                _ = try await apiClient.saveRecipe(draft)
-                RecipeIconOverrides.shared.set(.auto, for: recipeId)
-            } catch {
-                // Leave local alone; we'll retry on the next launch.
-            }
-        }
-        // Refresh once after the loop so the in-memory recipes carry
-        // the new iconKeys without requiring another full reload.
-        if let refreshed = try? await apiClient.fetchRecipes(includeArchived: true) {
-            recipes = refreshed
-            try? cacheStore.saveRecipes(refreshed)
-        }
-    }
-
     func fetchRecipe(recipeID: String) async throws -> RecipeSummary {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            // Read from the local store (source of truth offline-first). reload() is a
+            // no-op if nothing changed; the recipe is already in the in-memory set.
+            repo.reload()
+            mirrorRecipesFromRepository()
+            if let summary = repo.recipes.first(where: { $0.recipeId == recipeID }) {
+                return summary
+            }
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Recipe not found in the local store."]
+            )
+        }
+        #endif
         let recipe = try await apiClient.fetchRecipe(recipeID: recipeID)
         upsertRecipe(recipe)
         try? cacheStore.saveRecipes(recipes)
@@ -69,25 +141,41 @@ extension AppState {
         return recipe
     }
 
-    /// Fetch the raw bytes of an AI-generated recipe header image. The
-    /// image route requires bearer auth, so the iOS view layer can't
-    /// just hand the URL to `AsyncImage` — this wrapper goes through
-    /// the authenticated session and returns the body for `UIImage`.
+    /// Fetch the raw bytes of the recipe's header image.
     func fetchRecipeImageBytes(recipeID: String) async throws -> Data {
-        try await apiClient.fetchRecipeImageBytes(recipeID: recipeID)
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            guard let data = await repo.imageBytes(recipeID) else {
+                throw NSError(
+                    domain: "SimmerSmith.RecipeRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Recipe image not available yet."]
+                )
+            }
+            return data
+        }
+        #endif
+        return try await apiClient.fetchRecipeImageBytes(recipeID: recipeID)
     }
 
-    /// Re-roll the AI-generated header image for one recipe. The
-    /// returned recipe replaces the local copy so observers fetch
-    /// the new cache-busted `imageURL` automatically.
+    /// Re-roll the AI-generated header image for one recipe.
     func regenerateRecipeImage(recipeID: String) async throws {
+        // AI TRACK: rewire to AIProviderKit before SP-D — image gen needs a model,
+        // not the data plane. Stays on Fly during the transition.
         let updated = try await apiClient.regenerateRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
     }
 
-    /// Replace the AI image with a user-uploaded photo.
+    /// Replace the recipe image with a user-uploaded photo.
     func uploadRecipeImage(recipeID: String, imageData: Data, mimeType: String = "image/jpeg") async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.setImage(recipeID, imageData, mime: mimeType)
+            mirrorRecipesFromRepository()
+            return
+        }
+        #endif
         let updated = try await apiClient.uploadRecipeImage(
             recipeID: recipeID,
             imageData: imageData,
@@ -99,6 +187,13 @@ extension AppState {
 
     /// Drop the recipe's image entirely (back to the gradient).
     func deleteRecipeImage(recipeID: String) async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.removeImage(recipeID)
+            mirrorRecipesFromRepository()
+            return
+        }
+        #endif
         let updated = try await apiClient.deleteRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
@@ -109,6 +204,9 @@ extension AppState {
     /// success so the new `imageURL` fields show up in lists/detail
     /// without a manual sync.
     func backfillRecipeImages() async throws -> SimmerSmithAPIClient.RecipeImageBackfillResult {
+        // AI TRACK: rewire to AIProviderKit before SP-D — AI header-image generation.
+        // Stays on Fly during the transition; an `async throws` failure surfaces via the
+        // caller's UI error handling rather than crashing.
         let result = try await apiClient.backfillRecipeImages()
         if result.generated > 0 {
             await refreshRecipes()
@@ -165,8 +263,13 @@ extension AppState {
     }
 
     func refreshRecipeMetadata() async {
-        // TASK 5: wire once HouseholdSession is on AppState —
-        //   metadataRepository?.reloadMetadata() and publish to recipeMetadata.
+        #if canImport(CloudKit)
+        if let repo = metadataRepository {
+            repo.reloadMetadata()
+            mirrorMetadataFromRepository()
+            return
+        }
+        #endif
         guard hasSavedConnection else { return }
         do {
             let metadata = try await apiClient.fetchRecipeMetadata()
@@ -178,26 +281,36 @@ extension AppState {
     }
 
     func createManagedListItem(kind: String, name: String) async throws -> ManagedListItem {
-        // TASK 5: wire once HouseholdSession is on AppState —
-        //   return try metadataRepository!.createManagedListItem(kind: kind, name: name)
+        #if canImport(CloudKit)
+        if let repo = metadataRepository {
+            let item = try repo.createManagedListItem(kind: kind, name: name)
+            mirrorMetadataFromRepository()
+            return item
+        }
+        #endif
         let item = try await apiClient.createManagedListItem(kind: kind, name: name)
         await refreshRecipeMetadata()
         return item
     }
 
     func estimateRecipeNutrition(_ draft: RecipeDraft) async throws -> NutritionSummary {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.estimateRecipeNutrition(draft)
     }
 
     func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
+        // AI TRACK: rewire to AIProviderKit before SP-D — nutrition catalog search backs
+        // the AI nutrition flow. Stays on Fly during the transition.
         try await apiClient.searchNutritionItems(query: query, limit: limit)
     }
 
     func importRecipeDraft(fromURL url: String) async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.importRecipe(fromURL: url)
     }
 
     func importRecipeDraft(fromHTML html: String, sourceURL: String, sourceLabel: String = "") async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.importRecipe(fromHTML: html, sourceURL: sourceURL, sourceLabel: sourceLabel)
     }
 
@@ -208,6 +321,7 @@ extension AppState {
         sourceLabel: String = "",
         sourceURL: String = ""
     ) async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.importRecipe(
             fromText: text,
             title: title,
@@ -218,11 +332,13 @@ extension AppState {
     }
 
     func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.generateRecipeVariationDraft(recipeID: recipeID, goal: goal)
     }
 
     /// Ask the backend for AI-generated pairing suggestions (M12 Phase 1).
     func suggestRecipePairings(recipeID: String) async throws -> [PairingOption] {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         let response = try await apiClient.suggestPairings(recipeID: recipeID)
         return response.suggestions
     }
@@ -231,18 +347,45 @@ extension AppState {
     /// to review in the editor before saving — same flow URL/photo
     /// imports take.
     func searchRecipeOnWeb(query: String) async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.searchRecipeOnWeb(query: query)
     }
 
     func generateRecipeSuggestionDraft(goal: String) async throws -> RecipeAIDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.generateRecipeSuggestionDraft(goal: goal)
     }
 
     func generateRecipeCompanionDrafts(recipeID: String) async throws -> RecipeAIOptions {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.generateRecipeCompanionDrafts(recipeID: recipeID)
     }
 
+    /// AI ingredient-substitution suggestions for one recipe ingredient.
+    /// Façade so `SubstitutionSheetView` no longer reaches into `apiClient` directly.
+    func suggestIngredientSubstitutions(
+        recipeID: String,
+        ingredientID: String,
+        hint: String = ""
+    ) async throws -> IngredientSubstituteResponse {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
+        try await apiClient.suggestIngredientSubstitutions(
+            recipeID: recipeID,
+            ingredientID: ingredientID,
+            hint: hint
+        )
+    }
+
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            // Local write to the store (engine syncs in the background); reload + mirror.
+            let saved = try repo.save(draft)
+            mirrorRecipesFromRepository()
+            syncPhase = .synced(.now)
+            return saved
+        }
+        #endif
         // Build 54 perf: only the actual save is on the blocking
         // path. Metadata refresh (cuisines / templates / tags) ran
         // serially after every save and dominated the perceived
@@ -270,11 +413,35 @@ extension AppState {
         prompt: String,
         contextHint: String = ""
     ) async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
         try await apiClient.refineRecipeDraft(
             draft: currentDraft,
             prompt: prompt,
             contextHint: contextHint
         )
+    }
+
+    // MARK: - SP-C Task 5: ingredient catalog façade (§7 leak closure)
+
+    /// Façade for the recipe editor's ingredient autocomplete. The view used to call
+    /// `appState.apiClient.fetchBaseIngredients(...)` directly (§7 leak); it now calls
+    /// this so AppState owns the resolution path.
+    ///
+    /// NOTE (signature divergence from the brief): the brief named the return type
+    /// `[BaseIngredientSummary]`, but no such type exists — the editor binds the result
+    /// of `fetchBaseIngredients` to `[BaseIngredient]`, so the façade returns that.
+    ///
+    /// NOTE (resolution path): `PublicCatalogReader` only exposes EXACT-`normalizedName`
+    /// resolve + batch prefetch (§8.2) — it has no substring/prefix search, which is what
+    /// the editor's live autocomplete needs. CloudKit-backed ingredient search is the
+    /// Ingredient slice's concern (spec §10), not recipe slice 1. During the transition
+    /// (Fly is up and holds the auth token) this delegates to Fly; SP-D / the Ingredient
+    /// slice rewires it to `session.catalog`. Closing the view→apiClient leak here means
+    /// that rewire happens in ONE place.
+    func fetchBaseIngredients(query: String, limit: Int) async throws -> [BaseIngredient] {
+        // CATALOG TRACK: rewire to session.catalog (PublicCatalogReader) when the
+        // Ingredient slice lands; substring search is out of scope for recipe slice 1.
+        try await apiClient.fetchBaseIngredients(query: query, limit: limit)
     }
 
     /// How to apply an AI substitution: mutate the base recipe in place or
@@ -338,6 +505,14 @@ extension AppState {
     }
 
     func archiveRecipe(_ recipe: RecipeSummary) async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.archive(recipe.recipeId)
+            mirrorRecipesFromRepository()
+            syncPhase = .synced(.now)
+            return
+        }
+        #endif
         let archivedRecipe = try await apiClient.archiveRecipe(recipeID: recipe.recipeId)
         upsertRecipe(archivedRecipe)
         try? cacheStore.saveRecipes(recipes)
@@ -345,6 +520,14 @@ extension AppState {
     }
 
     func restoreRecipe(_ recipe: RecipeSummary) async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.restore(recipe.recipeId)
+            mirrorRecipesFromRepository()
+            syncPhase = .synced(.now)
+            return
+        }
+        #endif
         let restoredRecipe = try await apiClient.restoreRecipe(recipeID: recipe.recipeId)
         upsertRecipe(restoredRecipe)
         try? cacheStore.saveRecipes(recipes)
@@ -352,6 +535,14 @@ extension AppState {
     }
 
     func deleteRecipe(_ recipe: RecipeSummary) async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.delete(recipe.recipeId)
+            mirrorRecipesFromRepository()
+            syncPhase = .synced(.now)
+            return
+        }
+        #endif
         // Build 54 hardening: pull a fresh server list right after the
         // 204 lands. Belt-and-suspenders against the dogfood case
         // where a delete *appeared* to succeed but the recipe came

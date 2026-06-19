@@ -24,6 +24,10 @@ final class HouseholdSession {
     let catalog: PublicCatalogReader
     let zoneID: CKRecordZone.ID
     private let householdID: String
+    /// Durable URL of the sync-engine state token. Held so `clearState()` can delete it
+    /// on sign-out — otherwise a different household signed in on this device would
+    /// inherit the prior household's sync token (Task-3 token-leakage risk).
+    private let stateURL: URL
 
     // MARK: — Observable state
 
@@ -59,6 +63,7 @@ final class HouseholdSession {
         // Create the directory if missing (first launch).
         try? FileManager.default.createDirectory(at: syncDir, withIntermediateDirectories: true)
         let stateURL = syncDir.appendingPathComponent("engine-state.json")
+        self.stateURL = stateURL
 
         // Build the local store + engine with automaticSync enabled for production.
         // Construction mirrors CloudKitDebugView.runHouseholdSyncCheck (line 324) and
@@ -112,6 +117,18 @@ final class HouseholdSession {
             // iCloud unavailable, network error, etc. — degrade gracefully.
             syncPhase = .offline
         }
+    }
+
+    // MARK: — Teardown
+
+    /// Delete the durable sync-engine state token. Called on sign-out so a DIFFERENT
+    /// household signed in on this device cannot inherit the prior household's sync
+    /// token (which would mis-key the change feed against the new zone). The session
+    /// object itself is released by AppState after this call; this only clears the
+    /// on-disk token. Idempotent — no-op if the file is already gone.
+    func clearState() {
+        try? FileManager.default.removeItem(at: stateURL)
+        engine.onStoreChanged = nil
     }
 }
 #endif

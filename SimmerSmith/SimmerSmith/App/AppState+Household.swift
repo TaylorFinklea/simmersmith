@@ -86,5 +86,11 @@ extension AppState {
     /// Called from `resetConnection` to clear household context on sign-out.
     func clearHouseholdContext() {
         currentHousehold = nil
+        #if canImport(CloudKit)
+        // SP-C Task 5 — tear down the CloudKit session and DELETE its durable
+        // engine-state token so the next household signed in on this device does not
+        // inherit the prior household's sync token (Task-3 token-leakage risk).
+        teardownHouseholdSession()
+        #endif
     }
 }

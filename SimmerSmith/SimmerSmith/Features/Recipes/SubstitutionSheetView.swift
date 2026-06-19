@@ -225,7 +225,7 @@ struct SubstitutionSheetView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let response = try await appState.apiClient.suggestIngredientSubstitutions(
+            let response = try await appState.suggestIngredientSubstitutions(
                 recipeID: recipe.recipeId,
                 ingredientID: ingredient.id,
                 hint: hint.trimmingCharacters(in: .whitespacesAndNewlines)
