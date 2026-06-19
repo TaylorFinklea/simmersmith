@@ -60,6 +60,8 @@ targets:
     dependencies:
       - target: SimmerSmith
       - package: SimmerSmithKit
+      - package: SimmerSmithCloudKit
+        product: HouseholdRecords
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.simmersmith.ios.tests
