@@ -27,6 +27,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// are field-merged at the fetch + serverRecordChanged seams instead of blanket LWW.
     public var merger: RecordMerger?
 
+    /// Called once per sync event after the local store has been mutated by remote changes
+    /// (`fetchedRecordZoneChanges`) or by server-authoritative record replacements
+    /// (`sentRecordZoneChanges`). Set by `HouseholdSession`/`RecipeRepository` to trigger
+    /// a cache refresh. Nil in tests — no behavioral change when unset.
+    public var onStoreChanged: (@Sendable () -> Void)?
+
     private let traceLock = NSLock()
     private var trace: [String] = []
     /// Diagnostic trace of sent/failed/fetched events (DEBUG round-trip uses it).
@@ -179,6 +185,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 store.removeRecord(deletion.recordID)
                 note("fetched del \(deletion.recordID.recordName)")
             }
+            onStoreChanged?()
 
         case .sentRecordZoneChanges(let sent):
             // Replace local copies with the server-authoritative records (updated
@@ -191,6 +198,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 note("FAILED \(failure.record.recordID.recordName) code=\(failure.error.code.rawValue)")
                 handleFailedSave(failure)
             }
+            onStoreChanged?()
 
         case .accountChange(let change):
             handleAccountChange(change)
