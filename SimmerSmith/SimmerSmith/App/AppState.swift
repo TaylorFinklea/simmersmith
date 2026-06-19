@@ -425,10 +425,22 @@ final class AppState {
                 exports = []
             }
 
+            #if canImport(CloudKit)
+            // When CloudKit session is active, metadata comes from MetadataRepository
+            // via the mirror set up in ensureHouseholdSession(). Fetching from Fly here
+            // would clobber those mirrored values until the next storeRevision tick.
+            if recipeRepository == nil {
+                if let metadata = try? await apiClient.fetchRecipeMetadata() {
+                    recipeMetadata = metadata
+                    try? cacheStore.saveRecipeMetadata(metadata)
+                }
+            }
+            #else
             if let metadata = try? await apiClient.fetchRecipeMetadata() {
                 recipeMetadata = metadata
                 try? cacheStore.saveRecipeMetadata(metadata)
             }
+            #endif
 
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads
