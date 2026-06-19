@@ -15,6 +15,14 @@ extension AppState {
         let session = HouseholdSession(householdID: householdID)
         await session.start()
 
+        // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
+        // Receipt-gated (idempotent) — safe to call every launch. Runs after
+        // session.start() (zone provisioned + first fetch done) and before
+        // recipeRepo.reload() so a new install hydrates CloudKit before the
+        // first read. The migration is a no-op once the "recipes" receipt is
+        // present in the local store.
+        await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
+
         let recipeRepo = RecipeRepository(session: session)
         let metadataRepo = MetadataRepository(session: session)
 
