@@ -23,6 +23,7 @@ final class HouseholdSession {
     let engine: HouseholdSyncEngine
     let catalog: PublicCatalogReader
     let zoneID: CKRecordZone.ID
+    private let householdID: String
 
     // MARK: — Observable state
 
@@ -47,6 +48,7 @@ final class HouseholdSession {
         let zoneName = HouseholdZoneProvisioner.zoneName(householdID: householdID)
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
         self.zoneID = zoneID
+        self.householdID = householdID
 
         // Stable Application Support URL for the sync-engine state token so that
         // the token survives app launches (NOT a temp file — tokens must be durable).
@@ -81,7 +83,7 @@ final class HouseholdSession {
 
     /// Provision the zone, wire the merger + change signal, do the first fetch, then
     /// set syncPhase. Must not crash if iCloud is unavailable — sets .offline on throw.
-    func start(householdID: String, householdName: String) async {
+    func start() async {
         syncPhase = .loading  // AppState.SyncPhase.loading
 
         do {
