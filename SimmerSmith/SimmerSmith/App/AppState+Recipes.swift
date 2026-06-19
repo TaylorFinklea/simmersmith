@@ -165,6 +165,8 @@ extension AppState {
     }
 
     func refreshRecipeMetadata() async {
+        // TASK 5: wire once HouseholdSession is on AppState —
+        //   metadataRepository?.reloadMetadata() and publish to recipeMetadata.
         guard hasSavedConnection else { return }
         do {
             let metadata = try await apiClient.fetchRecipeMetadata()
@@ -176,6 +178,8 @@ extension AppState {
     }
 
     func createManagedListItem(kind: String, name: String) async throws -> ManagedListItem {
+        // TASK 5: wire once HouseholdSession is on AppState —
+        //   return try metadataRepository!.createManagedListItem(kind: kind, name: name)
         let item = try await apiClient.createManagedListItem(kind: kind, name: name)
         await refreshRecipeMetadata()
         return item

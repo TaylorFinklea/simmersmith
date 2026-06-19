@@ -444,3 +444,19 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- Task 4b: ManagedListItem — household-owned reference data (cuisines/tags/units).
+    //      User-extensible; defaults seeded from Fly on migration. kind QUERYABLE for
+    //      list-by-kind queries. No sort_order or built_in — those do not exist on the
+    //      backend model (managed_list_items). Det key: mli:<kind>:<normalized_name>.
+    //      HUMAN STEP: Deploy to Production in CloudKit Dashboard before on-device use. ----
+
+    RECORD TYPE ManagedListItem (
+        kind STRING QUERYABLE,
+        name STRING,
+        normalizedName STRING,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );

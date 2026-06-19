@@ -50,6 +50,10 @@ private func migRecordName(_ type: HouseholdRecordType, _ row: [String: Any]) ->
         guard let eventID = migNonEmpty(row, "event_id"),
               let guestID = migNonEmpty(row, "guest_id") else { return nil }
         return RecordNames.eventAttendee(eventID: eventID, guestID: guestID)
+    case .managedListItem:
+        guard let kind = migNonEmpty(row, "kind"),
+              let name = migNonEmpty(row, "name") else { return nil }
+        return RecordNames.managedListItem(kind: kind, name: name)
     default:
         return migNonEmpty(row, "id")   // .pk — the legacy primary key, verbatim
     }
