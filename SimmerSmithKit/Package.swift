@@ -10,8 +10,16 @@ let package = Package(
     products: [
         .library(name: "SimmerSmithKit", targets: ["SimmerSmithKit"]),
     ],
+    dependencies: [
+        .package(path: "../SimmerSmithCloudKit"),
+    ],
     targets: [
-        .target(name: "SimmerSmithKit"),
+        .target(
+            name: "SimmerSmithKit",
+            dependencies: [
+                .product(name: "HouseholdRecords", package: "SimmerSmithCloudKit"),
+            ]
+        ),
         .testTarget(
             name: "SimmerSmithKitTests",
             dependencies: ["SimmerSmithKit"]

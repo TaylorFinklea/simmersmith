@@ -1,8 +1,7 @@
 import Foundation
 import Testing
-import SimmerSmithKit
 import HouseholdRecords
-@testable import SimmerSmith
+@testable import SimmerSmithKit
 
 // SP-C Task 1 — Headless unit tests for RecipeRecordMapper.
 // RecipeSummary has no public memberwise init; instances are built via JSON round-trip
@@ -151,6 +150,7 @@ private func stepDict(id: String? = nil, order: Int, instruction: String, subste
     // Category-F derived fields are NOT fabricated.
     #expect(back.nutritionSummary == nil)
     #expect(back.variantCount == 0)
+    #expect(back.sourceRecipeCount == 0)
     #expect(back.daysSinceLastUsed == nil)
     #expect(back.familyLastUsed == nil)
     #expect(back.isVariant == false)

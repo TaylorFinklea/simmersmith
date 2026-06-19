@@ -56,7 +56,6 @@
 		53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */; };
 		53F76F4988F3B6BAB01DAB4B /* DebugGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0746BC20391CB8C28F0A4149 /* DebugGate.swift */; };
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
-		55FBAB697DCCBCD9EC47E5AF /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = B917A1D183A757BF7AEA237F /* HouseholdRecords */; };
 		59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
@@ -145,7 +144,6 @@
 		E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */; };
 		E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */; };
 		E6E569431165A47479D5427D /* RecipeFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9935E945427DEAA0FE104C29 /* RecipeFilterSheet.swift */; };
-		E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7779C3AC094B731B66C8E38B /* SimmerSmithKit */; };
 		EDED0ED9873237E8890430AB /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 28E9DCD23C40DC71DEC2C6B6 /* GoogleSignIn */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
@@ -347,15 +345,6 @@
 				59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */,
 				EDED0ED9873237E8890430AB /* GoogleSignIn in Frameworks */,
 				B575BF64ABD19AE4165BD7E9 /* GoogleSignInSwift in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		E27D07E412EC1D8FFD34C794 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				E867A7E734075C3C2F9C6621 /* SimmerSmithKit in Frameworks */,
-				55FBAB697DCCBCD9EC47E5AF /* HouseholdRecords in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -752,7 +741,6 @@
 			buildConfigurationList = A286B6BE274BA4097D8D51E8 /* Build configuration list for PBXNativeTarget "SimmerSmithTests" */;
 			buildPhases = (
 				72B1D42458097B2AEE13328E /* Sources */,
-				E27D07E412EC1D8FFD34C794 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -761,8 +749,6 @@
 			);
 			name = SimmerSmithTests;
 			packageProductDependencies = (
-				7779C3AC094B731B66C8E38B /* SimmerSmithKit */,
-				B917A1D183A757BF7AEA237F /* HouseholdRecords */,
 			);
 			productName = SimmerSmithTests;
 			productReference = F4DA130CC3CF01AC162AF455 /* SimmerSmithTests.xctest */;
@@ -1373,10 +1359,6 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = SimmerSmithKit;
 		};
-		7779C3AC094B731B66C8E38B /* SimmerSmithKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SimmerSmithKit;
-		};
 		841B0CE52871964165366435 /* HouseholdRecords */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HouseholdRecords;
@@ -1384,10 +1366,6 @@
 		8F388FA299630E67E9BAB7BF /* CoexistenceSpike */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CoexistenceSpike;
-		};
-		B917A1D183A757BF7AEA237F /* HouseholdRecords */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = HouseholdRecords;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,12 +1,10 @@
 import Foundation
-import SimmerSmithKit
 import HouseholdRecords
 
 // SP-C Task 1 — RecipeSummary ⇄ HouseholdRecordValue mapper (both directions).
 //
-// Lives in the app target because it imports BOTH SimmerSmithKit (RecipeSummary domain structs)
-// AND HouseholdRecords (HouseholdRecordValue / ScalarValue / HouseholdRecordType). The
-// SimmerSmithCloudKit package stays model-agnostic (it only knows about HouseholdRecordValue).
+// Moved from the app target to SimmerSmithKit so the mapper can be tested headlessly
+// via `swift test` without building the full app target.
 //
 // Field classification (mirrors spec §5):
 //   A. Direct scalar ↔ .recipe record scalar field (1:1)
@@ -25,7 +23,13 @@ import HouseholdRecords
 // Migrated recipes therefore carry the same JSON-array format in their CloudKit record.
 // An empty list encodes as "[]" and decodes back to [].
 
-enum RecipeRecordMapper {
+public enum RecipeRecordMapper {
+
+    // MARK: - Shared formatters
+
+    // ISO8601DateFormatter is not Sendable, but is safe to use from multiple threads
+    // when only calling string(from:) (read-only after initialization).
+    private nonisolated(unsafe) static let iso8601Formatter = ISO8601DateFormatter()
 
     // MARK: - Domain → Records
 
@@ -33,7 +37,7 @@ enum RecipeRecordMapper {
     /// Mirrors `migrateHouseholdRecord` in HouseholdRecordMigration.swift: only set non-nil/non-empty
     /// scalars; omit absent values (CloudKit's all-optional columns stay absent). Refs are only set
     /// when non-nil.
-    static func records(from recipe: RecipeSummary)
+    public static func records(from recipe: RecipeSummary)
         -> (recipe: HouseholdRecordValue, ingredients: [HouseholdRecordValue], steps: [HouseholdRecordValue])
     {
         let recipeRecord = buildRecipeRecord(recipe)
@@ -51,7 +55,7 @@ enum RecipeRecordMapper {
     /// Reconstruct a `RecipeSummary` from its CloudKit record set.
     /// Category-F (derived) fields are NOT echoed from the record — they are returned as nil/0/empty.
     /// `hasImage` replaces `imageUrl`: pass true when a RecipeImage record exists for this recipe.
-    static func recipe(
+    public static func recipe(
         from rec: HouseholdRecordValue,
         ingredients: [HouseholdRecordValue],
         steps: [HouseholdRecordValue],
@@ -83,7 +87,7 @@ enum RecipeRecordMapper {
             "isVariant": false,
             "overrideFields": [String](),
             "variantCount": 0,
-            "sourceRecipeCount": 1,
+            "sourceRecipeCount": 0,  // derived; repository recomputes — never fabricate
             // updatedAt is required (non-optional) — use stored value or now.
             "updatedAt": iso8601(date(s, "updatedAt") ?? Date()),
         ]
@@ -129,14 +133,14 @@ enum RecipeRecordMapper {
     /// and in CloudKit records for migrated recipes.
     /// Format: `["quick","veg"]`. Empty list → `"[]"`.
     /// This matches `serialize_tag_list` in `app/services/recipes.py`.
-    static func encodeTags(_ tags: [String]) -> String {
+    public static func encodeTags(_ tags: [String]) -> String {
         let data = try! JSONEncoder().encode(tags)
         return String(data: data, encoding: .utf8)!
     }
 
     /// Decode a JSON-array tag string back to `[String]`.
     /// Returns `[]` on empty string or malformed input.
-    static func decodeTags(_ s: String) -> [String] {
+    public static func decodeTags(_ s: String) -> [String] {
         guard !s.isEmpty,
               let data = s.data(using: .utf8),
               let arr = try? JSONDecoder().decode([String].self, from: data)
@@ -201,6 +205,7 @@ enum RecipeRecordMapper {
         setIfNonEmpty(&scalars, "category", ing.category)
         setIfNonEmpty(&scalars, "notes", ing.notes)
         setIfNonEmpty(&scalars, "resolutionStatus", ing.resolutionStatus)
+        scalars["updatedAt"] = .date(Date())
 
         var refs: [String: String] = [:]
         refs["recipe"] = recipeId   // cascadeParent
@@ -234,6 +239,7 @@ enum RecipeRecordMapper {
         var scalars: [String: ScalarValue] = [:]
         scalars["sortOrder"] = .int(step.sortOrder)
         set(&scalars, "instruction", .string(step.instruction))
+        scalars["updatedAt"] = .date(Date())
 
         var refs: [String: String] = [:]
         refs["recipe"] = recipeId
@@ -348,6 +354,6 @@ enum RecipeRecordMapper {
     }
 
     private static func iso8601(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        iso8601Formatter.string(from: date)
     }
 }
