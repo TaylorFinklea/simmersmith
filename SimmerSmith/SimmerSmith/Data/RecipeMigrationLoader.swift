@@ -28,12 +28,35 @@ import SimmerSmithKit
 //     are written directly as HouseholdRecordValue with .managedListItem type
 //     — the manifest already handles their deterministic recordName
 //     (kind+name). RecipeTemplates are not migrated here (PUBLIC catalog scope).
-//  3. Images are migrated per recipe after all record writes, before draining,
-//     using the existing fetchRecipeImageBytes endpoint. A missing or 404 image
-//     is skipped (not fatal — the recipe record is still migrated).
+//  3. Images are migrated in parallel (up to 6 concurrent fetches) using
+//     withTaskGroup. The fetch + decode is I/O; the engine.save calls happen
+//     on the MainActor after all bytes land. Receipt is stamped AFTER images.
 //  4. After all saves: engine.sendUntilDrained() pushes to CloudKit.
 
 private let recipeMigrationScope = "recipes"
+private let imageFetchConcurrency = 6
+
+// MARK: - MIME detection
+
+/// Detect image MIME type from the leading bytes of `data`.
+/// Falls back to `image/jpeg` for unknown formats.
+private func detectMime(_ data: Data) -> String {
+    guard data.count >= 4 else { return "image/jpeg" }
+    let b = data.prefix(4)
+    // PNG: 0x89 0x50 0x4E 0x47
+    if b[b.startIndex] == 0x89 && b[b.startIndex + 1] == 0x50
+        && b[b.startIndex + 2] == 0x4E && b[b.startIndex + 3] == 0x47 {
+        return "image/png"
+    }
+    // JPEG: 0xFF 0xD8 0xFF
+    if b[b.startIndex] == 0xFF && b[b.startIndex + 1] == 0xD8
+        && b[b.startIndex + 2] == 0xFF {
+        return "image/jpeg"
+    }
+    return "image/jpeg"
+}
+
+// MARK: - Migration entry point
 
 /// Pull recipes + metadata + images from Fly and write them into the household
 /// CloudKit zone. No-op if the migration receipt is already present locally.
@@ -72,6 +95,9 @@ func migrateRecipesIfNeeded(
     }
 
     // Write managed list items (cuisines, tags, units).
+    // Include createdAt to match MetadataRepository.createManagedListItem — the
+    // receipt gate prevents re-running so migrated items must carry the field on
+    // the first (and only) write.
     if let metadata {
         let allItems = metadata.cuisines + metadata.tags + metadata.units
         for item in allItems {
@@ -82,6 +108,7 @@ func migrateRecipesIfNeeded(
                     "kind": .string(item.kind),
                     "name": .string(item.name),
                     "normalizedName": .string(item.normalizedName),
+                    "createdAt": .date(item.updatedAt),
                     "updatedAt": .date(item.updatedAt),
                 ],
                 refs: [:]
@@ -102,25 +129,68 @@ func migrateRecipesIfNeeded(
         }
     }
 
-    // Migrate images: one Fly round-trip per recipe that has an imageUrl.
-    // A 404 / network error for one image is skipped — the receipt is still
-    // stamped so images for failed recipes are absent (the view shows the
-    // gradient placeholder). This matches the existing RecipeRepository image
-    // write path (repo.setImage) without reimplementing it.
-    for recipe in recipes where recipe.imageUrl != nil {
-        guard let imageData = try? await apiClient.fetchRecipeImageBytes(recipeID: recipe.recipeId),
-              !imageData.isEmpty else { continue }
-        let recipeImage = RecipeImage(
-            recipeID: recipe.recipeId,
-            mimeType: "image/png",
-            prompt: "",
-            generatedAt: recipe.updatedAt,
-            imageData: imageData
-        )
-        guard let imageRecord = try? RecipeImageCodec.makeRecord(recipeImage, zoneID: session.zoneID) else {
-            continue
+    // Migrate images in parallel (bounded to `imageFetchConcurrency` in-flight)
+    // to avoid serialised O(N×RTT) first-launch cost.
+    //
+    // The fetch + decode is pure I/O — the work runs off the MainActor inside
+    // the group tasks. Only the engine.save calls happen back on MainActor
+    // (the save is synchronous + cheap). Receipt is stamped AFTER all images so
+    // a mid-image crash leaves no receipt and the next launch retries.
+    let recipesWithImages = recipes.filter { $0.imageUrl != nil }
+    if !recipesWithImages.isEmpty {
+        // Collect (recipeID, imageData) pairs off-actor, cap concurrency.
+        let imagePairs: [(recipeID: String, data: Data)] = await withTaskGroup(
+            of: (String, Data)?.self
+        ) { group in
+            var inFlight = 0
+            var iterator = recipesWithImages.makeIterator()
+            var results: [(String, Data)] = []
+
+            // Seed initial batch.
+            while inFlight < imageFetchConcurrency, let recipe = iterator.next() {
+                let id = recipe.recipeId
+                group.addTask {
+                    guard let bytes = try? await apiClient.fetchRecipeImageBytes(recipeID: id),
+                          !bytes.isEmpty else { return nil }
+                    return (id, bytes)
+                }
+                inFlight += 1
+            }
+
+            // Drain group; replenish from iterator as slots free up.
+            for await result in group {
+                inFlight -= 1
+                if let pair = result {
+                    results.append(pair)
+                }
+                if let next = iterator.next() {
+                    let id = next.recipeId
+                    group.addTask {
+                        guard let bytes = try? await apiClient.fetchRecipeImageBytes(recipeID: id),
+                              !bytes.isEmpty else { return nil }
+                        return (id, bytes)
+                    }
+                    inFlight += 1
+                }
+            }
+            return results
         }
-        session.engine.save(imageRecord)
+
+        // Save image records on MainActor (engine is not Sendable).
+        for (recipeID, imageData) in imagePairs {
+            let mime = detectMime(imageData)
+            let recipeImage = RecipeImage(
+                recipeID: recipeID,
+                mimeType: mime,
+                prompt: "",
+                generatedAt: Date(),
+                imageData: imageData
+            )
+            guard let imageRecord = try? RecipeImageCodec.makeRecord(recipeImage, zoneID: session.zoneID) else {
+                continue
+            }
+            session.engine.save(imageRecord)
+        }
     }
 
     // Stamp the receipt LAST — mirrors HouseholdMigrationRunner.migrate() crash-safety

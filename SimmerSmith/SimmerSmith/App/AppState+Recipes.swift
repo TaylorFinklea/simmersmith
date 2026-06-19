@@ -8,41 +8,63 @@ extension AppState {
     /// Construct the CloudKit household session + repositories once the household
     /// ID is known (from the Fly household snapshot). Idempotent — no-op if a
     /// session already exists. Called from `refreshAll()` after `refreshHousehold()`.
+    ///
+    /// Re-entrancy: two concurrent `refreshAll()` callers would both pass the
+    /// `householdSession == nil` guard and start duplicate setups (two migrations,
+    /// two competing sync engines). Guard with a task-dedup: assign the setup
+    /// `Task` synchronously BEFORE the first `await` so a second caller arriving
+    /// while setup is in-flight awaits the same task instead of starting another.
     func ensureHouseholdSession() async {
-        guard householdSession == nil else { return }
+        // Fast path — already set up.
+        if householdSession != nil { return }
+
+        // Second concurrent caller: setup in-flight — await it instead of duplicating.
+        if let existing = householdSessionSetupTask {
+            await existing.value
+            return
+        }
+
+        // Validate before kicking off the task (avoids pointless task creation).
         guard let householdID = currentHousehold?.householdId, !householdID.isEmpty else { return }
 
-        let session = HouseholdSession(householdID: householdID)
-        await session.start()
+        // Assign the task SYNCHRONOUSLY (no await between here and the assignment)
+        // so any concurrent caller on MainActor that runs next sees it.
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            let session = HouseholdSession(householdID: householdID)
+            await session.start()
 
-        // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
-        // Receipt-gated (idempotent) — safe to call every launch. Runs after
-        // session.start() (zone provisioned + first fetch done) and before
-        // recipeRepo.reload() so a new install hydrates CloudKit before the
-        // first read. The migration is a no-op once the "recipes" receipt is
-        // present in the local store.
-        await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
+            // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
+            // Receipt-gated (idempotent) — safe to call every launch. Runs after
+            // session.start() (zone provisioned + first fetch done) and before
+            // recipeRepo.reload() so a new install hydrates CloudKit before the
+            // first read. The migration is a no-op once the "recipes" receipt is
+            // present in the local store.
+            await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
 
-        let recipeRepo = RecipeRepository(session: session)
-        let metadataRepo = MetadataRepository(session: session)
+            let recipeRepo = RecipeRepository(session: session)
+            let metadataRepo = MetadataRepository(session: session)
 
-        householdSession = session
-        recipeRepository = recipeRepo
-        metadataRepository = metadataRepo
+            householdSession = session
+            recipeRepository = recipeRepo
+            metadataRepository = metadataRepo
 
-        // Initial kick — the repos auto-reload on session.storeRevision, but need a
-        // first read after construction.
-        recipeRepo.startObserving()
-        metadataRepo.startObserving()
-        recipeRepo.reload()
-        metadataRepo.reloadMetadata()
+            // Initial kick — the repos auto-reload on session.storeRevision, but need a
+            // first read after construction.
+            recipeRepo.startObserving()
+            metadataRepo.startObserving()
+            recipeRepo.reload()
+            metadataRepo.reloadMetadata()
 
-        // Mirror the repo's projections onto AppState's @Observable stored vars so the
-        // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
-        observeRecipeRepository()
-        observeMetadataRepository()
-        mirrorRecipesFromRepository()
-        mirrorMetadataFromRepository()
+            // Mirror the repo's projections onto AppState's @Observable stored vars so the
+            // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
+            observeRecipeRepository()
+            observeMetadataRepository()
+            mirrorRecipesFromRepository()
+            mirrorMetadataFromRepository()
+        }
+        householdSessionSetupTask = task
+        await task.value
     }
 
     /// Tear down the CloudKit session + repositories and delete the durable engine
@@ -53,6 +75,8 @@ extension AppState {
         householdSession = nil
         recipeRepository = nil
         metadataRepository = nil
+        // Clear the dedup task so a subsequent sign-in can start a fresh setup.
+        householdSessionSetupTask = nil
     }
 
     /// Re-arm the recipe-repo observation and mirror its `recipes` onto AppState.

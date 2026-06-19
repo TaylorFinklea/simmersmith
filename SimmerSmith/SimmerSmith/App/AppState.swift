@@ -74,6 +74,11 @@ final class AppState {
     @ObservationIgnored var householdSession: HouseholdSession?
     @ObservationIgnored var recipeRepository: RecipeRepository?
     @ObservationIgnored var metadataRepository: MetadataRepository?
+    /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
+    /// any `await`) so a second concurrent caller on MainActor sees it and
+    /// awaits the same task instead of starting a second setup. Cleared on
+    /// sign-out so a fresh session can be established after re-sign-in.
+    @ObservationIgnored var householdSessionSetupTask: Task<Void, Never>?
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
