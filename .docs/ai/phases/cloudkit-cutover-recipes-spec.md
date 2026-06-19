@@ -146,10 +146,10 @@ empty/hidden rather than wrong). The plan must state, per derived field, "comput
 > Category-A/B/C/D fields; derived fields are recomputed, not persisted.
 
 ## 6. Open items to resolve in the plan (flagged, not yet decided)
-1. **Recipe metadata source.** `recipeMetadata` (cuisines/tags/units, `ManagedListItem`) is reference
-   data. Options: (a) PUBLIC catalog read (ManagedListItem is in the §8.1 seed list) — needs the type
-   seeded to prod like the catalog; (b) a household-zone record set the user manages. Pick one in the
-   plan; lowest-effort that preserves the editor's dropdowns wins.
+1. **Recipe metadata source. RESOLVED 2026-06-19 → household record type (`ManagedListItem`).** Not
+   the PUBLIC catalog: the dropdowns are user-extensible (`createManagedListItem`) and clients can't
+   write the curator-only PUBLIC catalog. Each household owns its set (built-in defaults seeded from
+   Fly on migration + user-added). Pulled INTO slice 1 (plan Task 4b) per Taylor's call.
 2. **Recipe memories.** `RecipeMemory` is NOT a manifest type yet. Either add it (a household record
    type + its CKAsset photo, mirroring RecipeImage) or defer memories from slice 1 (hide the section).
    Recommend: defer memories to a thin follow-on so slice 1 stays the core CRUD pattern.

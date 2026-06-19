@@ -18,7 +18,8 @@
 - **Derived fields are never fabricated** (spec §5-F): `daysSinceLastUsed`, `familyDaysSinceLastUsed`, `isVariant`, `variantCount`, `sourceRecipeCount`, `overrideFields`, `nutritionSummary`, `familyLastUsed` are NOT persisted — recompute from the store or set to nil/0. The detail view must show empty, not a guess.
 - **AI-dependent recipe methods are OUT of this slice** (import/variation/suggestion/refine/nutrition-estimate/AI-image). Leave them calling Fly during the transition BUT guarded so they fail gracefully (not a hard crash) — they get rewired to `AIProviderKit` in the AI track before SP-D.
 - **Pure code is headless-tested** (`swift test` in `SimmerSmithCloudKit`, no iCloud account). CloudKit-touching integration is verified **on-device via TestFlight** (the proven path; the sim/CI cannot run signed CloudKit). A task whose deliverable is CloudKit-integration ends with an on-device check button + a manual `[?] awaiting on-device verify` mark, per AGENTS.md phase-loop rules.
-- **One commit per task.** Don't push. New CloudKit record types require the dashboard "Deploy to Production" step — this slice adds none (recipe types already deployed).
+- **One commit per task.** Don't push. New CloudKit record types require the dashboard "Deploy to Production" step. This slice adds ONE: `ManagedListItem` (Task 4b) — Taylor must run the dashboard deploy + the cktool schema validate before the on-device metadata check passes. The recipe types are already deployed.
+- **Metadata source (decided):** recipe metadata (cuisines/tags/units) is a **household record type** (`ManagedListItem`), NOT the PUBLIC catalog — because it's user-extensible (`createManagedListItem`) and clients cannot write the curator-only PUBLIC catalog. Each household owns its set (built-in defaults seeded from Fly on migration + user-added).
 
 ---
 
@@ -173,6 +174,35 @@ The repository needs to know when sync mutates the local store (remote edits) so
 
 ---
 
+### Task 4b: Recipe metadata via a `ManagedListItem` household record type
+
+The editor's cuisine/tag/unit dropdowns are user-extensible reference data → a household record type (decided above). Adding a manifest type, so it follows the established SP-A pattern (manifest case → codec/migrate for free → CKDSL → deploy).
+
+**Files:**
+- Modify: `SimmerSmithCloudKit/Sources/HouseholdRecords/HouseholdRecordType.swift` (add `.managedListItem`)
+- Modify: `.docs/ai/phases/phase0-schema.ckdb` (append the `ManagedListItem` RECORD TYPE block)
+- Modify/Create: `SimmerSmith/SimmerSmith/Data/RecipeRepository.swift` (or a `MetadataRepository`) — read `ManagedListItem` → `RecipeMetadata`; `createManagedListItem`.
+- Test: `SimmerSmithCloudKit/Tests/HouseholdRecordsTests/...` (manifest classification + migrate of `.managedListItem`)
+
+**Interfaces:**
+- Produces: `HouseholdRecordType.managedListItem`; `migrateHouseholdRecord(.managedListItem, row)`; repo `func reloadMetadata()` → `RecipeMetadata`, `func createManagedListItem(kind: String, name: String) -> ManagedListItem`.
+
+- [ ] **Step 1: Verify the backend model + payload first.** Read `app/models/` for the `ManagedListItem` (or managed-list) model — its exact columns (kind, name, sort_order, built_in?, timestamps) + how `/api/recipes/metadata` shapes cuisines/tags/units. Map the columns the same way the other manifest types do (snake_case). Confirm `RecipeMetadata` + `ManagedListItem` Swift struct shapes in `SimmerSmithModels.swift`.
+
+- [ ] **Step 2: Add `.managedListItem` to the manifest** — recordTypeName `"ManagedListItem"`, recordName policy (`.det` keyed by `kind`+`name` to collapse dup creates, OR `.pk` by id — pick per the backend PK; if there's a surrogate id use `.pk`), fields (`kind` queryable, `name`, `sortOrder` int, `builtIn` bool if present, `createdAt`, `updatedAt`), no refs. Follow the exact style of the neighboring cases.
+
+- [ ] **Step 3: Write the failing manifest test** (mirror `HouseholdRecordMigrationTests`): `migrateHouseholdRecord(.managedListItem, ["id":"M1","kind":"cuisine","name":"Italian","sort_order":NSNumber(value:2)])` → recordName + scalars correct. Run `swift test --filter managedListItem` → FAIL.
+
+- [ ] **Step 4: Run → PASS** after the manifest case lands (codec + migrate are manifest-driven, so no new transform code). Confirm the `weekTypesLanded`-style count test if one asserts the total type count — update it (now N+1 types).
+
+- [ ] **Step 5: Generate + append the CKDSL** for `ManagedListItem` (use the `HouseholdRecordType.managedListItem.ckdsl()` emit trick from the SP-A week-types work), insert into `phase0-schema.ckdb`, and `xcrun cktool validate-schema ... --environment development` → "Schema is valid."
+
+- [ ] **Step 6: Repository + AppState delegate** — `reloadMetadata()` reads `ManagedListItem` records, groups by `kind` into `RecipeMetadata`; `createManagedListItem` writes a record via the engine. Repoint `AppState.refreshRecipeMetadata` + `createManagedListItem` to delegate (keep signatures). Build (Debug, sim) → SUCCEEDED.
+
+- [ ] **Step 7: Commit** — `git commit -m "feat(sp-c): ManagedListItem household type + recipe-metadata repository"`. **Then Taylor: cktool validate + CloudKit Dashboard 'Deploy to Production' for ManagedListItem before the on-device metadata check.**
+
+---
+
 ### Task 5: AppState+Recipes rewire + `fetchBaseIngredients` façade
 
 **Files:**
@@ -211,7 +241,7 @@ The repository needs to know when sync mutates the local store (remote edits) so
 
 - [ ] **Step 1: Confirm the recipes GET payload shape** — what `/api/recipes` returns (does the list include ingredients/steps, or only summaries needing a per-recipe GET?). Shape the export rows to the **Postgres column names** `migrateHouseholdRecord` expects (snake_case), NOT the Swift struct names — the runner's transform reads DB-row keys.
 
-- [ ] **Step 2: Implement `migrateRecipesIfNeeded`** — gate on `engine.store.record(for: receiptID(scope:"recipes"))` absent; build the Export; `HouseholdMigrationRunner(engine:zoneID:).migrate(scope:"recipes", export:)`; for each recipe with an image, GET its bytes + `RecipeImageCodec` save; `engine.sendUntilDrained()`. Idempotent by the receipt — safe to call every launch.
+- [ ] **Step 2: Implement `migrateRecipesIfNeeded`** — gate on `engine.store.record(for: receiptID(scope:"recipes"))` absent; build the Export INCLUDING `householdRecords[.managedListItem]` from `GET /api/recipes/metadata` (seed the user's cuisines/tags/units, Task 4b) alongside `.recipe/.recipeIngredient/.recipeStep`; `HouseholdMigrationRunner(engine:zoneID:).migrate(scope:"recipes", export:)`; for each recipe with an image, GET its bytes + `RecipeImageCodec` save; `engine.sendUntilDrained()`. Idempotent by the receipt — safe to call every launch.
 
 - [ ] **Step 3: Invoke it** after `session.start()` on launch (once iCloud + the zone are ready), before the first `reload()`.
 
