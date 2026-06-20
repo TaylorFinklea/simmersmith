@@ -1,3 +1,4 @@
+import AuthenticationServices
 import EventKit
 import SwiftUI
 import UIKit
@@ -535,6 +536,12 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            #if canImport(CloudKit)
+            if appState.householdSession != nil {
+                ImportWeeksSection()
+            }
+            #endif
 
             if DebugGate.showsCloudKitChecks {
                 Section {
@@ -1541,3 +1548,115 @@ private struct GrocerySection: View {
         }
     }
 }
+
+// MARK: - ImportWeeksSection (SP-C slice 3)
+
+/// Settings section for the one-shot "Import my weeks from the old app" trigger.
+///
+/// Shows a `SignInWithAppleButton` to obtain a Fly JWT, then calls
+/// `AppState.importWeeksFromFly(appleIdentityToken:)`. The section is only rendered
+/// once a CloudKit household session is live (caller guard) and collapses to a
+/// "Already imported" label once the `migrated:weeks` receipt is stamped.
+///
+/// The Apple sign-in is purely an auth mechanism here — it does NOT change the
+/// everyday identity (CloudKit is the identity). The JWT is a one-shot credential
+/// to call the Fly /api/weeks endpoint; it is discarded after the import completes.
+#if canImport(CloudKit)
+private struct ImportWeeksSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.weekImportState {
+            case .alreadyImported:
+                Label("Weeks already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Weeks imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing weeks…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                importButton
+
+            case .idle:
+                importButton
+            }
+        } header: {
+            SmithSectionHeader("import history")
+        } footer: {
+            if appState.weekImportState == .idle || appState.weekImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your week plans and grocery lists from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshWeekImportState()
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.weekImportState == .running)
+        // The button's system label ("Sign in with Apple") is contextually explained
+        // by the section header ("import history") and footer text above, so no
+        // custom label is needed.
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.weekImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importWeeksFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.weekImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.WeekImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+#endif

@@ -178,6 +178,15 @@ final class AppState {
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]
 
+    // MARK: - SP-C slice 3: weeks import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit weeks+grocery import for the Settings trigger.
+    /// `WeekImportState` enum is declared in `AppState+Recipes` (same extension).
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var weekImportState: WeekImportState = .idle
+    #endif
+
     // MARK: - SP-C identity slice: CloudKit-only launch gate
 
     /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.

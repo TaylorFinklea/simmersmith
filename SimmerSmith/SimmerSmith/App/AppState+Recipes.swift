@@ -3,6 +3,7 @@ import SimmerSmithKit
 #if canImport(CloudKit)
 import CloudKit
 import CloudKitProvisioning
+import HouseholdSync
 #endif
 
 extension AppState {
@@ -358,6 +359,85 @@ extension AppState {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
+
+    // MARK: - SP-C slice 3: one-shot weeks + grocery Fly→CloudKit import
+
+    /// State surfaced to the Settings UI for the "Import my weeks" trigger button.
+    enum WeekImportState: Equatable {
+        /// Receipt already present in the local store — migration previously completed.
+        case alreadyImported
+        /// Idle: ready to start (no import has run yet this session).
+        case idle
+        /// Import is in-progress (button shows a spinner).
+        case running
+        /// Import completed successfully during this session.
+        case done
+        /// Import failed; `reason` is a user-readable message.
+        case failed(String)
+    }
+
+    /// Check the receipt gate against the local store and set `weekImportState`
+    /// accordingly. Called when the Settings section first appears.
+    func refreshWeekImportState() {
+        guard let session = householdSession else {
+            weekImportState = .idle
+            return
+        }
+        let receiptID = CKRecord.ID(
+            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
+            zoneID: session.zoneID
+        )
+        weekImportState = session.store.record(for: receiptID) != nil ? .alreadyImported : .idle
+    }
+
+    /// One-shot weeks + grocery import triggered by the user from Settings.
+    ///
+    /// Receives the Apple identity token from the Settings view's
+    /// `SignInWithAppleButton` result, exchanges it for a Fly JWT, then runs
+    /// `migrateWeeksIfNeeded`. The Fly JWT is written to `settingsStore` so that
+    /// `apiClient` picks it up transparently — the same path that everyday sign-in
+    /// used before the Identity slice. The token stays in `settingsStore` after the
+    /// import; that is harmless because no everyday flow reads from Fly (all data
+    /// paths are CloudKit-gated). The token is NOT used for any CloudKit operation.
+    func importWeeksFromFly(appleIdentityToken: String) async {
+        guard let session = householdSession else {
+            weekImportState = .failed("CloudKit session not ready — try again after launch completes.")
+            return
+        }
+        weekImportState = .running
+
+        // 1. Exchange the Apple identity token for a Fly JWT. Point the client at
+        //    the production server so the token exchange hits the right endpoint.
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        serverURLDraft = Self.productionServerURL
+
+        do {
+            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
+            authTokenDraft = response.token
+        } catch {
+            weekImportState = .failed("Sign-in failed: \(error.localizedDescription)")
+            return
+        }
+
+        // 2. Run the migration. Receipt-gated — idempotent if already done.
+        await migrateWeeksIfNeeded(session: session, apiClient: apiClient)
+
+        // 3. Confirm the receipt landed so we know the import actually completed.
+        let receiptID = CKRecord.ID(
+            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
+            zoneID: session.zoneID
+        )
+        if session.store.record(for: receiptID) != nil {
+            weekImportState = .done
+            // Trigger a repo reload so the imported weeks appear immediately.
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+        } else {
+            // Drain failed or network error — receipt was not stamped.
+            weekImportState = .failed("Import failed — please try again.")
+        }
+    }
 
     #endif
 
