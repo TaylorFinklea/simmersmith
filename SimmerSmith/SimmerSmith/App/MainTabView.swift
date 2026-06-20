@@ -9,12 +9,10 @@ struct MainTabView: View {
 
         ZStack {
             TabView(selection: $appState.selectedTab) {
-                // SP-C: Week, Grocery, Events, and Smith (AI) are not yet migrated
-                // to CloudKit. Gate them behind ComingSoonView so no Fly call is made
-                // and no 401 error banners appear. Recipes (Forge) is the first fully
-                // cut-over feature and renders normally.
+                // SP-C slice 3: Week + Grocery are now CloudKit-backed — render their
+                // real views. Events and Smith (AI) remain coming-soon.
                 NavigationStack {
-                    comingSoon(feature: "Week", tab: .week)
+                    WeekView()
                 }
                 .tag(AppState.MainTab.week)
                 .tabItem {
@@ -30,7 +28,7 @@ struct MainTabView: View {
                 }
 
                 NavigationStack {
-                    comingSoon(feature: "Grocery", tab: .grocery)
+                    GroceryTabView()
                 }
                 .tag(AppState.MainTab.grocery)
                 .tabItem {
@@ -61,33 +59,10 @@ struct MainTabView: View {
         .environment(coordinator)
     }
 
-    /// Returns `ComingSoonView` for features not yet cut over to CloudKit, or the
-    /// original view once a feature slice completes. Currently all non-Recipes tabs
-    /// are gated. Recipes renders normally (no gating needed).
+    /// Returns `ComingSoonView` for features not yet cut over to CloudKit.
+    /// Slice 3 (Weeks + Grocery) cut over — Events and Smith remain here.
     @ViewBuilder
     private func comingSoon(feature: String, tab: AppState.MainTab) -> some View {
-        // per-feature gate as slices land: today `isCloudKitOnly` is hardcoded true, so
-        // every non-Recipes tab takes the ComingSoon arm. When a feature slice cuts over,
-        // replace this blanket flag with a per-tab membership check (e.g. a
-        // `Set<MainTab>` of still-coming-soon tabs) and let the cut-over tab fall through.
-        if appState.isCloudKitOnly {
-            ComingSoonView(feature: feature)
-        } else {
-            // Unreachable while isCloudKitOnly == true; preserved for the future
-            // per-feature cutover: delete the feature's ComingSoon arm when its
-            // slice is complete and remove it from this switch.
-            switch tab {
-            case .week:
-                WeekView()
-            case .grocery:
-                GroceryTabView()
-            case .events:
-                EventsView()
-            case .assistant:
-                AssistantView()
-            default:
-                EmptyView()
-            }
-        }
+        ComingSoonView(feature: feature)
     }
 }

@@ -1,8 +1,27 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+#endif
 
 extension AppState {
+
+    // MARK: - DATA: refresh / fetch (CloudKit-backed)
+
+    /// Refresh the current week. In CloudKit mode the store is already synced
+    /// by HouseholdSession; reload is a local read that mirrors the week list
+    /// onto AppState (mirrors refreshRecipes pattern). Falls back to the Fly
+    /// HTTP path when no CloudKit session is active.
     func refreshWeek() async {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            syncPhase = .loading
+            repo.reload()
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return
+        }
+        #endif
         guard hasSavedConnection else { return }
         syncPhase = .loading
         do {
@@ -12,9 +31,6 @@ extension AppState {
                 try? cacheStore.saveCurrentWeek(currentWeek)
                 exports = try await apiClient.fetchWeekExports(weekID: currentWeek.weekId)
                 try? cacheStore.saveExports(exports, for: currentWeek.weekId)
-                // M22: server is now the source of truth for check state
-                // (so household members share it). Hydrate the local
-                // mirror from `item.isChecked`.
                 checkedGroceryItemIDs = Set(
                     currentWeek.groceryItems
                         .filter(\.isChecked)
@@ -26,55 +42,72 @@ extension AppState {
             }
             syncPhase = .synced(.now)
 
-            // Schedule meal reminders for the current week
             if let week = currentWeek, !week.meals.isEmpty {
                 NotificationManager.shared.scheduleMealReminders(for: week.meals)
                 NotificationManager.shared.scheduleGroceryReminder(itemCount: week.groceryItems.count)
             }
 
-            // Build 87: one-shot migration. The first time this device
-            // refreshes a week on build 87 we clear all auto-generated
-            // grocery rows so the new plan-shopping flow starts from a
-            // clean slate. Fire-and-forget — the flag is set
-            // regardless of whether the server call succeeds so a
-            // transient network error doesn't loop forever.
             Task { [weak self] in await self?.runBuild87GroceryMigrationIfNeeded() }
-            // Build 88: one-shot ingredient re-resolve to fix the
-            // "Unresolved" pill that was stuck on every recipe
-            // ingredient due to the iOS-Codable default.
             Task { [weak self] in await self?.runBuild88IngredientReresolveIfNeeded() }
         } catch {
-            // Build 104: swallow benign cancellations (sheet dismiss,
-            // rapid navigation, backgrounding). Surfacing them as a red
-            // "cancelled" banner on the Week tab is noise — the user did
-            // not initiate a failure.
             if isExpectedCancellation(error) { return }
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
         }
     }
 
+    /// Fetch the list of weeks. CloudKit: derive WeekSummary projections from the
+    /// repo's in-memory snapshots (all fields present; spec §5 notes nutrition/export
+    /// counts are nil/0 in this slice).
     func fetchWeeks(limit: Int = 12) async throws -> [WeekSummary] {
-        try await apiClient.fetchWeeks(limit: limit)
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            let all = repo.weeks.prefix(limit)
+            // Use JSON round-trip to build WeekSummary from WeekSnapshot (they share
+            // the same top-level fields; WeekSummary is a count-only projection).
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return all.compactMap { snap in
+                var d: [String: Any] = [
+                    "weekId": snap.weekId,
+                    "weekStart": ISO8601DateFormatter().string(from: snap.weekStart),
+                    "weekEnd": ISO8601DateFormatter().string(from: snap.weekEnd),
+                    "status": snap.status,
+                    "notes": snap.notes,
+                    "updatedAt": ISO8601DateFormatter().string(from: snap.updatedAt),
+                    "mealCount": snap.meals.count,
+                    "groceryItemCount": snap.groceryItems.count,
+                    "stagedChangeCount": snap.stagedChangeCount,
+                    "feedbackCount": snap.feedbackCount,
+                    "exportCount": snap.exportCount,
+                ]
+                if let v = snap.readyForAiAt { d["readyForAiAt"] = ISO8601DateFormatter().string(from: v) }
+                if let v = snap.approvedAt   { d["approvedAt"]   = ISO8601DateFormatter().string(from: v) }
+                if let v = snap.pricedAt     { d["pricedAt"]     = ISO8601DateFormatter().string(from: v) }
+                guard let data = try? JSONSerialization.data(withJSONObject: d),
+                      let summary = try? decoder.decode(WeekSummary.self, from: data)
+                else { return nil }
+                return summary
+            }
+        }
+        #endif
+        return try await apiClient.fetchWeeks(limit: limit)
     }
 
-    /// Server-side `get_current_week` returns the most recently-started
-    /// week record, which goes stale if the user hasn't generated a plan
-    /// past a week boundary — they'd open the Week tab and see last
-    /// week's data labeled "this week". Calendar apps default to
-    /// "today's view" on open; we match that by lazily creating a week
-    /// for today when the server's current week ends before today.
-    /// Uses the existing record's day-of-week convention so a Monday-
-    /// start user keeps Monday-start, Sunday-start keeps Sunday-start.
-    ///
-    /// "Today" is the user's local calendar date, projected onto UTC
-    /// midnight for comparison with `week_start` (which the server
-    /// stores as a date-only and ships as UTC-midnight). Using
-    /// `Date()` directly here would falsely advance for any user in a
-    /// timezone west of UTC whose local clock is past UTC midnight
-    /// (e.g. CDT evening), because that absolute instant lands on the
-    /// next UTC day even though it's still "today" to the user.
+    /// Server-side `get_current_week` returns the most recently-started week record,
+    /// which goes stale if the user hasn't generated a plan past a week boundary.
+    /// CloudKit mode: the repo already holds the correct week; this is a no-op
+    /// (mirrorWeekFromRepository already resolves today's week by date).
     func advanceCurrentWeekToTodayIfStaleOrNil(_ week: WeekSnapshot?) async throws -> WeekSnapshot? {
+        #if canImport(CloudKit)
+        if weekRepository != nil {
+            // CloudKit: mirrorWeekFromRepository() already resolved today's week from
+            // the store; no Fly call needed.
+            return week
+        }
+        #endif
         guard hasSavedConnection, let week else { return week }
         var utcCalendar = Calendar(identifier: .iso8601)
         utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -84,16 +117,12 @@ extension AppState {
         var target = week.weekStart
         if let weekEndExclusive = utcCalendar.date(byAdding: .day, value: 7, to: target),
            todayUTC >= weekEndExclusive {
-            // Server's current week ends before today — step forward.
             for _ in 0..<260 {
                 guard let next = utcCalendar.date(byAdding: .day, value: 7, to: target) else { break }
                 if todayUTC < next { break }
                 target = next
             }
         } else if todayUTC < target {
-            // Server's current week starts after today — step backward.
-            // Recovers from any drift that left the user on a future
-            // week record.
             for _ in 0..<260 {
                 guard let prev = utcCalendar.date(byAdding: .day, value: -7, to: target) else { break }
                 target = prev
@@ -105,11 +134,36 @@ extension AppState {
         return try await apiClient.createWeek(weekStart: target, notes: "")
     }
 
+    /// Fetch a specific week by its start date. CloudKit: scan the repo's list.
     func fetchWeekByStart(_ weekStart: Date) async throws -> WeekSnapshot? {
-        try await apiClient.fetchWeekByStart(weekStart)
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            return repo.week(forStart: weekStart)
+        }
+        #endif
+        return try await apiClient.fetchWeekByStart(weekStart)
     }
 
+    /// Create a new week. CloudKit: write via WeekRepository; return the reloaded snapshot.
     func createWeek(weekStart: Date, notes: String = "") async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            // Derive weekEnd (7 days after weekStart, same day-of-week convention).
+            var utcCal = Calendar(identifier: .iso8601)
+            utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+            let weekEnd = utcCal.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+            guard let snap = repo.createWeek(weekStart: weekStart, weekEnd: weekEnd, notes: notes) else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 500,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to create week in CloudKit store."]
+                )
+            }
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         let week = try await apiClient.createWeek(weekStart: weekStart, notes: notes)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -118,7 +172,23 @@ extension AppState {
         return week
     }
 
+    /// Batch-replace a week's meals. CloudKit: write via WeekRepository.
     func saveWeekMeals(weekID: String, meals: [MealUpdateRequest]) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            guard let snap = repo.saveWeekMeals(weekID: weekID, meals: meals) else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after saveWeekMeals."]
+                )
+            }
+            groceryRepository?.regenerate(weekID: weekID)
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         let week = try await apiClient.updateWeekMeals(weekID: weekID, meals: meals)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -128,10 +198,9 @@ extension AppState {
         return week
     }
 
-    /// Add / patch / delete a side on a meal (M26 Phase 2). The single-
-    /// side response endpoints don't return a full `WeekSnapshot`, so
-    /// after each mutation we re-fetch the whole week to refresh both
-    /// the meal's `sides` array AND the regenerated grocery list.
+    // MARK: - DATA: sides
+
+    /// Add a side to a meal. CloudKit: write via WeekRepository.
     func addMealSide(
         weekID: String,
         mealID: String,
@@ -139,6 +208,23 @@ extension AppState {
         recipeID: String? = nil,
         notes: String = ""
     ) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            guard let snap = repo.addMealSide(
+                weekID: weekID, mealID: mealID, name: name, recipeID: recipeID, notes: notes)
+            else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after addMealSide."]
+                )
+            }
+            groceryRepository?.regenerate(weekID: weekID)
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         _ = try await apiClient.addMealSide(
             weekID: weekID,
             mealID: mealID,
@@ -149,19 +235,55 @@ extension AppState {
         return try await refreshWeekAfterSideMutation(weekID: weekID)
     }
 
+    /// Patch an existing side. CloudKit: write via WeekRepository.
     func patchMealSide(
         weekID: String,
         mealID: String,
         sideID: String,
         body: SimmerSmithAPIClient.WeekMealSidePatchBody
     ) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            guard let snap = repo.updateMealSide(
+                weekID: weekID,
+                sideID: sideID,
+                name: body.name,
+                notes: body.notes
+            ) else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after patchMealSide."]
+                )
+            }
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         _ = try await apiClient.patchMealSide(
             weekID: weekID, mealID: mealID, sideID: sideID, body: body
         )
         return try await refreshWeekAfterSideMutation(weekID: weekID)
     }
 
+    /// Delete a side. CloudKit: write via WeekRepository.
     func deleteMealSide(weekID: String, mealID: String, sideID: String) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            guard let snap = repo.deleteMealSide(weekID: weekID, sideID: sideID) else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after deleteMealSide."]
+                )
+            }
+            groceryRepository?.regenerate(weekID: weekID)
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         try await apiClient.deleteMealSide(weekID: weekID, mealID: mealID, sideID: sideID)
         return try await refreshWeekAfterSideMutation(weekID: weekID)
     }
@@ -172,16 +294,30 @@ extension AppState {
             currentWeek = week
             try? cacheStore.saveCurrentWeek(week)
         } else if browsedWeek?.weekId == week.weekId {
-            // Route the refreshed snapshot to the browsed slot too, so a
-            // mutation on a non-current (browsed) week doesn't leave its view
-            // stale (mirrors applyAssistantWeekUpdate's slot routing).
             browsedWeek = week
         }
         syncPhase = .synced(.now)
         return week
     }
 
+    // MARK: - DATA: approve
+
+    /// Approve a week. CloudKit: write via WeekRepository.
     func approveWeek(weekID: String) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let repo = weekRepository {
+            guard let snap = repo.approveWeek(weekID: weekID) else {
+                throw NSError(
+                    domain: "SimmerSmith.WeekRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after approveWeek."]
+                )
+            }
+            mirrorWeekFromRepository()
+            syncPhase = .synced(.now)
+            return snap
+        }
+        #endif
         let week = try await apiClient.approveWeek(weekID: weekID)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -191,7 +327,29 @@ extension AppState {
         return week
     }
 
+    // MARK: - DATA: grocery regen
+
+    /// Regenerate the grocery list from the week's meals. CloudKit: delegates to
+    /// GroceryRepository.regenerate (the on-device GroceryGenerator port). Returns
+    /// the reloaded snapshot.
     func regenerateGrocery(weekID: String) async throws -> WeekSnapshot {
+        #if canImport(CloudKit)
+        if let weekRepo = weekRepository, let groceryRepo = groceryRepository {
+            groceryRepo.regenerate(weekID: weekID)
+            weekRepo.reload()
+            mirrorWeekFromRepository()
+            let snap = weekRepo.week(forId: weekID) ?? currentWeek
+            syncPhase = .synced(.now)
+            guard let result = snap else {
+                throw NSError(
+                    domain: "SimmerSmith.GroceryRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Week not found after regenerateGrocery."]
+                )
+            }
+            return result
+        }
+        #endif
         let week = try await apiClient.regenerateGrocery(weekID: weekID)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -201,7 +359,14 @@ extension AppState {
         return week
     }
 
+    // MARK: - AI TRACK: rebalanceDay (coming-soon; stays on Fly)
+
+    /// AI day-rebalance. NOT cut over to CloudKit — AI track. Guarded in the UI
+    /// by the rebalanceBanner being hidden when `isCloudKitOnly` (no profile
+    /// dietaryGoal is returned by CloudKit, so the banner condition never fires).
+    /// // AI TRACK
     func rebalanceDay(weekID: String, mealDate: Date) async throws -> WeekSnapshot {
+        // AI TRACK: rewire to AIProviderKit when the AI slice lands. Stays on Fly.
         let week = try await apiClient.rebalanceDay(weekID: weekID, mealDate: mealDate)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -211,7 +376,15 @@ extension AppState {
         return week
     }
 
+    // MARK: - AI TRACK: generateWeekFromAI (coming-soon)
+
+    /// AI week generation. NOT cut over to CloudKit — AI track.
+    /// The "generate week" affordance in WeekView is gated by the AI coordinator
+    /// sheet (sparkle FAB → Smith tab). No explicit guard needed here beyond
+    /// the `isCloudKitOnly` mode keeping Fly auth absent.
+    /// // AI TRACK
     func generateWeekFromAI(weekID: String, prompt: String) async throws -> WeekSnapshot {
+        // AI TRACK: rewire to AIProviderKit when the AI slice lands. Stays on Fly.
         let week = try await apiClient.generateWeekPlan(weekID: weekID, prompt: prompt)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week
@@ -221,11 +394,9 @@ extension AppState {
         return week
     }
 
+    // MARK: - DATA: feedback (stays on Fly — feedback ingestion is server-side)
+
     func submitMealFeedback(for meal: WeekMeal, in weekID: String, sentiment: Int, notes: String) async throws {
-        // weekID is the DISPLAYED week (browsed ?? current) — the meal the
-        // user rated belongs to it. Previously this hardcoded currentWeek and
-        // then refreshWeek()'d, so rating a browsed week's meal attached the
-        // feedback to the wrong week and reloaded the current week instead.
         _ = try await apiClient.submitFeedback(
             weekID: weekID,
             entries: [
@@ -238,6 +409,13 @@ extension AppState {
                 )
             ]
         )
+        // Reload the week after feedback (mirrors the old refreshWeekAfterSideMutation).
+        #if canImport(CloudKit)
+        if weekRepository != nil {
+            await refreshWeek()
+            return
+        }
+        #endif
         _ = try await refreshWeekAfterSideMutation(weekID: weekID)
     }
 
@@ -263,10 +441,19 @@ extension AppState {
         checkedGroceryItemIDs.contains(groceryItemID)
     }
 
-    /// Toggle the household-shared check state. Optimistically flips the
-    /// local mirror, calls the server, then triggers a Reminders mirror
-    /// push so the user's chosen Reminders list reflects the change.
+    /// Toggle the household-shared check state. CloudKit: delegates to
+    /// GroceryRepository.toggleChecked (the field-merge handles household convergence).
     func toggleGroceryChecked(_ groceryItemID: String) async {
+        #if canImport(CloudKit)
+        if let weekID = currentWeek?.weekId, let groceryRepo = groceryRepository {
+            let willCheck = !checkedGroceryItemIDs.contains(groceryItemID)
+            if willCheck { checkedGroceryItemIDs.insert(groceryItemID) }
+            else { checkedGroceryItemIDs.remove(groceryItemID) }
+            groceryRepo.toggleChecked(weekID: weekID, itemID: groceryItemID)
+            await syncGroceryToReminders()
+            return
+        }
+        #endif
         guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
         let willCheck = !checkedGroceryItemIDs.contains(groceryItemID)
         if willCheck { checkedGroceryItemIDs.insert(groceryItemID) }
@@ -278,7 +465,6 @@ extension AppState {
             replaceGroceryItemInCurrentWeek(updated)
             await syncGroceryToReminders()
         } catch {
-            // Roll back the optimistic flip and surface the failure.
             if willCheck { checkedGroceryItemIDs.remove(groceryItemID) }
             else { checkedGroceryItemIDs.insert(groceryItemID) }
             lastErrorMessage = error.localizedDescription

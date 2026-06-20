@@ -2,11 +2,20 @@ import Foundation
 import SimmerSmithKit
 
 extension AppState {
-    // MARK: - Mutations
+    // MARK: - DATA: add grocery item
 
-    /// Insert a manually-added item on the current week. Smart-merge
-    /// regen never touches these rows on the server.
+    /// Insert a manually-added item on the current week. CloudKit: delegates to
+    /// GroceryRepository.addItem (isUserAdded — regen never touches these).
     func addGroceryItem(name: String, quantity: Double? = nil, unit: String = "", notes: String = "") async {
+        #if canImport(CloudKit)
+        if let weekID = currentWeek?.weekId, let groceryRepo = groceryRepository {
+            groceryRepo.addItem(weekID: weekID, name: name, quantity: quantity, unit: unit, notes: notes)
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            await syncGroceryToReminders()
+            return
+        }
+        #endif
         guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -23,9 +32,10 @@ extension AppState {
         }
     }
 
-    /// Apply an edit. Pass `.set(value)` to write a value, `.clear` to
-    /// revert an override, or leave the field nil for no change.
-    /// `removed=true` soft-deletes via the server tombstone.
+    // MARK: - DATA: edit grocery item
+
+    /// Apply an edit. CloudKit: delegates to GroceryRepository.editItem.
+    /// Pass `.set(value)` to write a value, `.clear` to revert an override.
     func editGroceryItem(
         id: String,
         quantity: SimmerSmithAPIClient.PatchValue<Double>? = nil,
@@ -33,6 +43,36 @@ extension AppState {
         notes: SimmerSmithAPIClient.PatchValue<String>? = nil,
         removed: Bool? = nil
     ) async {
+        #if canImport(CloudKit)
+        if let weekID = currentWeek?.weekId, let groceryRepo = groceryRepository {
+            if let removed {
+                if removed {
+                    groceryRepo.removeItem(weekID: weekID, itemID: id)
+                } else {
+                    groceryRepo.restoreItem(weekID: weekID, itemID: id)
+                }
+            } else {
+                // Map the SimmerSmithAPIClient.PatchValue to GroceryRepository.FieldPatch.
+                let qPatch: GroceryRepository.FieldPatch<Double>? = quantity.map {
+                    if case .set(let v) = $0 { return .set(v) }
+                    return .clear
+                }
+                let uPatch: GroceryRepository.FieldPatch<String>? = unit.map {
+                    if case .set(let v) = $0 { return .set(v) }
+                    return .clear
+                }
+                let nPatch: GroceryRepository.FieldPatch<String>? = notes.map {
+                    if case .set(let v) = $0 { return .set(v) }
+                    return .clear
+                }
+                groceryRepo.editItem(weekID: weekID, itemID: id, quantity: qPatch, unit: uPatch, notes: nPatch)
+            }
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            await syncGroceryToReminders()
+            return
+        }
+        #endif
         guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
         var body = SimmerSmithAPIClient.GroceryItemPatchBody()
         body.quantity = quantity
@@ -53,6 +93,8 @@ extension AppState {
         }
     }
 
+    // MARK: - DATA: remove / restore
+
     /// Soft-remove a grocery item.
     func removeGroceryItem(id: String) async {
         await editGroceryItem(id: id, removed: true)
@@ -60,17 +102,10 @@ extension AppState {
 
     /// Restore a previously-removed item (clears the tombstone).
     func restoreGroceryItem(id: String) async {
-        guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
-        var body = SimmerSmithAPIClient.GroceryItemPatchBody()
-        body.removed = false
-        do {
-            let item = try await apiClient.patchGroceryItem(weekID: weekID, itemID: id, body: body)
-            insertGroceryItemInCurrentWeek(item)
-            await syncGroceryToReminders()
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        await editGroceryItem(id: id, removed: false)
     }
+
+    // MARK: - DATA: event toggle (stays on Fly — event mutations are server-side)
 
     func toggleEventAutoMerge(eventID: String, enabled: Bool) async {
         guard hasSavedConnection else { return }
@@ -88,9 +123,6 @@ extension AppState {
 
     // MARK: - Local mirror helpers (used by Weeks toggleGroceryChecked too)
 
-    /// Replace an existing item in `currentWeek.groceryItems` with the
-    /// authoritative server copy. Keeps the local mirror in sync after
-    /// PATCH/check round-trips without re-pulling the entire week.
     func replaceGroceryItemInCurrentWeek(_ item: GroceryItem) {
         guard var week = currentWeek else { return }
         var items = week.groceryItems
@@ -123,18 +155,12 @@ extension AppState {
         try? cacheStore.saveCurrentWeek(week)
     }
 
-    // MARK: - Build 87: plan-shopping + store_label
+    // MARK: - DATA: plan shopping (stays on Fly — server-side projection)
 
-    /// Build 87: fetch the "needed but not yet on the list" projection
-    /// for a specific week. Used by PlanShoppingSheet.
     func loadPlanShopping(weekID: String) async throws -> PlanShoppingResponse {
         try await apiClient.planShopping(weekID: weekID)
     }
 
-    /// Insert (or replace) a grocery item into whichever week slot matches
-    /// `weekID` — current or browsed. Mirrors `applyAssistantWeekUpdate`'s
-    /// slot routing so a mutation made while browsing a non-current week
-    /// lands on that week instead of corrupting the current one (M40).
     func insertGroceryItemInWeek(_ item: GroceryItem, weekID: String) {
         if currentWeek?.weekId == weekID {
             insertGroceryItemInCurrentWeek(item)
@@ -149,11 +175,10 @@ extension AppState {
         }
     }
 
-    /// Build 87: quick-add a `PlanShoppingItem` to a week's grocery list.
-    /// Targets `weekID` when given (the displayed week — could be a browsed
-    /// non-current week), else the current week. The new row is appended to
-    /// the matching local slot optimistically; the Reminders sync (which
-    /// mirrors the current week only) re-runs just for the current week.
+    // MARK: - DATA: quick-add
+
+    /// Quick-add a PlanShoppingItem to a week's grocery list. CloudKit: delegates to
+    /// GroceryRepository.addItem with the resolved fields from the plan item.
     @discardableResult
     func quickAddPlanItem(
         _ planItem: PlanShoppingItem,
@@ -161,7 +186,31 @@ extension AppState {
         storeLabel: String = ""
     ) async -> GroceryItem? {
         let targetWeekID = weekID ?? currentWeek?.weekId
-        guard hasSavedConnection, let targetWeekID else { return nil }
+        guard let targetWeekID else { return nil }
+        #if canImport(CloudKit)
+        if let groceryRepo = groceryRepository {
+            let recordName = groceryRepo.addItem(
+                weekID: targetWeekID,
+                name: planItem.ingredientName,
+                quantity: planItem.totalQuantity,
+                unit: planItem.unit,
+                notes: planItem.notes,
+                category: planItem.category,
+                storeLabel: storeLabel
+            )
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            if currentWeek?.weekId == targetWeekID {
+                await syncGroceryToReminders()
+            }
+            // Return the newly-added domain GroceryItem from the refreshed current week.
+            if let id = recordName {
+                return currentWeek?.groceryItems.first(where: { $0.groceryItemId == id })
+            }
+            return nil
+        }
+        #endif
+        guard hasSavedConnection else { return nil }
         let body = SimmerSmithAPIClient.GroceryItemQuickAddBody(
             name: planItem.ingredientName,
             normalizedName: planItem.normalizedName,
@@ -175,8 +224,6 @@ extension AppState {
         do {
             let item = try await apiClient.quickAddGroceryItem(weekID: targetWeekID, body: body)
             insertGroceryItemInWeek(item, weekID: targetWeekID)
-            // checkedGroceryItemIDs + the Reminders mirror are current-week
-            // scoped — only touch them when the add targeted the current week.
             if currentWeek?.weekId == targetWeekID {
                 if item.isChecked { checkedGroceryItemIDs.insert(item.groceryItemId) }
                 await syncGroceryToReminders()
@@ -188,9 +235,20 @@ extension AppState {
         }
     }
 
-    /// Build 87: set or clear the store label on a single grocery item.
-    /// Empty string clears the annotation server-side.
+    // MARK: - DATA: store label
+
+    /// Set or clear the store label on a single grocery item. CloudKit: delegates to
+    /// GroceryRepository.setStoreLabel.
     func setStoreLabel(itemID: String, storeLabel: String) async {
+        #if canImport(CloudKit)
+        if let weekID = currentWeek?.weekId, let groceryRepo = groceryRepository {
+            groceryRepo.setStoreLabel(weekID: weekID, itemID: itemID, storeLabel: storeLabel)
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            await syncGroceryToReminders()
+            return
+        }
+        #endif
         guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
         var body = SimmerSmithAPIClient.GroceryItemPatchBody()
         body.storeLabel = .set(storeLabel)
@@ -203,10 +261,24 @@ extension AppState {
         }
     }
 
-    /// Build 87: the household's known store options. Combines the
-    /// existing store-name profile settings (Kroger/Aldi/Walmart) with
-    /// any `store_label` values already used on the current week's
-    /// grocery items. Sorted, deduplicated, case-insensitive.
+    // MARK: - DATA: dedupe (leak closure — was appState.apiClient.dedupeGrocery direct call)
+
+    /// Route the dedupe operation through AppState so views never call apiClient directly.
+    /// CloudKit: delegates to GroceryRepository.dedupe (the EventMergeAdapter/ConflictRepair port).
+    func dedupeGrocery(weekID: String) async throws {
+        #if canImport(CloudKit)
+        if let groceryRepo = groceryRepository {
+            _ = groceryRepo.dedupe(weekID: weekID)
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            return
+        }
+        #endif
+        _ = try await apiClient.dedupeGrocery(weekID: weekID)
+    }
+
+    // MARK: - Known store options (Build 87)
+
     var knownStoreOptions: [String] {
         var set = Set<String>()
         let candidates = [
@@ -224,9 +296,8 @@ extension AppState {
         return set.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    /// Build 87: one-shot migration helper. Triggered the first time
-    /// the device launches build 87, clears auto-generated grocery
-    /// rows on the current week so the user starts from a clean list.
+    // MARK: - Build 87: one-shot migration helpers
+
     func clearAutoGroceryForCurrentWeek() async {
         guard hasSavedConnection, let weekID = currentWeek?.weekId else { return }
         do {
@@ -238,36 +309,28 @@ extension AppState {
         }
     }
 
-    /// Build 87: idempotent migration. Runs once per device — sets a
-    /// UserDefaults flag whether the server call succeeded or not so
-    /// a transient network failure doesn't end up clearing the user's
-    /// list weeks later. Called from `refreshWeek`.
     func runBuild87GroceryMigrationIfNeeded() async {
         let key = "simmersmith.build87.clearedAutoGrocery"
         if UserDefaults.standard.bool(forKey: key) { return }
         UserDefaults.standard.set(true, forKey: key)
+        // CloudKit mode: no auto-grocery regen on Fly; skip the server-side clear.
+        #if canImport(CloudKit)
+        if groceryRepository != nil { return }
+        #endif
         await clearAutoGroceryForCurrentWeek()
     }
 
-    /// Build 88: idempotent migration. Asks the server to re-resolve
-    /// every ``resolution_status="unresolved"`` row in the household
-    /// — fixes the iOS-Codable-default bug that was leaving every
-    /// recipe ingredient pinned at "unresolved" even when the
-    /// resolver matched a base ingredient. Same once-per-device
-    /// pattern as build 87.
     func runBuild88IngredientReresolveIfNeeded() async {
         let key = "simmersmith.build88.reresolvedIngredients"
         if UserDefaults.standard.bool(forKey: key) { return }
         UserDefaults.standard.set(true, forKey: key)
+        // CloudKit mode: ingredient re-resolve is a server-side Fly operation; skip it.
+        #if canImport(CloudKit)
+        if recipeRepository != nil { return }
+        #endif
         guard hasSavedConnection else { return }
         do {
             _ = try await apiClient.reresolveUnresolvedIngredients()
-            // Silently re-pull the rows the re-resolve touched WITHOUT
-            // re-entering the public syncPhase-owning refresh methods — a
-            // user pull-to-refresh in flight would otherwise have its
-            // syncPhase / "Synced <time>" stamp clobbered by this
-            // fire-and-forget migration (M43). Mirrors the icon-override
-            // migration's direct fetch+assign.
             recipes = try await apiClient.fetchRecipes(includeArchived: true)
             try? cacheStore.saveRecipes(recipes)
             if let week = try await apiClient.fetchCurrentWeek() {
@@ -275,12 +338,7 @@ extension AppState {
                 try? cacheStore.saveCurrentWeek(week)
             }
         } catch {
-            // Swallow — the flag is set so we won't retry. If it failed
-            // the rows stay "unresolved" until the user saves them
-            // again (which the build 88 server fix now handles). This is a
-            // fire-and-forget migration the user never initiated, so don't
-            // paint lastErrorMessage's red banner over the foreground screen
-            // for it (M42) — matches the silent icon-override migration.
+            // Swallow — migration flag is set; won't retry. See original comment.
         }
     }
 }

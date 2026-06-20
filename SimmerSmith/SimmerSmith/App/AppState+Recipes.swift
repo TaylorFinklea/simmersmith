@@ -68,24 +68,33 @@ extension AppState {
 
             let recipeRepo = RecipeRepository(session: session)
             let metadataRepo = MetadataRepository(session: session)
+            // SP-C slice 3: week + grocery repos.
+            let weekRepo = WeekRepository(session: session)
+            let groceryRepo = GroceryRepository(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
             metadataRepository = metadataRepo
+            weekRepository = weekRepo
+            groceryRepository = groceryRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
             recipeRepo.startObserving()
             metadataRepo.startObserving()
+            weekRepo.startObserving()
             recipeRepo.reload()
             metadataRepo.reloadMetadata()
+            weekRepo.reload()
 
             // Mirror the repo's projections onto AppState's @Observable stored vars so the
             // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
             observeRecipeRepository()
             observeMetadataRepository()
+            observeWeekRepository()
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
+            mirrorWeekFromRepository()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -245,6 +254,8 @@ extension AppState {
         householdSession = nil
         recipeRepository = nil
         metadataRepository = nil
+        weekRepository = nil
+        groceryRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.
@@ -287,6 +298,67 @@ extension AppState {
         recipeMetadata = metadata
         try? cacheStore.saveRecipeMetadata(metadata)
     }
+
+    // MARK: - SP-C slice 3: Week repository mirroring
+
+    /// Re-arm the week-repo observation and mirror the week list onto AppState's
+    /// currentWeek / browsedWeek / checkedGroceryItemIDs slots.
+    func observeWeekRepository() {
+        guard let repo = weekRepository else { return }
+        withObservationTracking {
+            _ = repo.weeks
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorWeekFromRepository()
+                self?.observeWeekRepository()
+            }
+        }
+    }
+
+    /// Push the week-repo's current week list into AppState. Resolves
+    /// `currentWeek` as the week whose start is today (UTC day match),
+    /// or the newest available week when today has no week. Preserves
+    /// `browsedWeek` pointer if still present in the updated list.
+    func mirrorWeekFromRepository() {
+        guard let repo = weekRepository else { return }
+        let all = repo.weeks
+
+        // Resolve currentWeek: the week whose weekStart matches today (UTC).
+        let todayKey = Self.utcDayKey(Date())
+        if let todayWeek = all.first(where: { Self.utcDayKey($0.weekStart) == todayKey }) {
+            currentWeek = todayWeek
+        } else if currentWeek == nil {
+            // No week for today yet — default to the newest (weeks sorted newest-first).
+            currentWeek = all.first
+        } else if let cw = currentWeek, let refreshed = all.first(where: { $0.weekId == cw.weekId }) {
+            // Refreshed version of the same week.
+            currentWeek = refreshed
+        }
+
+        // Keep browsedWeek fresh if it's still in the list.
+        if let bw = browsedWeek, let refreshed = all.first(where: { $0.weekId == bw.weekId }) {
+            browsedWeek = refreshed
+        }
+
+        // Hydrate checkedGroceryItemIDs from the current week's grocery items (mirrors
+        // the Fly refreshWeek path: "M22: server is now the source of truth for check state").
+        if let week = currentWeek {
+            checkedGroceryItemIDs = Set(week.groceryItems.filter(\.isChecked).map(\.groceryItemId))
+        }
+    }
+
+    private static func utcDayKey(_ date: Date) -> String {
+        utcDayFormatter.string(from: date)
+    }
+
+    private static let utcDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     #endif
 
     func refreshRecipes() async {

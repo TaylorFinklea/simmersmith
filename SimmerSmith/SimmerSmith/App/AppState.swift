@@ -74,6 +74,9 @@ final class AppState {
     @ObservationIgnored var householdSession: HouseholdSession?
     @ObservationIgnored var recipeRepository: RecipeRepository?
     @ObservationIgnored var metadataRepository: MetadataRepository?
+    // SP-C slice 3: week + grocery CloudKit repos.
+    @ObservationIgnored var weekRepository: WeekRepository?
+    @ObservationIgnored var groceryRepository: GroceryRepository?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on
@@ -207,9 +210,9 @@ final class AppState {
     /// to the cut-over Recipes (Forge) tab instead. `defaultLandingTab` is the single
     /// source of truth for both the initial value and the post-clear reset.
     var selectedTab: MainTab = AppState.defaultLandingTab
-    /// The tab the app should open to. Recipes while CloudKit-only (the only cut-over
-    /// feature); `.week` once Weeks cuts over and `isCloudKitOnly` flips off.
-    static var defaultLandingTab: MainTab { cloudKitOnlyBuild ? .recipes : .week }
+    /// The tab the app should open to. `.week` now that Weeks + Grocery are cut over;
+    /// the Recipes fallback is retained here only for historical reference.
+    static var defaultLandingTab: MainTab { .week }
     /// Compile-time mirror of `isCloudKitOnly` so the static `defaultLandingTab` can read
     /// it without an instance. Keep in lockstep with `isCloudKitOnly`.
     private static let cloudKitOnlyBuild = true
