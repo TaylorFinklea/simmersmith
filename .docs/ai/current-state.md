@@ -1,6 +1,36 @@
 # Current State
 
 > Updated at the end of every work session. Read this first.
+> ⚠️ This file is 2500+ lines but AGENTS.md specs it at ≤20 (Branch/Plan/Blockers/Open
+> questions only). Everything below the "Current" block is legacy journal that belongs in
+> git log / decisions.md / phases/*. Trim on the next maintenance pass.
+
+## Current (2026-06-19) — SP-C CloudKit cutover, slice 1 (Recipes): CODE-COMPLETE, on-device gate pending
+
+Branch: `sp-c/cloudkit-cutover-recipes` (NOT merged — awaits on-device verify → merge to main).
+Goal: full feature parity on a CloudKit build, drop Fly from new builds; Savanne stays on the Fly
+build until she migrates (split-household transition accepted). AI = BYO-key + on-device hybrid
+(separate track, not this slice). Recipes = slice 1; it establishes the reusable skeleton.
+Spec/plan: `phases/cloudkit-cutover-recipes-{spec,plan}.md`. SDD ledger: `.git/sdd/progress.md`.
+
+Plan (7 tasks, ALL implemented + task-reviewed clean; opus final whole-branch review = ready-to-merge):
+- [x] 1 RecipeRecordMapper (SimmerSmithKit, headless `swift test`) · [x] 2 onStoreChanged hook
+- [x] 3 HouseholdSession (owns 3 planes) · [x] 4 RecipeRepository · [x] 4b ManagedListItem + MetadataRepository
+- [x] 5 AppState wires session+repos; fetchBaseIngredients façade; AI methods guarded on Fly
+- [x] 6 first-launch Fly→CloudKit migration (receipt-gated, mapper-path) · [x] 7 on-device debug check
+- [?] 7 ON-DEVICE VERIFY (build 113) + merge — PENDING (human)
+
+Blockers / pending (human):
+- Deploy the NEW `ManagedListItem` record type to Production CloudKit (Dashboard "Deploy to
+  Production") before on-device metadata works — it's the ONLY new schema type this slice.
+- Install build 113 (cut from this branch) → RUN ALL + exercise real Recipes flow on-device.
+- Then merge `sp-c/cloudkit-cutover-recipes` → main.
+
+Deferred follow-ups (NOT blockers): templates+memories thin on CloudKit (spec §6); substring catalog
+search still Fly (`// CATALOG TRACK`, Ingredient slice); AI recipe methods still Fly (`// AI TRACK`);
+CKShare participant session-rebuild (participant slice); Minor cleanups in the SDD ledger roll-up.
+
+---
 
 ## Last session (2026-06-17) — full-stack architectural review written
 

@@ -65,6 +65,21 @@ final class AppState {
     let cacheStore: SimmerSmithCacheStore
     let apiClient: SimmerSmithAPIClient
     let subscriptionStore = SubscriptionStore()
+
+    // SP-C Task 5 — CloudKit data plane. Constructed after sign-in once the
+    // household ID is known (from the Fly household snapshot), torn down on
+    // sign-out. nil before sign-in. Guarded by canImport(CloudKit) so the
+    // app target still compiles on platforms without CloudKit.
+    #if canImport(CloudKit)
+    @ObservationIgnored var householdSession: HouseholdSession?
+    @ObservationIgnored var recipeRepository: RecipeRepository?
+    @ObservationIgnored var metadataRepository: MetadataRepository?
+    /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
+    /// any `await`) so a second concurrent caller on MainActor sees it and
+    /// awaits the same task instead of starting a second setup. Cleared on
+    /// sign-out so a fresh session can be established after re-sign-in.
+    @ObservationIgnored var householdSessionSetupTask: Task<Void, Never>?
+    #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?
@@ -386,6 +401,13 @@ final class AppState {
             await ensurePushBootstrap()
             // Best-effort household snapshot for the Settings UI (M21).
             await refreshHousehold()
+            #if canImport(CloudKit)
+            // SP-C Task 5 — now that the household ID is known (from the Fly snapshot),
+            // construct + boot the CloudKit household session and its repositories. The
+            // recipe data plane reads/writes CloudKit from here on; the CloudKit-aware
+            // overloads in AppState+Recipes route through the repos once this is set.
+            await ensureHouseholdSession()
+            #endif
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
                     .filter(\.isChecked)
@@ -403,10 +425,22 @@ final class AppState {
                 exports = []
             }
 
+            #if canImport(CloudKit)
+            // When CloudKit session is active, metadata comes from MetadataRepository
+            // via the mirror set up in ensureHouseholdSession(). Fetching from Fly here
+            // would clobber those mirrored values until the next storeRevision tick.
+            if recipeRepository == nil {
+                if let metadata = try? await apiClient.fetchRecipeMetadata() {
+                    recipeMetadata = metadata
+                    try? cacheStore.saveRecipeMetadata(metadata)
+                }
+            }
+            #else
             if let metadata = try? await apiClient.fetchRecipeMetadata() {
                 recipeMetadata = metadata
                 try? cacheStore.saveRecipeMetadata(metadata)
             }
+            #endif
 
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads

@@ -38,9 +38,22 @@ additive-only — the recordName-policy + field table is irreversible.
   the Production CloudKit env; cktool can't deploy to prod). Then the Phase 0–9 checks pass on device.
 - Optional: flip `aps-environment` to `production` (currently `development`) if push should work on TestFlight.
 
-**Next big step (unblocked, needs planning first): wire the CloudKit data plane into the app's real
-features** — replace the Fly API calls for weeks/grocery/recipes/events with the CloudKit stores. That's
-the actual app cutover. SP-D (Fly retirement) follows once migration completeness is confirmed; SP-B (AI
+**SP-C — the actual app cutover (STARTED 2026-06-19).** Strategy (decided): build FULL feature parity on
+a CloudKit build, drop Fly from new builds; Savanne stays on the Fly build until she migrates (split
+household during transition). AI → BYO-key + on-device hybrid (separate track). Decomposed into
+feature slices, each its own spec→plan→build reusing the skeleton slice 1 establishes.
+- [~] **Slice 1 — Recipes + reusable skeleton. CODE-COMPLETE 2026-06-19, on-device gate pending.**
+  Branch `sp-c/cloudkit-cutover-recipes` (NOT merged). 7 tasks via subagent-driven dev, all
+  task-reviewed + an opus whole-branch review (ready-to-merge). Built: `HouseholdSession` (owns the 3
+  planes + sync change-signal), per-feature repositories behind the AppState façade, `RecipeRecordMapper`,
+  `ManagedListItem` household type + `MetadataRepository`, AppState wiring (session lifecycle +
+  fetchBaseIngredients façade + guarded AI methods on Fly), first-launch Fly→CloudKit migration
+  (receipt-gated), on-device debug check. Spec/plan `phases/cloudkit-cutover-recipes-{spec,plan}.md`;
+  ledger `.git/sdd/progress.md`. **PENDING (human):** deploy the new `ManagedListItem` type to Production
+  CloudKit (Dashboard); install build 113; on-device verify (RUN ALL + real Recipes flow); then merge.
+- [ ] Slice 2 — Weeks + WeekMeals + Grocery (the field-merge core). Next slice; own spec/plan.
+- [ ] Then Events, Pantry/Profile/Ingredients+catalog, the AI providers track.
+SP-D (Fly retirement) follows once all slices land + migration completeness is confirmed; SP-B (AI
 tiering / on-device AFM) waits for iOS 27 GA.
 
 Older open follow-ups (pre-CloudKit, still valid):

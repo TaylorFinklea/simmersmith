@@ -20,6 +20,12 @@ public enum RecordNames {
     /// Singleton dietary goal (one per user).
     public static let dietaryGoal = "dietary_goal"
 
+    /// Household-owned managed list item → `mli:<kind>:<normalized_name>`.
+    /// Concurrent creates of the same (kind, name) collapse to one record.
+    public static func managedListItem(kind: String, name: String) -> String {
+        "mli:\(normalize(kind)):\(normalize(name))"
+    }
+
     /// Event↔guest junction → `<eventID>_<guestID>` (re-add = upsert).
     public static func eventAttendee(eventID: String, guestID: String) -> String {
         "\(eventID)_\(guestID)"

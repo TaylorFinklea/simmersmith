@@ -87,6 +87,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
     case weekMeal
     case weekChangeBatch
     case weekChangeEvent
+    case managedListItem
 
     /// The CloudKit record type name.
     public var recordTypeName: String {
@@ -107,13 +108,14 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .weekMeal: return "WeekMeal"
         case .weekChangeBatch: return "WeekChangeBatch"
         case .weekChangeEvent: return "WeekChangeEvent"
+        case .managedListItem: return "ManagedListItem"
         }
     }
 
     public var namePolicy: RecordNamePolicy {
         switch self {
         // Composite/keyed PKs in Postgres → deterministic recordNames (no surrogate id to pass through).
-        case .householdSetting, .householdTermAlias, .eventAttendee: return .det
+        case .householdSetting, .householdTermAlias, .eventAttendee, .managedListItem: return .det
         default: return .pk
         }
     }
@@ -197,6 +199,13 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .weekChangeEvent:
             return [F("entityType", .string), F("entityID", .string), F("fieldName", .string),
                     F("beforeValue", .string), F("afterValue", .string), F("createdAt", .date)]
+        case .managedListItem:
+            // Backend: managed_list_items (kind, name, normalized_name, created_at, updated_at).
+            // No sort_order or built_in on the actual model. kind is queryable for list-by-kind
+            // queries. normalizedName stored for dedup awareness on the client.
+            return [F("kind", .string, queryable: true), F("name", .string),
+                    F("normalizedName", .string),
+                    F("createdAt", .date), F("updatedAt", .date)]
         }
     }
 
@@ -262,6 +271,9 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
             // batch_id CASCADE (week.py:301) — events die with their batch (so the audit-prune,
             // which deletes batches, sweeps their events via the engine's local cascade).
             return [R("batch", .cascadeParent, target: "WeekChangeBatch")]
+        case .managedListItem:
+            // No foreign keys — a top-level household-owned reference-data record.
+            return []
         }
     }
 

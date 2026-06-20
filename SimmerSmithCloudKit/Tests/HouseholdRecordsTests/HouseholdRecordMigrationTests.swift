@@ -184,6 +184,32 @@ import CloudKit
     #expect(HouseholdRecordType.weekChangeBatch.refs.first?.kind == .cascadeParent)
 }
 
+// MARK: Task 4b — ManagedListItem household type (det key, scalars, no refs)
+
+@Test func migrateManagedListItem_detKeyAndScalars() {
+    let row: [String: Any] = [
+        "id": "M1",                              // legacy PK (unused for recordName)
+        "kind": "cuisine",
+        "name": "Italian",
+        "normalized_name": "italian",
+        "created_at": "2026-06-18T10:00:00Z",
+        "updated_at": "2026-06-18T10:00:00Z",
+    ]
+    let v = migrateHouseholdRecord(.managedListItem, row)
+    // recordName is deterministic: mli:<kind>:<normalized_name_of_name>
+    #expect(v?.recordName == "mli:cuisine:italian")
+    #expect(v?.scalars["kind"] == .string("cuisine"))
+    #expect(v?.scalars["name"] == .string("Italian"))
+    #expect(v?.scalars["normalizedName"] == .string("italian"))
+    #expect(v?.refs.isEmpty == true)
+    // dates parsed
+    #expect({ if case .date? = v?.scalars["createdAt"] { return true }; return false }())
+    #expect({ if case .date? = v?.scalars["updatedAt"] { return true }; return false }())
+    // missing identity (kind or name absent) → nil
+    #expect(migrateHouseholdRecord(.managedListItem, ["kind": "cuisine"]) == nil)   // no name
+    #expect(migrateHouseholdRecord(.managedListItem, ["name": "Italian"]) == nil)   // no kind
+}
+
 // MARK: full migrate → encode → decode round-trip (headless CloudKit)
 
 @Test func migrate_roundTripsThroughCodec() {
