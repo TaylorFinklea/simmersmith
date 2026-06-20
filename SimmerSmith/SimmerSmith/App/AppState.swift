@@ -175,6 +175,31 @@ final class AppState {
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]
 
+    // MARK: - SP-C identity slice: CloudKit-only launch gate
+
+    /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.
+    /// RootView gates on this — shows a loading state while `.resolving`,
+    /// `MainTabView` once `.ready`, and a friendly "Sign in to iCloud" prompt
+    /// when `.iCloudUnavailable`. The Fly sign-in screen is no longer shown.
+    enum HouseholdLaunchPhase: Equatable {
+        /// CloudKit household resolution in progress (initial state).
+        case resolving
+        /// Household resolved — ready to show `MainTabView`.
+        case ready
+        /// iCloud account not signed in or CKAccountStatus is not `.available`.
+        case iCloudUnavailable
+    }
+
+    /// Current phase of the iCloud-native launch gate.
+    var householdLaunchPhase: HouseholdLaunchPhase = .resolving
+
+    /// Single source of truth: this build is CloudKit-only. Features not yet
+    /// migrated to CloudKit (Weeks / Grocery / Events / Profile / AI) render
+    /// `ComingSoonView` at their tab entry points so no Fly call is made and
+    /// no 401 banners appear. Recipes is the first (and currently only) fully
+    /// cut-over feature; subsequent slices will flip their gating off.
+    let isCloudKitOnly: Bool = true
+
     var syncPhase: SyncPhase = .idle
     var lastErrorMessage: String?
     var selectedTab: MainTab = .week

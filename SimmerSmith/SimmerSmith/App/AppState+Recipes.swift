@@ -20,7 +20,11 @@ extension AppState {
     /// while setup is in-flight awaits the same task instead of starting another.
     func ensureHouseholdSession() async {
         // Fast path — already set up.
-        if householdSession != nil { return }
+        if householdSession != nil {
+            // Ensure the launch phase is .ready even if called again after setup.
+            householdLaunchPhase = .ready
+            return
+        }
 
         // Second concurrent caller: setup in-flight — await it instead of duplicating.
         if let existing = householdSessionSetupTask {
@@ -43,10 +47,10 @@ extension AppState {
 
             // 1. Resolve the household id: discover first, mint only if none exists.
             guard let householdID = await self.resolveHouseholdID() else {
-                // Discovery failed (e.g. iCloud unavailable / transient CloudKit error)
-                // OR minting failed. Leave the session unset so a later refresh retries;
-                // do NOT proceed into a half-built session. Clear the dedup task so the
-                // retry isn't short-circuited by an in-flight-but-dead task.
+                // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
+                // was already set inside resolveHouseholdID() before returning nil. Leave
+                // the session unset so a later retry can call ensureHouseholdSession()
+                // again; clear the dedup task so the retry isn't short-circuited.
                 self.householdSessionSetupTask = nil
                 return
             }
@@ -82,6 +86,10 @@ extension AppState {
             observeMetadataRepository()
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
+
+            // SP-C identity slice (spec §1.3): signal RootView that the household is
+            // resolved and the app is ready to show MainTabView.
+            self.householdLaunchPhase = .ready
         }
         householdSessionSetupTask = task
         await task.value
@@ -104,7 +112,15 @@ extension AppState {
         do {
             result = try await provisioner.discoverHouseholdResult()
         } catch {
-            // Discovery failed — surface softly and bail (retry on next refresh).
+            // Check whether this is an iCloud-not-signed-in error vs. a transient
+            // network hiccup. CKError.notAuthenticated / accountTemporarilyUnavailable
+            // map to .iCloudUnavailable (user must open Settings); other errors are
+            // transient — stay in .resolving so the user can retry by foregrounding.
+            if isICloudAuthError(error) {
+                householdLaunchPhase = .iCloudUnavailable
+            }
+            // If already .iCloudUnavailable, keep it; if it was .resolving, leave it
+            // so the RootView loading spinner remains and a foreground retry can fire.
             lastErrorMessage = "Couldn't reach CloudKit to find your household. Will retry."
             return nil
         }
@@ -129,9 +145,29 @@ extension AppState {
             _ = try await provisioner.ensureHouseholdProfile(householdID: newID, name: "My Household")
             return newID
         } catch {
+            if isICloudAuthError(error) {
+                householdLaunchPhase = .iCloudUnavailable
+            }
             lastErrorMessage = "Couldn't create your CloudKit household. Will retry."
             return nil
         }
+    }
+
+    /// Returns true when the error indicates the iCloud account is not signed in or
+    /// is temporarily unavailable — as opposed to a transient network hiccup. Used by
+    /// `resolveHouseholdID()` to set `householdLaunchPhase = .iCloudUnavailable` so
+    /// `RootView` shows the "Sign in to iCloud in Settings" prompt.
+    private func isICloudAuthError(_ error: Error) -> Bool {
+        // CKError is available because this function lives inside #if canImport(CloudKit).
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .notAuthenticated, .accountTemporarilyUnavailable, .permissionFailure:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     /// Tear down the CloudKit session + repositories and delete the durable engine
@@ -144,6 +180,8 @@ extension AppState {
         metadataRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
+        // Reset the launch phase so RootView shows the loading state on next launch.
+        householdLaunchPhase = .resolving
     }
 
     /// Re-arm the recipe-repo observation and mirror its `recipes` onto AppState.

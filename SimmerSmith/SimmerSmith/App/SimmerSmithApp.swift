@@ -50,9 +50,13 @@ struct SimmerSmithApp: App {
                     // purely for the native Google UI state.
                     GIDSignIn.sharedInstance.restorePreviousSignIn { _, _ in }
                     await appState.subscriptionStore.start()
-                    if appState.hasSavedConnection {
-                        await appState.refreshAll()
-                    }
+                    // SP-C identity slice (spec §1.3): launch the iCloud-native session
+                    // immediately, without requiring a Fly sign-in. This discovers (or
+                    // mints) the CloudKit household and sets householdLaunchPhase → .ready,
+                    // which unblocks RootView to show MainTabView.
+                    #if canImport(CloudKit)
+                    await appState.ensureHouseholdSession()
+                    #endif
                 }
         }
         .modelContainer(modelContainer)
@@ -67,6 +71,14 @@ struct SimmerSmithApp: App {
                     await appState.syncGroceryToReminders()
                 }
             }
+            // SP-C identity slice: if the household wasn't resolved yet (iCloud
+            // unavailable or transient error), retry whenever the user foregrounds —
+            // they may have signed into iCloud in Settings and come back.
+            #if canImport(CloudKit)
+            if newPhase == .active && appState.householdLaunchPhase != .ready {
+                Task { await appState.ensureHouseholdSession() }
+            }
+            #endif
         }
     }
 }
