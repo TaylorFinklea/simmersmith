@@ -65,7 +65,10 @@ struct SimmerSmithApp: App {
             // app after editing the Reminders list (e.g. adding "Green
             // curry paste" because they're out), pull those edits into
             // SimmerSmith without waiting for a BGAppRefreshTask.
-            if newPhase == .active && appState.reminderListIdentifier != nil {
+            // SP-C review finding E: both calls hit Fly (Grocery/Reminders aren't cut over
+            // to CloudKit yet). Skip them in CloudKit-only mode so no Fly request fires
+            // (no 401s) on foreground.
+            if !appState.isCloudKitOnly && newPhase == .active && appState.reminderListIdentifier != nil {
                 Task {
                     await appState.handleReminderStoreChange()
                     await appState.syncGroceryToReminders()

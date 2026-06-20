@@ -31,3 +31,31 @@ func nonHouseholdZoneIsNil() {
     // Empty remainder (`household-`) is not a valid id.
     #expect(HouseholdZoneProvisioner.householdID(fromZoneName: "household-") == nil)
 }
+
+// SP-C review finding A: the multi-zone scorer now ranks by a direct profile fetch and,
+// when no zone proves a profile, returns an AMBIGUOUS result (id nil) instead of
+// alphabetical-guessing. The profile-fetch ranking itself needs an iCloud account (verified
+// on-device), but the DiscoveryResult contract — the value the caller branches on — is
+// pinned here so the ambiguity signal can't silently regress to a default of `false`.
+
+@Test("DiscoveryResult defaults isAmbiguous to false for the common cases")
+func discoveryResultDefaultsUnambiguous() {
+    let zero = HouseholdZoneProvisioner.DiscoveryResult(householdID: nil, ignoredHouseholdIDs: [])
+    #expect(zero.isAmbiguous == false)
+    let one = HouseholdZoneProvisioner.DiscoveryResult(householdID: "abc", ignoredHouseholdIDs: [])
+    #expect(one.isAmbiguous == false)
+    #expect(one.householdID == "abc")
+}
+
+@Test("DiscoveryResult carries the ambiguous signal with no chosen id")
+func discoveryResultAmbiguousCarriesNoID() {
+    let ambiguous = HouseholdZoneProvisioner.DiscoveryResult(
+        householdID: nil,
+        ignoredHouseholdIDs: ["a", "b"],
+        isAmbiguous: true
+    )
+    #expect(ambiguous.isAmbiguous == true)
+    // Ambiguous must NOT carry a chosen id — the caller must not act on a guess.
+    #expect(ambiguous.householdID == nil)
+    #expect(ambiguous.ignoredHouseholdIDs == ["a", "b"])
+}

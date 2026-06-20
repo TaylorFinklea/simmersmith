@@ -230,7 +230,9 @@ struct RecipesView: View {
                         forgeAddMenu
                     }
                 }
-                if forgePrimary != .sparkle {
+                // SP-C review finding D: the top-bar sparkle opens the Fly-backed AI
+                // assistant. Hide it in CloudKit-only mode (no token → 401).
+                if forgePrimary != .sparkle && !appState.isCloudKitOnly {
                     ToolbarItem(placement: .topBarTrailing) {
                         TopBarSparkleButton(contextHint: "from Forge")
                     }
@@ -379,43 +381,49 @@ struct RecipesView: View {
             } label: {
                 Label("New recipe", systemImage: "square.and.pencil")
             }
-            // M29 build 55 — moved from the (removed) AI FAB.
-            Button {
-                showingAISuggestionSheet = true
-            } label: {
-                Label("AI suggestion", systemImage: "sparkles")
-            }
-            Divider()
-            Button {
-                importLaunchMode = .url
-            } label: {
-                Label("Import from URL", systemImage: "link")
-            }
-            Button {
-                importLaunchMode = .camera
-            } label: {
-                Label("Import from Camera", systemImage: "camera")
-            }
-            Button {
-                importLaunchMode = .photo
-            } label: {
-                Label("Import from Photo", systemImage: "photo")
-            }
-            Button {
-                importLaunchMode = .pdf
-            } label: {
-                Label("Import from PDF", systemImage: "doc.richtext")
-            }
-            Divider()
-            Button {
-                showingWebRecipeSearch = true
-            } label: {
-                Label("Find recipe online", systemImage: "magnifyingglass.circle")
-            }
-            Button {
-                showingIngredientScanner = true
-            } label: {
-                Label("Identify ingredient", systemImage: "viewfinder.circle")
+            // SP-C review finding D: the AI suggestion + all import flows (URL / camera /
+            // photo / PDF) + web search + ingredient scanner hit Fly (no token → 401) in
+            // CloudKit-only mode. Hide them until the AI/import slice lands; the core
+            // CloudKit recipe flow (New recipe / Select) stays.
+            if !appState.isCloudKitOnly {
+                // M29 build 55 — moved from the (removed) AI FAB.
+                Button {
+                    showingAISuggestionSheet = true
+                } label: {
+                    Label("AI suggestion", systemImage: "sparkles")
+                }
+                Divider()
+                Button {
+                    importLaunchMode = .url
+                } label: {
+                    Label("Import from URL", systemImage: "link")
+                }
+                Button {
+                    importLaunchMode = .camera
+                } label: {
+                    Label("Import from Camera", systemImage: "camera")
+                }
+                Button {
+                    importLaunchMode = .photo
+                } label: {
+                    Label("Import from Photo", systemImage: "photo")
+                }
+                Button {
+                    importLaunchMode = .pdf
+                } label: {
+                    Label("Import from PDF", systemImage: "doc.richtext")
+                }
+                Divider()
+                Button {
+                    showingWebRecipeSearch = true
+                } label: {
+                    Label("Find recipe online", systemImage: "magnifyingglass.circle")
+                }
+                Button {
+                    showingIngredientScanner = true
+                } label: {
+                    Label("Identify ingredient", systemImage: "viewfinder.circle")
+                }
             }
             Divider()
             Button {
@@ -915,42 +923,64 @@ struct RecipesView: View {
                     .font(SMFont.display)
                     .foregroundStyle(SMColor.textPrimary)
 
-                Text("Import recipes from your favorite websites, or let AI create new ones.")
+                Text(appState.isCloudKitOnly
+                     ? "Forge a recipe by hand to start your collection."
+                     : "Import recipes from your favorite websites, or let AI create new ones.")
                     .font(SMFont.body)
                     .foregroundStyle(SMColor.textSecondary)
                     .multilineTextAlignment(.center)
             }
 
             VStack(spacing: SMSpacing.md) {
-                Button {
-                    importLaunchMode = .url
-                } label: {
-                    Label("Import a Recipe", systemImage: "link")
-                        .font(SMFont.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, SMSpacing.lg)
-                        .foregroundStyle(.white)
-                        .background(SMColor.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    showingAISuggestionSheet = true
-                } label: {
-                    Label("Ask AI", systemImage: "sparkles")
-                        .font(SMFont.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, SMSpacing.lg)
-                        .foregroundStyle(SMColor.primary)
-                        .background(SMColor.surfaceCard)
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
-                                .stroke(SMColor.primary.opacity(0.4), lineWidth: 1)
+                // SP-C review finding D: in CloudKit-only mode the import + AI empty-state
+                // CTAs hit Fly. Offer the core "New recipe" flow instead.
+                if appState.isCloudKitOnly {
+                    Button {
+                        editorContext = RecipeEditorSheetContext(
+                            title: "New Recipe",
+                            draft: RecipeDraft(name: "", mealType: "dinner")
                         )
+                    } label: {
+                        Label("New Recipe", systemImage: "square.and.pencil")
+                            .font(SMFont.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.lg)
+                            .foregroundStyle(.white)
+                            .background(SMColor.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        importLaunchMode = .url
+                    } label: {
+                        Label("Import a Recipe", systemImage: "link")
+                            .font(SMFont.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.lg)
+                            .foregroundStyle(.white)
+                            .background(SMColor.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showingAISuggestionSheet = true
+                    } label: {
+                        Label("Ask AI", systemImage: "sparkles")
+                            .font(SMFont.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SMSpacing.lg)
+                            .foregroundStyle(SMColor.primary)
+                            .background(SMColor.surfaceCard)
+                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                                    .stroke(SMColor.primary.opacity(0.4), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, SMSpacing.lg)
         }

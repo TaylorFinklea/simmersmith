@@ -131,35 +131,40 @@ struct RecipeDetailView: View {
                             } label: {
                                 Label("Create Variation", systemImage: "square.on.square")
                             }
-                            Menu("AI Variation Draft") {
-                                ForEach(RecipeVariationGoal.allCases) { goal in
-                                    Button(goal.title) {
-                                        Task { await generateVariation(recipe, goal: goal) }
-                                    }
-                                    .disabled(isGeneratingVariation)
-                                }
-                            }
-                            Button {
-                                Task { await generateCompanions(recipe) }
-                            } label: {
-                                Label("AI Companion Suggestions", systemImage: "sparkles")
-                            }
-                            .disabled(isGeneratingCompanions)
-                            Button {
-                                Task {
-                                    do {
-                                        try await appState.beginAssistantLaunch(
-                                            initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
-                                            title: recipe.name,
-                                            attachedRecipeID: recipe.recipeId,
-                                            intent: "cooking_help"
-                                        )
-                                    } catch {
-                                        errorMessage = error.localizedDescription
+                            // SP-C review finding D: AI variation / companion drafts and
+                            // the Fly-backed assistant launch are unavailable in
+                            // CloudKit-only mode (no token → 401). Hide until the AI slice.
+                            if !appState.isCloudKitOnly {
+                                Menu("AI Variation Draft") {
+                                    ForEach(RecipeVariationGoal.allCases) { goal in
+                                        Button(goal.title) {
+                                            Task { await generateVariation(recipe, goal: goal) }
+                                        }
+                                        .disabled(isGeneratingVariation)
                                     }
                                 }
-                            } label: {
-                                Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
+                                Button {
+                                    Task { await generateCompanions(recipe) }
+                                } label: {
+                                    Label("AI Companion Suggestions", systemImage: "sparkles")
+                                }
+                                .disabled(isGeneratingCompanions)
+                                Button {
+                                    Task {
+                                        do {
+                                            try await appState.beginAssistantLaunch(
+                                                initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
+                                                title: recipe.name,
+                                                attachedRecipeID: recipe.recipeId,
+                                                intent: "cooking_help"
+                                            )
+                                        } catch {
+                                            errorMessage = error.localizedDescription
+                                        }
+                                    }
+                                } label: {
+                                    Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
+                                }
                             }
                             Button {
                                 assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
@@ -174,12 +179,17 @@ struct RecipeDetailView: View {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
                             Divider()
-                            Button {
-                                Task { await regenerateImage(recipe) }
-                            } label: {
-                                Label("Regenerate image", systemImage: "sparkles")
+                            // SP-C review finding D: AI image regen is Fly-backed. Hide in
+                            // CloudKit-only mode; the user-photo upload + removal below run
+                            // through CloudKit and stay available.
+                            if !appState.isCloudKitOnly {
+                                Button {
+                                    Task { await regenerateImage(recipe) }
+                                } label: {
+                                    Label("Regenerate image", systemImage: "sparkles")
+                                }
+                                .disabled(isRegeneratingImage)
                             }
-                            .disabled(isRegeneratingImage)
                             Button {
                                 isOverridingImage = true
                             } label: {
@@ -483,8 +493,11 @@ struct RecipeDetailView: View {
                 }
             }
 
-            // Pairings (M12)
-            RecipePairingsCard(recipeID: recipe.recipeId)
+            // Pairings (M12) — SP-C review finding D: AI pairings are Fly-backed
+            // (suggestRecipePairings). Hide in CloudKit-only mode.
+            if !appState.isCloudKitOnly {
+                RecipePairingsCard(recipeID: recipe.recipeId)
+            }
 
             // Notes
             if !recipe.notes.isEmpty {
@@ -707,7 +720,10 @@ struct RecipeDetailView: View {
                     }
                 }
 
-                if !nutritionSummary.unmatchedIngredients.isEmpty {
+                // SP-C review finding D: matching an unmatched ingredient opens the
+                // Fly-backed nutrition catalog search. Hide the affordance in
+                // CloudKit-only mode (the displayed estimate stays — it's stored data).
+                if !appState.isCloudKitOnly && !nutritionSummary.unmatchedIngredients.isEmpty {
                     Divider()
                         .background(SMColor.divider)
 
@@ -842,38 +858,41 @@ struct RecipeDetailView: View {
                             }
                         }
 
-                        // Per-ingredient AI menu: substitute, avoid,
-                        // allergy. Functionality identical, ember tint.
-                        Menu {
-                            Button {
-                                substitutionContext = SubstitutionSheetContext(
-                                    recipe: recipe,
-                                    ingredient: ingredient
-                                )
-                            } label: {
-                                Label("Substitute…", systemImage: "arrow.triangle.2.circlepath")
-                            }
-
-                            if let baseID = ingredient.baseIngredientId, !baseID.isEmpty {
-                                Divider()
+                        // Per-ingredient AI menu: substitute, avoid, allergy.
+                        // SP-C review finding D: AI substitutions + preference upserts are
+                        // Fly-backed. Hide the whole menu in CloudKit-only mode.
+                        if !appState.isCloudKitOnly {
+                            Menu {
                                 Button {
-                                    Task { await markPreference(ingredient: ingredient, mode: "avoid") }
+                                    substitutionContext = SubstitutionSheetContext(
+                                        recipe: recipe,
+                                        ingredient: ingredient
+                                    )
                                 } label: {
-                                    Label("Never use this in my plans", systemImage: "nosign")
+                                    Label("Substitute…", systemImage: "arrow.triangle.2.circlepath")
                                 }
-                                Button(role: .destructive) {
-                                    Task { await markPreference(ingredient: ingredient, mode: "allergy") }
-                                } label: {
-                                    Label("I'm allergic to this", systemImage: "exclamationmark.triangle")
+
+                                if let baseID = ingredient.baseIngredientId, !baseID.isEmpty {
+                                    Divider()
+                                    Button {
+                                        Task { await markPreference(ingredient: ingredient, mode: "avoid") }
+                                    } label: {
+                                        Label("Never use this in my plans", systemImage: "nosign")
+                                    }
+                                    Button(role: .destructive) {
+                                        Task { await markPreference(ingredient: ingredient, mode: "allergy") }
+                                    } label: {
+                                        Label("I'm allergic to this", systemImage: "exclamationmark.triangle")
+                                    }
                                 }
+                            } label: {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(SMColor.ember.opacity(0.85))
+                                    .frame(width: 28, height: 28)
                             }
-                        } label: {
-                            Image(systemName: "wand.and.stars")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(SMColor.ember.opacity(0.85))
-                                .frame(width: 28, height: 28)
+                            .accessibilityLabel("Options for \(ingredient.ingredientName)")
                         }
-                        .accessibilityLabel("Options for \(ingredient.ingredientName)")
                     }
                     .padding(.vertical, 8)
 

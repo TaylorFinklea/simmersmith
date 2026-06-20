@@ -80,6 +80,18 @@ public struct HouseholdZoneProvisioner {
         /// Ids of additional household zones NOT chosen (spec §1.2 — log, don't pick).
         /// Empty in the common zero/one-zone case.
         public let ignoredHouseholdIDs: [String]
+        /// Set when MULTIPLE household zones exist but NONE could be proved populated
+        /// (every profile fetch failed/absent). The caller must NOT alphabetical-guess
+        /// into an unproven zone — it surfaces an ambiguous-household error and stays in
+        /// the resolving state (review finding A). `false` in every unambiguous case
+        /// (zero zones, one zone, or one provably-populated zone among several).
+        public let isAmbiguous: Bool
+
+        public init(householdID: String?, ignoredHouseholdIDs: [String], isAmbiguous: Bool = false) {
+            self.householdID = householdID
+            self.ignoredHouseholdIDs = ignoredHouseholdIDs
+            self.isAmbiguous = isAmbiguous
+        }
     }
 
     /// SP-C identity slice (spec §1.1): discover the household id from CloudKit instead
@@ -96,11 +108,18 @@ public struct HouseholdZoneProvisioner {
     ///
     /// - Zero `household-*` zones → `householdID == nil` (caller mints a fresh household).
     /// - Exactly one → that id, no ignored zones.
-    /// - Multiple (shouldn't happen for an owner, but be safe — spec §1.2 / §7): pick
-    ///   DETERMINISTICALLY the most-populated zone (one bearing a `HouseholdProfile`, else
-    ///   the highest total record count), never silently a near-empty zone over a populated
-    ///   one; ties broken by id for stability. The rest land in `ignoredHouseholdIDs` so the
-    ///   caller can log them for human reconciliation (a future slice may merge/delete them).
+    /// - Multiple (shouldn't happen for an owner, but be safe — spec §1.2 / §7 / review
+    ///   finding A): pick DETERMINISTICALLY the zone PROVED populated by a successful
+    ///   direct fetch of its `HouseholdProfile` root record (recordName = householdID, the
+    ///   preserved-PK convention `ensureHouseholdProfile` writes). Ranking by a direct
+    ///   `record(for:)` — NOT a `CKQuery` — is load-bearing: the household record types are
+    ///   CKSyncEngine-managed and likely have no queryable index, so a `records(matching:)`
+    ///   probe would throw for every zone, score them all 0, and let an EMPTY zone tie-break
+    ///   ahead of the populated one (orphaning the migrated recipes). If exactly one zone
+    ///   proves a profile → that one wins, the rest are ignored. If several prove a profile
+    ///   → the lowest id wins (stable), the rest ignored. If NONE proves a profile (every
+    ///   fetch absent/failed) → `isAmbiguous = true`, `householdID = nil`: the caller must
+    ///   NOT alphabetical-guess into an unproven zone.
     ///
     /// Throws on a CloudKit failure fetching the zone list (network, not-signed-in) so the
     /// caller's retry/backoff (spec §4) drives — a transient hiccup must NOT look like
@@ -121,68 +140,47 @@ public struct HouseholdZoneProvisioner {
             return DiscoveryResult(householdID: candidates[0].id, ignoredHouseholdIDs: [])
         }
 
-        // Multiple household zones — score each so we never pick an empty one over a
-        // populated one. Score = (hasHouseholdProfile ? large : 0) + recordCount.
-        var scored: [(id: String, score: Int)] = []
-        for candidate in candidates {
-            let score = await populationScore(db: db, zoneID: candidate.zone.zoneID)
-            scored.append((candidate.id, score))
+        // Multiple household zones — prove each one populated by a DIRECT fetch of its
+        // HouseholdProfile root record (no CKQuery; see finding A). A zone whose profile
+        // fetch succeeds is "real"; absent/failed → unproven.
+        var proven: [String] = []
+        for candidate in candidates where await hasHouseholdProfile(db: db, householdID: candidate.id, zoneID: candidate.zone.zoneID) {
+            proven.append(candidate.id)
         }
-        // Deterministic: highest score wins; ties broken by id (stable across launches).
-        scored.sort { lhs, rhs in
-            lhs.score != rhs.score ? lhs.score > rhs.score : lhs.id < rhs.id
-        }
-        let winner = scored[0]
-        let losers = scored.dropFirst().map(\.id)
-        return DiscoveryResult(householdID: winner.id, ignoredHouseholdIDs: Array(losers))
-    }
 
-    /// Rough population score for disambiguating multiple household zones (spec §1.2):
-    /// a zone bearing a `HouseholdProfile` outranks any without one; among those that
-    /// tie, more records wins. Best-effort — a per-zone query failure scores 0 (treated
-    /// as empty) so a readable, populated zone is still preferred. Not exact: the
-    /// `records(matching:)` call returns the first page, which is enough to tell a
-    /// populated zone from an empty/near-empty one (the only distinction §1.2 needs).
-    private func populationScore(db: CKDatabase, zoneID: CKRecordZone.ID) async -> Int {
-        // HouseholdProfile presence is the strong signal (the real household has one).
-        let profileBonus = 1_000_000
-        do {
-            let predicate = NSPredicate(value: true)
-            let query = CKQuery(recordType: "HouseholdProfile", predicate: predicate)
-            let (profileMatches, _) = try await db.records(
-                matching: query, inZoneWith: zoneID, desiredKeys: [], resultsLimit: 1
+        if proven.isEmpty {
+            // Ambiguous: several zones, none provably populated. Do NOT guess — the caller
+            // surfaces an error and stays resolving (finding A).
+            return DiscoveryResult(
+                householdID: nil,
+                ignoredHouseholdIDs: candidates.map(\.id).sorted(),
+                isAmbiguous: true
             )
-            let hasProfile = profileMatches.contains { _, result in
-                if case .success = result { return true }
-                return false
-            }
-            // Count of any records in the zone (first page) as the tie-breaker magnitude.
-            let recordCount = await anyRecordCount(db: db, zoneID: zoneID)
-            return (hasProfile ? profileBonus : 0) + recordCount
-        } catch {
-            // Query failed for this zone — treat as empty so a readable zone is preferred.
-            return 0
         }
+
+        // Deterministic winner: lowest id among the provably-populated zones; the other
+        // proven + all unproven zones become ignored (log for human reconciliation).
+        proven.sort()
+        let winner = proven[0]
+        let losers = candidates.map(\.id).filter { $0 != winner }.sorted()
+        return DiscoveryResult(householdID: winner, ignoredHouseholdIDs: losers)
     }
 
-    /// Best-effort count of records in a zone (first page) — magnitude only, used purely
-    /// to rank populated vs empty zones. Probes a few known household record types; any
-    /// hit makes the zone look "populated". Failures contribute 0.
-    private func anyRecordCount(db: CKDatabase, zoneID: CKRecordZone.ID) async -> Int {
-        let probeTypes = ["HouseholdProfile", "Recipe", "MigrationReceipt", "GroceryItem"]
-        var total = 0
-        for type in probeTypes {
-            do {
-                let query = CKQuery(recordType: type, predicate: NSPredicate(value: true))
-                let (matches, _) = try await db.records(
-                    matching: query, inZoneWith: zoneID, desiredKeys: [], resultsLimit: 100
-                )
-                total += matches.count
-            } catch {
-                continue
-            }
+    /// Prove a zone is a real household by DIRECTLY fetching its `HouseholdProfile` root
+    /// record (recordName = householdID, zoneID = the zone) — the preserved-PK convention
+    /// `ensureHouseholdProfile` writes. A direct `record(for:)` needs NO queryable index
+    /// (unlike `records(matching:)`), so it works for the CKSyncEngine-managed types.
+    /// A `.unknownItem` throw means the profile is absent (empty/partial zone) → false; any
+    /// other error is conservatively treated as "unproven" (false) so we never rank an
+    /// unprovable zone ahead of a proven one.
+    private func hasHouseholdProfile(db: CKDatabase, householdID: String, zoneID: CKRecordZone.ID) async -> Bool {
+        let recordID = CKRecord.ID(recordName: householdID, zoneID: zoneID)
+        do {
+            _ = try await db.record(for: recordID)
+            return true
+        } catch {
+            return false
         }
-        return total
     }
 
     /// Phase 0 VERIFY: create the zone, write `HouseholdProfile`, read it back.

@@ -66,6 +66,10 @@ struct MainTabView: View {
     /// are gated. Recipes renders normally (no gating needed).
     @ViewBuilder
     private func comingSoon(feature: String, tab: AppState.MainTab) -> some View {
+        // per-feature gate as slices land: today `isCloudKitOnly` is hardcoded true, so
+        // every non-Recipes tab takes the ComingSoon arm. When a feature slice cuts over,
+        // replace this blanket flag with a per-tab membership check (e.g. a
+        // `Set<MainTab>` of still-coming-soon tabs) and let the cut-over tab fall through.
         if appState.isCloudKitOnly {
             ComingSoonView(feature: feature)
         } else {

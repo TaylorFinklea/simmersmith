@@ -90,6 +90,10 @@ extension AppState {
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
             self.householdLaunchPhase = .ready
+            // Symmetry with the failure path: clear the dedup task now that setup is
+            // done. The fast-path guard (`householdSession != nil`) short-circuits future
+            // callers, so the task no longer needs to be held for dedup.
+            self.householdSessionSetupTask = nil
         }
         householdSessionSetupTask = task
         await task.value
@@ -105,12 +109,34 @@ extension AppState {
     private func resolveHouseholdID() async -> String? {
         let provisioner = HouseholdZoneProvisioner()
 
+        // 0. PREFLIGHT the iCloud account status (review finding B/F). This is the
+        //    deterministic gate — an unavailable account (signed out, restricted, no
+        //    account) must NOT fall through to discovery (which on a fresh device can
+        //    return zero zones WITHOUT throwing) and then mint a second household,
+        //    orphaning the existing one. Only `.available` proceeds.
+        let accountStatus: CKAccountStatus
+        do {
+            accountStatus = try await provisioner.container.accountStatus()
+        } catch {
+            // Couldn't read account status — treat as transient; stay resolving + retry.
+            lastErrorMessage = "Couldn't check your iCloud account. Will retry."
+            return nil
+        }
+        guard accountStatus == .available else {
+            householdLaunchPhase = .iCloudUnavailable
+            lastErrorMessage = "Sign in to iCloud in Settings to use SimmerSmith."
+            return nil
+        }
+
         // 1. DISCOVER before create (spec §7 landmine). A throw here means we could not
         //    determine whether a household zone exists — so we must NOT mint (that path
-        //    only runs on a definitive "zero zones" → nil household id).
+        //    only runs on a definitive "zero zones" → nil household id). The zero-zone
+        //    result is RETRIED a few times below before we conclude "truly zero", because
+        //    a fresh/reinstalled device's private-DB zone list can lag a few seconds
+        //    (finding B) and an empty-but-not-throwing list would otherwise orphan-mint.
         let result: HouseholdZoneProvisioner.DiscoveryResult
         do {
-            result = try await provisioner.discoverHouseholdResult()
+            result = try await discoverWithZeroZoneRetry()
         } catch {
             // Check whether this is an iCloud-not-signed-in error vs. a transient
             // network hiccup. CKError.notAuthenticated / accountTemporarilyUnavailable
@@ -125,20 +151,33 @@ extension AppState {
             return nil
         }
 
+        // Ambiguous: multiple household zones, none provably populated (finding A). Do NOT
+        // alphabetical-guess into an unproven zone — surface an error and stay resolving so
+        // a later retry (foreground) can re-probe once propagation/repair settles.
+        if result.isAmbiguous {
+            lastErrorMessage = "Found \(result.ignoredHouseholdIDs.count) CloudKit households "
+                + "but couldn't confirm which holds your data. Will retry."
+            return nil
+        }
+
         // Multiple household zones (shouldn't happen for an owner). The winner
-        // (most-populated) is used; log the rest for human reconciliation.
+        // (provably-populated) is used; log the rest for human reconciliation.
         if let firstIgnored = result.ignoredHouseholdIDs.first {
             lastErrorMessage = "Multiple CloudKit households found; using one and ignoring "
                 + "\(result.ignoredHouseholdIDs.count) other(s) (e.g. household-\(firstIgnored))."
         }
 
         if let discovered = result.householdID, !discovered.isEmpty {
+            // Finding G: a prior mint may have created the zone but failed the profile
+            // write, leaving a profile-less household. Repair it idempotently so the user
+            // isn't locked into a household whose HouseholdProfile root record is missing.
+            try? await provisioner.ensureHouseholdProfile(householdID: discovered, name: "My Household")
             return discovered
         }
 
-        // 2. No household zone exists → MINT a new one: fresh UUID, ensure the zone, and
-        //    write a default HouseholdProfile so the zone is non-empty (and future
-        //    discovery's HouseholdProfile signal finds it).
+        // 2. No household zone exists (confirmed after retries) → MINT a new one: fresh
+        //    UUID, ensure the zone, and write a default HouseholdProfile so the zone is
+        //    non-empty (and future discovery's HouseholdProfile signal finds it).
         let newID = UUID().uuidString
         do {
             try await provisioner.ensureHouseholdZone(householdID: newID)
@@ -153,15 +192,43 @@ extension AppState {
         }
     }
 
+    /// Discover the household, RETRYING the "zero zones" outcome a few times with backoff
+    /// (review finding B). A fresh/reinstalled device's private-DB zone list can return
+    /// empty WITHOUT throwing while it propagates — concluding "truly zero" too eagerly
+    /// would mint a second household and orphan the existing one. A non-empty result (or a
+    /// throw, which the caller handles) returns immediately; only the empty case waits.
+    private func discoverWithZeroZoneRetry() async throws -> HouseholdZoneProvisioner.DiscoveryResult {
+        // Build a fresh provisioner here rather than receiving one — `HouseholdZoneProvisioner`
+        // wraps a non-Sendable `CKContainer`, so passing it across the actor boundary into
+        // this helper trips Swift 6 region isolation. Construction is cheap + idempotent.
+        let provisioner = HouseholdZoneProvisioner()
+        let backoffsNanos: [UInt64] = [1_500_000_000, 3_000_000_000] // ~1.5s, ~3s
+        var attempt = 0
+        while true {
+            let result = try await provisioner.discoverHouseholdResult()
+            // A resolved or ambiguous result means the zone list had content — done.
+            if result.householdID != nil || result.isAmbiguous { return result }
+            // Empty list. If we still have backoff budget, wait and re-probe.
+            guard attempt < backoffsNanos.count else { return result }
+            try? await Task.sleep(nanoseconds: backoffsNanos[attempt])
+            attempt += 1
+        }
+    }
+
     /// Returns true when the error indicates the iCloud account is not signed in or
     /// is temporarily unavailable — as opposed to a transient network hiccup. Used by
     /// `resolveHouseholdID()` to set `householdLaunchPhase = .iCloudUnavailable` so
     /// `RootView` shows the "Sign in to iCloud in Settings" prompt.
+    ///
+    /// `.permissionFailure` is deliberately NOT treated as an auth error (review finding
+    /// F): it's a container/ACL issue, not "not signed in" — routing a signed-in user to
+    /// "sign into iCloud" would be wrong. The deterministic `accountStatus()` preflight in
+    /// `resolveHouseholdID()` is the authority for the not-signed-in case.
     private func isICloudAuthError(_ error: Error) -> Bool {
         // CKError is available because this function lives inside #if canImport(CloudKit).
         if let ckError = error as? CKError {
             switch ckError.code {
-            case .notAuthenticated, .accountTemporarilyUnavailable, .permissionFailure:
+            case .notAuthenticated, .accountTemporarilyUnavailable:
                 return true
             default:
                 return false

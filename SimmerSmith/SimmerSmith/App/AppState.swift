@@ -198,11 +198,21 @@ final class AppState {
     /// `ComingSoonView` at their tab entry points so no Fly call is made and
     /// no 401 banners appear. Recipes is the first (and currently only) fully
     /// cut-over feature; subsequent slices will flip their gating off.
-    let isCloudKitOnly: Bool = true
+    let isCloudKitOnly: Bool = AppState.cloudKitOnlyBuild
 
     var syncPhase: SyncPhase = .idle
     var lastErrorMessage: String?
-    var selectedTab: MainTab = .week
+    /// SP-C identity slice (review finding C): in CloudKit-only mode the `.week` tab
+    /// renders `ComingSoonView`, so landing there opens the app on an hourglass. Default
+    /// to the cut-over Recipes (Forge) tab instead. `defaultLandingTab` is the single
+    /// source of truth for both the initial value and the post-clear reset.
+    var selectedTab: MainTab = AppState.defaultLandingTab
+    /// The tab the app should open to. Recipes while CloudKit-only (the only cut-over
+    /// feature); `.week` once Weeks cuts over and `isCloudKitOnly` flips off.
+    static var defaultLandingTab: MainTab { cloudKitOnlyBuild ? .recipes : .week }
+    /// Compile-time mirror of `isCloudKitOnly` so the static `defaultLandingTab` can read
+    /// it without an instance. Keep in lockstep with `isCloudKitOnly`.
+    private static let cloudKitOnlyBuild = true
     /// Build 68 — bumped whenever the user changes a per-tab top-bar
     /// primary action in Settings. Views that build toolbars read this
     /// (via @Observable) so the SwiftUI graph re-renders without
@@ -526,7 +536,9 @@ final class AppState {
         currentHousehold = nil
         syncPhase = .idle
         lastErrorMessage = nil
-        selectedTab = .week
+        // Review finding C: reset to the cut-over landing tab, not `.week` (which renders
+        // ComingSoonView in CloudKit-only mode).
+        selectedTab = AppState.defaultLandingTab
         assistantLaunchContext = nil
         assistantSendingThreadIDs = []
         assistantErrorByThreadID = [:]

@@ -61,6 +61,31 @@ struct RootView: View {
                 Text("Opening your kitchen…")
                     .font(SMFont.subheadline)
                     .foregroundStyle(SMColor.textSecondary)
+
+                // Review finding F3: a transient (non-auth) failure leaves us in
+                // .resolving — don't spin forever. Surface the soft error + a manual
+                // "Try again" that re-invokes the resolver (the scenePhase foreground
+                // retry also covers this, but the user shouldn't have to background).
+                if let message = appState.lastErrorMessage {
+                    VStack(spacing: SMSpacing.md) {
+                        Text(message)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textTertiary)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            #if canImport(CloudKit)
+                            Task { await appState.ensureHouseholdSession() }
+                            #endif
+                        } label: {
+                            Text("Try again")
+                                .font(SMFont.caption.weight(.semibold))
+                                .foregroundStyle(SMColor.ember)
+                        }
+                    }
+                    .padding(.top, SMSpacing.sm)
+                    .padding(.horizontal, SMSpacing.xxl)
+                }
             }
         }
     }
@@ -68,54 +93,58 @@ struct RootView: View {
     // MARK: - iCloud unavailable state
 
     private var iCloudUnavailableView: some View {
-        ZStack {
-            SMColor.paper.ignoresSafeArea()
-            PaperGrain().ignoresSafeArea()
+        // Review finding F4: one NavigationStack wrapping the whole view (the previous
+        // build nested a NavigationStack mid-VStack just to host the debug link, which is
+        // malformed — a NavigationStack can't sit inside a VStack as a sibling row and
+        // host navigation correctly). The debug NavigationLink is now a normal row.
+        NavigationStack {
+            ZStack {
+                SMColor.paper.ignoresSafeArea()
+                PaperGrain().ignoresSafeArea()
 
-            VStack(spacing: SMSpacing.xl) {
-                Spacer()
+                VStack(spacing: SMSpacing.xl) {
+                    Spacer()
 
-                FuMark(size: 56, color: SMColor.ink, ember: SMColor.ember)
+                    FuMark(size: 56, color: SMColor.ink, ember: SMColor.ember)
 
-                VStack(spacing: SMSpacing.md) {
-                    Text("Sign in to iCloud")
-                        .font(SMFont.headline)
-                        .foregroundStyle(SMColor.textPrimary)
+                    VStack(spacing: SMSpacing.md) {
+                        Text("Sign in to iCloud")
+                            .font(SMFont.headline)
+                            .foregroundStyle(SMColor.textPrimary)
 
-                    Text("SimmerSmith uses iCloud to store your recipes and household data. Open Settings → [Your Name] → iCloud and sign in, then come back.")
-                        .font(SMFont.body)
-                        .foregroundStyle(SMColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                        Text("SimmerSmith uses iCloud to store your recipes and household data. Open Settings → [Your Name] → iCloud and sign in, then come back.")
+                            .font(SMFont.body)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .multilineTextAlignment(.center)
                     }
-                } label: {
-                    Text("Open Settings")
-                        .font(SMFont.body)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(SMColor.ember)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
-                }
 
-                if DebugGate.showsCloudKitChecks {
-                    NavigationStack {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Text("Open Settings")
+                            .font(SMFont.body)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(SMColor.ember)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                    }
+
+                    if DebugGate.showsCloudKitChecks {
                         NavigationLink("CloudKit checks (debug)") {
                             CloudKitDebugView()
                         }
                         .font(SMFont.caption)
                         .foregroundStyle(SMColor.textTertiary)
                     }
-                }
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(SMSpacing.xxl)
             }
-            .padding(SMSpacing.xxl)
         }
     }
 }
