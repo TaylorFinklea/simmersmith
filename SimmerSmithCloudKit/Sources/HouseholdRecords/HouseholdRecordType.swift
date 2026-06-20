@@ -85,6 +85,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
     case ingredientVariation
     case week
     case weekMeal
+    case weekMealSide
     case weekChangeBatch
     case weekChangeEvent
     case managedListItem
@@ -106,6 +107,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .ingredientVariation: return "IngredientVariation"
         case .week: return "Week"
         case .weekMeal: return "WeekMeal"
+        case .weekMealSide: return "WeekMealSide"
         case .weekChangeBatch: return "WeekChangeBatch"
         case .weekChangeEvent: return "WeekChangeEvent"
         case .managedListItem: return "ManagedListItem"
@@ -193,6 +195,9 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
                     F("source", .string), F("approved", .bool), F("notes", .string),
                     F("aiGenerated", .bool), F("sortOrder", .int),
                     F("createdAt", .date), F("updatedAt", .date)]
+        case .weekMealSide:
+            return [F("recipeName", .string), F("name", .string), F("notes", .string),
+                    F("sortOrder", .int), F("createdAt", .date), F("updatedAt", .date)]
         case .weekChangeBatch:
             return [F("actorType", .string), F("actorLabel", .string), F("summary", .string),
                     F("createdAt", .date)]
@@ -263,6 +268,11 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .weekMeal:
             // week_id CASCADE (week.py:96); recipe_id SET NULL (week.py:100, spec §6.3 soft edge).
             return [R("week", .cascadeParent, target: "Week"),
+                    R("recipe", .setNullInZone, target: "Recipe")]
+        case .weekMealSide:
+            // week_meal_id CASCADE (spec §2 "cascadeParent→WeekMeal"); recipe_id SET NULL (soft edge — side
+            // can outlive a deleted recipe, just loses the link).
+            return [R("weekMeal", .cascadeParent, target: "WeekMeal"),
                     R("recipe", .setNullInZone, target: "Recipe")]
         case .weekChangeBatch:
             // week_id CASCADE (week.py:283) — audit batches die with their week.

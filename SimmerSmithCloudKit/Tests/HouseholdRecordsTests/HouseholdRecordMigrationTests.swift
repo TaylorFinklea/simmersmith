@@ -184,6 +184,45 @@ import CloudKit
     #expect(HouseholdRecordType.weekChangeBatch.refs.first?.kind == .cascadeParent)
 }
 
+// MARK: SP-C Task 2 — .weekMealSide manifest type
+
+@Test func migrateWeekMealSide_cascadeWeekMealSetNullRecipe() {
+    let row: [String: Any] = [
+        "id": "S1",
+        "week_meal_id": "M1",
+        "recipe_id": "R1",
+        "recipe_name": "Guac",
+        "name": "Guacamole",
+        "notes": "extra lime",
+        "sort_order": NSNumber(value: 1),
+        "created_at": "2026-06-29T10:00:00Z",
+        "updated_at": "2026-06-29T11:00:00Z",
+    ]
+    let v = migrateHouseholdRecord(.weekMealSide, row)!
+    #expect(v.recordName == "S1")
+    #expect(v.scalars["name"] == .string("Guacamole"))
+    #expect(v.scalars["recipeName"] == .string("Guac"))
+    #expect(v.scalars["notes"] == .string("extra lime"))
+    #expect(v.scalars["sortOrder"] == .int(1))
+    #expect(v.refs["weekMeal"] == "M1")   // cascadeParent
+    #expect(v.refs["recipe"] == "R1")     // setNullInZone
+    // Verify ref kinds round-trip through the codec.
+    let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefaultName)
+    let rec = HouseholdRecordCodec.encode(v, zoneID: zoneID)
+    #expect((rec["weekMeal"] as? CKRecord.Reference)?.action == .deleteSelf)             // CASCADE
+    #expect((rec["recipe"] as? CKRecord.Reference)?.action == CKRecord.ReferenceAction.none) // SET-NULL
+    // Dates parsed.
+    #expect({ if case .date? = v.scalars["createdAt"] { return true }; return false }())
+    #expect({ if case .date? = v.scalars["updatedAt"] { return true }; return false }())
+}
+
+@Test func migrateWeekMealSide_noRecipeIsAbsent() {
+    let v = migrateHouseholdRecord(.weekMealSide, [
+        "id": "S2", "week_meal_id": "M1", "name": "Rice", "sort_order": NSNumber(value: 0)])
+    #expect(v?.refs["recipe"] == nil)
+    #expect(v?.scalars["recipeName"] == nil)
+}
+
 // MARK: Task 4b — ManagedListItem household type (det key, scalars, no refs)
 
 @Test func migrateManagedListItem_detKeyAndScalars() {

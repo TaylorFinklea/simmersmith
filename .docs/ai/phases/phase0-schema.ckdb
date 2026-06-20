@@ -460,3 +460,21 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- SP-C Task 2: WeekMealSide — side dish attached to a WeekMeal.
+    //      weekMeal is the CASCADE parent (.deleteSelf); recipe is SET-NULL (soft edge).
+    //      recordName policy: .pk (sideId). HUMAN STEP: Deploy to Production in CloudKit
+    //      Dashboard before on-device use. ----
+
+    RECORD TYPE WeekMealSide (
+        recipeName STRING,
+        name STRING,
+        notes STRING,
+        sortOrder INT64,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        weekMeal REFERENCE,
+        recipe REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
