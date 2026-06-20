@@ -16,6 +16,7 @@ import SimmerSmithKit
 /// Reachable from Settings → Developer (DEBUG builds only). Container
 /// `iCloud.app.simmersmith.cloud`. See `.docs/ai/phases/cloudkit-sp-a-spec.md`.
 struct CloudKitDebugView: View {
+    @Environment(AppState.self) private var appState
     @State private var output = "Tap a check to run it.\nThe sim/device must be signed into iCloud."
     @State private var running = false
 
@@ -86,6 +87,10 @@ struct CloudKitDebugView: View {
                 Button("SP-C — Recipes repo round-trip") {
                     runString { await runRecipeRepoCheck() }
                 }
+                Button("Identity — household discovery") {
+                    let activeZoneID = appState.householdSession?.zoneID
+                    runString { await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -155,6 +160,7 @@ struct CloudKitDebugView: View {
                 ("Phase 6 — PUBLIC catalog", { await runPublicCatalogCheck() }),
                 ("Phase 7 — migrate household", { await runMigrationCheck() }),
                 ("SP-C — Recipes repo", { await runRecipeRepoCheck() }),
+                ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
             ]
             var lines: [String] = []
             var failures: [String] = []
@@ -1277,6 +1283,68 @@ func runRecipeRepoCheck() async -> String {
         log.append("deleteCascading(recipe) → engineB: recipe + ingredient + step + image ALL gone ✅")
 
         return "✅ SP-C Recipes repo round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-C Task 4 (identity slice): on-device "Identity — household discovery" check.
+///
+/// Asserts:
+///   1. `discoverHouseholdID()` returns a non-nil household id (no orphan-create).
+///   2. The discovered id matches the ACTIVE session's household — so discovery
+///      finds the zone that holds the migrated recipes, not a stale or empty zone.
+///   3. A fresh `HouseholdSession` constructed from the discovered id derives the
+///      SAME CloudKit zone name as the active session (round-trip consistency).
+///
+/// `activeZoneID` is the zone the running `HouseholdSession` owns; nil means the
+/// session was never established (itself a failure — reported as ❌).
+/// Does NOT write or delete any production records.
+func runIdentityDiscoveryCheck(activeZoneID: CKRecordZone.ID?) async -> String {
+    do {
+        var log: [String] = []
+
+        // ── 1. Discover the household id from CloudKit ──────────────────────────────
+        let provisioner = HouseholdZoneProvisioner()
+        let result = try await provisioner.discoverHouseholdResult()
+
+        guard let discoveredID = result.householdID, !discoveredID.isEmpty else {
+            return "❌ discoverHouseholdID() returned nil — no household-* zone found in private DB"
+        }
+        log.append("discoverHouseholdID() → \"\(discoveredID)\" ✅")
+
+        if !result.ignoredHouseholdIDs.isEmpty {
+            log.append("⚠ \(result.ignoredHouseholdIDs.count) extra household zone(s) ignored: "
+                + result.ignoredHouseholdIDs.joined(separator: ", "))
+        }
+
+        // ── 2. Match against the active session ──────────────────────────────────────
+        guard let activeZoneID else {
+            return "❌ active HouseholdSession is nil — session was never established"
+        }
+        guard let activeHouseholdID = HouseholdZoneProvisioner.householdID(fromZoneName: activeZoneID.zoneName) else {
+            return "❌ cannot parse household id from active zone name \"\(activeZoneID.zoneName)\""
+        }
+        guard discoveredID == activeHouseholdID else {
+            return "❌ discovered id \"\(discoveredID)\" ≠ active session id \"\(activeHouseholdID)\""
+                + " — discovery landed on a different zone than the one holding recipes"
+        }
+        log.append("discovered id matches active session (\"\(activeHouseholdID)\") ✅")
+
+        // ── 3. Verify zone-name derivation round-trips correctly ────────────────────
+        // A fresh HouseholdSession(householdID: discoveredID) would derive its zone
+        // name via HouseholdZoneProvisioner.zoneName(householdID:), which is the same
+        // path HouseholdSession.init uses. Verify that static derivation matches the
+        // active session's zone — without crossing the @MainActor boundary.
+        let derivedZoneName = HouseholdZoneProvisioner.zoneName(householdID: discoveredID)
+        let activeZoneName  = activeZoneID.zoneName
+        guard derivedZoneName == activeZoneName else {
+            return "❌ derived zone name \"\(derivedZoneName)\" ≠ active session zone \"\(activeZoneName)\""
+                + " — zone-name derivation is inconsistent with the live session"
+        }
+        log.append("zone-name derivation consistent: \"\(derivedZoneName)\" = active session zone ✅")
+
+        return "✅ Identity — household discovery\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }
