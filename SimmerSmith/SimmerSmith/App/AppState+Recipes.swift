@@ -1,5 +1,9 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+import CloudKitProvisioning
+#endif
 
 extension AppState {
     // MARK: - SP-C Task 5: CloudKit lifecycle + mirroring
@@ -24,13 +28,29 @@ extension AppState {
             return
         }
 
-        // Validate before kicking off the task (avoids pointless task creation).
-        guard let householdID = currentHousehold?.householdId, !householdID.isEmpty else { return }
+        // SP-C identity slice (spec §1.2): the household id no longer comes from Fly
+        // (`currentHousehold?.householdId`) — it is DISCOVERED from CloudKit, or minted
+        // if the user has no household zone yet. Resolution is async (it lists the
+        // private DB's zones), so it happens inside the dedup task below rather than as
+        // a pre-task guard. The discover-before-create ordering is load-bearing
+        // (spec §7): minting a new zone when `household-<existingId>` already exists
+        // would orphan the migrated recipes.
 
         // Assign the task SYNCHRONOUSLY (no await between here and the assignment)
         // so any concurrent caller on MainActor that runs next sees it.
         let task = Task<Void, Never> { [weak self] in
             guard let self else { return }
+
+            // 1. Resolve the household id: discover first, mint only if none exists.
+            guard let householdID = await self.resolveHouseholdID() else {
+                // Discovery failed (e.g. iCloud unavailable / transient CloudKit error)
+                // OR minting failed. Leave the session unset so a later refresh retries;
+                // do NOT proceed into a half-built session. Clear the dedup task so the
+                // retry isn't short-circuited by an in-flight-but-dead task.
+                self.householdSessionSetupTask = nil
+                return
+            }
+
             let session = HouseholdSession(householdID: householdID)
             await session.start()
 
@@ -65,6 +85,53 @@ extension AppState {
         }
         householdSessionSetupTask = task
         await task.value
+    }
+
+    /// SP-C identity slice (spec §1.2): resolve the CloudKit household id with NO Fly
+    /// call. Discover first (zone listing); mint a fresh household only when none exists.
+    ///
+    /// Returns `nil` when resolution can't complete (discovery threw — e.g. iCloud
+    /// unavailable / transient CloudKit error — OR minting threw). The caller leaves the
+    /// session unset so a later refresh retries; it must NOT fall through to minting on a
+    /// discovery error, which would orphan an existing `household-<id>` zone (spec §7).
+    private func resolveHouseholdID() async -> String? {
+        let provisioner = HouseholdZoneProvisioner()
+
+        // 1. DISCOVER before create (spec §7 landmine). A throw here means we could not
+        //    determine whether a household zone exists — so we must NOT mint (that path
+        //    only runs on a definitive "zero zones" → nil household id).
+        let result: HouseholdZoneProvisioner.DiscoveryResult
+        do {
+            result = try await provisioner.discoverHouseholdResult()
+        } catch {
+            // Discovery failed — surface softly and bail (retry on next refresh).
+            lastErrorMessage = "Couldn't reach CloudKit to find your household. Will retry."
+            return nil
+        }
+
+        // Multiple household zones (shouldn't happen for an owner). The winner
+        // (most-populated) is used; log the rest for human reconciliation.
+        if let firstIgnored = result.ignoredHouseholdIDs.first {
+            lastErrorMessage = "Multiple CloudKit households found; using one and ignoring "
+                + "\(result.ignoredHouseholdIDs.count) other(s) (e.g. household-\(firstIgnored))."
+        }
+
+        if let discovered = result.householdID, !discovered.isEmpty {
+            return discovered
+        }
+
+        // 2. No household zone exists → MINT a new one: fresh UUID, ensure the zone, and
+        //    write a default HouseholdProfile so the zone is non-empty (and future
+        //    discovery's HouseholdProfile signal finds it).
+        let newID = UUID().uuidString
+        do {
+            try await provisioner.ensureHouseholdZone(householdID: newID)
+            _ = try await provisioner.ensureHouseholdProfile(householdID: newID, name: "My Household")
+            return newID
+        } catch {
+            lastErrorMessage = "Couldn't create your CloudKit household. Will retry."
+            return nil
+        }
     }
 
     /// Tear down the CloudKit session + repositories and delete the durable engine
