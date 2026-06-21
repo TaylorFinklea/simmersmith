@@ -510,9 +510,20 @@ final class AppState {
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads
             }
+            // SP-C slice 5: ingredient preferences come from PreferenceRepository (private
+            // plane) when the CloudKit session is active; fall back to Fly pre-session.
+            #if canImport(CloudKit)
+            if let prefRepo = preferenceRepository {
+                prefRepo.reload()
+                ingredientPreferences = prefRepo.preferences
+            } else if let preferences = try? await apiClient.fetchIngredientPreferences() {
+                ingredientPreferences = preferences
+            }
+            #else
             if let preferences = try? await apiClient.fetchIngredientPreferences() {
                 ingredientPreferences = preferences
             }
+            #endif
             await refreshAIModels(for: aiDirectProviderDraft)
 
             syncPhase = .synced(.now)
