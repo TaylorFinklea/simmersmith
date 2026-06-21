@@ -90,6 +90,9 @@ struct CloudKitDebugView: View {
                 Button("SP-C — Weeks+Grocery round-trip") {
                     runString { await runWeeksGroceryRepoCheck() }
                 }
+                Button("SP-C — Events round-trip") {
+                    runString { await runEventsRepoCheck() }
+                }
                 Button("Identity — household discovery") {
                     let activeZoneID = appState.householdSession?.zoneID
                     runString { await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }
@@ -164,6 +167,7 @@ struct CloudKitDebugView: View {
                 ("Phase 7 — migrate household", { await runMigrationCheck() }),
                 ("SP-C — Recipes repo", { await runRecipeRepoCheck() }),
                 ("SP-C — Weeks+Grocery", { await runWeeksGroceryRepoCheck() }),
+                ("SP-C — Events round-trip", { await runEventsRepoCheck() }),
                 ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
             ]
             var lines: [String] = []
@@ -1690,6 +1694,382 @@ func runWeeksGroceryRepoCheck() async -> String {
         log.append("deleteCascading(week) → engineB: week + meals + side all gone; groceries deleted separately — all gone ✅")
 
         return "✅ SP-C Weeks+Grocery round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-C slice 4 — Events round-trip on the real CKSyncEngine.
+///
+/// Uses the direct mapper+engine path (EventRecordMapper / EventGroceryGenerator /
+/// EventMergeAdapter → HouseholdRecordCodec → engine), which is exactly the code
+/// EventRepository wraps. Avoids a real HouseholdSession so no production token or
+/// zone is touched.
+///
+/// Verifies:
+///   1. Save an Event + 2 EventMeals + an EventMealIngredient + an EventAttendee + a
+///      Guest via engine A; engine B fetches and decodes all records intact (round-trip).
+///   2. Event-grocery generation: EventGroceryGenerator produces EventGroceryItems from
+///      the event meals (2 meals share an ingredient → quantities sum).
+///   3. Merge into a week: EventMergeAdapter folds event rows into the week's GroceryItems.
+///      Matched ingredient → week row gains eventQuantity; unmatched ingredient → new
+///      event-only week row created.
+///   4. Unmerge: event-only row HARD-deleted; a user-checked week row is PRESERVED.
+///   5. deleteCascading(event) removes the event + meals + ingredients + attendee;
+///      guest (SET-NULL ref) survives; explicit cleanup finishes.
+func runEventsRepoCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-spc-events-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("spc-ev-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("spc-ev-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    // Identifiers
+    let eventID     = "ev-\(sfx)"
+    let meal1ID     = "em1-\(sfx)"
+    let meal2ID     = "em2-\(sfx)"
+    let ingID       = "emi-\(sfx)"      // ingredient on meal 1
+    let guestID     = "gu-\(sfx)"
+    let attendeeID  = "\(eventID)_\(guestID)"   // det-key per mapper
+    // Week + grocery identifiers (for the merge test)
+    let weekID      = "evwk-\(sfx)"
+    let weekGrocID  = "evg-\(sfx)"     // pre-existing tomato week row (user-checked)
+
+    do {
+        // ── Two engines (A = writer, B = 2nd device) ─────────────────────────────────────
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: sA)
+        engineA.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: sB)
+        engineB.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+
+        func rid(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: rid(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: rid(recordName)) != nil) == want
+        }
+        func eventGrocInB(_ name: String) async throws -> GroceryMerge.EventGroceryItem? {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if let r = storeB.record(for: rid(name)) { return EventGroceryCodec.decode(r) }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return storeB.record(for: rid(name)).map(EventGroceryCodec.decode)
+        }
+
+        var log = ["two CKSyncEngine instances on one zone (SP-C events test) ✅"]
+
+        // ── 1. SAVE: Event + 2 EventMeals + 1 ingredient + 1 attendee + Guest ─────────────
+        // Build HouseholdRecordValues directly (mirroring the EventRecordMapper field conventions)
+        // rather than through the SimmerSmithKit.Event domain struct, which is ambiguous in this
+        // file's scope with GroceryMerge.Event and the empty SimmerSmithKit enum shadowing the module.
+        let now = Date()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // .event record
+        let eventValue = HouseholdRecordValue(
+            type: .event, recordName: eventID,
+            scalars: [
+                "name":             .string("Test Party"),
+                "occasion":         .string("other"),
+                "attendeeCount":    .int(10),
+                "notes":            .string("Bring cake"),
+                "status":           .string("planning"),
+                "autoMergeGrocery": .bool(true),
+                "createdAt":        .date(createdAt),
+                "updatedAt":        .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(eventValue, zoneID: zoneID))
+
+        // .eventMeal 1 — Pasta (will have 1 ingredient child)
+        let meal1Value = HouseholdRecordValue(
+            type: .eventMeal, recordName: meal1ID,
+            scalars: [
+                "role":                 .string("main"),
+                "recipeName":           .string("Pasta"),
+                "scaleMultiplier":      .double(1.0),
+                "notes":                .string(""),
+                "sortOrder":            .int(0),
+                "aiGenerated":          .bool(false),
+                "approved":             .bool(true),
+                "constraintCoverage":   .string("[]"),
+                "createdAt":            .date(createdAt),
+                "updatedAt":            .date(now),
+            ],
+            refs: ["event": eventID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal1Value, zoneID: zoneID))
+
+        // .eventMeal 2 — Soup
+        let meal2Value = HouseholdRecordValue(
+            type: .eventMeal, recordName: meal2ID,
+            scalars: [
+                "role":                 .string("side"),
+                "recipeName":           .string("Soup"),
+                "scaleMultiplier":      .double(1.0),
+                "notes":                .string(""),
+                "sortOrder":            .int(1),
+                "aiGenerated":          .bool(false),
+                "approved":             .bool(true),
+                "constraintCoverage":   .string("[]"),
+                "createdAt":            .date(createdAt),
+                "updatedAt":            .date(now),
+            ],
+            refs: ["event": eventID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal2Value, zoneID: zoneID))
+
+        // .eventMealIngredient — Tomato on meal 1 (qty=2 cup)
+        let ingValue = HouseholdRecordValue(
+            type: .eventMealIngredient, recordName: ingID,
+            scalars: [
+                "ingredientName": .string("Tomato"),
+                "quantity":       .double(2.0),
+                "unit":           .string("cup"),
+                "category":       .string("produce"),
+                "prep":           .string(""),
+                "notes":          .string(""),
+                "updatedAt":      .date(now),
+            ],
+            refs: ["eventMeal": meal1ID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(ingValue, zoneID: zoneID))
+
+        // .eventAttendee — Alice attending the event (det key = eventID_guestID)
+        let attendeeValue = HouseholdRecordValue(
+            type: .eventAttendee, recordName: attendeeID,
+            scalars: [
+                "plusOnes":  .int(1),
+                "createdAt": .date(now),
+            ],
+            refs: ["event": eventID, "guest": guestID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(attendeeValue, zoneID: zoneID))
+
+        // .guest — Alice (separate det-keyed record, SET-NULL ref from attendee)
+        let guestValue = HouseholdRecordValue(
+            type: .guest, recordName: guestID,
+            scalars: [
+                "name":              .string("Alice"),
+                "relationshipLabel": .string("friend"),
+                "dietaryNotes":      .string(""),
+                "allergies":         .string(""),
+                "ageGroup":          .string("adult"),
+                "active":            .bool(true),
+                "createdAt":         .date(createdAt),
+                "updatedAt":         .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(guestValue, zoneID: zoneID))
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+        log.append("engineA: Event + 2 meals + 1 ingredient + 1 attendee + Guest saved to CloudKit ✅")
+
+        // ── 2. ENGINE B: fetch + round-trip via EventRecordMapper ─────────────────────────
+        let eventPresent    = try await waitInB(present: eventID,    expect: true)
+        let meal1Present    = try await waitInB(present: meal1ID,    expect: true)
+        let meal2Present    = try await waitInB(present: meal2ID,    expect: true)
+        let ingPresent      = try await waitInB(present: ingID,      expect: true)
+        let attendeePresent = try await waitInB(present: attendeeID, expect: true)
+        let guestPresent    = try await waitInB(present: guestID,    expect: true)
+        try expect(
+            eventPresent && meal1Present && meal2Present && ingPresent && attendeePresent && guestPresent,
+            "engineB missing records: event=\(eventPresent) meal1=\(meal1Present) meal2=\(meal2Present) ing=\(ingPresent) att=\(attendeePresent) guest=\(guestPresent)"
+        )
+
+        // Decode the event back via the mapper (mirrors EventRepository.reload)
+        guard let bEventRaw = storeB.record(for: rid(eventID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB event record missing after wait")
+        }
+        let bEventValue = HouseholdRecordCodec.decode(bEventRaw, as: .event)
+        let bMealValues = storeB.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
+            .filter { ($0["event"] as? CKRecord.Reference)?.recordID.recordName == eventID }
+            .map { HouseholdRecordCodec.decode($0, as: .eventMeal) }
+        let bIngValuesByMeal: [String: [HouseholdRecordValue]] = Dictionary(
+            grouping: storeB.records(ofType: HouseholdRecordType.eventMealIngredient.recordTypeName)
+                .filter {
+                    guard let ref = $0["eventMeal"] as? CKRecord.Reference else { return false }
+                    return bMealValues.map(\.recordName).contains(ref.recordID.recordName)
+                }
+                .map { HouseholdRecordCodec.decode($0, as: .eventMealIngredient) },
+            by: { $0.refs["eventMeal"] ?? "" }
+        )
+        let bAttendeeValues = storeB.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
+            .filter { ($0["event"] as? CKRecord.Reference)?.recordID.recordName == eventID }
+            .map { HouseholdRecordCodec.decode($0, as: .eventAttendee) }
+
+        let bRebuilt = EventRecordMapper.event(
+            from: bEventValue,
+            meals: bMealValues,
+            ingredientsByMeal: bIngValuesByMeal,
+            attendees: bAttendeeValues
+        )
+
+        try expect(bRebuilt.name == "Test Party", "name mismatch: \(bRebuilt.name)")
+        try expect(bRebuilt.meals.count == 2, "meal count wrong: \(bRebuilt.meals.count)")
+        try expect(bRebuilt.meals.first(where: { $0.recipeName == "Pasta" })?.ingredients.count == 1,
+                   "meal1 ingredient count wrong")
+        try expect(bRebuilt.attendees.count == 1 && bRebuilt.attendees[0].guestId == guestID,
+                   "attendee not found: \(bRebuilt.attendees)")
+
+        // Decode the Guest record
+        guard let bGuestRaw = storeB.record(for: rid(guestID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB guest record missing after wait")
+        }
+        let bGuestValue = HouseholdRecordCodec.decode(bGuestRaw, as: .guest)
+        let bGuest = EventRecordMapper.guest(from: bGuestValue)
+        try expect(bGuest.name == "Alice" && bGuest.relationshipLabel == "friend",
+                   "guest fields wrong: name=\(bGuest.name) rel=\(bGuest.relationshipLabel)")
+
+        log.append("engineB: Event decoded — name=Test Party, 2 meals (Pasta+Soup), 1 ingredient (Tomato), attendee=Alice+1, guest=Alice ✅")
+
+        // ── 3. EVENT-GROCERY GENERATION: EventGroceryGenerator from event meals ──────────
+        // Build EventGroceryMeal inputs from the 2 meals (both host-cooked, no assignedGuest)
+        let tomatoLine = GroceryIngredientLine(ingredientName: "Tomato", normalizedName: "tomato",
+                                               unit: "cup", quantity: 2)
+        let eMeal1 = EventGroceryMeal(mealID: meal1ID, servings: 2, baseServings: 2,
+                                      ingredients: [tomatoLine])
+        // Meal 2 contributes another tomato cup — shared ingredient sums to 3
+        let eMeal2 = EventGroceryMeal(mealID: meal2ID, servings: 2, baseServings: 2,
+                                      ingredients: [
+                                          GroceryIngredientLine(ingredientName: "Tomato",
+                                                                normalizedName: "tomato",
+                                                                unit: "cup", quantity: 1)
+                                      ])
+
+        var nameIdx = 0
+        let eventGrocNames = ["eg-tomato-\(sfx)", "eg-balloons-\(sfx)"]
+        let eventGrocRows = EventGroceryGenerator.regenerate(
+            eventID: eventID,
+            meals: [eMeal1, eMeal2],
+            clock: 1,
+            newRecordName: { _ in
+                let n = eventGrocNames[min(nameIdx, eventGrocNames.count - 1)]
+                nameIdx += 1
+                return n
+            }
+        )
+        let egTomato = eventGrocRows.first { $0.normalizedName == "tomato" }
+        try expect(egTomato?.eventQuantity == 3,
+                   "EventGroceryGenerator: tomato eventQty wrong: \(String(describing: egTomato?.eventQuantity)) (expected 3 = 2+1)")
+        log.append("EventGroceryGenerator: 2 meals sharing tomato → 1 EventGroceryItem (qty=3, normalizedName=tomato) ✅")
+
+        // ── 4. MERGE INTO WEEK: EventMergeAdapter ────────────────────────────────────────
+        // Seed a pre-existing week tomato row (user-checked) + a week record
+        let weekGrocery = GroceryMerge.GroceryItem(
+            recordName: weekGrocID, weekID: weekID,
+            baseIngredientID: nil, unit: "cup", normalizedName: "tomato", ingredientName: "Tomato",
+            totalQuantity: 2, sourceMeals: "Sunday / dinner / Stew",
+            check: CheckState(isChecked: true, at: 5, by: "alice"),
+            createdAt: 1, modifiedAt: 5
+        )
+        engineA.save(GroceryCodec.makeRecord(weekGrocery, zoneID: zoneID))
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Also save the EventGroceryItems so the adapter's unmerge can read them back
+        // and save a second event-only row (Balloons — no match in the week grocery list)
+        let egTomatoItem = egTomato ?? GroceryMerge.EventGroceryItem(recordName: "eg-tomato-\(sfx)",
+                                                                      eventQuantity: 3,
+                                                                      ingredientName: "Tomato",
+                                                                      normalizedName: "tomato", unit: "cup")
+        let egBalloons = GroceryMerge.EventGroceryItem(
+            recordName: "eg-balloons-\(sfx)",
+            eventQuantity: 20,
+            ingredientName: "Balloons",
+            normalizedName: "balloons", unit: "ea"
+        )
+        engineA.save(EventGroceryCodec.makeRecord(egTomatoItem, zoneID: zoneID))
+        engineA.save(EventGroceryCodec.makeRecord(egBalloons, zoneID: zoneID))
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Run the merge via EventMergeAdapter
+        let mergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party")
+        let adapter = EventMergeAdapter(engine: engineA, zoneID: zoneID)
+        let mergeOutcome = adapter.merge(event: mergeEvent, eventRows: [egTomatoItem, egBalloons], intoWeek: weekID)
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // After merge: tomato week row gains eventQuantity=3; balloons creates a new event-only row
+        let mergedTomato = storeA.record(for: rid(weekGrocID)).map(GroceryCodec.decode)
+        try expect(mergedTomato?.eventQuantity == 3,
+                   "merge: tomato week row eventQty wrong: \(String(describing: mergedTomato?.eventQuantity)) (expected 3)")
+        try expect(mergedTomato?.check.isChecked == true,
+                   "merge: user-checked state clobbered: \(String(describing: mergedTomato?.check.isChecked))")
+        try expect(mergeOutcome.created == 1 && mergeOutcome.matched == 1,
+                   "merge outcome wrong: matched=\(mergeOutcome.matched) created=\(mergeOutcome.created)")
+
+        // The created event-only row name
+        guard let balloonsWeekRowName = mergeOutcome.createdRecordNames.first else {
+            throw PrivatePlaneCheckFailure(description: "merge: expected 1 created event-only week row, got 0")
+        }
+        let balloonsWeekRow = storeA.record(for: rid(balloonsWeekRowName)).map(GroceryCodec.decode)
+        try expect(balloonsWeekRow?.normalizedName == "balloons",
+                   "merge: event-only row normalizedName wrong: \(String(describing: balloonsWeekRow?.normalizedName))")
+        log.append("merge: tomato week row eventQty=3 + user-check preserved; balloons event-only row created ✅")
+
+        // ── 5. UNMERGE: event-only row HARD-deleted; user-checked row preserved ──────────
+        // The updated event rows have merge pointers from the adapter
+        let linkedMergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party",
+                                                   linkedWeekID: weekID)
+        let updatedEventRows = mergeOutcome.eventRows
+        let unmergeOutcome = adapter.unmerge(event: linkedMergeEvent, eventRows: updatedEventRows,
+                                              fromWeek: weekID)
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Balloons event-only row hard-deleted (no user investment)
+        try expect(unmergeOutcome.hardDeletedRecordNames.contains(balloonsWeekRowName),
+                   "unmerge: balloons event-only row NOT hard-deleted: \(unmergeOutcome.hardDeletedRecordNames)")
+        // Tomato week row preserved (user-checked = has user investment)
+        let unmergeTomato = storeA.record(for: rid(weekGrocID)).map(GroceryCodec.decode)
+        try expect(unmergeTomato != nil, "unmerge: user-checked tomato row was deleted (must be preserved)")
+        try expect(unmergeTomato?.check.isChecked == true,
+                   "unmerge: user-checked state lost: \(String(describing: unmergeTomato?.check.isChecked))")
+        try expect(unmergeTomato?.eventQuantity == nil,
+                   "unmerge: tomato eventQty not cleared: \(String(describing: unmergeTomato?.eventQuantity))")
+        try expect(storeA.record(for: rid(balloonsWeekRowName)) == nil,
+                   "unmerge: balloons event-only row still in storeA after hard-delete")
+        log.append("unmerge: balloons event-only row HARD-deleted; tomato (user-checked) preserved, eventQty cleared ✅")
+
+        // ── 6. CLEANUP: deleteCascading(event) sweeps event+meals+ingredients+attendee ──
+        //    guest survives (SET-NULL edge, not cascadeParent)
+        engineA.deleteCascading(rid(eventID))
+        // Delete explicit rows: week grocery item, event grocery rows, week record (none of these
+        // are event children — they are top-level). balloonsWeekRowName was hard-deleted by unmerge.
+        engineA.delete(rid(weekGrocID))
+        engineA.delete(rid("eg-tomato-\(sfx)"))
+        engineA.delete(rid("eg-balloons-\(sfx)"))
+        // Guest has SET-NULL ref — it must NOT be cascade-deleted; delete explicitly for cleanup.
+        engineA.delete(rid(guestID))
+        try await engineA.sendUntilDrained()
+
+        let eventGone    = try await waitInB(present: eventID,    expect: false)
+        let meal1Gone    = try await waitInB(present: meal1ID,    expect: false)
+        let meal2Gone    = try await waitInB(present: meal2ID,    expect: false)
+        let ingGone      = try await waitInB(present: ingID,      expect: false)
+        let attendeeGone = try await waitInB(present: attendeeID, expect: false)
+        let grocGone     = try await waitInB(present: weekGrocID, expect: false)
+        let guestGone    = try await waitInB(present: guestID,    expect: false)
+        try expect(eventGone && meal1Gone && meal2Gone && ingGone && attendeeGone,
+                   "cascade incomplete: event=\(!eventGone) meal1=\(!meal1Gone) meal2=\(!meal2Gone) ing=\(!ingGone) att=\(!attendeeGone)")
+        try expect(grocGone && guestGone,
+                   "cleanup incomplete: weekGroc=\(!grocGone) guest=\(!guestGone)")
+        log.append("deleteCascading(event) → engineB: event + meals + ingredient + attendee all gone; guest + groceries deleted separately — all gone ✅")
+
+        return "✅ SP-C Events round-trip\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }
