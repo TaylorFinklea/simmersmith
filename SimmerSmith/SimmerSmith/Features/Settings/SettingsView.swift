@@ -541,6 +541,7 @@ struct SettingsView: View {
             if appState.householdSession != nil {
                 ImportWeeksSection()
                 ImportEventsSection()
+                ImportPantryProfileSection()
             }
             #endif
 
@@ -1776,6 +1777,112 @@ private struct ImportEventsSection: View {
 }
 
 extension AppState.EventImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - ImportPantryProfileSection (SP-C slice 5)
+
+/// Settings section for the one-shot "Import my pantry + profile + prefs" trigger.
+///
+/// Mirrors `ImportWeeksSection` / `ImportEventsSection` in structure. Bound to
+/// `pantryProfileImportState` / `importPantryProfileFromFly` / `refreshPantryProfileImportState`.
+///
+/// Receipt is a PRIVATE-PLANE receipt (not a household zone receipt) because the profile
+/// and ingredient-preference data is per-user (private plane), not household-shared.
+/// The migration also writes pantry items and aliases to the household zone, but the
+/// private-plane receipt is the single gate for the whole bundle.
+private struct ImportPantryProfileSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.pantryProfileImportState {
+            case .alreadyImported:
+                Label("Pantry & profile already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Pantry & profile imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing pantry & profile…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                importButton
+
+            case .idle:
+                importButton
+            }
+        } header: {
+            SmithSectionHeader("import pantry & profile")
+        } footer: {
+            if appState.pantryProfileImportState == .idle || appState.pantryProfileImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your pantry items, dietary goal, ingredient preferences, and household term aliases from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshPantryProfileImportState()
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.pantryProfileImportState == .running)
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.pantryProfileImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importPantryProfileFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.pantryProfileImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.PantryProfileImportState {
     var isFailed: Bool {
         if case .failed = self { return true }
         return false

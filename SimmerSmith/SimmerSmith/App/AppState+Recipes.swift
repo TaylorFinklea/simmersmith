@@ -1,5 +1,6 @@
 import Foundation
 import SimmerSmithKit
+import SwiftData
 #if canImport(CloudKit)
 import CloudKit
 import CloudKitProvisioning
@@ -659,6 +660,100 @@ extension AppState {
         } else {
             // Drain failed or network error — receipt was not stamped.
             eventImportState = .failed("Import failed — please try again.")
+        }
+    }
+
+    // MARK: - SP-C slice 5: one-shot pantry + profile + prefs + aliases Fly→CloudKit import
+
+    /// State surfaced to the Settings UI for the "Import my pantry + profile" trigger button.
+    enum PantryProfileImportState: Equatable {
+        /// Private-plane receipt already present — migration previously completed.
+        case alreadyImported
+        /// Idle: ready to start (no import has run yet this session).
+        case idle
+        /// Import is in-progress.
+        case running
+        /// Import completed successfully during this session.
+        case done
+        /// Import failed; `reason` is a user-readable message.
+        case failed(String)
+    }
+
+    /// Check the private-plane receipt gate and set `pantryProfileImportState` accordingly.
+    /// Called when the Settings section first appears. Reads from the private plane —
+    /// a nil privateStore (pre-boot / iCloud unavailable) is treated as idle.
+    func refreshPantryProfileImportState() {
+        guard let store = householdSession?.privateStore else {
+            pantryProfileImportState = .idle
+            return
+        }
+        // Fetch-based gate: look for the "pantry-profile" receipt in the private plane.
+        let key = "pantry-profile"
+        let fetched = try? store.context.fetch(FetchDescriptor<PrivateMigrationReceipt>(
+            predicate: #Predicate { $0.recordKey == key }
+        ))
+        pantryProfileImportState = (fetched?.isEmpty == false) ? .alreadyImported : .idle
+    }
+
+    /// One-shot pantry + profile + prefs + aliases import triggered by the user from Settings.
+    ///
+    /// Receives the Apple identity token from the Settings view's SignInWithAppleButton
+    /// result, exchanges it for a Fly JWT, then runs `migratePantryProfileIfNeeded`. The
+    /// Fly JWT is cleared after the import completes (success or failure) because no
+    /// everyday flow reads from Fly. Mirrors the pattern from `importWeeksFromFly`.
+    func importPantryProfileFromFly(appleIdentityToken: String) async {
+        guard let session = householdSession else {
+            pantryProfileImportState = .failed("CloudKit session not ready — try again after launch completes.")
+            return
+        }
+        pantryProfileImportState = .running
+
+        // 1. Exchange the Apple identity token for a Fly JWT.
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        serverURLDraft = Self.productionServerURL
+
+        do {
+            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
+            authTokenDraft = response.token
+        } catch {
+            pantryProfileImportState = .failed("Sign-in failed: \(error.localizedDescription)")
+            return
+        }
+
+        // 2. Run the migration. Receipt-gated — idempotent if already done.
+        await migratePantryProfileIfNeeded(session: session, apiClient: apiClient)
+
+        // 3. Confirm the private-plane receipt landed so we know the import actually completed.
+        let receiptPresent: Bool
+        if let store = session.privateStore {
+            let key = "pantry-profile"
+            let fetched = try? store.context.fetch(FetchDescriptor<PrivateMigrationReceipt>(
+                predicate: #Predicate { $0.recordKey == key }
+            ))
+            receiptPresent = fetched?.isEmpty == false
+        } else {
+            receiptPresent = false
+        }
+
+        if receiptPresent {
+            pantryProfileImportState = .done
+        } else {
+            pantryProfileImportState = .failed("Import failed — please try again.")
+        }
+
+        // 4. Clear the one-shot Fly JWT regardless of outcome — no everyday flow reads Fly.
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        authTokenDraft = ""
+
+        // 5. Trigger repo reloads so imported items appear immediately (success path only).
+        if case .done = pantryProfileImportState {
+            pantryRepository?.reload()
+            aliasRepository?.reload()
+            profileRepository?.reload()
+            preferenceRepository?.reload()
+            mirrorPantryFromRepository()
+            mirrorAliasesFromRepository()
         }
     }
 

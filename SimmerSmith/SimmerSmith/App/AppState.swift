@@ -205,6 +205,15 @@ final class AppState {
     var eventImportState: EventImportState = .idle
     #endif
 
+    // MARK: - SP-C slice 5: pantry + profile import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit pantry+profile+prefs+aliases import for the
+    /// Settings trigger. `PantryProfileImportState` enum is declared in `AppState+Recipes`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var pantryProfileImportState: PantryProfileImportState = .idle
+    #endif
+
     // MARK: - SP-C identity slice: CloudKit-only launch gate
 
     /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.
