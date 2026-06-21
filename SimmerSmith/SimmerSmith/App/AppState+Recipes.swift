@@ -531,6 +531,19 @@ extension AppState {
         eventImportState = session.store.record(for: receiptID) != nil ? .alreadyImported : .idle
     }
 
+    /// True once the `migrated:weeks` receipt is present in the local store. Gates the events
+    /// import: migrated EventGroceryItem rows carry `mergedIntoWeekID`/`mergedIntoGroceryItemID`
+    /// pointing at week GroceryItem records the WEEKS migration creates, so events must not be
+    /// imported until weeks is done (the two imports are independent one-shots).
+    var weeksImportComplete: Bool {
+        guard let session = householdSession else { return false }
+        let receiptID = CKRecord.ID(
+            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
+            zoneID: session.zoneID
+        )
+        return session.store.record(for: receiptID) != nil
+    }
+
     /// One-shot events + guests + event-grocery import triggered by the user from Settings.
     ///
     /// Receives the Apple identity token from the Settings view's SignInWithAppleButton

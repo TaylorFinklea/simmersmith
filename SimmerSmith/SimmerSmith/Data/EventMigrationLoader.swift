@@ -177,10 +177,15 @@ func migrateEventsIfNeeded(
         let prefix = "\(eventID)_eg_"
         for (index, domainItem) in event.groceryItems.enumerated() {
             let sourceMealsJSON = (try? String(data: JSONEncoder().encode(domainItem.sourceMeals), encoding: .utf8)) ?? "[]"
+            // Compute normalized_name the SAME way EventGroceryGenerator does
+            // (GroceryNormalize.name on the ingredient name) so migrated event rows match the
+            // week's rows by MergeKey when there's no baseIngredientID. An empty normalized_name
+            // would spawn spurious event-only week rows instead of contributing eventQuantity.
+            let normalizedName = GroceryNormalize.name(domainItem.ingredientName)
             let row: [String: Any] = [
                 "id": domainItem.groceryItemId,
                 "ingredient_name": domainItem.ingredientName,
-                "normalized_name": "",
+                "normalized_name": normalizedName,
                 "unit": domainItem.unit,
                 "quantity_text": domainItem.quantityText,
                 "category": domainItem.category,

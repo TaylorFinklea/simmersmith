@@ -540,6 +540,7 @@ struct SettingsView: View {
             #if canImport(CloudKit)
             if appState.householdSession != nil {
                 ImportWeeksSection()
+                ImportEventsSection()
             }
             #endif
 
@@ -1654,6 +1655,127 @@ private struct ImportWeeksSection: View {
 }
 
 extension AppState.WeekImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - ImportEventsSection (SP-C slice 4)
+
+/// Settings section for the one-shot "Import my events + guests from the old app" trigger.
+///
+/// Mirrors `ImportWeeksSection` exactly, bound to `eventImportState` / `importEventsFromFly` /
+/// `refreshEventImportState`. GATED on the weeks import having run first: migrated event-grocery
+/// rows point at week GroceryItem records the WEEKS migration creates, so until the
+/// `migrated:weeks` receipt is present the import button is replaced by an "import weeks first"
+/// disabled prompt.
+private struct ImportEventsSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.eventImportState {
+            case .alreadyImported:
+                Label("Events already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Events imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing events…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                gatedImportControl
+
+            case .idle:
+                gatedImportControl
+            }
+        } header: {
+            SmithSectionHeader("import events")
+        } footer: {
+            if !appState.weeksImportComplete {
+                Text("Import your weeks first — event grocery lists merge into your weekly lists, so the weeks need to be in place before events are imported.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            } else if appState.eventImportState == .idle || appState.eventImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your events, guests, and event grocery lists from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshEventImportState()
+        }
+    }
+
+    /// The import control, gated on the weeks import having completed. Until then it shows a
+    /// disabled "import weeks first" label instead of the Apple sign-in button.
+    @ViewBuilder
+    private var gatedImportControl: some View {
+        if appState.weeksImportComplete {
+            importButton
+        } else {
+            Label("Import weeks first", systemImage: "lock.fill")
+                .foregroundStyle(SMColor.textTertiary)
+                .font(SMFont.subheadline)
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.eventImportState == .running)
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.eventImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importEventsFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.eventImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.EventImportState {
     var isFailed: Bool {
         if case .failed = self { return true }
         return false

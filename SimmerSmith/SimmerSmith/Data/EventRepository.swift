@@ -351,11 +351,17 @@ final class EventRepository {
         return event(forId: eventID)
     }
 
-    /// Delete an event whole. Cascade-delete the `.event` root so its `.eventMeal` (+ ingredient)
-    /// and `.eventAttendee` children fall with it. The event's own EventGroceryItem rows are NOT
-    /// cascade children (no CK parent ref) — clear them explicitly. (Any week rows this event was
-    /// merged into are the caller's concern: unmerge first if needed; this is a raw delete.)
+    /// Delete an event whole. UNMERGE from any linked week FIRST (server authority:
+    /// events.py delete_event unmerges before `session.delete(event)`) — otherwise the cascade
+    /// drops the event's own rows but leaves the week's GroceryItems with stale eventQuantity +
+    /// dangling mergedIntoGroceryItemID, and orphaned event-only rows. The engine's unmerge
+    /// preserves week rows carrying user investment. Then cascade-delete the `.event` root so its
+    /// `.eventMeal` (+ ingredient) and `.eventAttendee` children fall with it. The event's own
+    /// EventGroceryItem rows are NOT cascade children (no CK parent ref) — clear them explicitly.
     func deleteEvent(eventID: String) {
+        if let linkedWeekID = mergeEvent(forId: eventID)?.linkedWeekID, !linkedWeekID.isEmpty {
+            unmergeViaAdapter(eventID: eventID, weekID: linkedWeekID, keepLink: false)
+        }
         deleteEventGroceryRows(forEvent: eventID)
         session.engine.deleteCascading(CKRecord.ID(recordName: eventID, zoneID: session.zoneID))
         reload()
@@ -453,13 +459,11 @@ final class EventRepository {
         return event(forId: eventID)
     }
 
-    /// Shared tail of every meal mutation: regen the event grocery, re-apply the auto-merge policy
-    /// (so a target week stays in sync with the new menu), then reload + drain.
+    /// Shared tail of every meal mutation: regen the event grocery — `refreshEventGrocery` already
+    /// re-applies the auto-merge policy + reloads + drains as its final steps, so this tail must NOT
+    /// re-run `applyAutoMergePolicy` on the stale pre-drain state (it would double-apply).
     private func afterMealMutation(eventID: String) {
         refreshEventGrocery(eventID: eventID)
-        applyAutoMergePolicy(eventID: eventID)
-        reload()
-        Task { [weak self] in await self?.drainSync() }
     }
 
     // MARK: - Attendees (det-keyed <eventID>_<guestID>)
@@ -625,6 +629,10 @@ final class EventRepository {
         guard let mergeEv = mergeEvent(forId: eventID) else { return nil }
         let adapter = EventMergeAdapter(engine: session.engine, zoneID: session.zoneID)
         _ = adapter.merge(event: mergeEv, eventRows: eventRows(forEvent: eventID), intoWeek: weekID)
+        // PIN the manual merge (server authority: events.py merge route sets manually_merged=True).
+        // A later meal edit's applyAutoMergePolicy keeps a pinned merge in place instead of
+        // silently relocating it (the engine's manuallyMerged-pin path depends on this flag).
+        setManuallyMerged(eventID: eventID, true)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -637,6 +645,9 @@ final class EventRepository {
     @discardableResult
     func unmergeEventGroceryFromWeek(eventID: String, weekID: String) -> DomainEvent? {
         unmergeViaAdapter(eventID: eventID, weekID: weekID, keepLink: false)
+        // Clear the manual pin (server authority: events.py unmerge route sets manually_merged=False)
+        // so the auto-merge policy resumes for this event.
+        setManuallyMerged(eventID: eventID, false)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -750,6 +761,17 @@ final class EventRepository {
         guard let rec = session.store.record(
             for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return }
         rec["linkedWeekID"] = linkedWeekID as CKRecordValue?
+        rec["updatedAt"] = Date() as CKRecordValue
+        session.engine.save(rec)
+    }
+
+    /// Write the event's `manuallyMerged` flag (stored as Int, like autoMergeGrocery) + bump
+    /// updatedAt. The merge codec stores it + the `mergeEvent(forId:)` bridge reads it; only the
+    /// manual merge/unmerge entry points write it (server authority: events.py:641 / :674).
+    private func setManuallyMerged(eventID: String, _ value: Bool) {
+        guard let rec = session.store.record(
+            for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return }
+        rec["manuallyMerged"] = (value ? 1 : 0) as CKRecordValue
         rec["updatedAt"] = Date() as CKRecordValue
         session.engine.save(rec)
     }

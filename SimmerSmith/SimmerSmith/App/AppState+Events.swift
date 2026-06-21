@@ -350,7 +350,15 @@ extension AppState {
         unit: String = "",
         notes: String = ""
     ) async throws -> Event {
-        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden.
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.addEventSupplement(
             eventID: eventID,
             body: SimmerSmithAPIClient.EventSupplementAddBody(
@@ -371,7 +379,15 @@ extension AppState {
         supplementID: String,
         body: SimmerSmithAPIClient.EventSupplementPatchBody
     ) async throws -> Event {
-        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden.
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.patchEventSupplement(
             eventID: eventID,
             supplementID: supplementID,
@@ -384,7 +400,15 @@ extension AppState {
 
     @discardableResult
     func deleteEventSupplement(eventID: String, supplementID: String) async throws -> Event {
-        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden.
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.deleteEventSupplement(eventID: eventID, supplementID: supplementID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)
