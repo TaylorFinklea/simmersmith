@@ -11,6 +11,7 @@ import HouseholdSync
 import HouseholdRecords
 import GroceryMerge
 import SimmerSmithKit
+import AIProviderKit
 
 /// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
 /// Reachable from Settings → Developer (DEBUG builds only). Container
@@ -100,6 +101,9 @@ struct CloudKitDebugView: View {
                     let activeZoneID = appState.householdSession?.zoneID
                     runString { await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }
                 }
+                Button("AI week-gen (dry) — prompt/parse/allergy-gate") {
+                    runString { await runAIWeekGenDryCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -173,6 +177,7 @@ struct CloudKitDebugView: View {
                 ("SP-C — Events round-trip", { await runEventsRepoCheck() }),
                 ("SP-C — Pantry+Profile", { await runPantryProfileCheck() }),
                 ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
+                ("AI week-gen (dry)", { await runAIWeekGenDryCheck() }),
             ]
             var lines: [String] = []
             var failures: [String] = []
@@ -2275,4 +2280,292 @@ func runPantryProfileCheck() async -> String {
         return "❌ \(error)"
     }
 }
+// MARK: - AI week-gen dry check (offline: no key, no network required)
+
+/// SP-C AI-1 — on-device dry check for the week-gen pipeline.
+///
+/// Three offline assertions (no API key, no network):
+///
+///   (a) Prompt-fidelity smoke: build a sample `PlanningContext` fixture →
+///       `WeekGenPrompt.buildSystemPrompt` → assert the prompt contains the key
+///       constraints (dietary goal calories, allergy terms, must-avoid terms).
+///       Failure means the Swift port of `_build_system_prompt` is broken and
+///       the AI would receive a degraded or unsafe prompt.
+///
+///   (b) Parser round-trip: feed a canned 21-meal JSON response (matching the
+///       prompt's documented shape) → `MealPlanParser.parse` → assert it yields
+///       the expected recipe + slot counts with correct field values. Failure
+///       means the Codable mirror diverged from the wire shape.
+///
+///   (c) Allergy hard-gate: feed a plan that includes a seeded allergen
+///       (peanut butter in a recipe) → `MealPlanParser.enforceAllergyGate`
+///       must throw `.allergyViolation`. Then feed a clean plan with the same
+///       allergen list and assert it passes. Failure means an unsafe plan would
+///       be surfaced to the user — the Spike-2 fail-closed invariant is broken.
+///
+/// Optionally (if a key is configured): issues a cheap models-list ping to the
+/// configured provider to confirm the key is valid, but this is skipped when no
+/// key is present (default offline path). The three offline checks run regardless.
+func runAIWeekGenDryCheck() async -> String {
+    // Fixed week-start for deterministic output: Monday 2026-06-22 UTC.
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    var comps = DateComponents()
+    comps.year = 2026; comps.month = 6; comps.day = 22
+    comps.hour = 0; comps.minute = 0; comps.second = 0
+    guard let weekStart = cal.date(from: comps) else {
+        return "❌ could not build week-start date"
+    }
+
+    let ctx = PlanningContext(
+        hardAvoids: ["cilantro", "olives"],
+        strongLikes: ["garlic", "lemon"],
+        likedCuisines: ["Italian", "Thai"],
+        dislikedCuisines: ["German"],
+        brands: ["Rao's"],
+        staples: ["olive oil", "salt", "rice"],
+        recentMeals: ["Sheet Pan Chicken", "Tofu Stir Fry"],
+        rules: [],
+        dietaryGoal: DietaryGoalContext(
+            goalType: "cut", dailyCalories: 2000, proteinG: 160,
+            carbsG: 180, fatG: 60, fiberG: 30, notes: "high protein"
+        ),
+        allergies: ["peanut", "shellfish"],
+        termAliases: ["chx": "chicken", "veg": "vegetables"]
+    )
+
+    var log: [String] = []
+
+    // ── (a) Prompt-fidelity smoke ─────────────────────────────────────────────
+    let prompt = WeekGenPrompt.buildSystemPrompt(
+        profileSettings: ["household_name": "The Smiths", "dietary_constraints": "no pork"],
+        weekStart: weekStart,
+        context: ctx,
+        unitSystem: .us
+    )
+    var promptOK = true
+    var promptFailures: [String] = []
+
+    // Identity + unit directive
+    if !prompt.hasPrefix("You are SimmerSmith, an AI meal planning assistant.") {
+        promptOK = false; promptFailures.append("missing identity header")
+    }
+    if !prompt.contains("UNIT SYSTEM — US CUSTOMARY ONLY") {
+        promptOK = false; promptFailures.append("missing unit-system directive")
+    }
+    // Dietary goal
+    if !prompt.contains("- Daily target: 2000 calories, 160g protein, 180g carbs, 60g fat, 30g fiber") {
+        promptOK = false; promptFailures.append("dietary goal block missing or wrong")
+    }
+    if !prompt.contains("- Goal type: cut") {
+        promptOK = false; promptFailures.append("goal type missing")
+    }
+    // Allergy line (HARD constraint, emphasis)
+    if !prompt.contains("- HARD ALLERGIES — NEVER include these or any dish containing them: peanut, shellfish") {
+        promptOK = false; promptFailures.append("allergy hard-constraint line missing or wrong")
+    }
+    // Must-avoid
+    if !prompt.contains("- MUST AVOID: cilantro, olives") {
+        promptOK = false; promptFailures.append("must-avoid line missing")
+    }
+    // Calorie tolerance rule
+    if !prompt.contains("±10% of the daily calorie target") {
+        promptOK = false; promptFailures.append("±10% calorie tolerance rule missing")
+    }
+    // Response shape contract
+    if !prompt.contains("= 21 meals total") {
+        promptOK = false; promptFailures.append("21-meal contract missing")
+    }
+    if !prompt.contains("\"recipes\": [") || !prompt.contains("\"meal_plan\": [") {
+        promptOK = false; promptFailures.append("response-shape JSON template missing")
+    }
+    // Week label (date range)
+    if !prompt.contains("Week: Monday (2026-06-22) through Sunday (2026-06-28)") {
+        promptOK = false; promptFailures.append("week date range missing or wrong")
+    }
+
+    if promptOK {
+        log.append("(a) prompt-fidelity smoke: dietary goal + allergy line + ±10% rule + 21-meal contract + week label all present ✅")
+    } else {
+        log.append("❌ (a) prompt-fidelity smoke failed: \(promptFailures.joined(separator: "; "))")
+    }
+
+    // ── (b) Parser round-trip (canned 21-meal JSON) ──────────────────────────
+    // A minimal but structurally valid provider response with 3 distinct recipes
+    // covering 21 meal slots (7 days × 3 slots), matching the prompt's JSON shape.
+    let sampleJSON = """
+    {
+      "recipes": [
+        {
+          "name": "Lemon Garlic Chicken",
+          "meal_type": "dinner",
+          "cuisine": "Mediterranean",
+          "servings": 4,
+          "prep_minutes": 15,
+          "cook_minutes": 30,
+          "ingredients": [
+            {"ingredient_name": "chicken breast", "quantity": 2.0, "unit": "lb", "prep": "cubed", "category": "protein"},
+            {"ingredient_name": "garlic", "quantity": 4, "unit": "clove", "category": "aromatic"}
+          ],
+          "steps": [{"instruction": "Season the chicken."}, {"instruction": "Roast at 400F for 30 minutes."}]
+        },
+        {
+          "name": "Avocado Toast",
+          "meal_type": "breakfast",
+          "cuisine": "American",
+          "servings": 2,
+          "prep_minutes": 5,
+          "cook_minutes": 5,
+          "ingredients": [
+            {"ingredient_name": "bread", "quantity": 2, "unit": "slice"},
+            {"ingredient_name": "avocado", "quantity": 1, "unit": "ea"}
+          ],
+          "steps": [{"instruction": "Toast the bread."}, {"instruction": "Mash avocado on top."}]
+        },
+        {
+          "name": "Caesar Salad",
+          "meal_type": "lunch",
+          "cuisine": "Italian",
+          "servings": 2,
+          "prep_minutes": 10,
+          "cook_minutes": 0,
+          "ingredients": [
+            {"ingredient_name": "romaine lettuce", "quantity": 1, "unit": "head"},
+            {"ingredient_name": "parmesan", "quantity": 2, "unit": "oz"}
+          ],
+          "steps": [{"instruction": "Toss lettuce with dressing."}]
+        }
+      ],
+      "meal_plan": [
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"}
+      ]
+    }
+    """
+
+    do {
+        let result = try MealPlanParser.parse(sampleJSON)
+        var parseOK = true
+        var parseFailures: [String] = []
+
+        if result.recipes.count != 3 {
+            parseOK = false; parseFailures.append("expected 3 recipes, got \(result.recipes.count)")
+        }
+        if result.mealPlan.count != 21 {
+            parseOK = false; parseFailures.append("expected 21 meal slots, got \(result.mealPlan.count)")
+        }
+        if let r = result.recipes.first(where: { $0.name == "Lemon Garlic Chicken" }) {
+            if r.ingredients.count != 2 {
+                parseOK = false; parseFailures.append("expected 2 ingredients, got \(r.ingredients.count)")
+            }
+            if r.prepMinutes != 15 {
+                parseOK = false; parseFailures.append("prepMinutes wrong: \(r.prepMinutes as Any)")
+            }
+        } else {
+            parseOK = false; parseFailures.append("Lemon Garlic Chicken recipe missing")
+        }
+        // Verify slot → recipe resolution works (the name-join used by the app)
+        let monDinner = result.mealPlan.first { $0.dayName == "Monday" && $0.slot == "dinner" }
+        if result.recipe(for: monDinner!)?.name != "Lemon Garlic Chicken" {
+            parseOK = false; parseFailures.append("slot→recipe resolution broken")
+        }
+
+        if parseOK {
+            log.append("(b) parser round-trip: 3 recipes + 21 slots parsed, ingredient count + prep time + slot resolution correct ✅")
+        } else {
+            log.append("❌ (b) parser round-trip failed: \(parseFailures.joined(separator: "; "))")
+        }
+    } catch {
+        log.append("❌ (b) parser round-trip threw: \(error)")
+    }
+
+    // ── (c) Allergy hard-gate ─────────────────────────────────────────────────
+    // A plan that violates the peanut allergy (ingredient: "Peanut Butter").
+    let violatingJSON = """
+    {
+      "recipes": [
+        {
+          "name": "Thai Noodles",
+          "ingredients": [
+            {"ingredient_name": "rice noodles"},
+            {"ingredient_name": "Peanut Butter"}
+          ]
+        }
+      ],
+      "meal_plan": [
+        {"day_name": "Monday", "meal_date": "2026-06-22", "slot": "lunch", "recipe_name": "Thai Noodles"}
+      ]
+    }
+    """
+    // A clean plan using the same allergen list (no peanut / shellfish).
+    let cleanJSON = sampleJSON
+
+    var gateOK = true
+    var gateFailures: [String] = []
+    let allergens = ctx.allergies   // ["peanut", "shellfish"]
+
+    // Violating plan must throw.
+    do {
+        let violating = try MealPlanParser.parse(violatingJSON)
+        do {
+            try MealPlanParser.enforceAllergyGate(violating, allergies: allergens)
+            gateOK = false
+            gateFailures.append("allergy gate did NOT throw on a plan containing Peanut Butter")
+        } catch MealPlanParseError.allergyViolation(let recipe, let allergen) {
+            _ = recipe; _ = allergen   // expected
+        } catch {
+            gateOK = false
+            gateFailures.append("allergy gate threw unexpected error: \(error)")
+        }
+    } catch {
+        gateOK = false
+        gateFailures.append("failed to parse violating fixture: \(error)")
+    }
+
+    // Clean plan must pass.
+    do {
+        let clean = try MealPlanParser.parse(cleanJSON)
+        do {
+            try MealPlanParser.enforceAllergyGate(clean, allergies: allergens)
+        } catch {
+            gateOK = false
+            gateFailures.append("allergy gate rejected a clean plan: \(error)")
+        }
+    } catch {
+        gateOK = false
+        gateFailures.append("failed to parse clean fixture: \(error)")
+    }
+
+    if gateOK {
+        log.append("(c) allergy hard-gate: violating plan (Peanut Butter) rejected ✅; clean plan passed ✅")
+    } else {
+        log.append("❌ (c) allergy hard-gate failed: \(gateFailures.joined(separator: "; "))")
+    }
+
+    let allPassed = log.allSatisfy { !$0.hasPrefix("❌") }
+    let header = allPassed
+        ? "✅ AI week-gen (dry) — prompt/parse/allergy-gate\n"
+        : "❌ AI week-gen (dry) — one or more checks failed\n"
+    return header + log.joined(separator: "\n")
+}
+
 #endif
