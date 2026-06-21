@@ -44,7 +44,13 @@ final class HouseholdSession {
     /// Upsert/read façade over the private plane's `@MainActor` ModelContext. Returns nil
     /// until `start()` succeeds in creating the container (degraded / pre-boot). The
     /// Profile/Preference repositories read/write exclusively through this.
-    var privateStore: PrivatePlaneStore? {
+    ///
+    /// `@MainActor`-isolated because it touches `privateContainer.mainContext` (a
+    /// `@MainActor` property). All callers are already MainActor, so this is a clean
+    /// hardening — it makes the isolation explicit rather than relying on the enclosing
+    /// `@MainActor` class annotation for a computed property the compiler could otherwise
+    /// treat as non-isolated.
+    @MainActor var privateStore: PrivatePlaneStore? {
         guard let privateContainer else { return nil }
         return PrivatePlaneStore(context: privateContainer.mainContext)
     }

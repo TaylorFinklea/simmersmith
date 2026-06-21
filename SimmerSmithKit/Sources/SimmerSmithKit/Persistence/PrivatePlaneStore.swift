@@ -221,6 +221,14 @@ public struct PrivatePlaneStore {
         return true
     }
 
+    /// Whether a migration receipt for `scope` is present. The public read counterpart to
+    /// `claimMigrationScope` — lets callers gate UI on "already migrated" without reaching
+    /// into a raw `FetchDescriptor<PrivateMigrationReceipt>` (which the private `fetchFirst`
+    /// would otherwise force them to duplicate). Returns `false` on any fetch error.
+    public func hasMigrationReceipt(scope: String) -> Bool {
+        ((try? fetchFirst(#Predicate<PrivateMigrationReceipt> { $0.recordKey == scope })) ?? nil) != nil
+    }
+
     public func save() throws {
         try context.save()
     }

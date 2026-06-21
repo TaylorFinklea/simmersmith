@@ -79,7 +79,10 @@ final class PantryRepository {
         var result: [PantryItem] = []
         result.reserveCapacity(records.count)
         for record in records {
-            if let item = decodeItem(record) {
+            // Hide soft-deleted rows (isActive == false). deletePantryItem is a soft delete
+            // (isActive=false), and the Fly server likewise omitted inactive items from the
+            // list — without this filter the "Remove" UX leaves the row on screen.
+            if let item = decodeItem(record), item.isActive {
                 result.append(item)
             }
         }
@@ -263,6 +266,10 @@ final class PantryRepository {
         groceryRepository: GroceryRepository
     ) -> [String] {
         // Gather existing live (non-tombstoned, non-user-removed) grocery rows for this week.
+        // The grocery rows store `normalizedName = GroceryNormalize.name(...)` (lowercases,
+        // expands "&", strips punctuation, collapses whitespace). Their stored value is
+        // already GroceryNormalize-produced, but re-normalize defensively so both sides of
+        // the dedupe comparison pass through the SAME function.
         let existingNormalizedNames = Set(
             session.store
                 .records(ofType: GroceryCodec.recordType)
@@ -271,7 +278,7 @@ final class PantryRepository {
                         && ($0["isUserRemoved"] as? Int ?? 0) == 0
                 }
                 .compactMap { $0["normalizedName"] as? String }
-                .map { $0.lowercased() }
+                .map { GroceryNormalize.name($0) }
         )
 
         let recurringItems = pantryItems.filter {
@@ -281,7 +288,11 @@ final class PantryRepository {
         var appliedIDs: [String] = []
 
         for item in recurringItems {
-            let normalized = item.normalizedName.lowercased()
+            // Compare on the SAME key the grocery row will be written under
+            // (`GroceryNormalize.name(stapleName)`). A pantry item's stored normalizedName
+            // (e.g. "olive_oil") would NOT match the grocery row's ("olive oil"), so a 2nd
+            // apply would create duplicate rows — normalize the staple name here instead.
+            let normalized = GroceryNormalize.name(item.stapleName)
             // Dedupe: skip if any existing grocery row already carries this name.
             guard !existingNormalizedNames.contains(normalized) else { continue }
 

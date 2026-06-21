@@ -2,6 +2,7 @@ import Foundation
 import SimmerSmithKit
 #if canImport(CloudKit)
 import CloudKit
+import CloudKitProvisioning
 #endif
 
 /// SP-C slice 5 — household term-alias state delegated to AliasRepository (household zone).
@@ -33,8 +34,10 @@ extension AppState {
     func deleteHouseholdAlias(term: String) async {
         #if canImport(CloudKit)
         guard let repo = aliasRepository else { return }
-        // The aliasId (det-keyed recordName) is "alias:<normalized_term>".
-        let aliasId = "alias:\(term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " "))"
+        // Use the SAME det-key builder that AliasRepository.upsertAlias uses
+        // (RecordNames.termAlias) so create + delete share one key builder — no drift
+        // from a hand-rolled normalization that could diverge from the canonical one.
+        let aliasId = RecordNames.termAlias(term: term)
         repo.deleteAlias(aliasId: aliasId)
         householdAliases = repo.aliases
         #endif

@@ -1,6 +1,5 @@
 import Foundation
 import SimmerSmithKit
-import SwiftData
 #if canImport(CloudKit)
 import CloudKit
 import CloudKitProvisioning
@@ -125,6 +124,9 @@ extension AppState {
             observeEventRepository()
             observePantryRepository()
             observeAliasRepository()
+            // Private-plane repos publish their own projection (no storeRevision); observe it.
+            observeProfileRepository()
+            observePreferenceRepository()
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
             mirrorWeekFromRepository()
@@ -132,6 +134,10 @@ extension AppState {
             mirrorGuestsFromRepository()
             mirrorPantryFromRepository()
             mirrorAliasesFromRepository()
+            // Mirror the private-plane repos so DietaryGoalView pre-fills + the Settings
+            // pickers (imageProvider/unitSystem/userRegion) reflect the CloudKit data.
+            mirrorProfileFromRepository()
+            mirrorPreferencesFromRepository()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -486,6 +492,91 @@ extension AppState {
         householdAliases = repo.aliases
     }
 
+    // MARK: - SP-C slice 5: Profile + Preference (private-plane) repository mirroring
+
+    /// Re-arm the profile-repo observation and mirror its projection onto AppState.
+    ///
+    /// Unlike the household repos (which observe `session.storeRevision`), the private-plane
+    /// repos publish their OWN @Observable projections (`settings` / `dietaryGoal`) and have
+    /// no storeRevision signal (NSPCKC has no equivalent here). So we observe the repo's
+    /// published projection directly — when a write calls `reload()`, the projection changes
+    /// and this fires, re-mirroring + re-arming (the recipe observe/mirror pattern, but keyed
+    /// on the repo's own state rather than storeRevision).
+    func observeProfileRepository() {
+        guard let repo = profileRepository else { return }
+        withObservationTracking {
+            _ = repo.settings
+            _ = repo.dietaryGoal
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorProfileFromRepository()
+                self?.observeProfileRepository()
+            }
+        }
+    }
+
+    /// Project the profile repo's `settings` + `dietaryGoal` onto the `profile` snapshot the
+    /// Settings views read (`profile?.dietaryGoal` gates DietaryGoalView's pre-fill + Clear
+    /// button; `profile?.settings["user_region"]` backs the region "unchanged" check) and
+    /// seed the Settings picker drafts (imageProvider / unitSystem / userRegion) so a
+    /// CloudKit boot shows the saved values instead of defaults.
+    ///
+    /// Merges over any existing Fly `profile` so non-private-plane fields the subscription
+    /// rows still read (`isPro` / `isTrial` / `usage` / `staples` / `secretFlags`) survive.
+    /// `autoGroceryFromMeals` needs no seeding — it is a computed property that reads
+    /// `repo.settings` directly.
+    func mirrorProfileFromRepository() {
+        guard let repo = profileRepository else { return }
+
+        // Build the merged settings dict: repo's owned non-AI keys override, the rest of any
+        // existing profile settings (e.g. AI keys still on Fly) are preserved.
+        var mergedSettings = profile?.settings ?? [:]
+        for (key, value) in repo.settings {
+            mergedSettings[key] = value
+        }
+
+        let existing = profile
+        profile = ProfileSnapshot(
+            updatedAt: repo.dietaryGoal?.updatedAt ?? existing?.updatedAt,
+            settings: mergedSettings,
+            secretFlags: existing?.secretFlags ?? [:],
+            staples: existing?.staples ?? [],
+            dietaryGoal: repo.dietaryGoal,
+            isPro: existing?.isPro ?? false,
+            isTrial: existing?.isTrial ?? false,
+            usage: existing?.usage ?? []
+        )
+
+        // Seed the Settings picker drafts from the repo settings so first render reflects
+        // the saved values (the sync* helpers default sensibly when a key is absent).
+        if let snapshot = profile {
+            syncImageProviderDraft(from: snapshot)
+            syncUnitSystemDraft(from: snapshot)
+            syncRegionDraft(from: snapshot)
+        }
+    }
+
+    /// Re-arm the preference-repo observation and mirror its `preferences` onto AppState.
+    /// Mirrors the recipe pattern but keyed on the repo's own @Observable projection
+    /// (the private plane has no storeRevision signal).
+    func observePreferenceRepository() {
+        guard let repo = preferenceRepository else { return }
+        withObservationTracking {
+            _ = repo.preferences
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorPreferencesFromRepository()
+                self?.observePreferenceRepository()
+            }
+        }
+    }
+
+    /// Push the preference-repo's list into AppState's `ingredientPreferences`.
+    func mirrorPreferencesFromRepository() {
+        guard let repo = preferenceRepository else { return }
+        ingredientPreferences = repo.preferences
+    }
+
     // MARK: - SP-C slice 3: one-shot weeks + grocery Fly→CloudKit import
 
     /// State surfaced to the Settings UI for the "Import my weeks" trigger button.
@@ -687,12 +778,9 @@ extension AppState {
             pantryProfileImportState = .idle
             return
         }
-        // Fetch-based gate: look for the "pantry-profile" receipt in the private plane.
-        let key = "pantry-profile"
-        let fetched = try? store.context.fetch(FetchDescriptor<PrivateMigrationReceipt>(
-            predicate: #Predicate { $0.recordKey == key }
-        ))
-        pantryProfileImportState = (fetched?.isEmpty == false) ? .alreadyImported : .idle
+        // Receipt gate: look for the "pantry-profile" receipt in the private plane.
+        pantryProfileImportState = store.hasMigrationReceipt(scope: "pantry-profile")
+            ? .alreadyImported : .idle
     }
 
     /// One-shot pantry + profile + prefs + aliases import triggered by the user from Settings.
@@ -725,16 +813,7 @@ extension AppState {
         await migratePantryProfileIfNeeded(session: session, apiClient: apiClient)
 
         // 3. Confirm the private-plane receipt landed so we know the import actually completed.
-        let receiptPresent: Bool
-        if let store = session.privateStore {
-            let key = "pantry-profile"
-            let fetched = try? store.context.fetch(FetchDescriptor<PrivateMigrationReceipt>(
-                predicate: #Predicate { $0.recordKey == key }
-            ))
-            receiptPresent = fetched?.isEmpty == false
-        } else {
-            receiptPresent = false
-        }
+        let receiptPresent = session.privateStore?.hasMigrationReceipt(scope: "pantry-profile") ?? false
 
         if receiptPresent {
             pantryProfileImportState = .done

@@ -221,15 +221,19 @@ func migratePantryProfileIfNeeded(
         try? privateStore.save()
     }
 
-    // (5) Stamp the private-plane receipt LAST — crash-safety invariant. A failure here
-    // leaves no receipt, so the next launch retries from the top (idempotent via upserts).
+    // (5) Drain household writes to CloudKit BEFORE the receipt is stamped. The engine's
+    // automaticSync also fires in the background, but an explicit drain ensures the
+    // household records (pantry + aliases) reach the server before we mark the migration
+    // done. A crash between the household save and the receipt stamp leaves NO receipt, so
+    // the next launch retries the whole migration (idempotent via the engine's
+    // PK-preserving upserts and the private plane's fetch-before-insert upserts).
+    try? await session.engine.sendUntilDrained()
+
+    // (6) Stamp the private-plane receipt LAST — crash-safety invariant (matches
+    // WeekMigrationLoader). The receipt must be the final write so a crash before it
+    // leaves the migration un-done and the retry re-runs from the top.
     guard (try? privateStore.claimMigrationScope(pantryProfileMigrationScope, at: now)) != nil else { return }
     try? privateStore.save()
-
-    // (6) Drain household writes to CloudKit. The engine's automaticSync also fires in
-    // the background, but an explicit drain ensures the household records reach the server
-    // before the first PantryRepository.reload() reads the store.
-    try? await session.engine.sendUntilDrained()
 }
 
 // MARK: - Private helper extension (fetch migration receipt from private plane)

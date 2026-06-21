@@ -147,6 +147,30 @@ public struct ProfileSnapshot: Codable, Sendable {
         isTrial = try container.decodeIfPresent(Bool.self, forKey: .isTrial) ?? false
         usage = try container.decodeIfPresent([UsageSummary].self, forKey: .usage) ?? []
     }
+
+    /// Memberwise init so callers can build a `ProfileSnapshot` projection from a
+    /// non-Fly source (SP-C: the CloudKit private-plane `ProfileRepository`). The Fly
+    /// path constructs it via `init(from:)`; this lets the repository mirror compose the
+    /// same shape the Settings views read (`profile?.settings` / `profile?.dietaryGoal`).
+    public init(
+        updatedAt: Date? = nil,
+        settings: [String: String] = [:],
+        secretFlags: [String: Bool] = [:],
+        staples: [Staple] = [],
+        dietaryGoal: DietaryGoal? = nil,
+        isPro: Bool = false,
+        isTrial: Bool = false,
+        usage: [UsageSummary] = []
+    ) {
+        self.updatedAt = updatedAt
+        self.settings = settings
+        self.secretFlags = secretFlags
+        self.staples = staples
+        self.dietaryGoal = dietaryGoal
+        self.isPro = isPro
+        self.isTrial = isTrial
+        self.usage = usage
+    }
 }
 
 // MARK: - Household sharing (M21)
