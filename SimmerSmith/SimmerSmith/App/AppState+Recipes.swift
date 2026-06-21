@@ -75,6 +75,10 @@ extension AppState {
             // SP-C slice 4: event + guest repos.
             let guestRepo = GuestRepository(session: session)
             let eventRepo = EventRepository(session: session, guests: guestRepo)
+            // SP-C slice 5: per-user PRIVATE-plane repos (profile + preferences). These
+            // ride NSPCKC (auto-sync) off `session.privateStore`, NOT the household engine.
+            let profileRepo = ProfileRepository(session: session)
+            let preferenceRepo = PreferenceRepository(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
@@ -83,6 +87,8 @@ extension AppState {
             groceryRepository = groceryRepo
             guestRepository = guestRepo
             eventRepository = eventRepo
+            profileRepository = profileRepo
+            preferenceRepository = preferenceRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
@@ -96,6 +102,10 @@ extension AppState {
             weekRepo.reload()
             guestRepo.reload()
             eventRepo.reload()
+            // Private-plane repos fetch-on-demand (no storeRevision observer — NSPCKC has
+            // no equivalent change signal here); a first read after construction.
+            profileRepo.reload()
+            preferenceRepo.reload()
 
             // Mirror the repo's projections onto AppState's @Observable stored vars so the
             // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
@@ -271,6 +281,8 @@ extension AppState {
         groceryRepository = nil
         eventRepository = nil
         guestRepository = nil
+        profileRepository = nil
+        preferenceRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.

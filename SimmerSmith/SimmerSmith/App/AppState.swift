@@ -80,6 +80,9 @@ final class AppState {
     // SP-C slice 4: event + guest CloudKit repos.
     @ObservationIgnored var eventRepository: EventRepository?
     @ObservationIgnored var guestRepository: GuestRepository?
+    // SP-C slice 5: per-user PRIVATE-plane repos (NSPCKC, not the household zone).
+    @ObservationIgnored var profileRepository: ProfileRepository?
+    @ObservationIgnored var preferenceRepository: PreferenceRepository?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on

@@ -137,6 +137,16 @@ public struct PrivatePlaneStore {
         return row
     }
 
+    /// A single ingredient preference by its id-key, or nil when absent.
+    public func ingredientPreference(preferenceID: String) throws -> PrivateIngredientPreference? {
+        try fetchFirst(#Predicate { $0.recordKey == preferenceID })
+    }
+
+    /// All ingredient preferences, unsorted (the repository sorts by rank).
+    public func allIngredientPreferences() throws -> [PrivateIngredientPreference] {
+        try context.fetch(FetchDescriptor<PrivateIngredientPreference>())
+    }
+
     // MARK: Assistant threads + messages
 
     @discardableResult
