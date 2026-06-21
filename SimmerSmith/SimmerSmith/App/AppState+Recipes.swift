@@ -82,6 +82,9 @@ extension AppState {
             // SP-C slice 5: household-zone pantry + alias repos.
             let pantryRepo = PantryRepository(session: session)
             let aliasRepo = AliasRepository(session: session)
+            // SP-C AI-1: AIService — the single seam for all AI calls. Keychain key
+            // store; reads provider/model config from private-plane store directly.
+            let aiSvc = AIService(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
@@ -94,6 +97,7 @@ extension AppState {
             preferenceRepository = preferenceRepo
             pantryRepository = pantryRepo
             aliasRepository = aliasRepo
+            aiService = aiSvc
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
@@ -138,6 +142,8 @@ extension AppState {
             // pickers (imageProvider/unitSystem/userRegion) reflect the CloudKit data.
             mirrorProfileFromRepository()
             mirrorPreferencesFromRepository()
+            // SP-C AI-1: hydrate AI provider/model drafts from the private plane.
+            syncAIDraftsFromRepo()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -305,6 +311,7 @@ extension AppState {
         preferenceRepository = nil
         pantryRepository = nil
         aliasRepository = nil
+        aiService = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.

@@ -19,6 +19,8 @@ struct SettingsView: View {
     /// in the old Toggle.set was the trigger). Hosting the sheet on the
     /// top-level NavigationStack body avoids that race.
     @State private var showingReminderPicker = false
+    @State private var isTestingAIKey = false
+    @State private var aiKeyTestResult: String?
 
     var body: some View {
         @Bindable var appState = appState
@@ -73,91 +75,78 @@ struct SettingsView: View {
 
             ForgeSection()
 
+            // SP-C AI-1: BYO-key AI settings section.
+            // Provider/model → private plane (KeychainKeyStore for the key).
+            // "Test key" validates via a cheap models-list call.
             Section {
-                if let capabilities = appState.aiCapabilities {
-                    if let target = capabilities.defaultTarget {
-                        LabeledContent("Default route") {
-                            Text(target.providerKind == "mcp" ? (target.mcpServerName ?? "MCP") : (target.providerName ?? "Direct"))
-                                .foregroundStyle(SMColor.textSecondary)
-                        }
-                    } else {
-                        Text(appState.assistantExecutionStatusText)
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    LabeledContent("Preferred mode") {
-                        Text(capabilities.preferredMode.capitalized)
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    LabeledContent("User override") {
-                        Text(capabilities.userOverrideConfigured ? "Configured" : "Not configured")
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    ForEach(capabilities.availableProviders) { provider in
-                        LabeledContent(provider.label) {
-                            Text(provider.available ? provider.source.replacingOccurrences(of: "_", with: " ").capitalized : "Unavailable")
-                                .foregroundStyle(provider.available ? SMColor.textSecondary : SMColor.textTertiary)
-                        }
-                    }
-                } else {
-                    Text(appState.assistantExecutionStatusText)
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-
-                Picker("Preferred mode", selection: $appState.aiProviderModeDraft) {
-                    Text("Auto").tag("auto")
-                    Text("MCP").tag("mcp")
-                    Text("Direct").tag("direct")
-                }
-
-                Picker("Direct provider", selection: $appState.aiDirectProviderDraft) {
+                Picker("Provider", selection: $appState.aiDirectProviderDraft) {
                     Text("None").tag("")
                     Text("OpenAI").tag("openai")
                     Text("Anthropic").tag("anthropic")
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
-                    if !appState.selectedDirectProviderModels.isEmpty {
-                        Picker("Model", selection: $appState.selectedDirectProviderModelDraft) {
-                            ForEach(appState.selectedDirectProviderModels) { model in
-                                Text(model.displayName).tag(model.modelId)
-                            }
-                        }
-                    } else if let modelError = appState.selectedDirectProviderModelError {
-                        Text(modelError)
-                            .font(.footnote)
-                            .foregroundStyle(SMColor.textSecondary)
-                    } else {
-                        Text("Discovering available models for the selected provider…")
-                            .font(.footnote)
-                            .foregroundStyle(SMColor.textSecondary)
+                    // Model field: free-text so the user can pin any model.
+                    // The Fly model-discovery endpoint is no longer called in CK builds.
+                    @Bindable var bindable = appState
+                    switch appState.aiDirectProviderDraft {
+                    case "openai":
+                        TextField("OpenAI model (e.g. gpt-4o)", text: $bindable.aiOpenAIModelDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case "anthropic":
+                        TextField("Anthropic model (e.g. claude-opus-4-5)", text: $bindable.aiAnthropicModelDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    default:
+                        EmptyView()
                     }
 
-                    Button("Refresh Models") {
-                        Task { await appState.refreshAIModels(for: appState.aiDirectProviderDraft) }
+                    // Key status (read from Keychain — never from Fly).
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.aiDirectAPIKeyConfigured ? "key.fill" : "key.slash")
+                            .foregroundStyle(appState.aiDirectAPIKeyConfigured ? SMColor.success : SMColor.textTertiary)
+                            .imageScale(.small)
+                        Text(ckApiKeyStatusText)
+                            .font(.footnote)
+                            .foregroundStyle(appState.aiDirectAPIKeyConfigured ? SMColor.textSecondary : .orange)
                     }
-                }
 
-                SecureField(
-                    appState.aiDirectProviderDraft.isEmpty
-                        ? "New direct-provider API key"
-                        : "New \(appState.aiDirectProviderDraft.capitalized) API key",
-                    text: $appState.aiDirectAPIKeyDraft
-                )
+                    SecureField(
+                        "New \(appState.aiDirectProviderDraft.capitalized) API key",
+                        text: $bindable.aiDirectAPIKeyDraft
+                    )
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-
-                Text(apiKeyStatusText)
-                    .font(.footnote)
-                    .foregroundStyle(SMColor.textSecondary)
+                }
 
                 Button("Save AI Settings") {
                     Task { await appState.saveAISettings() }
                 }
 
-                Button("Clear Stored API Key", role: .destructive) {
-                    Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
+                    Button {
+                        Task { await runTestKey() }
+                    } label: {
+                        HStack {
+                            if isTestingAIKey { ProgressView().controlSize(.small) }
+                            Text(isTestingAIKey ? "Testing…" : "Test Key")
+                        }
+                    }
+                    .disabled(isTestingAIKey)
                 }
-                .disabled(!appState.aiDirectAPIKeyConfigured)
+
+                if let result = aiKeyTestResult {
+                    Text(result)
+                        .font(.footnote)
+                        .foregroundStyle(result.contains("valid") ? SMColor.success : .red)
+                }
+
+                if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
+                    Button("Clear Stored API Key", role: .destructive) {
+                        Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                    }
+                }
 
                 NavigationLink {
                     HouseholdAliasesView()
@@ -185,6 +174,9 @@ struct SettingsView: View {
                 }
             } header: {
                 SmithSectionHeader("ai")
+            } footer: {
+                Text("Your API key is saved locally to this device's Keychain — it is never sent to SimmerSmith's servers or iCloud.")
+                    .font(.footnote)
             }
 
             AIUsageSection()
@@ -560,9 +552,6 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .paperBackground()
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: appState.aiDirectProviderDraft) {
-            await appState.refreshAIModels(for: appState.aiDirectProviderDraft)
-        }
         .task {
             if appState.ingredientPreferences.isEmpty {
                 await appState.refreshIngredientPreferences()
@@ -600,14 +589,22 @@ struct SettingsView: View {
         .smithToolbar()
     }
 
-    private var apiKeyStatusText: String {
-        if appState.aiDirectProviderDraft.isEmpty {
-            return "Select a direct provider to save or clear that provider's server-side API key."
+    /// SP-C AI-1: Key status reads from Keychain (not Fly secretFlags).
+    private var ckApiKeyStatusText: String {
+        let provider = appState.aiDirectProviderDraft
+        guard !provider.isEmpty else {
+            return "Select a provider to manage its API key."
         }
-        if appState.aiDirectAPIKeyConfigured {
-            return "A \(appState.aiDirectProviderDraft.capitalized) API key is stored on the server. It cannot be read back in the app."
-        }
-        return "No \(appState.aiDirectProviderDraft.capitalized) API key is currently stored on the server."
+        return appState.aiDirectAPIKeyConfigured
+            ? "\(provider.capitalized) API key saved in this device's Keychain."
+            : "No \(provider.capitalized) API key saved yet. Enter your key above and tap Save."
+    }
+
+    private func runTestKey() async {
+        isTestingAIKey = true
+        aiKeyTestResult = nil
+        defer { isTestingAIKey = false }
+        aiKeyTestResult = await appState.testAIKey()
     }
 
     private func runImageBackfill() async {

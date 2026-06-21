@@ -50,6 +50,12 @@ public struct AIResponse: Sendable, Equatable {
 public enum AIError: Error, Equatable {
     case noProviderAvailable(AIFeature)
     case notWiredYet(AITier)           // SP-B fills the real backends
+    /// The user has not configured a key for the given cloud model.
+    case noKeyConfigured(CloudModel)
+    /// The provider returned a non-200 HTTP status.
+    case httpError(provider: String, statusCode: Int, body: String)
+    /// The provider returned a 200 but the response shape was unexpected.
+    case malformedResponse(String)
 }
 
 /// A backend that can answer a request at a given tier.

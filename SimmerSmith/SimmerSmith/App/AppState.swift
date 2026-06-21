@@ -86,6 +86,10 @@ final class AppState {
     // SP-C slice 5: household-zone pantry + alias repos.
     @ObservationIgnored var pantryRepository: PantryRepository?
     @ObservationIgnored var aliasRepository: AliasRepository?
+    // SP-C AI-1: the single AI call seam. Constructed alongside profileRepository
+    // once the CloudKit session is live. API keys live in Keychain; provider/model
+    // config in the private plane. nil before the session is ready.
+    @ObservationIgnored var aiService: AIService?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on
