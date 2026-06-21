@@ -376,15 +376,18 @@ extension AppState {
         return week
     }
 
-    // MARK: - AI TRACK: generateWeekFromAI (coming-soon)
+    // MARK: - AI: generateWeekFromAI (SP-C AI-1 — on-device BYO-key week-gen)
 
-    /// AI week generation. NOT cut over to CloudKit — AI track.
-    /// The "generate week" affordance in WeekView is gated by the AI coordinator
-    /// sheet (sparkle FAB → Smith tab). No explicit guard needed here beyond
-    /// the `isCloudKitOnly` mode keeping Fly auth absent.
-    /// // AI TRACK
+    /// AI week generation. CloudKit path: build context + ported prompt → BYO-key
+    /// provider (structured JSON) → parse → allergy hard-gate → save via
+    /// WeekRepository (AppState+WeekGen.generateWeek). Falls back to the Fly
+    /// `generateWeekPlan` when no CloudKit session (aiService) is active.
     func generateWeekFromAI(weekID: String, prompt: String) async throws -> WeekSnapshot {
-        // AI TRACK: rewire to AIProviderKit when the AI slice lands. Stays on Fly.
+        #if canImport(CloudKit)
+        if aiService != nil, weekRepository != nil {
+            return try await generateWeek(weekID: weekID, prompt: prompt)
+        }
+        #endif
         let week = try await apiClient.generateWeekPlan(weekID: weekID, prompt: prompt)
         if currentWeek?.weekId == week.weekId {
             currentWeek = week

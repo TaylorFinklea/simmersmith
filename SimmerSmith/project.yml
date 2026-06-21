@@ -30,6 +30,8 @@ targets:
         product: HouseholdSync
       - package: SimmerSmithCloudKit
         product: HouseholdRecords
+      - package: SimmerSmithCloudKit
+        product: AIProviderKit
       - package: GoogleSignIn
         product: GoogleSignIn
       - package: GoogleSignIn
