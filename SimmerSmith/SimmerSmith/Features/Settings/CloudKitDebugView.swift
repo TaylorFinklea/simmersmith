@@ -93,6 +93,9 @@ struct CloudKitDebugView: View {
                 Button("SP-C — Events round-trip") {
                     runString { await runEventsRepoCheck() }
                 }
+                Button("SP-C — Pantry+Profile round-trip") {
+                    runString { await runPantryProfileCheck() }
+                }
                 Button("Identity — household discovery") {
                     let activeZoneID = appState.householdSession?.zoneID
                     runString { await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }
@@ -168,6 +171,7 @@ struct CloudKitDebugView: View {
                 ("SP-C — Recipes repo", { await runRecipeRepoCheck() }),
                 ("SP-C — Weeks+Grocery", { await runWeeksGroceryRepoCheck() }),
                 ("SP-C — Events round-trip", { await runEventsRepoCheck() }),
+                ("SP-C — Pantry+Profile", { await runPantryProfileCheck() }),
                 ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
             ]
             var lines: [String] = []
@@ -2070,6 +2074,203 @@ func runEventsRepoCheck() async -> String {
         log.append("deleteCascading(event) → engineB: event + meals + ingredient + attendee all gone; guest + groceries deleted separately — all gone ✅")
 
         return "✅ SP-C Events round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-C slice 5 — Pantry + Profile round-trip.
+///
+/// Two-part check:
+///
+/// (a) HOUSEHOLD — over a throwaway test zone, save a `.pantryItem` and a
+///     `.householdTermAlias` via engine A; engine B fetches them and asserts
+///     the decoded fields are intact; then delete sweeps both and asserts they
+///     are gone. Uses the direct mapper+engine path (HouseholdRecordCodec) —
+///     no real HouseholdSession or production zone touched.
+///
+/// (b) PRIVATE PLANE — using an IN-MEMORY `PrivatePlaneStore` (CloudKit sync
+///     disabled, ephemeral store), upsert a dietary goal and an ingredient
+///     preference; fetch them back and assert field fidelity. Verifies the
+///     store's upsert/fetch logic without touching the real iCloud account.
+func runPantryProfileCheck() async -> String {
+    // ── Part (a): Household zone round-trip ───────────────────────────────────
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-spc-pantry-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("spc-pp-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("spc-pp-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    let pantryID = "pi-\(sfx)"
+    let aliasID  = "alias-oilive-\(sfx)"
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: sA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: sB)
+
+        func rid(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: rid(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: rid(recordName)) != nil) == want
+        }
+
+        var log = ["two CKSyncEngine instances on one zone (SP-C pantry+alias test) ✅"]
+
+        // ── 1. SAVE: PantryItem + HouseholdTermAlias via engine A ────────────────────────
+        let now = Date()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // .pantryItem — household staple (no refs, top-level)
+        let pantryValue = HouseholdRecordValue(
+            type: .pantryItem, recordName: pantryID,
+            scalars: [
+                "stapleName":        .string("Olive Oil"),
+                "normalizedName":    .string("olive_oil"),
+                "notes":             .string("Extra virgin"),
+                "isActive":          .bool(true),
+                "typicalQuantity":   .double(1.0),
+                "typicalUnit":       .string("bottle"),
+                "recurringQuantity": .double(1.0),
+                "recurringUnit":     .string("bottle"),
+                "recurringCadence":  .string("monthly"),
+                "category":          .string("pantry"),
+                "categories":        .string("[\"pantry\",\"oils\"]"),
+                "createdAt":         .date(createdAt),
+                "updatedAt":         .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(pantryValue, zoneID: zoneID))
+
+        // .householdTermAlias — deterministic-keyed alias record
+        let aliasValue = HouseholdRecordValue(
+            type: .householdTermAlias, recordName: aliasID,
+            scalars: [
+                "term":      .string("olive oil"),
+                "expansion": .string("extra virgin olive oil"),
+                "notes":     .string("preferred brand substitution"),
+                "createdAt": .date(createdAt),
+                "updatedAt": .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(aliasValue, zoneID: zoneID))
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+        log.append("engineA: PantryItem + HouseholdTermAlias saved to CloudKit ✅")
+
+        // ── 2. ENGINE B: fetch + decode and assert field fidelity ────────────────────────
+        let pantryPresent = try await waitInB(present: pantryID, expect: true)
+        let aliasPresent  = try await waitInB(present: aliasID,  expect: true)
+        try expect(pantryPresent && aliasPresent,
+                   "engineB missing records: pantry=\(pantryPresent) alias=\(aliasPresent)")
+
+        guard let bPantryRaw = storeB.record(for: rid(pantryID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB pantry record missing after wait")
+        }
+        let bPantry = HouseholdRecordCodec.decode(bPantryRaw, as: .pantryItem)
+        try expect(bPantry.scalars["stapleName"] == .string("Olive Oil"),
+                   "pantry stapleName wrong: \(String(describing: bPantry.scalars["stapleName"]))")
+        try expect(bPantry.scalars["normalizedName"] == .string("olive_oil"),
+                   "pantry normalizedName wrong: \(String(describing: bPantry.scalars["normalizedName"]))")
+        try expect(bPantry.scalars["isActive"] == .bool(true),
+                   "pantry isActive wrong: \(String(describing: bPantry.scalars["isActive"]))")
+        try expect(bPantry.scalars["recurringCadence"] == .string("monthly"),
+                   "pantry recurringCadence wrong: \(String(describing: bPantry.scalars["recurringCadence"]))")
+        try expect(bPantry.scalars["categories"] == .string("[\"pantry\",\"oils\"]"),
+                   "pantry categories JSON wrong: \(String(describing: bPantry.scalars["categories"]))")
+        log.append("engineB: PantryItem decoded — stapleName=Olive Oil, isActive=true, recurringCadence=monthly, categories JSON intact ✅")
+
+        guard let bAliasRaw = storeB.record(for: rid(aliasID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB alias record missing after wait")
+        }
+        let bAlias = HouseholdRecordCodec.decode(bAliasRaw, as: .householdTermAlias)
+        try expect(bAlias.scalars["term"] == .string("olive oil"),
+                   "alias term wrong: \(String(describing: bAlias.scalars["term"]))")
+        try expect(bAlias.scalars["expansion"] == .string("extra virgin olive oil"),
+                   "alias expansion wrong: \(String(describing: bAlias.scalars["expansion"]))")
+        log.append("engineB: HouseholdTermAlias decoded — term=olive oil, expansion=extra virgin olive oil ✅")
+
+        // ── 3. CLEANUP: delete both records; assert gone in B ────────────────────────────
+        // PantryItem has no children (no refs) — plain delete is correct. deleteCascading
+        // is the safe choice: it is a no-op sweep on a childless record and mirrors the
+        // repository cleanup pattern used in the Recipes check above.
+        engineA.deleteCascading(rid(pantryID))
+        engineA.delete(rid(aliasID))
+        try await engineA.sendUntilDrained()
+
+        let pantryGone = try await waitInB(present: pantryID, expect: false)
+        let aliasGone  = try await waitInB(present: aliasID,  expect: false)
+        try expect(pantryGone && aliasGone,
+                   "delete incomplete: pantry=\(!pantryGone) alias=\(!aliasGone)")
+        log.append("deleteCascading(pantry) + delete(alias) → engineB: both records gone ✅")
+
+        // ── Part (b): Private plane in-memory upsert/fetch (CloudKit sync off) ──────────
+        // mainContext is @MainActor-isolated; hop to the main actor for the private-plane work.
+        let privatePlaneLogs: [String] = try await MainActor.run {
+            var pLog: [String] = []
+            let privateContainer = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+            let store = PrivatePlaneStore(context: privateContainer.mainContext)
+            pLog.append("in-memory PrivatePlaneStore initialised (CloudKit sync disabled) ✅")
+
+            // (b1) DietaryGoal — singleton upsert: second write must edit in place, not duplicate
+            try store.upsertDietaryGoal(goalType: "lose", dailyCalories: 1800,
+                                        proteinG: 120, carbsG: 180, fatG: 50, fiberG: 28,
+                                        notes: "initial")
+            try store.upsertDietaryGoal(goalType: "maintain", dailyCalories: 2100,
+                                        proteinG: 140, carbsG: 210, fatG: 65, fiberG: 30,
+                                        notes: "revised")
+            try store.save()
+            let goals = try privateContainer.mainContext.fetch(FetchDescriptor<PrivateDietaryGoal>())
+            try expect(goals.count == 1,
+                       "DietaryGoal singleton violated: expected 1 row, got \(goals.count)")
+            try expect(goals.first?.goalType == "maintain",
+                       "DietaryGoal goalType wrong: \(goals.first?.goalType ?? "nil")")
+            try expect(goals.first?.dailyCalories == 2100,
+                       "DietaryGoal dailyCalories wrong: \(goals.first?.dailyCalories ?? -1)")
+            try expect(goals.first?.notes == "revised",
+                       "DietaryGoal notes wrong: \(goals.first?.notes ?? "nil")")
+            pLog.append("PrivatePlaneStore DietaryGoal singleton: 2 upserts → 1 row (goalType=maintain, calories=2100) ✅")
+
+            // (b2) IngredientPreference — id-keyed upsert: second write with same id edits in place
+            try store.upsertIngredientPreference(
+                preferenceID: "pref-pp-1",
+                baseIngredientID: "ing-olive-1",
+                choiceMode: "preferred",
+                rank: 1, active: true, brand: "Kirkland", variation: "organic",
+                updatedAt: .now
+            )
+            try store.upsertIngredientPreference(
+                preferenceID: "pref-pp-1",
+                baseIngredientID: "ing-olive-1",
+                choiceMode: "preferred",
+                rank: 3, active: true, brand: "Kirkland", variation: "organic extra",
+                updatedAt: .now
+            )
+            try store.save()
+            let pref = try store.ingredientPreference(preferenceID: "pref-pp-1")
+            try expect(pref != nil, "IngredientPreference not found after upsert")
+            try expect(pref?.rank == 3,
+                       "IngredientPreference rank wrong after re-upsert: \(pref?.rank ?? -1)")
+            try expect(pref?.variation == "organic extra",
+                       "IngredientPreference variation wrong: \(pref?.variation ?? "nil")")
+            let allPrefs = try store.allIngredientPreferences()
+            try expect(allPrefs.count == 1,
+                       "IngredientPreference dedupe violated: expected 1 row, got \(allPrefs.count)")
+            pLog.append("PrivatePlaneStore IngredientPreference id-keyed upsert: 2 upserts → 1 row (rank=3, variation=organic extra) ✅")
+            return pLog
+        }
+        log.append(contentsOf: privatePlaneLogs)
+
+        return "✅ SP-C Pantry+Profile round-trip\n" + log.joined(separator: "\n")
     } catch {
         return "❌ \(error)"
     }
