@@ -245,7 +245,7 @@ struct EventMealEditorSheet: View {
         errorMessage = nil
         let servings = Int(servingsText.trimmingCharacters(in: .whitespaces)) ?? 0
         do {
-            let draft = try await appState.apiClient.generateEventMealRecipe(
+            let draft = try await appState.generateEventMealRecipe(
                 eventID: event.eventId,
                 mealID: meal.mealId,
                 prompt: aiPrompt,

@@ -105,9 +105,19 @@ extension AppState {
         await editGroceryItem(id: id, removed: false)
     }
 
-    // MARK: - DATA: event toggle (stays on Fly — event mutations are server-side)
+    // MARK: - DATA: event auto-merge toggle (SP-C slice 4: CloudKit-backed)
 
     func toggleEventAutoMerge(eventID: String, enabled: Bool) async {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            _ = repo.toggleEventAutoMerge(eventID: eventID, enabled: enabled)
+            mirrorEventsFromRepository()
+            // Reload weeks so the grocery list reflects the merge/unmerge.
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+            return
+        }
+        #endif
         guard hasSavedConnection else { return }
         do {
             let updated = try await apiClient.patchEvent(

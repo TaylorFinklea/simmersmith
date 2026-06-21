@@ -72,30 +72,42 @@ extension AppState {
             // SP-C slice 3: week + grocery repos.
             let weekRepo = WeekRepository(session: session)
             let groceryRepo = GroceryRepository(session: session)
+            // SP-C slice 4: event + guest repos.
+            let guestRepo = GuestRepository(session: session)
+            let eventRepo = EventRepository(session: session, guests: guestRepo)
 
             householdSession = session
             recipeRepository = recipeRepo
             metadataRepository = metadataRepo
             weekRepository = weekRepo
             groceryRepository = groceryRepo
+            guestRepository = guestRepo
+            eventRepository = eventRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
             recipeRepo.startObserving()
             metadataRepo.startObserving()
             weekRepo.startObserving()
+            guestRepo.startObserving()
+            eventRepo.startObserving()
             recipeRepo.reload()
             metadataRepo.reloadMetadata()
             weekRepo.reload()
+            guestRepo.reload()
+            eventRepo.reload()
 
             // Mirror the repo's projections onto AppState's @Observable stored vars so the
             // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
             observeRecipeRepository()
             observeMetadataRepository()
             observeWeekRepository()
+            observeEventRepository()
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
             mirrorWeekFromRepository()
+            mirrorEventsFromRepository()
+            mirrorGuestsFromRepository()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -257,6 +269,8 @@ extension AppState {
         metadataRepository = nil
         weekRepository = nil
         groceryRepository = nil
+        eventRepository = nil
+        guestRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.
@@ -359,6 +373,50 @@ extension AppState {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
+
+    // MARK: - SP-C slice 4: Event + Guest repository mirroring
+
+    /// Re-arm the event-repo observation and mirror events/summaries onto AppState.
+    func observeEventRepository() {
+        guard let repo = eventRepository else { return }
+        withObservationTracking {
+            _ = repo.events
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorEventsFromRepository()
+                self?.observeEventRepository()
+            }
+        }
+    }
+
+    /// Push the event-repo's event list into AppState's eventSummaries + eventDetails.
+    func mirrorEventsFromRepository() {
+        guard let repo = eventRepository else { return }
+        let all = repo.events
+        eventSummaries = all.map { event in
+            EventSummary(
+                eventId: event.eventId,
+                name: event.name,
+                eventDate: event.eventDate,
+                occasion: event.occasion,
+                attendeeCount: event.attendeeCount,
+                status: event.status,
+                linkedWeekId: event.linkedWeekId,
+                mealCount: event.meals.count,
+                createdAt: event.createdAt,
+                updatedAt: event.updatedAt
+            )
+        }
+        for event in all {
+            eventDetails[event.eventId] = event
+        }
+    }
+
+    /// Push the guest-repo's guest list into AppState's guests array.
+    func mirrorGuestsFromRepository() {
+        guard let repo = guestRepository else { return }
+        guests = repo.guests
+    }
 
     // MARK: - SP-C slice 3: one-shot weeks + grocery Fly→CloudKit import
 

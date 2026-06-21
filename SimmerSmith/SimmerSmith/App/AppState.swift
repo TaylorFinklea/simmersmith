@@ -77,6 +77,9 @@ final class AppState {
     // SP-C slice 3: week + grocery CloudKit repos.
     @ObservationIgnored var weekRepository: WeekRepository?
     @ObservationIgnored var groceryRepository: GroceryRepository?
+    // SP-C slice 4: event + guest CloudKit repos.
+    @ObservationIgnored var eventRepository: EventRepository?
+    @ObservationIgnored var guestRepository: GuestRepository?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on
