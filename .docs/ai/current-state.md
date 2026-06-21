@@ -5,30 +5,35 @@
 > questions only). Everything below the "Current" block is legacy journal that belongs in
 > git log / decisions.md / phases/*. Trim on the next maintenance pass.
 
-## Current (2026-06-19) — SP-C CloudKit cutover, slice 1 (Recipes): CODE-COMPLETE, on-device gate pending
+## Current (2026-06-20) — SP-C CloudKit app cutover, driving slice-by-slice (ultracode, native-only)
 
-Branch: `sp-c/cloudkit-cutover-recipes` (NOT merged — awaits on-device verify → merge to main).
-Goal: full feature parity on a CloudKit build, drop Fly from new builds; Savanne stays on the Fly
-build until she migrates (split-household transition accepted). AI = BYO-key + on-device hybrid
-(separate track, not this slice). Recipes = slice 1; it establishes the reusable skeleton.
-Spec/plan: `phases/cloudkit-cutover-recipes-{spec,plan}.md`. SDD ledger: `.git/sdd/progress.md`.
+Goal: full-parity CloudKit build, drop Fly from new builds; Savanne stays on the Fly build until she
+migrates (split household accepted). AI = BYO-key + on-device, its own track. Each slice reuses the
+Recipes skeleton (HouseholdSession + per-feature repositories + mapper + schema-complete+deploy +
+one-time migration + un-gate). Specs in `phases/cloudkit-cutover-*-spec.md`.
 
-Plan (7 tasks, ALL implemented + task-reviewed clean; opus final whole-branch review = ready-to-merge):
-- [x] 1 RecipeRecordMapper (SimmerSmithKit, headless `swift test`) · [x] 2 onStoreChanged hook
-- [x] 3 HouseholdSession (owns 3 planes) · [x] 4 RecipeRepository · [x] 4b ManagedListItem + MetadataRepository
-- [x] 5 AppState wires session+repos; fetchBaseIngredients façade; AI methods guarded on Fly
-- [x] 6 first-launch Fly→CloudKit migration (receipt-gated, mapper-path) · [x] 7 on-device debug check
-- [?] 7 ON-DEVICE VERIFY (build 113) + merge — PENDING (human)
+Slices:
+- [x] **1 Recipes — MERGED to main** (`050aa96`); on-device-verified (build 113, recipes migrated). Done.
+- [~] **2 Identity (no sign-in, iCloud-native)** — built + 3-lens-reviewed + opus-fix (orphan-recipe
+  risks closed) + re-review Approved. Branch `sp-c/cloudkit-cutover-identity`. Build **114** on TestFlight,
+  ON-DEVICE PENDING. Discovers householdId from CloudKit zones; sign-in UI deleted; Fly dropped from the
+  everyday flow; coming-soon for not-yet-cutover tabs.
+- [~] **3 Weeks+Grocery** — built (6 tasks) + reviewed (opus: no Critical; light fixes done — quantity-flag
+  + token-clear). GroceryGenerator ports the server regen (sticky-preserving). Schema completed in DEV
+  (Week/WeekMeal/GroceryItem + new WeekMealSide), **deploy-to-prod PENDING**. Build **115** cutting.
+  AI week-gen/rebalance stay coming-soon. On the same identity branch (stacked).
+- [ ] **4 Events** — mapping now (event↔week merge engine already built in SP-A Phase 5).
+- [ ] 5 Pantry/Profile/preferences (private plane) · [ ] AI track (BYO-key + on-device; needs its own
+  brainstorm) · [ ] CKShare participant (Savanne joins) · [ ] SP-D Fly retirement.
 
-Blockers / pending (human):
-- Deploy the NEW `ManagedListItem` record type to Production CloudKit (Dashboard "Deploy to
-  Production") before on-device metadata works — it's the ONLY new schema type this slice.
-- Install build 113 (cut from this branch) → RUN ALL + exercise real Recipes flow on-device.
-- Then merge `sp-c/cloudkit-cutover-recipes` → main.
+Blockers / pending (human): (a) **deploy slice-3 schema** dev→prod (Dashboard "Deploy to Production" —
+Week/WeekMeal/WeekMealSide/GroceryItem completed in dev); (b) on-device verify **114** (identity) + **115**
+(weeks+grocery); (c) merge the `sp-c/cloudkit-cutover-identity` branch → main once verified (slices 2+3
+stacked there). Schema-deploy + on-device are the only human gates per slice.
 
-Deferred follow-ups (NOT blockers): templates+memories thin on CloudKit (spec §6); substring catalog
-search still Fly (`// CATALOG TRACK`, Ingredient slice); AI recipe methods still Fly (`// AI TRACK`);
-CKShare participant session-rebuild (participant slice); Minor cleanups in the SDD ledger roll-up.
+Deferred (follow-ons, not blockers): recipe templates/memories thin; substring catalog search on Fly
+(`// CATALOG TRACK`); grocery `checkedBy` attribution (participant slice); meal manual-reorder persistence
+(WeekMeal sortOrder); AI methods on Fly (`// AI TRACK`).
 
 ---
 
