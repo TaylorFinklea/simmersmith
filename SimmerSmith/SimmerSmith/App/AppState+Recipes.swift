@@ -501,6 +501,87 @@ extension AppState {
         }
     }
 
+    // MARK: - SP-C slice 4: one-shot events + guests Fly→CloudKit import
+
+    /// State surfaced to the Settings UI for the "Import my events" trigger button.
+    enum EventImportState: Equatable {
+        /// Receipt already present in the local store — migration previously completed.
+        case alreadyImported
+        /// Idle: ready to start (no import has run yet this session).
+        case idle
+        /// Import is in-progress.
+        case running
+        /// Import completed successfully during this session.
+        case done
+        /// Import failed; `reason` is a user-readable message.
+        case failed(String)
+    }
+
+    /// Check the events receipt gate against the local store and set `eventImportState`
+    /// accordingly. Called when the Settings section first appears.
+    func refreshEventImportState() {
+        guard let session = householdSession else {
+            eventImportState = .idle
+            return
+        }
+        let receiptID = CKRecord.ID(
+            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "events"),
+            zoneID: session.zoneID
+        )
+        eventImportState = session.store.record(for: receiptID) != nil ? .alreadyImported : .idle
+    }
+
+    /// One-shot events + guests + event-grocery import triggered by the user from Settings.
+    ///
+    /// Receives the Apple identity token from the Settings view's SignInWithAppleButton
+    /// result, exchanges it for a Fly JWT, then runs `migrateEventsIfNeeded`. The Fly JWT
+    /// is written to `settingsStore` so that `apiClient` picks it up transparently — the
+    /// same one-shot auth path the weeks import uses. The token is cleared after the import
+    /// completes (success or failure) because no everyday flow reads from Fly.
+    func importEventsFromFly(appleIdentityToken: String) async {
+        guard let session = householdSession else {
+            eventImportState = .failed("CloudKit session not ready — try again after launch completes.")
+            return
+        }
+        eventImportState = .running
+
+        // 1. Exchange the Apple identity token for a Fly JWT.
+        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        serverURLDraft = Self.productionServerURL
+
+        do {
+            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
+            authTokenDraft = response.token
+        } catch {
+            eventImportState = .failed("Sign-in failed: \(error.localizedDescription)")
+            return
+        }
+
+        // 2. Run the migration. Receipt-gated — idempotent if already done.
+        await migrateEventsIfNeeded(session: session, apiClient: apiClient)
+
+        // 3. Confirm the receipt landed so we know the import actually completed.
+        let receiptID = CKRecord.ID(
+            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "events"),
+            zoneID: session.zoneID
+        )
+        if session.store.record(for: receiptID) != nil {
+            eventImportState = .done
+            // Clear the one-shot Fly JWT — no everyday flow reads from Fly.
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+            authTokenDraft = ""
+            // Trigger repo reloads so imported events + guests appear immediately.
+            guestRepository?.reload()
+            eventRepository?.reload()
+            mirrorGuestsFromRepository()
+            mirrorEventsFromRepository()
+        } else {
+            // Drain failed or network error — receipt was not stamped.
+            eventImportState = .failed("Import failed — please try again.")
+        }
+    }
+
     #endif
 
     func refreshRecipes() async {

@@ -47,6 +47,7 @@
 		44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */; };
 		4706C35EAD6EE2D739E87D76 /* AppState+TopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93F63F17E10C86615058DC2D /* AppState+TopBar.swift */; };
 		4A8C79F7471AAC3982276DF8 /* MealSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6E839108F9DCE492AA99BF /* MealSidesSheet.swift */; };
+		30D2833C3B4244A6ABD3A80D /* EventMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A0B2863CD540539DECCD9E /* EventMigrationLoader.swift */; };
 		4D81DB0094FCF466FF95C371 /* WeekMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DC9FE6CC5748257D90048D /* WeekMigrationLoader.swift */; };
 		4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C86214020223D614C5A52CE /* CompactMealCard.swift */; };
 		4E9D70ECD621F2F9FA5CDC5D /* EventCreateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */; };
@@ -288,6 +289,7 @@
 		9AC343882E82E9D7CE676F34 /* AppState+Weeks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Weeks.swift"; sourceTree = "<group>"; };
 		9C25C92649B5FBE3D037B95A /* IngredientCatalogList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientCatalogList.swift; sourceTree = "<group>"; };
 		9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithUITests.swift; sourceTree = "<group>"; };
+		A2A0B2863CD540539DECCD9E /* EventMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMigrationLoader.swift; sourceTree = "<group>"; };
 		A2DC9FE6CC5748257D90048D /* WeekMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekMigrationLoader.swift; sourceTree = "<group>"; };
 		A33E0F18FC2CE75CD7A8B98A /* CookCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookCheckView.swift; sourceTree = "<group>"; };
 		A4BAF92537028E47DF2B80C2 /* AIPageContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIPageContext.swift; sourceTree = "<group>"; };
@@ -524,6 +526,7 @@
 			children = (
 				88F5F414D9106C16C2A14C72 /* EventRepository.swift */,
 				0EB04939FB5023B9B9329266 /* EventRepository+DomainTypes.swift */,
+				A2A0B2863CD540539DECCD9E /* EventMigrationLoader.swift */,
 				E8C02CE699881BC076A54A6A /* GroceryRepository.swift */,
 				BE844C8C8202A1B90F75D1C3 /* GuestRepository.swift */,
 				7FABD368F46E53789760BDBD /* MetadataRepository.swift */,
@@ -1047,6 +1050,7 @@
 				2574F70842AC8D974E1F50BA /* TopBarSettings.swift in Sources */,
 				C7292ED82D21A1FE61CB34F7 /* TopBarSparkleButton.swift in Sources */,
 				30DBAAAB74B4D75C4D147B1E /* VoiceCommandService.swift in Sources */,
+				30D2833C3B4244A6ABD3A80D /* EventMigrationLoader.swift in Sources */,
 				4D81DB0094FCF466FF95C371 /* WeekMigrationLoader.swift in Sources */,
 				82A8138F7E575B08B7DA0A5A /* WeekRepository.swift in Sources */,
 				0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */,

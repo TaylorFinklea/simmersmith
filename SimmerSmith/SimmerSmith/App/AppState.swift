@@ -190,6 +190,15 @@ final class AppState {
     var weekImportState: WeekImportState = .idle
     #endif
 
+    // MARK: - SP-C slice 4: events import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit events+guests+event-grocery import for the
+    /// Settings trigger. `EventImportState` enum is declared in `AppState+Recipes`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var eventImportState: EventImportState = .idle
+    #endif
+
     // MARK: - SP-C identity slice: CloudKit-only launch gate
 
     /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.
