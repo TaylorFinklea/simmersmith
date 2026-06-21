@@ -89,6 +89,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
     case weekChangeBatch
     case weekChangeEvent
     case managedListItem
+    case pantryItem
 
     /// The CloudKit record type name.
     public var recordTypeName: String {
@@ -111,6 +112,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         case .weekChangeBatch: return "WeekChangeBatch"
         case .weekChangeEvent: return "WeekChangeEvent"
         case .managedListItem: return "ManagedListItem"
+        case .pantryItem: return "PantryItem"
         }
     }
 
@@ -118,7 +120,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
         switch self {
         // Composite/keyed PKs in Postgres → deterministic recordNames (no surrogate id to pass through).
         case .householdSetting, .householdTermAlias, .eventAttendee, .managedListItem: return .det
-        default: return .pk
+        default: return .pk   // .pantryItem uses its legacy UUID id as recordName
         }
     }
 
@@ -211,6 +213,18 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
             return [F("kind", .string, queryable: true), F("name", .string),
                     F("normalizedName", .string),
                     F("createdAt", .date), F("updatedAt", .date)]
+        case .pantryItem:
+            // SP-C Task 1 (spec §2): household-zone pantry staple. recordName policy: .pk (legacy UUID id).
+            // categories: JSON-array string (same serialization as Recipe.tags).
+            // No refs — PantryItem is a top-level aggregate root.
+            return [F("stapleName", .string), F("normalizedName", .string),
+                    F("notes", .string), F("isActive", .bool),
+                    F("typicalQuantity", .double), F("typicalUnit", .string),
+                    F("recurringQuantity", .double), F("recurringUnit", .string),
+                    F("recurringCadence", .string),
+                    F("category", .string), F("categories", .string),
+                    F("lastAppliedAt", .date), F("frozenAt", .date),
+                    F("createdAt", .date), F("updatedAt", .date)]
         }
     }
 
@@ -283,6 +297,9 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable {
             return [R("batch", .cascadeParent, target: "WeekChangeBatch")]
         case .managedListItem:
             // No foreign keys — a top-level household-owned reference-data record.
+            return []
+        case .pantryItem:
+            // No foreign keys — a top-level household-owned staple record (spec §2).
             return []
         }
     }
