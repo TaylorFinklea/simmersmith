@@ -46,11 +46,16 @@ extension AppState {
             ? WeekGenPrompt.defaultUserPrompt
             : prompt
 
-        // 3. Call the provider for structured JSON. The system prompt + user prompt
-        //    are combined into one request body (the seam carries a single prompt);
-        //    the provider's structured-output mode is requested via wantsStructuredJSON.
-        let combinedPrompt = systemPrompt + "\n\n" + userPrompt
-        let request = AIRequest(feature: .weekGen, prompt: combinedPrompt, wantsStructuredJSON: true)
+        // 3. Call the provider for structured JSON. The system prompt is threaded
+        //    separately via AIRequest.systemPrompt so the provider can route it to the
+        //    correct field (Anthropic: `system`; OpenAI: system-role message) matching
+        //    week_planner.py's two-message structure (week_planner.py:393-413).
+        let request = AIRequest(
+            feature: .weekGen,
+            systemPrompt: systemPrompt,
+            prompt: userPrompt,
+            wantsStructuredJSON: true
+        )
 
         // 4. Generate → parse → allergy hard-gate, with a single parse retry (spec §4).
         let result = try await generateAndParse(

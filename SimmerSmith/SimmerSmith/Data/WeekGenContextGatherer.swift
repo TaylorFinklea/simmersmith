@@ -94,13 +94,13 @@ enum WeekGenContextGatherer {
 
         return PlanningContext(
             hardAvoids: mergedAvoids,
-            strongLikes: [],
-            likedCuisines: [],
-            dislikedCuisines: [],
-            brands: [],
+            strongLikes: [],        // AI: preference-signal context deferred (later AI slice)
+            likedCuisines: [],      // AI: preference-signal context deferred
+            dislikedCuisines: [],   // AI: preference-signal context deferred
+            brands: [],             // AI: preference-signal context deferred
             staples: pantryStaples.sorted(),
             recentMeals: recentMeals,
-            rules: [],
+            rules: [],              // AI: preference-signal context deferred
             dietaryGoal: goalContext,
             allergies: dedupedAllergies,
             termAliases: termAliases

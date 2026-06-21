@@ -34,10 +34,21 @@ public enum CloudModel: Sendable, Equatable {
 
 public struct AIRequest: Sendable {
     public var feature: AIFeature
+    /// For Anthropic: sent via the `system` field; for OpenAI: prepended as a
+    /// `{"role": "system", ...}` message. Leave nil to use a single user message.
+    public var systemPrompt: String?
     public var prompt: String
     public var wantsStructuredJSON: Bool
-    public init(feature: AIFeature, prompt: String, wantsStructuredJSON: Bool = false) {
-        self.feature = feature; self.prompt = prompt; self.wantsStructuredJSON = wantsStructuredJSON
+    public init(
+        feature: AIFeature,
+        systemPrompt: String? = nil,
+        prompt: String,
+        wantsStructuredJSON: Bool = false
+    ) {
+        self.feature = feature
+        self.systemPrompt = systemPrompt
+        self.prompt = prompt
+        self.wantsStructuredJSON = wantsStructuredJSON
     }
 }
 

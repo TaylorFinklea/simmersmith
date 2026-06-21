@@ -4,6 +4,22 @@ import Foundation
 /// that throw `notWiredYet` so the seam, routing, and key storage can be built and
 /// tested now without a backend.
 
+// MARK: - HTTPTransport
+
+/// Abstraction over `URLSession.shared` that makes `BYOKeyProvider` headlessly
+/// testable — inject a `MockHTTPTransport` in tests, no real API calls needed.
+public protocol HTTPTransport: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+/// Default production transport backed by `URLSession.shared`.
+public struct URLSessionTransport: HTTPTransport {
+    public init() {}
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await URLSession.shared.data(for: request)
+    }
+}
+
 public struct OnDeviceProvider: AIProvider {
     public let tier: AITier = .onDevice
     public init() {}
@@ -17,7 +33,11 @@ public struct OnDeviceProvider: AIProvider {
 /// Real BYO-key provider. Calls OpenAI or Anthropic directly using the user's
 /// Keychain key. Structured-output mode is requested when `request.wantsStructuredJSON`
 /// is true (OpenAI: `response_format.type = "json_object"`; Anthropic: prefill `{`).
-/// Provider errors are surfaced as `AIError.providerError`.
+/// Provider errors are surfaced as `AIError.httpError` / `AIError.malformedResponse`.
+///
+/// The `transport` parameter is injectable for headless testing — pass a `MockHTTPTransport`
+/// to verify request bodies without calling the real API. Production callers use the
+/// default `URLSessionTransport`.
 public struct BYOKeyProvider: AIProvider {
     public let tier: AITier
     private let model: CloudModel
@@ -25,18 +45,21 @@ public struct BYOKeyProvider: AIProvider {
     /// Model IDs to use. Callers may override; defaults are current flagship models.
     private let openAIModel: String
     private let anthropicModel: String
+    private let transport: HTTPTransport
 
     public init(
         model: CloudModel,
         keyStore: KeyStore,
         openAIModel: String = "gpt-4o",
-        anthropicModel: String = "claude-opus-4-5"
+        anthropicModel: String = "claude-opus-4-5",
+        transport: HTTPTransport = URLSessionTransport()
     ) {
         self.tier = .cloudBYOKey(model)
         self.model = model
         self.keyStore = keyStore
         self.openAIModel = openAIModel
         self.anthropicModel = anthropicModel
+        self.transport = transport
     }
 
     public func generate(_ request: AIRequest) async throws -> AIResponse {
@@ -56,9 +79,17 @@ public struct BYOKeyProvider: AIProvider {
         guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
             throw AIError.noKeyConfigured(.openAI)
         }
+        // Build messages: system (if present) then user (week_planner.py:393-396).
+        var messages: [[String: Any]] = []
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            messages.append(["role": "system", "content": sys])
+        }
+        messages.append(["role": "user", "content": request.prompt])
+
         var body: [String: Any] = [
             "model": openAIModel,
-            "messages": [["role": "user", "content": request.prompt]]
+            "messages": messages,
+            "temperature": 0.7,         // week_planner.py:397 — default 1.0 is too erratic
         ]
         if request.wantsStructuredJSON {
             body["response_format"] = ["type": "json_object"]
@@ -69,7 +100,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
-        let (responseData, response) = try await URLSession.shared.data(for: req)
+        let (responseData, response) = try await transport.data(for: req)
         try checkHTTP(response, data: responseData, provider: "openai")
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
@@ -87,15 +118,20 @@ public struct BYOKeyProvider: AIProvider {
         }
         var messages: [[String: Any]] = [["role": "user", "content": request.prompt]]
         // Structured-output prefill: start the assistant turn with `{` so the model
-        // continues as JSON. This is Anthropic's documented structured-output technique.
+        // continues as JSON (Anthropic's documented technique). Only add when the text
+        // doesn't already start with `{` or a code fence.
         if request.wantsStructuredJSON {
             messages.append(["role": "assistant", "content": "{"])
         }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": anthropicModel,
-            "max_tokens": 4096,
-            "messages": messages
+            "max_tokens": 8000,         // week_planner.py:410 — 4096 truncates a 21-meal plan
+            "messages": messages,
         ]
+        // System prompt via Anthropic's dedicated `system` field (week_planner.py:412).
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            body["system"] = sys
+        }
         let data = try JSONSerialization.data(withJSONObject: body)
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
@@ -103,14 +139,20 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.httpBody = data
-        let (responseData, response) = try await URLSession.shared.data(for: req)
+        let (responseData, response) = try await transport.data(for: req)
         try checkHTTP(response, data: responseData, provider: "anthropic")
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let contentArr = json["content"] as? [[String: Any]],
               let text = contentArr.first?["text"] as? String
         else { throw AIError.malformedResponse("anthropic") }
-        // Re-attach the prefilled `{` when we used it.
-        let result = request.wantsStructuredJSON ? "{" + text : text
+        // Re-attach the prefilled `{` only when the response doesn't already start with
+        // it (guard against double-prepend when the model echoes the prefill back).
+        let result: String
+        if request.wantsStructuredJSON && !text.hasPrefix("{") && !text.hasPrefix("```") {
+            result = "{" + text
+        } else {
+            result = text
+        }
         return AIResponse(text: result, tier: tier)
     }
 
@@ -146,7 +188,7 @@ extension BYOKeyProvider {
         }
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        let (responseData, response) = try await URLSession.shared.data(for: req)
+        let (responseData, response) = try await transport.data(for: req)
         try checkHTTP(response, data: responseData, provider: "openai")
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let data = json["data"] as? [[String: Any]]
@@ -161,7 +203,7 @@ extension BYOKeyProvider {
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models")!)
         req.setValue(key, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        let (responseData, response) = try await URLSession.shared.data(for: req)
+        let (responseData, response) = try await transport.data(for: req)
         try checkHTTP(response, data: responseData, provider: "anthropic")
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let data = json["data"] as? [[String: Any]]

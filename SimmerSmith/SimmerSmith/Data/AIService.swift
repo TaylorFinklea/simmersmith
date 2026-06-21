@@ -41,23 +41,30 @@ final class AIService {
 
     // MARK: - AI call seam
 
-    /// Resolve the configured provider, build a BYOKeyProvider, and call it.
-    /// Throws `AIServiceError.noKeyConfigured` when no key is in Keychain for the
-    /// chosen provider, or `AIServiceError.noProviderConfigured` when no provider
-    /// is selected. Provider HTTP/parse errors propagate as `AIError.*`.
+    /// Resolve the configured provider, route via `ProviderRouter` + `AIClient`, and call it.
+    /// The router's `.cloudBYOKey` tier is used for heavy features (weekGen) — this keeps the
+    /// SP-A routing seam live so no-key / coming-soon paths are honored.
+    /// Throws `AIServiceError.noKeyConfigured` when no key is in Keychain for the chosen
+    /// provider, or `AIServiceError.noProviderConfigured` when no provider is selected.
+    /// Provider HTTP/parse errors propagate as `AIError.*`.
     func generate(_ request: AIRequest) async throws -> AIResponse {
         let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
+        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
+            throw AIServiceError.noKeyConfigured(providerKey)
+        }
         let provider = BYOKeyProvider(
             model: cloudModel,
             keyStore: keyStore,
             openAIModel: openAIModel,
             anthropicModel: anthropicModel
         )
-        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
-        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
-            throw AIServiceError.noKeyConfigured(providerKey)
+        let router = ProviderRouter(onDeviceAvailable: false, byoKey: cloudModel)
+        let client = AIClient(router: router) { tier in
+            if case .cloudBYOKey = tier { return provider }
+            return nil
         }
-        return try await provider.generate(request)
+        return try await client.generate(request)
     }
 
     /// Validate the key by listing models — cheap, no generation. Returns the

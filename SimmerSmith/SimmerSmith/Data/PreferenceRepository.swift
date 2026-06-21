@@ -64,6 +64,8 @@ final class PreferenceRepository {
 
     /// Upsert an ingredient preference, persist, and refresh the projection. A new
     /// preference (nil preferenceId) is minted a UUID. Returns the preferenceId written.
+    /// The caller must supply the human-readable `baseIngredientName` so the allergy
+    /// hard-gate can match by name without a catalog round-trip.
     @discardableResult
     func upsert(_ preference: IngredientPreference) -> String? {
         guard let store = session.privateStore else { return nil }
@@ -72,6 +74,7 @@ final class PreferenceRepository {
             try store.upsertIngredientPreference(
                 preferenceID: preferenceID,
                 baseIngredientID: preference.baseIngredientId,
+                baseIngredientName: preference.baseIngredientName,
                 choiceMode: preference.choiceMode,
                 rank: preference.rank,
                 active: preference.active,
@@ -124,13 +127,14 @@ final class PreferenceRepository {
     // MARK: - Mapping
 
     /// Project a private-plane row into the app's `IngredientPreference` value via JSON
-    /// round-trip (the value is decoder-only). NAMES are left empty — the catalog owns
-    /// them; AppState's rewire enriches. notes is empty (not stored on the private plane).
+    /// round-trip (the value is decoder-only). `baseIngredientName` is taken from the stored
+    /// row (written at upsert-time from the caller's catalog name) — this is what the
+    /// allergy hard-gate reads. notes is empty (not stored on the private plane).
     private static func ingredientPreference(from row: PrivateIngredientPreference) -> IngredientPreference? {
         var dict: [String: Any] = [
             "preferenceId": row.recordKey,
             "baseIngredientId": row.baseIngredientID,
-            "baseIngredientName": "",
+            "baseIngredientName": row.baseIngredientName,
             "preferredBrand": row.brand,
             "choiceMode": row.choiceMode,
             "active": row.active,

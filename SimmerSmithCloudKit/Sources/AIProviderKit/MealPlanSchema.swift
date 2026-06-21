@@ -294,7 +294,13 @@ public enum MealPlanParser {
         guard !allergens.isEmpty else { return }
 
         for slot in result.mealPlan {
-            guard let recipe = result.recipe(for: slot) else { continue }
+            guard let recipe = result.recipe(for: slot) else {
+                // Fail closed: with allergens active, an unresolvable slot means we cannot
+                // verify safety — treat unknown content as a violation.
+                throw MealPlanParseError.allergyViolation(
+                    recipe: slot.recipeName, allergen: "unknown"
+                )
+            }
             try check(recipe: recipe, against: allergens)
         }
         // Defense in depth: also scan any recipe not referenced by a slot (the AI may

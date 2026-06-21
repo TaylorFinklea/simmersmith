@@ -112,6 +112,7 @@ public struct PrivatePlaneStore {
     public func upsertIngredientPreference(
         preferenceID: String,
         baseIngredientID: String,
+        baseIngredientName: String = "",
         choiceMode: String,
         rank: Int,
         active: Bool,
@@ -121,6 +122,7 @@ public struct PrivatePlaneStore {
     ) throws -> PrivateIngredientPreference {
         if let row: PrivateIngredientPreference = try fetchFirst(#Predicate { $0.recordKey == preferenceID }) {
             row.baseIngredientID = baseIngredientID
+            if !baseIngredientName.isEmpty { row.baseIngredientName = baseIngredientName }
             row.choiceMode = choiceMode
             row.rank = rank
             row.active = active
@@ -130,7 +132,8 @@ public struct PrivatePlaneStore {
             return row
         }
         let row = PrivateIngredientPreference(
-            preferenceID: preferenceID, baseIngredientID: baseIngredientID, choiceMode: choiceMode,
+            preferenceID: preferenceID, baseIngredientID: baseIngredientID,
+            baseIngredientName: baseIngredientName, choiceMode: choiceMode,
             rank: rank, active: active, brand: brand, variation: variation, updatedAt: updatedAt
         )
         context.insert(row)

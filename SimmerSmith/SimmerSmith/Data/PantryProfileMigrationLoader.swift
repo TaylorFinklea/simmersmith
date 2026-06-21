@@ -205,10 +205,13 @@ func migratePantryProfileIfNeeded(
     }
 
     // (4) Ingredient preferences → private plane (id-keyed on preferenceId).
+    // Pass baseIngredientName from the Fly response so the allergy hard-gate has a name
+    // to match against without a catalog round-trip (C1 fix).
     for pref in ingredientPreferences {
         try? privateStore.upsertIngredientPreference(
             preferenceID: pref.preferenceId,
             baseIngredientID: pref.baseIngredientId,
+            baseIngredientName: pref.baseIngredientName,
             choiceMode: pref.choiceMode,
             rank: pref.rank,
             active: pref.active,
