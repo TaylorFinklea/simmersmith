@@ -79,6 +79,9 @@ extension AppState {
             // ride NSPCKC (auto-sync) off `session.privateStore`, NOT the household engine.
             let profileRepo = ProfileRepository(session: session)
             let preferenceRepo = PreferenceRepository(session: session)
+            // SP-C slice 5: household-zone pantry + alias repos.
+            let pantryRepo = PantryRepository(session: session)
+            let aliasRepo = AliasRepository(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
@@ -89,6 +92,8 @@ extension AppState {
             eventRepository = eventRepo
             profileRepository = profileRepo
             preferenceRepository = preferenceRepo
+            pantryRepository = pantryRepo
+            aliasRepository = aliasRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
@@ -97,11 +102,15 @@ extension AppState {
             weekRepo.startObserving()
             guestRepo.startObserving()
             eventRepo.startObserving()
+            pantryRepo.startObserving()
+            aliasRepo.startObserving()
             recipeRepo.reload()
             metadataRepo.reloadMetadata()
             weekRepo.reload()
             guestRepo.reload()
             eventRepo.reload()
+            pantryRepo.reload()
+            aliasRepo.reload()
             // Private-plane repos fetch-on-demand (no storeRevision observer — NSPCKC has
             // no equivalent change signal here); a first read after construction.
             profileRepo.reload()
@@ -113,11 +122,15 @@ extension AppState {
             observeMetadataRepository()
             observeWeekRepository()
             observeEventRepository()
+            observePantryRepository()
+            observeAliasRepository()
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
             mirrorWeekFromRepository()
             mirrorEventsFromRepository()
             mirrorGuestsFromRepository()
+            mirrorPantryFromRepository()
+            mirrorAliasesFromRepository()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -283,6 +296,8 @@ extension AppState {
         guestRepository = nil
         profileRepository = nil
         preferenceRepository = nil
+        pantryRepository = nil
+        aliasRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.
@@ -428,6 +443,46 @@ extension AppState {
     func mirrorGuestsFromRepository() {
         guard let repo = guestRepository else { return }
         guests = repo.guests
+    }
+
+    // MARK: - SP-C slice 5: Pantry + Alias repository mirroring
+
+    /// Re-arm the pantry-repo observation and mirror `pantryItems` onto AppState.
+    func observePantryRepository() {
+        guard let repo = pantryRepository else { return }
+        withObservationTracking {
+            _ = repo.pantryItems
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorPantryFromRepository()
+                self?.observePantryRepository()
+            }
+        }
+    }
+
+    /// Push the pantry-repo's item list into AppState's `pantryItems`.
+    func mirrorPantryFromRepository() {
+        guard let repo = pantryRepository else { return }
+        pantryItems = repo.pantryItems
+    }
+
+    /// Re-arm the alias-repo observation and mirror `householdAliases` onto AppState.
+    func observeAliasRepository() {
+        guard let repo = aliasRepository else { return }
+        withObservationTracking {
+            _ = repo.aliases
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.mirrorAliasesFromRepository()
+                self?.observeAliasRepository()
+            }
+        }
+    }
+
+    /// Push the alias-repo's alias list into AppState's `householdAliases`.
+    func mirrorAliasesFromRepository() {
+        guard let repo = aliasRepository else { return }
+        householdAliases = repo.aliases
     }
 
     // MARK: - SP-C slice 3: one-shot weeks + grocery Fly→CloudKit import

@@ -111,6 +111,8 @@
 		A6F2D7DBF8202D1ADE3932C5 /* GroceryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8C02CE699881BC076A54A6A /* GroceryRepository.swift */; };
 		AA01AA01AA01AA01AA010001 /* ProfileRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01AA01AA01AA01AA010002 /* ProfileRepository.swift */; };
 		BB01BB01BB01BB01BB010001 /* PreferenceRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB01BB01BB01BB01BB010002 /* PreferenceRepository.swift */; };
+		CC01CC01CC01CC01CC010001 /* PantryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01CC01CC01CC01CC010002 /* PantryRepository.swift */; };
+		DD01DD01DD01DD01DD010001 /* AliasRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD01DD01DD01DD01DD010002 /* AliasRepository.swift */; };
 		A94795FD17A8B0F176D963C2 /* FusionPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133BC61F9EC49D8EAFBCED32 /* FusionPrimitives.swift */; };
 		A974A080D61B943871407169 /* GroceryItemEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23E7E670ABE57D04263684B7 /* GroceryItemEditSheet.swift */; };
 		ACB12AD6000C6CDA19B0A15F /* EventDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A89423CDD042C3BCD0974BF /* EventDetailView.swift */; };
@@ -340,6 +342,8 @@
 		E8C02CE699881BC076A54A6A /* GroceryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryRepository.swift; sourceTree = "<group>"; };
 		AA01AA01AA01AA01AA010002 /* ProfileRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileRepository.swift; sourceTree = "<group>"; };
 		BB01BB01BB01BB01BB010002 /* PreferenceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceRepository.swift; sourceTree = "<group>"; };
+		CC01CC01CC01CC01CC010002 /* PantryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryRepository.swift; sourceTree = "<group>"; };
+		DD01DD01DD01DD01DD010002 /* AliasRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliasRepository.swift; sourceTree = "<group>"; };
 		E8ED641FC0046AD669A36898 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Assistant.swift"; sourceTree = "<group>"; };
 		F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackComposerView.swift; sourceTree = "<group>"; };
@@ -534,6 +538,8 @@
 				E8C02CE699881BC076A54A6A /* GroceryRepository.swift */,
 				AA01AA01AA01AA01AA010002 /* ProfileRepository.swift */,
 				BB01BB01BB01BB01BB010002 /* PreferenceRepository.swift */,
+				CC01CC01CC01CC01CC010002 /* PantryRepository.swift */,
+				DD01DD01DD01DD01DD010002 /* AliasRepository.swift */,
 				BE844C8C8202A1B90F75D1C3 /* GuestRepository.swift */,
 				7FABD368F46E53789760BDBD /* MetadataRepository.swift */,
 				B218483CD1F3FD11E8E349D4 /* RecipeMigrationLoader.swift */,
@@ -979,6 +985,8 @@
 				A6F2D7DBF8202D1ADE3932C5 /* GroceryRepository.swift in Sources */,
 				AA01AA01AA01AA01AA010001 /* ProfileRepository.swift in Sources */,
 				BB01BB01BB01BB01BB010001 /* PreferenceRepository.swift in Sources */,
+				CC01CC01CC01CC01CC010001 /* PantryRepository.swift in Sources */,
+				DD01DD01DD01DD01DD010001 /* AliasRepository.swift in Sources */,
 				33B2B158AE35CE5A95414D5D /* GroceryTabView.swift in Sources */,
 				B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */,
 				8EEF1CCB637311D888CF62B3 /* GuestEditorSheet.swift in Sources */,

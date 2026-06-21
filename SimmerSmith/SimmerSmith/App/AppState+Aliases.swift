@@ -1,49 +1,42 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+#endif
 
-/// M26 Phase 3 — per-household shorthand alias state + helpers.
+/// SP-C slice 5 — household term-alias state delegated to AliasRepository (household zone).
 ///
-/// Aliases live on `AppState` rather than fetched on-demand so the
-/// Settings UI can render reactively. The fetch is cheap (one row per
-/// alias — typically a handful per household) and only happens when
-/// the user opens the AI section's "Custom terms" subsection.
+/// `AppState.householdAliases` is an @Observable stored property that views bind to.
+/// Each method delegates to `aliasRepository` when the CloudKit session is ready,
+/// then mirrors the repo's in-memory list onto `householdAliases` so views update.
 extension AppState {
     func loadHouseholdAliases() async {
-        do {
-            householdAliases = try await apiClient.fetchHouseholdAliases()
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = aliasRepository else { return }
+        repo.reload()
+        householdAliases = repo.aliases
+        #endif
     }
 
     @discardableResult
     func upsertHouseholdAlias(term: String, expansion: String, notes: String = "") async -> Bool {
-        do {
-            let alias = try await apiClient.upsertHouseholdAlias(
-                body: SimmerSmithAPIClient.HouseholdTermAliasUpsertBody(
-                    term: term, expansion: expansion, notes: notes
-                )
-            )
-            // Replace in-place if existing, otherwise append.
-            if let idx = householdAliases.firstIndex(where: { $0.term == alias.term }) {
-                householdAliases[idx] = alias
-            } else {
-                householdAliases.append(alias)
-            }
-            householdAliases.sort(by: { $0.term < $1.term })
-            return true
-        } catch {
-            lastErrorMessage = error.localizedDescription
-            return false
-        }
+        #if canImport(CloudKit)
+        guard let repo = aliasRepository else { return false }
+        let recordName = repo.upsertAlias(term: term, expansion: expansion, notes: notes)
+        householdAliases = repo.aliases
+        return !recordName.isEmpty
+        #else
+        return false
+        #endif
     }
 
     func deleteHouseholdAlias(term: String) async {
-        do {
-            try await apiClient.deleteHouseholdAlias(term: term)
-            householdAliases.removeAll(where: { $0.term == term })
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = aliasRepository else { return }
+        // The aliasId (det-keyed recordName) is "alias:<normalized_term>".
+        let aliasId = "alias:\(term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " "))"
+        repo.deleteAlias(aliasId: aliasId)
+        householdAliases = repo.aliases
+        #endif
     }
 }
