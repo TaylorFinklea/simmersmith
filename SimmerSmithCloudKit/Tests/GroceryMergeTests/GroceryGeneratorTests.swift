@@ -211,6 +211,18 @@ func pureAutoRowDeletedWhenMealGone() {
     #expect(r.tombstones.map(\.recordName) == ["G_stale"])
 }
 
+@Test("an ingredient with nil quantity and no quantityText gets reviewFlag 'quantity review'")
+func nilQuantityNoTextFlagged() {
+    // Ingredient has no numeric quantity AND no quantityText — both nil/empty.
+    let m = meal(day: "Mon", recipe: "Stew", [line("Salt", qty: nil, unit: "")])
+    let r = GroceryGenerator.regenerate(meals: [m], existing: [], weekID: "W",
+                                        newRecordName: { _ in "G_salt" })
+    #expect(r.upserts.count == 1)
+    let salt = r.upserts[0]
+    #expect(salt.totalQuantity == nil)
+    #expect(salt.reviewFlag == "quantity review")
+}
+
 @Test("storeLabel is preserved on a refreshed auto row")
 func storeLabelPreserved() {
     let withStore = GroceryItem(recordName: "G_milk", weekID: "W", unit: "gal",

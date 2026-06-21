@@ -430,6 +430,10 @@ extension AppState {
         )
         if session.store.record(for: receiptID) != nil {
             weekImportState = .done
+            // Clear the one-shot Fly JWT — no everyday flow reads from Fly
+            // (all paths are CloudKit-gated), so the token should not linger.
+            settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+            authTokenDraft = ""
             // Trigger a repo reload so the imported weeks appear immediately.
             weekRepository?.reload()
             mirrorWeekFromRepository()

@@ -237,6 +237,13 @@ public enum GroceryGenerator {
         return order.map { key in
             var row = buckets[key]!
             if let q = row.totalQuantity { row.totalQuantity = (q * 100).rounded() / 100 }
+            // Flag quantity-less rows that also have no quantityText: the server equivalent is
+            // the `elif quantity_text` branch (grocery.py:216-218), which never fires for these,
+            // leaving them unflagged. Mirror the intended semantic: no numeric quantity AND no
+            // text fallback → the user needs to review the amount.
+            if row.totalQuantity == nil && row.quantityText.isEmpty && row.reviewFlag.isEmpty {
+                row.reviewFlag = "quantity review"
+            }
             return row
         }
     }
