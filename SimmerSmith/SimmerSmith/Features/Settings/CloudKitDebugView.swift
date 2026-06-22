@@ -104,6 +104,10 @@ struct CloudKitDebugView: View {
                 Button("AI week-gen (dry) — prompt/parse/allergy-gate") {
                     runString { await runAIWeekGenDryCheck() }
                 }
+                Button("Clean up empty households", role: .destructive) {
+                    let activeZoneID = appState.householdSession?.zoneID
+                    runString { await runCleanupEmptyHouseholdsCheck(activeZoneID: activeZoneID) }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -142,6 +146,27 @@ struct CloudKitDebugView: View {
         Task {
             output = await op()
             running = false
+        }
+    }
+
+    /// SP-C on-device cleanup: remove the stale empty `household-*` zones left by earlier
+    /// repeated minting (≤1 record each), KEEPING the active household. Safe — never deletes a
+    /// zone holding data, never the active one. Run once after confirming your data loaded; a
+    /// relaunch then clears the "leftover households" banner.
+    private func runCleanupEmptyHouseholdsCheck(activeZoneID: CKRecordZone.ID?) async -> String {
+        guard let activeZoneID,
+              let keep = HouseholdZoneProvisioner.householdID(fromZoneName: activeZoneID.zoneName) else {
+            return "❌ No active household resolved yet — open the app's main tabs first, then retry."
+        }
+        do {
+            let deleted = try await HouseholdZoneProvisioner().deleteEmptyHouseholdZones(keeping: keep)
+            guard !deleted.isEmpty else {
+                return "✅ No empty household zones to remove. Keeping household-\(keep)."
+            }
+            return "✅ Removed \(deleted.count) empty household zone(s); kept household-\(keep). "
+                + "Relaunch to clear the leftover-households banner.\nDeleted: \(deleted.joined(separator: ", "))"
+        } catch {
+            return "❌ Cleanup failed: \(error)"
         }
     }
 

@@ -59,3 +59,44 @@ func discoveryResultAmbiguousCarriesNoID() {
     #expect(ambiguous.householdID == nil)
     #expect(ambiguous.ignoredHouseholdIDs == ["a", "b"])
 }
+
+// SP-C on-device finding (build 118): repeated early-build minting left 14 `household-*`
+// zones, and since EVERY mint writes a `HouseholdProfile`, the old "has a profile" proof
+// couldn't tell an empty mint from the zone holding the user's recipes — the lowest-id
+// tiebreak orphaned the real data. Discovery now ranks candidates by DATA RICHNESS (record
+// count). The CloudKit count fetch needs an iCloud account (verified on-device); the pure
+// ranking it feeds — the thing that orphaned the data — is pinned here.
+
+@Test("richest household zone wins over a lower-id empty mint (the orphan-recipes fix)")
+func richestHouseholdWins() {
+    // The user's recipe zone (many records) has a HIGHER id than two empty profile-only mints.
+    let scored = [(id: "zzz-recipes", count: 57), (id: "aaa-empty", count: 1), (id: "bbb-empty", count: 1)]
+    let result = HouseholdZoneProvisioner.chooseRichestHousehold(scored)
+    #expect(result.householdID == "zzz-recipes")  // data beats alphabet — recipes are not orphaned
+    #expect(result.isAmbiguous == false)
+    #expect(result.ignoredHouseholdIDs == ["aaa-empty", "bbb-empty"])
+}
+
+@Test("every candidate empty/profile-only → ambiguous, never guess into an empty zone")
+func allEmptyIsAmbiguous() {
+    let scored = [(id: "a", count: 1), (id: "b", count: 1), (id: "c", count: 0)]
+    let result = HouseholdZoneProvisioner.chooseRichestHousehold(scored)
+    #expect(result.householdID == nil)
+    #expect(result.isAmbiguous == true)
+    #expect(result.ignoredHouseholdIDs == ["a", "b", "c"])
+}
+
+@Test("tie among data-bearing zones → lowest id wins (stable)")
+func tieBreaksLowestID() {
+    let scored = [(id: "m", count: 40), (id: "d", count: 40), (id: "z", count: 2)]
+    let result = HouseholdZoneProvisioner.chooseRichestHousehold(scored)
+    #expect(result.householdID == "d")  // lowest id among the richest
+    #expect(result.ignoredHouseholdIDs == ["m", "z"])
+}
+
+@Test("a single data-bearing candidate is the winner")
+func singleRichWins() {
+    let result = HouseholdZoneProvisioner.chooseRichestHousehold([(id: "only", count: 12)])
+    #expect(result.householdID == "only")
+    #expect(result.ignoredHouseholdIDs.isEmpty)
+}

@@ -218,11 +218,13 @@ extension AppState {
             return nil
         }
 
-        // Multiple household zones (shouldn't happen for an owner). The winner
-        // (provably-populated) is used; log the rest for human reconciliation.
-        if let firstIgnored = result.ignoredHouseholdIDs.first {
-            lastErrorMessage = "Multiple CloudKit households found; using one and ignoring "
-                + "\(result.ignoredHouseholdIDs.count) other(s) (e.g. household-\(firstIgnored))."
+        // Multiple household zones — discovery picked the data-RICHEST (the zone holding your
+        // recipes/data); the rest are stale empty mints from earlier builds. Informational,
+        // not data loss: the user can tidy them in Settings → CloudKit checks.
+        if !result.ignoredHouseholdIDs.isEmpty {
+            lastErrorMessage = "Your kitchen loaded fine. Found "
+                + "\(result.ignoredHouseholdIDs.count) leftover empty household(s) from earlier "
+                + "builds — tidy them in Settings → CloudKit checks → “Clean up empty households.”"
         }
 
         if let discovered = result.householdID, !discovered.isEmpty {

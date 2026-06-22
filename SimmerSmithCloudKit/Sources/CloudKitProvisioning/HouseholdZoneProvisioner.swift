@@ -140,47 +140,84 @@ public struct HouseholdZoneProvisioner {
             return DiscoveryResult(householdID: candidates[0].id, ignoredHouseholdIDs: [])
         }
 
-        // Multiple household zones — prove each one populated by a DIRECT fetch of its
-        // HouseholdProfile root record (no CKQuery; see finding A). A zone whose profile
-        // fetch succeeds is "real"; absent/failed → unproven.
-        var proven: [String] = []
-        for candidate in candidates where await hasHouseholdProfile(db: db, householdID: candidate.id, zoneID: candidate.zone.zoneID) {
-            proven.append(candidate.id)
+        // Multiple household zones (SP-C on-device finding, build 118: repeated early-build
+        // minting). Rank by DATA RICHNESS — the zone holding the user's records wins over the
+        // empty profile-only mints. The earlier "has a HouseholdProfile" proof couldn't tell
+        // them apart: EVERY mint writes a HouseholdProfile, so empties proved just as "real"
+        // as the recipe-bearing zone, and the lowest-id tiebreak orphaned the real data into
+        // an ignored zone. Counting records (via fetch-zone-changes, no index needed) does
+        // distinguish them: the recipe zone has dozens, the mints have ≤1.
+        var scored: [(id: String, count: Int)] = []
+        for candidate in candidates {
+            let count = await recordCount(db: db, zoneID: candidate.zone.zoneID)
+            scored.append((candidate.id, count))
         }
-
-        if proven.isEmpty {
-            // Ambiguous: several zones, none provably populated. Do NOT guess — the caller
-            // surfaces an error and stays resolving (finding A).
-            return DiscoveryResult(
-                householdID: nil,
-                ignoredHouseholdIDs: candidates.map(\.id).sorted(),
-                isAmbiguous: true
-            )
-        }
-
-        // Deterministic winner: lowest id among the provably-populated zones; the other
-        // proven + all unproven zones become ignored (log for human reconciliation).
-        proven.sort()
-        let winner = proven[0]
-        let losers = candidates.map(\.id).filter { $0 != winner }.sorted()
-        return DiscoveryResult(householdID: winner, ignoredHouseholdIDs: losers)
+        return Self.chooseRichestHousehold(scored)
     }
 
-    /// Prove a zone is a real household by DIRECTLY fetching its `HouseholdProfile` root
-    /// record (recordName = householdID, zoneID = the zone) — the preserved-PK convention
-    /// `ensureHouseholdProfile` writes. A direct `record(for:)` needs NO queryable index
-    /// (unlike `records(matching:)`), so it works for the CKSyncEngine-managed types.
-    /// A `.unknownItem` throw means the profile is absent (empty/partial zone) → false; any
-    /// other error is conservatively treated as "unproven" (false) so we never rank an
-    /// unprovable zone ahead of a proven one.
-    private func hasHouseholdProfile(db: CKDatabase, householdID: String, zoneID: CKRecordZone.ID) async -> Bool {
-        let recordID = CKRecord.ID(recordName: householdID, zoneID: zoneID)
-        do {
-            _ = try await db.record(for: recordID)
-            return true
-        } catch {
-            return false
+    /// Pick the data-richest household among several candidates, each scored by how many
+    /// records its zone holds. Pure + deterministic (the CloudKit count fetch is `recordCount`,
+    /// verified on-device); this is the ranking that, done by profile-presence alone, orphaned
+    /// the user's recipes on build 118.
+    ///   - Highest count wins (the zone with the user's data); ties at the max → lowest id.
+    ///   - If NO candidate holds data beyond a bare profile (every count ≤ 1) → ambiguous
+    ///     (id nil): don't pick an empty zone and orphan data that may still be propagating —
+    ///     the caller stays resolving and retries.
+    static func chooseRichestHousehold(_ scored: [(id: String, count: Int)]) -> DiscoveryResult {
+        let allIDs = scored.map(\.id).sorted()
+        guard let maxCount = scored.map(\.count).max(), maxCount > 1 else {
+            return DiscoveryResult(householdID: nil, ignoredHouseholdIDs: allIDs,
+                                   isAmbiguous: !scored.isEmpty)
         }
+        let winner = scored.filter { $0.count == maxCount }.map(\.id).sorted()[0]
+        return DiscoveryResult(householdID: winner,
+                               ignoredHouseholdIDs: allIDs.filter { $0 != winner })
+    }
+
+    /// Count the records in a zone via `CKFetchRecordZoneChangesOperation` — needs NO queryable
+    /// index (unlike `records(matching:)`), so it works for the CKSyncEngine-managed household
+    /// types. Fetches record IDs only (`desiredKeys = []`) to stay cheap. Returns 0 on any
+    /// failure: an unreadable zone is treated as empty for ranking, so it never beats a
+    /// readable data zone.
+    func recordCount(db: CKDatabase, zoneID: CKRecordZone.ID) async -> Int {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+            config.desiredKeys = []
+            let op = CKFetchRecordZoneChangesOperation(
+                recordZoneIDs: [zoneID],
+                configurationsByRecordZoneID: [zoneID: config])
+            op.fetchAllChanges = true
+            var count = 0
+            op.recordWasChangedBlock = { _, result in
+                if case .success = result { count += 1 }
+            }
+            op.fetchRecordZoneChangesResultBlock = { _ in
+                continuation.resume(returning: count)
+            }
+            db.add(op)
+        }
+    }
+
+    /// Maintenance (SP-C on-device cleanup): delete the empty/orphan `household-*` zones left
+    /// by earlier repeated minting — those holding ≤1 record (a bare HouseholdProfile or
+    /// nothing) — KEEPING the given household. Returns the ids deleted (sorted). Destructive
+    /// but safe: only provably-empty zones go, never one holding data, never `keeping`.
+    public func deleteEmptyHouseholdZones(keeping: String) async throws -> [String] {
+        let db = container.privateCloudDatabase
+        let zones = try await db.allRecordZones()
+        var toDelete: [CKRecordZone.ID] = []
+        var deletedIDs: [String] = []
+        for zone in zones {
+            guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName), id != keeping else { continue }
+            if await recordCount(db: db, zoneID: zone.zoneID) <= 1 {
+                toDelete.append(zone.zoneID)
+                deletedIDs.append(id)
+            }
+        }
+        if !toDelete.isEmpty {
+            _ = try await db.modifyRecordZones(saving: [], deleting: toDelete)
+        }
+        return deletedIDs.sorted()
     }
 
     /// Phase 0 VERIFY: create the zone, write `HouseholdProfile`, read it back.
