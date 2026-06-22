@@ -1385,6 +1385,11 @@ public struct AssistantStreamEnvelope: Sendable {
     public let event: String
     public let data: Data
 
+    public init(event: String, data: Data) {
+        self.event = event
+        self.data = data
+    }
+
     public func decode<T: Decodable>(_ type: T.Type) throws -> T {
         try SimmerSmithJSONCoding.makeDecoder().decode(T.self, from: data)
     }

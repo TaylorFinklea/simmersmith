@@ -89,6 +89,9 @@ final class AppState {
     // once the CloudKit session is live. API keys live in Keychain; provider/model
     // config in the private plane. nil before the session is ready.
     @ObservationIgnored var aiService: AIService?
+    // SP-C AI-5: private-plane assistant conversation storage. Constructed alongside
+    // profileRepository once the CloudKit session is live. nil before the session is ready.
+    @ObservationIgnored var assistantRepository: AssistantRepository?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on
@@ -310,11 +313,16 @@ final class AppState {
         recipeMetadata?.templates.count ?? 0
     }
 
+    /// SP-C AI-5: true iff a BYO key exists for the configured provider (KeychainKeyStore).
+    /// Replaces the Fly aiCapabilities/hasSavedConnection check — the assistant runs
+    /// on-device via AssistantEngine; no Fly connection is required.
     var assistantExecutionAvailable: Bool {
-        if let aiCapabilities {
-            return aiCapabilities.defaultTarget != nil
-        }
-        return hasSavedConnection
+        #if canImport(CloudKit)
+        // aiService being non-nil means the CloudKit session is live; aiDirectAPIKeyConfigured
+        // checks the Keychain via providerAPIKeyConfigured → aiService.hasKey.
+        if aiService != nil { return aiDirectAPIKeyConfigured }
+        #endif
+        return false
     }
 
     var aiDirectAPIKeyConfigured: Bool {
@@ -355,26 +363,18 @@ final class AppState {
         aiModelErrorByProvider[aiDirectProviderDraft]
     }
 
+    /// SP-C AI-5: status text for the assistant setup state shown when
+    /// `assistantExecutionAvailable == false`. References the BYO-key path.
     var assistantExecutionStatusText: String {
-        guard let aiCapabilities else {
-            return "AI capability details appear after the server is reachable."
+        #if canImport(CloudKit)
+        if aiService != nil {
+            // CloudKit session is live but no key is configured.
+            return "Add your OpenAI or Anthropic API key in Settings → AI to use the Assistant."
         }
-        if aiCapabilities.defaultTarget != nil {
-            return "Assistant is ready."
-        }
-        if let mcpProvider = aiCapabilities.availableProviders.first(where: { $0.providerKind == "mcp" }), !mcpProvider.available {
-            switch mcpProvider.source {
-            case "unconfigured":
-                return "Configure an MCP server or save an API key to use the Assistant."
-            case "unreachable":
-                return "The MCP server is configured but not reachable right now."
-            case "misconfigured":
-                return "The MCP server is reachable, but it does not expose the expected Codex tools."
-            default:
-                return "No AI execution backend is currently available."
-            }
-        }
-        return "No AI execution backend is currently available."
+        return "Sign in with iCloud to use the Assistant."
+        #else
+        return "The Assistant requires iCloud."
+        #endif
     }
 
     func loadCachedData() {
@@ -511,9 +511,10 @@ final class AppState {
             }
             #endif
 
-            if let threads = try? await apiClient.fetchAssistantThreads() {
-                assistantThreads = threads
-            }
+            // SP-C AI-5: assistant threads now live in the private plane (AssistantRepository).
+            // refreshAssistantThreads() is called after ensureHouseholdSession() wires the
+            // repository; the Fly fetchAssistantThreads() call is retired.
+            await refreshAssistantThreads()
             // SP-C slice 5: ingredient preferences come from PreferenceRepository (private
             // plane) when the CloudKit session is active; fall back to Fly pre-session.
             #if canImport(CloudKit)

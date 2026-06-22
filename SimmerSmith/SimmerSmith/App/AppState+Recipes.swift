@@ -86,6 +86,8 @@ extension AppState {
             // SP-C AI-1: AIService — the single seam for all AI calls. Keychain key
             // store; reads provider/model config from private-plane store directly.
             let aiSvc = AIService(session: session)
+            // SP-C AI-5: assistant conversation storage over the per-user private plane.
+            let assistantRepo = AssistantRepository(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
@@ -99,6 +101,7 @@ extension AppState {
             pantryRepository = pantryRepo
             aliasRepository = aliasRepo
             aiService = aiSvc
+            assistantRepository = assistantRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
@@ -315,6 +318,7 @@ extension AppState {
         pantryRepository = nil
         aliasRepository = nil
         aiService = nil
+        assistantRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.

@@ -172,6 +172,25 @@ final class AIService {
         return (provider, oaModel, anModel)
     }
 
+    // MARK: - Assistant provider factory (SP-C AI-5)
+
+    /// Build a `BYOKeyProvider` for the assistant tool-calling loop. Throws
+    /// `AIServiceError.noProviderConfigured` or `AIServiceError.noKeyConfigured`
+    /// when the provider or key isn't set — identical gate as `generate()`.
+    func makeAssistantProvider() throws -> BYOKeyProvider {
+        let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
+        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        guard hasKey(for: providerKey) else {
+            throw AIServiceError.noKeyConfigured(providerKey)
+        }
+        return BYOKeyProvider(
+            model: cloudModel,
+            keyStore: keyStore,
+            openAIModel: openAIModel,
+            anthropicModel: anthropicModel
+        )
+    }
+
     // MARK: - Provider resolution
 
     private func resolveConfiguration() throws -> (CloudModel, openAIModel: String, anthropicModel: String) {

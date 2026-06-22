@@ -1,21 +1,36 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import AIProviderKit
+#endif
 
 extension AppState {
+
+    // MARK: - Thread list
+
+    /// SP-C AI-5: refreshes `assistantThreads` from the private-plane `AssistantRepository`.
+    /// No-op when the repository isn't live yet (pre-boot / iCloud unavailable).
     func refreshAssistantThreads() async {
-        guard hasSavedConnection else { return }
-        do {
-            assistantThreads = try await apiClient.fetchAssistantThreads()
-        } catch {
-            // Build 104: same as refreshWeek — don't render benign
-            // URLSession/Task cancellations as user-visible errors.
-            if isExpectedCancellation(error) { return }
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = assistantRepository else { return }
+        assistantThreads = repo.listThreads()
+        #endif
     }
 
+    // MARK: - Thread CRUD
+
+    /// SP-C AI-5: loads a single thread from the private plane and caches it in
+    /// `assistantThreadDetails`. Falls back to a nil-result (thread not found) rather
+    /// than throwing so callers can degrade gracefully.
+    @discardableResult
     func fetchAssistantThread(threadID: String) async throws -> AssistantThread {
-        let thread = try await apiClient.fetchAssistantThread(threadID: threadID)
+        #if canImport(CloudKit)
+        guard let repo = assistantRepository else {
+            throw AssistantRepositoryError.storeUnavailable
+        }
+        guard let thread = repo.thread(id: threadID) else {
+            throw AssistantRepositoryError.threadNotFound(threadID)
+        }
         assistantThreadDetails[threadID] = thread
         upsertAssistantThreadSummary(
             AssistantThreadSummary(
@@ -29,6 +44,9 @@ extension AppState {
             )
         )
         return thread
+        #else
+        throw AssistantRepositoryError.storeUnavailable
+        #endif
     }
 
     func createAssistantThread(
@@ -36,21 +54,37 @@ extension AppState {
         threadKind: String = "chat",
         linkedWeekID: String? = nil
     ) async throws -> AssistantThreadSummary {
-        let thread = try await apiClient.createAssistantThread(
+        #if canImport(CloudKit)
+        guard let repo = assistantRepository else {
+            throw AssistantRepositoryError.storeUnavailable
+        }
+        let thread = try repo.createThread(
             title: title,
             threadKind: threadKind,
             linkedWeekID: linkedWeekID
         )
         upsertAssistantThreadSummary(thread)
         return thread
+        #else
+        throw AssistantRepositoryError.storeUnavailable
+        #endif
     }
 
     func deleteAssistantThread(threadID: String) async throws {
-        try await apiClient.deleteAssistantThread(threadID: threadID)
+        #if canImport(CloudKit)
+        guard let repo = assistantRepository else {
+            throw AssistantRepositoryError.storeUnavailable
+        }
+        try repo.deleteThread(id: threadID)
         assistantThreads.removeAll { $0.threadId == threadID }
         assistantThreadDetails.removeValue(forKey: threadID)
         assistantErrorByThreadID.removeValue(forKey: threadID)
+        #else
+        throw AssistantRepositoryError.storeUnavailable
+        #endif
     }
+
+    // MARK: - Launch context
 
     func beginAssistantLaunch(
         initialText: String = "",
@@ -82,6 +116,18 @@ extension AppState {
         return assistantLaunchContext
     }
 
+    // MARK: - Send message (on-device engine)
+
+    /// SP-C AI-5: sends a user message and runs the on-device `AssistantEngine` tool-calling
+    /// loop. Flow:
+    ///   1. Persist the user message via `AssistantRepository.appendMessage`.
+    ///   2. Emit a `user_message.created` event so the UI renders it immediately.
+    ///   3. Build the conversation history from the thread's stored messages.
+    ///   4. Run `AssistantEngine.run(...)` with the BYO provider + `ToolRegistry` runner.
+    ///   5. Forward each `AssistantStreamEvent` into the EXISTING `applyAssistantStreamEvent`
+    ///      (unchanged UI handler) as an `AssistantStreamEnvelope`.
+    ///   6. On completion, persist the final assistant message via the repository.
+    ///   7. On cancellation (sheet dismiss), mark the in-flight row cancelled locally.
     func sendAssistantMessage(
         threadID: String,
         text: String,
@@ -90,63 +136,126 @@ extension AppState {
         intent: String = "general",
         pageContext: AIPageContext? = nil
     ) async throws {
+        #if canImport(CloudKit)
+        guard let repo = assistantRepository, let aiSvc = aiService else {
+            // Pre-session: fall back to a clean error (no Fly call).
+            throw AssistantRepositoryError.storeUnavailable
+        }
+
         assistantSendingThreadIDs.insert(threadID)
         assistantErrorByThreadID[threadID] = nil
         defer { assistantSendingThreadIDs.remove(threadID) }
 
-        let payload = pageContext.map {
-            AssistantPageContextPayload(
-                pageType: $0.pageType,
-                pageLabel: $0.pageLabel,
-                weekId: $0.weekId,
-                weekStart: $0.weekStart,
-                weekStatus: $0.weekStatus,
-                focusDate: $0.focusDate,
-                focusDayName: $0.focusDayName,
-                recipeId: $0.recipeId,
-                recipeName: $0.recipeName,
-                groceryItemCount: $0.groceryItemCount,
-                briefSummary: $0.briefSummary
-            )
-        }
-        let initialMessageCount = assistantThreadDetails[threadID]?.messages.count ?? 0
-        let stream = try await apiClient.streamAssistantResponse(
+        // 1. Persist the user message.
+        let userMsgID = UUID().uuidString
+        let userCreatedAt = Date()
+        let _ = try repo.appendMessage(
             threadID: threadID,
-            text: text,
+            role: "user",
+            content: text,
+            status: "completed",
             attachedRecipeID: attachedRecipeID,
-            attachedRecipeDraft: attachedRecipeDraft,
-            intent: intent,
-            pageContext: payload
+            messageID: userMsgID,
+            createdAt: userCreatedAt
         )
-        var streamFailure: Error?
+
+        // 2. Emit user_message.created so the UI renders it immediately (before engine starts).
+        let userMsgEvent = makeUserMessageCreatedEvent(
+            messageID: userMsgID,
+            threadID: threadID,
+            content: text,
+            attachedRecipeID: attachedRecipeID,
+            createdAt: userCreatedAt
+        )
+        try applyAssistantStreamEvent(threadID: threadID, event: userMsgEvent)
+
+        // 3. Build the conversation history (prior messages, newest-first from repo, then
+        //    project to AIChatMessage for the engine). Include the just-added user message.
+        let history: [AIChatMessage]
+        if let detail = repo.thread(id: threadID) {
+            history = detail.messages
+                .filter { $0.status == "completed" && ($0.role == "user" || $0.role == "assistant") }
+                .map { AIChatMessage.text($0.role == "user" ? .user : .assistant, $0.contentMarkdown) }
+        } else {
+            history = [AIChatMessage.text(.user, text)]
+        }
+        // Drop the last history entry (it's the user message we just added — the engine
+        // appends it internally via `userText`). The final n-1 are the prior turns.
+        let priorHistory = history.dropLast()
+
+        // 4. Build the system prompt + ToolRegistry and run the engine.
+        let threadTitle = assistantThreadDetails[threadID]?.title ?? ""
+        let systemPrompt = AssistantSystemPrompt.build(
+            threadTitle: threadTitle,
+            unitSystem: unitSystemDraft == "metric" ? .metric : .us
+        )
+        let toolRegistry = ToolRegistry(appState: self)
+        let provider = try aiSvc.makeAssistantProvider()
+
+        let engineStream = AssistantEngine.run(
+            systemPrompt: systemPrompt,
+            history: Array(priorHistory),
+            userText: text,
+            tools: toolRegistry.specs,
+            threadId: threadID,
+            provider: provider,
+            runner: toolRegistry.runner
+        )
+
+        // Track the final assistant content + message id for persistence.
+        var finalContent = ""
+        var assistantMsgID = UUID().uuidString
+
         do {
-            for try await event in stream {
-                try applyAssistantStreamEvent(threadID: threadID, event: event)
+            for try await event in engineStream {
+                // Bridge AssistantStreamEvent → AssistantStreamEnvelope (structurally identical).
+                let envelope = AssistantStreamEnvelope(event: event.event, data: event.data)
+                try applyAssistantStreamEvent(threadID: threadID, event: envelope)
+
+                // Capture the message id and final content from the engine's events.
+                switch event.event {
+                case "assistant.message.created":
+                    if let decoded = try? SimmerSmithJSONCoding.makeDecoder()
+                        .decode(AssistantMessage.self, from: event.data) {
+                        assistantMsgID = decoded.messageId
+                    }
+                case "assistant.completed":
+                    if let decoded = try? SimmerSmithJSONCoding.makeDecoder()
+                        .decode(AssistantMessage.self, from: event.data) {
+                        finalContent = decoded.contentMarkdown
+                        assistantMsgID = decoded.messageId
+                    }
+                default:
+                    break
+                }
             }
         } catch is CancellationError {
-            // User tapped Stop or dismissed the sheet — propagate quietly
-            // without the "response may be incomplete" banner. Also mark
-            // the last streaming assistant row as cancelled locally so
-            // the "Cancelled" pill appears immediately. The server-side
-            // assistant.cancelled event can't reach us because we're the
-            // ones who closed the socket.
+            // Sheet dismissed — mark the row cancelled locally (same pattern as the Fly path).
             markLastStreamingAssistantAsCancelled(threadID: threadID)
             throw CancellationError()
-        } catch {
-            streamFailure = error
         }
-        let refreshedThread = try? await fetchAssistantThread(threadID: threadID)
-        if let streamFailure {
-            let refreshedCount = refreshedThread?.messages.count ?? 0
-            if refreshedCount > initialMessageCount {
-                assistantErrorByThreadID[threadID] = "Response may be incomplete. Pull to refresh."
-                return
-            }
-            throw streamFailure
+
+        // 5. Persist the final assistant message.
+        if !finalContent.isEmpty {
+            _ = try? repo.appendMessage(
+                threadID: threadID,
+                role: "assistant",
+                content: finalContent,
+                status: "completed",
+                messageID: assistantMsgID,
+                createdAt: Date()
+            )
         }
+        // Refresh the in-memory thread so the list preview updates.
+        _ = try? await fetchAssistantThread(threadID: threadID)
+        #else
+        throw AssistantRepositoryError.storeUnavailable
+        #endif
     }
 
-    private func applyAssistantStreamEvent(threadID: String, event: AssistantStreamEnvelope) throws {
+    // MARK: - Stream event handler (unchanged — UI reads from this)
+
+    func applyAssistantStreamEvent(threadID: String, event: AssistantStreamEnvelope) throws {
         switch event.event {
         case "thread.updated":
             let summary = try event.decode(AssistantThreadSummary.self)
@@ -202,6 +311,8 @@ extension AppState {
         }
     }
 
+    // MARK: - Week update routing
+
     /// Route a `week.updated` SSE payload to whichever week slot matches
     /// by `weekId`. The previous implementation unconditionally wrote to
     /// `currentWeek`, which corrupted "this week" whenever the assistant
@@ -219,6 +330,8 @@ extension AppState {
         // user navigated away while the turn was in flight), drop the
         // payload — the next fetch/refetch will pick it up server-side.
     }
+
+    // MARK: - Cancellation / status helpers
 
     /// Flip the last streaming assistant row's status to "cancelled" without
     /// touching anything else. Used when the user cancels a turn — we're the
@@ -410,22 +523,9 @@ extension AppState {
         )
     }
 
-    /// Apply an `assistant.heartbeat` SSE tick. The server fires these
-    /// every ~5s while a long tool run (e.g. `generate_week_plan`) is
-    /// in flight with no other events to send.
-    ///
-    /// Just *receiving* the event already accomplishes the critical
-    /// fix — keeps the HTTP stream alive against Fly's idle-timeout so
-    /// `assistant.completed` reliably arrives. What this method does
-    /// with `beat.elapsedSeconds` is purely the UX layer: how should
-    /// the in-flight spinner reflect "still working, Xs"?
-    ///
-    /// This is intentionally a no-op beyond keeping the stream alive:
-    /// receiving the event is the entire fix. `beat.elapsedSeconds` is
-    /// available here if a future build wants to surface "Thinking… (Xs)"
-    /// on the in-flight spinner — track `[threadID: Int]` on AppState and
-    /// render it in AssistantView — but the generic spinner is fine for
-    /// now. (`beat.messageId` matches the in-flight assistant message.)
+    /// Apply an `assistant.heartbeat` SSE tick. In the on-device engine this is unused
+    /// (no idle-timeout keep-alive is needed), but the handler is retained for parity
+    /// with the Fly-backed path so no UI code needs changing.
     private func applyAssistantHeartbeat(threadID: String, beat: AssistantHeartbeatEvent) {
         _ = beat
         _ = threadID
@@ -452,4 +552,35 @@ extension AppState {
             in: threadID
         )
     }
+
+    // MARK: - Event builders (for locally-emitted events)
+
+    /// Build a `user_message.created` envelope for a message persisted on-device.
+    /// Mirrors the snake_case JSON the Fly server emitted so `applyAssistantStreamEvent`
+    /// decodes it identically.
+    private func makeUserMessageCreatedEvent(
+        messageID: String,
+        threadID: String,
+        content: String,
+        attachedRecipeID: String?,
+        createdAt: Date
+    ) -> AssistantStreamEnvelope {
+        let iso = ISO8601DateFormatter().string(from: createdAt)
+        var payload: [String: Any] = [
+            "message_id": messageID,
+            "thread_id": threadID,
+            "role": "user",
+            "status": "completed",
+            "content_markdown": content,
+            "tool_calls": [],
+            "created_at": iso,
+            "error": "",
+        ]
+        if let rid = attachedRecipeID {
+            payload["attached_recipe_id"] = rid
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+        return AssistantStreamEnvelope(event: "user_message.created", data: data)
+    }
 }
+

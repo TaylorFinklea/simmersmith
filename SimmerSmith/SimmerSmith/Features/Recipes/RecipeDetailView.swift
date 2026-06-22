@@ -133,7 +133,7 @@ struct RecipeDetailView: View {
                             }
                             // SP-C AI-2: AI variation + companion now run on AIService (BYO key).
                             // Un-gated: the user sees AIServiceError.noKeyConfigured if no key is set.
-                            // The Fly-backed assistant launch stays guarded.
+                            // SP-C AI-5: assistant launch is also un-gated (on-device engine; BYO key).
                             Menu("AI Variation Draft") {
                                 ForEach(RecipeVariationGoal.allCases) { goal in
                                     Button(goal.title) {
@@ -148,23 +148,22 @@ struct RecipeDetailView: View {
                                 Label("AI Companion Suggestions", systemImage: "sparkles")
                             }
                             .disabled(isGeneratingCompanions)
-                            if !appState.isCloudKitOnly {
-                                Button {
-                                    Task {
-                                        do {
-                                            try await appState.beginAssistantLaunch(
-                                                initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
-                                                title: recipe.name,
-                                                attachedRecipeID: recipe.recipeId,
-                                                intent: "cooking_help"
-                                            )
-                                        } catch {
-                                            errorMessage = error.localizedDescription
-                                        }
+                            // SP-C AI-5: un-gated — assistant runs on-device (BYO key; CloudKit-only ok).
+                            Button {
+                                Task {
+                                    do {
+                                        try await appState.beginAssistantLaunch(
+                                            initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
+                                            title: recipe.name,
+                                            attachedRecipeID: recipe.recipeId,
+                                            intent: "cooking_help"
+                                        )
+                                    } catch {
+                                        errorMessage = error.localizedDescription
                                     }
-                                } label: {
-                                    Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
                                 }
+                            } label: {
+                                Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
                             }
                             Button {
                                 assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
