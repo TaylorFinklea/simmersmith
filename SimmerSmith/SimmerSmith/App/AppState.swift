@@ -1,5 +1,4 @@
 import Foundation
-import GoogleSignIn
 import Observation
 import SwiftData
 import UserNotifications
@@ -431,24 +430,6 @@ final class AppState {
         }
     }
 
-    func signInWithGoogle(identityToken: String) async {
-        lastErrorMessage = nil
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        serverURLDraft = Self.productionServerURL
-
-        do {
-            let response = try await apiClient.signInWithGoogle(identityToken: identityToken)
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
-            authTokenDraft = response.token
-            await refreshAll()
-            if response.isNewUser {
-                showOnboardingInterview = true
-            }
-        } catch {
-            lastErrorMessage = "Google sign in failed: \(error.localizedDescription)"
-        }
-    }
-
     func saveConnectionDetails() async {
         let normalizedURL = ConnectionSettingsStore.normalizeServerURL(serverURLDraft)
         settingsStore.save(serverURLString: normalizedURL, authToken: authTokenDraft)
@@ -640,9 +621,6 @@ final class AppState {
         // who signs in on this device gets a clean mapping for their
         // chosen Reminders list.
         clearReminderMappings()
-        // Also clear the Google Sign-In cache so the next sign-in presents
-        // the account picker instead of silently reusing the previous user.
-        GIDSignIn.sharedInstance.signOut()
         clearLocalCache()
     }
 

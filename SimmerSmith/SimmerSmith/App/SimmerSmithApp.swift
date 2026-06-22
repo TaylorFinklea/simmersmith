@@ -1,4 +1,3 @@
-import GoogleSignIn
 import Observation
 import SwiftData
 import SwiftUI
@@ -42,13 +41,6 @@ struct SimmerSmithApp: App {
                     // so its BGAppRefreshTask handler can pull Reminders
                     // deltas while the app is backgrounded.
                     BackgroundSyncService.shared.attach(appState: appState)
-                    // Silently restore any previous Google Sign-In session so
-                    // subsequent API calls made through GIDSignIn (profile
-                    // info, token refresh) pick up without requiring the user
-                    // to tap the button again. Our SimmerSmith session JWT is
-                    // already persisted in ConnectionSettingsStore, so this is
-                    // purely for the native Google UI state.
-                    GIDSignIn.sharedInstance.restorePreviousSignIn { _, _ in }
                     await appState.subscriptionStore.start()
                     // SP-C identity slice (spec §1.3): launch the iCloud-native session
                     // immediately, without requiring a Fly sign-in. This discovers (or

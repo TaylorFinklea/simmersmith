@@ -8,8 +8,8 @@ import SwiftUI
 /// - `.ready`     — household resolved; show `MainTabView`.
 /// - `.iCloudUnavailable` — iCloud account not signed in; show a friendly prompt.
 ///
-/// Sign in with Apple/Google is removed from this gate — iCloud IS the identity now.
-/// The dormant `signInWithApple`/`signInWithGoogle` AppState methods are preserved
+/// Sign in with Apple is removed from this gate — iCloud IS the identity now.
+/// The dormant `signInWithApple` AppState method is preserved
 /// (unreferenced from UI) for the future one-time Fly migration auth.
 struct RootView: View {
     @Environment(AppState.self) private var appState
