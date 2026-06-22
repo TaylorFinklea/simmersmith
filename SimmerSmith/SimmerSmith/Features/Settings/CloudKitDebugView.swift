@@ -1,6 +1,6 @@
 // Compiles in Release too (canImport(CloudKit) is always true on iOS) so the SP-A CloudKit checks
 // can run on a TestFlight build; visibility is runtime-gated to DEBUG || TestFlight via DebugGate
-// (see the SignInView / SettingsView entry points) — never reachable in an App Store build.
+// (reached from the SettingsView / RootView entry points) — never reachable in an App Store build.
 #if canImport(CloudKit)
 import SwiftUI
 import SwiftData

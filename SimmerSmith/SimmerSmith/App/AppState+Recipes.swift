@@ -220,11 +220,11 @@ extension AppState {
 
         // Multiple household zones — discovery picked the data-RICHEST (the zone holding your
         // recipes/data); the rest are stale empty mints from earlier builds. Informational,
-        // not data loss: the user can tidy them in Settings → CloudKit checks.
+        // not data loss. (If data ever looks wrong, Settings → Start Fresh from Fly re-imports clean.)
         if !result.ignoredHouseholdIDs.isEmpty {
             lastErrorMessage = "Your kitchen loaded fine. Found "
                 + "\(result.ignoredHouseholdIDs.count) leftover empty household(s) from earlier "
-                + "builds — tidy them in Settings → CloudKit checks → “Clean up empty households.”"
+                + "builds — harmless."
         }
 
         if let discovered = result.householdID, !discovered.isEmpty {
