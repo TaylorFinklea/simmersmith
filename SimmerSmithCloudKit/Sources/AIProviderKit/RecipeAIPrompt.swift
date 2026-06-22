@@ -120,6 +120,70 @@ public enum RecipeAIPrompt {
         """
     }
 
+    // MARK: - (a2) EVENT-MEAL RECIPE (one dish on an event → RecipeDraft)
+
+    /// Build the prompt to GENERATE one detailed recipe for a single dish on an event
+    /// (the AI-3 "generate a recipe for this event meal" flow). Faithful port of
+    /// `app/services/event_ai.py::_build_per_dish_prompt`: it reuses the event's
+    /// guest-constraint block (so the recipe avoids allergens for the diners that will
+    /// eat it), scales to the full event headcount, and KEEPS the safety-critical
+    /// **"NEVER include a known allergen for any guest listed above"** hard rule.
+    ///
+    /// Reuses AI-2's single-recipe `recipeSchemaHint`, so the response parses with the
+    /// existing `RecipeAIParser.parseRecipe` (→ a `RecipeDraft` the app saves through
+    /// `RecipeRepository.save` and links to the event meal).
+    ///
+    /// - Parameters:
+    ///   - dishName: the event dish this recipe is for (e.g. "Roast Chicken").
+    ///   - servings: the full event headcount the recipe must serve.
+    ///   - eventName: the event's name (framing context, mirrors `event.name`).
+    ///   - occasion: the event's occasion, or "" (mirrors `event.occasion or 'general'`).
+    ///   - constraintsBlock: the rendered guest-constraints block (the app passes
+    ///     `EventMenuPrompt.describeGuests(attendees)`, or "" when the event has no
+    ///     attendees — matching the server's `guest_block if attendees else ""`).
+    ///   - userPrompt: an optional free-text hint (mirrors `user_prompt`).
+    ///   - unit: the unit system to lock the output to.
+    public static func eventMealRecipePrompt(
+        dishName: String,
+        servings: Int,
+        eventName: String,
+        occasion: String = "",
+        constraintsBlock: String = "",
+        userPrompt: String = "",
+        unit: UnitSystem = .us
+    ) -> String {
+        let occasionLabel = occasion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "general"
+            : occasion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedHint = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let extra = trimmedHint.isEmpty ? "" : "\nUser hint: \(trimmedHint)"
+        let constraints = constraintsBlock.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The server always renders the "Guests with constraints" header + the block;
+        // when the event has no attendees the caller passes "" and we fall through to
+        // the placeholder the way `_describe_guests` would.
+        let guestBlock = constraints.isEmpty
+            ? "(no specific guests listed — avoid common allergens conservatively)"
+            : constraints
+        return """
+        \(WeekGenPrompt.unitSystemDirective(unit))
+
+        You are writing ONE detailed recipe for the dish "\(dishName)" \
+        on the event "\(eventName)" (occasion: \(occasionLabel)).
+        This recipe must serve \(servings) people total — scale ingredient \
+        quantities accordingly. Keep instructions usable in a real kitchen.
+
+        Guests with constraints (avoid allergens for these diners):
+        \(guestBlock)\(extra)
+
+        Rules:
+        - Provide complete ingredient quantities. Avoid bare names like just "salt".
+        - `steps[].instruction` must be a numbered cooking step, not a heading.
+        - NEVER include a known allergen for any guest listed above.
+        - Return ONLY a JSON object matching this schema:
+        \(recipeSchemaHint)
+        """
+    }
+
     // MARK: - (b) VARIATION (recipe + goal → varied recipe + rationale)
 
     /// Build the prompt to produce a VARIATION of `recipe` toward `goal` (e.g.
