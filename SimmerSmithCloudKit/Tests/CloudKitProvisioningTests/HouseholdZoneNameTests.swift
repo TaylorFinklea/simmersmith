@@ -100,3 +100,15 @@ func singleRichWins() {
     #expect(result.householdID == "only")
     #expect(result.ignoredHouseholdIDs.isEmpty)
 }
+
+// SP-C factory reset (spec §2/§4): `deleteAllHouseholdZones` targets EVERY `household-*`
+// zone — no `keeping`, no record-count filter (the difference from
+// `deleteEmptyHouseholdZones`). The CloudKit delete needs iCloud auth (verified on-device);
+// the pure zone-NAME selection — which zones are targeted, the load-bearing safety contract
+// (never touch `_defaultZone` or other non-household zones) — is pinned here.
+
+@Test("delete-all targets only the household zones in a mixed zone list")
+func deleteAllTargetsOnlyHouseholdZones() {
+    let zoneNames = ["household-a", "household-b", "_defaultZone", "catalog-public"]
+    #expect(HouseholdZoneProvisioner.householdZoneIDsToDelete(from: zoneNames) == ["a", "b"])
+}

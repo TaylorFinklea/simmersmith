@@ -232,6 +232,32 @@ public struct PrivatePlaneStore {
         ((try? fetchFirst(#Predicate<PrivateMigrationReceipt> { $0.recordKey == scope })) ?? nil) != nil
     }
 
+    // MARK: Factory reset (SP-C clean-slate)
+
+    /// Delete EVERY private-plane @Model instance (receipts, dietary goal, ingredient
+    /// preferences, profile settings, preference signals, assistant threads + messages)
+    /// then `save()` so NSPersistentCloudKitContainer propagates the deletes to the user's
+    /// private DB. Clears the `pantry-profile` receipt + stale per-user data ahead of a
+    /// fresh re-import from Fly (spec §2). Threads are deleted last; the cascade takes their
+    /// messages, but messages are fetched-and-deleted explicitly too so the wipe is total
+    /// regardless of relationship state.
+    public func clearPrivatePlane() throws {
+        try deleteAll(PrivateMigrationReceipt.self)
+        try deleteAll(PrivateDietaryGoal.self)
+        try deleteAll(PrivateIngredientPreference.self)
+        try deleteAll(PrivateProfileSetting.self)
+        try deleteAll(PrivatePreferenceSignal.self)
+        try deleteAll(PrivateAssistantMessage.self)
+        try deleteAll(PrivateAssistantThread.self)
+        try save()
+    }
+
+    private func deleteAll<T: PersistentModel>(_ type: T.Type) throws {
+        for row in try context.fetch(FetchDescriptor<T>()) {
+            context.delete(row)
+        }
+    }
+
     public func save() throws {
         try context.save()
     }

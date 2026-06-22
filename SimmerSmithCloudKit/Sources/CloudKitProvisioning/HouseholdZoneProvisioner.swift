@@ -220,6 +220,37 @@ public struct HouseholdZoneProvisioner {
         return deletedIDs.sorted()
     }
 
+    /// Factory reset (SP-C clean-slate, spec §2): the household ids whose zones a
+    /// delete-ALL pass targets — EVERY `household-*` zone, with no `keeping` and no
+    /// record-count filter (the difference from `deleteEmptyHouseholdZones`). Pure +
+    /// headlessly testable: feed it a zone-name list, get back the targeted ids sorted.
+    /// `_defaultZone`, `catalog-public`, and any non-`household-*` zone parse to nil and
+    /// are dropped.
+    static func householdZoneIDsToDelete(from zoneNames: [String]) -> [String] {
+        zoneNames.compactMap { householdID(fromZoneName: $0) }.sorted()
+    }
+
+    /// Factory reset (SP-C clean-slate, spec §2): delete EVERY `household-*` zone in the
+    /// private DB — no `keeping`, no ≤1-record filter (mirror of `deleteEmptyHouseholdZones`
+    /// minus the guards). Returns the deleted ids (sorted). Destructive: the caller wipes
+    /// before re-minting one fresh household and re-importing from Fly.
+    @discardableResult
+    public func deleteAllHouseholdZones() async throws -> [String] {
+        let db = container.privateCloudDatabase
+        let zones = try await db.allRecordZones()
+        var toDelete: [CKRecordZone.ID] = []
+        var deletedIDs: [String] = []
+        for zone in zones {
+            guard Self.householdID(fromZoneName: zone.zoneID.zoneName) != nil else { continue }
+            toDelete.append(zone.zoneID)
+            deletedIDs.append(zone.zoneID.zoneName)
+        }
+        if !toDelete.isEmpty {
+            _ = try await db.modifyRecordZones(saving: [], deleting: toDelete)
+        }
+        return deletedIDs.compactMap { Self.householdID(fromZoneName: $0) }.sorted()
+    }
+
     /// Phase 0 VERIFY: create the zone, write `HouseholdProfile`, read it back.
     /// Returns the round-tripped name (should equal `name`). Run from an entitled,
     /// iCloud-signed-in target.
