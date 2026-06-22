@@ -74,6 +74,19 @@ struct RecipeURLFetcherGuardTests {
         #expect(RecipeURLFetcher.isPrivateHost("fc00::1"))
     }
 
+    // SP-C AI-2 review C2a — CGNAT 100.64.0.0/10 (RFC 6598). The server blocks it
+    // (parser.py `_CGNAT_NETWORK`) because some networks route shared-NAT space to
+    // internal infrastructure, so it's a live SSRF target the RFC-1918 checks miss.
+    @Test("rejects CGNAT 100.64.0.0/10")
+    func rejectsCGNAT() {
+        #expect(RecipeURLFetcher.isPrivateHost("100.64.0.1"))
+        #expect(RecipeURLFetcher.isPrivateHost("100.100.50.50"))
+        #expect(RecipeURLFetcher.isPrivateHost("100.127.255.255"))
+        // Just outside the /10 — 100.63 and 100.128 are PUBLIC.
+        #expect(!RecipeURLFetcher.isPrivateHost("100.63.255.255"))
+        #expect(!RecipeURLFetcher.isPrivateHost("100.128.0.1"))
+    }
+
     @Test("accepts https public hosts")
     func acceptsPublicHTTPS() throws {
         let url = try RecipeURLFetcher.validatedURL("https://www.seriouseats.com/recipe")
@@ -91,6 +104,29 @@ struct RecipeURLFetcherGuardTests {
         #expect(throws: RecipeURLFetchError.self) {
             try RecipeURLFetcher.validatedURL("https://")
         }
+    }
+
+    // SP-C AI-2 review C1 — redirect re-validation. The production transport's
+    // URLSession delegate decides whether to follow each redirect hop by calling
+    // `validatedURL(newRequest.url)` and CANCELLING when it throws. This test exercises
+    // that decision directly: a public→private redirect target is rejected (delegate
+    // hands URLSession `nil`), a public→public one is accepted. The CGNAT hop is also
+    // rejected, confirming C2's guard applies to redirect targets too.
+    @Test("redirect-hop validation: private/CGNAT targets rejected, public accepted")
+    func redirectHopDecision() throws {
+        // A 30x to a private host must be rejected on the hop.
+        #expect(throws: RecipeURLFetchError.self) {
+            try RecipeURLFetcher.validatedURL("https://169.254.169.254/latest/meta-data/")
+        }
+        #expect(throws: RecipeURLFetchError.self) {
+            try RecipeURLFetcher.validatedURL("https://10.0.0.5/internal")
+        }
+        #expect(throws: RecipeURLFetchError.self) {
+            try RecipeURLFetcher.validatedURL("https://100.64.0.1/internal")
+        }
+        // A redirect to another public https host is allowed to proceed.
+        let ok = try RecipeURLFetcher.validatedURL("https://www.allrecipes.com/recipe/2")
+        #expect(ok.host == "www.allrecipes.com")
     }
 }
 

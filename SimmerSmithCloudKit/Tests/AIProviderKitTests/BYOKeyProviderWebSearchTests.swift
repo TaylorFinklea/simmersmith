@@ -186,6 +186,9 @@ func anthropicWebSearchRequestBody() async throws {
 
     let body = try bodyJSON(from: transport)
     #expect(body["model"] as? String == "claude-opus-4-5")
+    // SP-C AI-2 review I3: the web-search path caps at 4096 (recipe_search_ai.py:247),
+    // not the 8000 the week-planner path uses — one recipe fits, halving the max cost.
+    #expect(body["max_tokens"] as? Int == 4096)
 
     let tools = body["tools"] as? [[String: Any]]
     let tool = tools?.first

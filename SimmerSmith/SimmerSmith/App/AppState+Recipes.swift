@@ -1216,9 +1216,22 @@ extension AppState {
         let prompt = RecipeAIPrompt.suggestionPrompt(goal: goal, recentNames: Array(recentNames), unit: unit)
         let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
         let response = try await aiSvc.generate(request)
-        let wire = try RecipeAIParser.parseVariation(response.text)
-        let draft = recipeDraft(from: wire.recipe, source: "ai_suggestion", sourceURL: "", sourceLabelOverride: "")
-        return RecipeAIDraft(goal: goal, rationale: wire.rationale, draft: draft)
+        // SP-C AI-2 review I2: the prompt asks for the `{rationale, recipe}` envelope,
+        // but a model that returns a FLAT recipe object would otherwise throw
+        // `.invalidJSON`. Try the envelope first, then fall back to the flat
+        // `parseRecipe` shape (deriving an empty rationale) so a flat response still
+        // produces a usable draft instead of an error.
+        let recipe: RecipeAIRecipe
+        let rationale: String
+        if let envelope = try? RecipeAIParser.parseVariation(response.text) {
+            recipe = envelope.recipe
+            rationale = envelope.rationale
+        } else {
+            recipe = try RecipeAIParser.parseRecipe(response.text)
+            rationale = ""
+        }
+        let draft = recipeDraft(from: recipe, source: "ai_suggestion", sourceURL: "", sourceLabelOverride: "")
+        return RecipeAIDraft(goal: goal, rationale: rationale, draft: draft)
         #else
         return try await apiClient.generateRecipeSuggestionDraft(goal: goal)
         #endif

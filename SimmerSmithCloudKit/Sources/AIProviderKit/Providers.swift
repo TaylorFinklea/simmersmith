@@ -237,7 +237,10 @@ public struct BYOKeyProvider: AIProvider {
         }
         var body: [String: Any] = [
             "model": anthropicModel,
-            "max_tokens": 8000,
+            // recipe_search_ai.py:247 — the server's web-search path caps at 4096
+            // (one recipe fits comfortably); halve the max cost vs. the 8000 the
+            // week-planner path uses for a 21-meal plan.
+            "max_tokens": 4096,
             "tools": [["type": "web_search_20250305", "name": "web_search", "max_uses": 5]],
             "messages": [["role": "user", "content": request.prompt]],
         ]
