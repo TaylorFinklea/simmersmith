@@ -1,3 +1,4 @@
+import AuthenticationServices
 import EventKit
 import SwiftUI
 import UIKit
@@ -18,28 +19,13 @@ struct SettingsView: View {
     /// in the old Toggle.set was the trigger). Hosting the sheet on the
     /// top-level NavigationStack body avoids that race.
     @State private var showingReminderPicker = false
+    @State private var isTestingAIKey = false
+    @State private var aiKeyTestResult: String?
 
     var body: some View {
         @Bindable var appState = appState
 
         Form {
-            Section {
-                TextField("Server URL", text: $appState.serverURLDraft)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                SecureField("Bearer token", text: $appState.authTokenDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-
-                Button("Save Connection") {
-                    Task { await appState.saveConnectionDetails() }
-                }
-                .buttonStyle(.borderedProminent)
-            } header: {
-                SmithSectionHeader("server")
-            }
-
             Section {
                 Text(appState.syncStatusText)
                     .foregroundStyle(SMColor.textSecondary)
@@ -72,91 +58,78 @@ struct SettingsView: View {
 
             ForgeSection()
 
+            // SP-C AI-1: BYO-key AI settings section.
+            // Provider/model → private plane (KeychainKeyStore for the key).
+            // "Test key" validates via a cheap models-list call.
             Section {
-                if let capabilities = appState.aiCapabilities {
-                    if let target = capabilities.defaultTarget {
-                        LabeledContent("Default route") {
-                            Text(target.providerKind == "mcp" ? (target.mcpServerName ?? "MCP") : (target.providerName ?? "Direct"))
-                                .foregroundStyle(SMColor.textSecondary)
-                        }
-                    } else {
-                        Text(appState.assistantExecutionStatusText)
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    LabeledContent("Preferred mode") {
-                        Text(capabilities.preferredMode.capitalized)
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    LabeledContent("User override") {
-                        Text(capabilities.userOverrideConfigured ? "Configured" : "Not configured")
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                    ForEach(capabilities.availableProviders) { provider in
-                        LabeledContent(provider.label) {
-                            Text(provider.available ? provider.source.replacingOccurrences(of: "_", with: " ").capitalized : "Unavailable")
-                                .foregroundStyle(provider.available ? SMColor.textSecondary : SMColor.textTertiary)
-                        }
-                    }
-                } else {
-                    Text(appState.assistantExecutionStatusText)
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-
-                Picker("Preferred mode", selection: $appState.aiProviderModeDraft) {
-                    Text("Auto").tag("auto")
-                    Text("MCP").tag("mcp")
-                    Text("Direct").tag("direct")
-                }
-
-                Picker("Direct provider", selection: $appState.aiDirectProviderDraft) {
+                Picker("Provider", selection: $appState.aiDirectProviderDraft) {
                     Text("None").tag("")
                     Text("OpenAI").tag("openai")
                     Text("Anthropic").tag("anthropic")
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
-                    if !appState.selectedDirectProviderModels.isEmpty {
-                        Picker("Model", selection: $appState.selectedDirectProviderModelDraft) {
-                            ForEach(appState.selectedDirectProviderModels) { model in
-                                Text(model.displayName).tag(model.modelId)
-                            }
-                        }
-                    } else if let modelError = appState.selectedDirectProviderModelError {
-                        Text(modelError)
-                            .font(.footnote)
-                            .foregroundStyle(SMColor.textSecondary)
-                    } else {
-                        Text("Discovering available models for the selected provider…")
-                            .font(.footnote)
-                            .foregroundStyle(SMColor.textSecondary)
+                    // Model field: free-text so the user can pin any model.
+                    // The Fly model-discovery endpoint is no longer called in CK builds.
+                    @Bindable var bindable = appState
+                    switch appState.aiDirectProviderDraft {
+                    case "openai":
+                        TextField("OpenAI model (e.g. gpt-4o)", text: $bindable.aiOpenAIModelDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case "anthropic":
+                        TextField("Anthropic model (e.g. claude-opus-4-5)", text: $bindable.aiAnthropicModelDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    default:
+                        EmptyView()
                     }
 
-                    Button("Refresh Models") {
-                        Task { await appState.refreshAIModels(for: appState.aiDirectProviderDraft) }
+                    // Key status (read from Keychain — never from Fly).
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.aiDirectAPIKeyConfigured ? "key.fill" : "key.slash")
+                            .foregroundStyle(appState.aiDirectAPIKeyConfigured ? SMColor.success : SMColor.textTertiary)
+                            .imageScale(.small)
+                        Text(ckApiKeyStatusText)
+                            .font(.footnote)
+                            .foregroundStyle(appState.aiDirectAPIKeyConfigured ? SMColor.textSecondary : .orange)
                     }
-                }
 
-                SecureField(
-                    appState.aiDirectProviderDraft.isEmpty
-                        ? "New direct-provider API key"
-                        : "New \(appState.aiDirectProviderDraft.capitalized) API key",
-                    text: $appState.aiDirectAPIKeyDraft
-                )
+                    SecureField(
+                        "New \(appState.aiDirectProviderDraft.capitalized) API key",
+                        text: $bindable.aiDirectAPIKeyDraft
+                    )
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-
-                Text(apiKeyStatusText)
-                    .font(.footnote)
-                    .foregroundStyle(SMColor.textSecondary)
+                }
 
                 Button("Save AI Settings") {
                     Task { await appState.saveAISettings() }
                 }
 
-                Button("Clear Stored API Key", role: .destructive) {
-                    Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
+                    Button {
+                        Task { await runTestKey() }
+                    } label: {
+                        HStack {
+                            if isTestingAIKey { ProgressView().controlSize(.small) }
+                            Text(isTestingAIKey ? "Testing…" : "Test Key")
+                        }
+                    }
+                    .disabled(isTestingAIKey)
                 }
-                .disabled(!appState.aiDirectAPIKeyConfigured)
+
+                if let result = aiKeyTestResult {
+                    Text(result)
+                        .font(.footnote)
+                        .foregroundStyle(result.contains("valid") ? SMColor.success : .red)
+                }
+
+                if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
+                    Button("Clear Stored API Key", role: .destructive) {
+                        Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                    }
+                }
 
                 NavigationLink {
                     HouseholdAliasesView()
@@ -184,6 +157,9 @@ struct SettingsView: View {
                 }
             } header: {
                 SmithSectionHeader("ai")
+            } footer: {
+                Text("Your API key is saved locally to this device's Keychain — it is never sent to SimmerSmith's servers or iCloud.")
+                    .font(.footnote)
             }
 
             AIUsageSection()
@@ -536,6 +512,15 @@ struct SettingsView: View {
                 }
             }
 
+            #if canImport(CloudKit)
+            if appState.householdSession != nil {
+                ImportWeeksSection()
+                ImportEventsSection()
+                ImportPantryProfileSection()
+                StartFreshSection()
+            }
+            #endif
+
             if DebugGate.showsCloudKitChecks {
                 Section {
                     NavigationLink {
@@ -551,9 +536,6 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .paperBackground()
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: appState.aiDirectProviderDraft) {
-            await appState.refreshAIModels(for: appState.aiDirectProviderDraft)
-        }
         .task {
             if appState.ingredientPreferences.isEmpty {
                 await appState.refreshIngredientPreferences()
@@ -591,14 +573,22 @@ struct SettingsView: View {
         .smithToolbar()
     }
 
-    private var apiKeyStatusText: String {
-        if appState.aiDirectProviderDraft.isEmpty {
-            return "Select a direct provider to save or clear that provider's server-side API key."
+    /// SP-C AI-1: Key status reads from Keychain (not Fly secretFlags).
+    private var ckApiKeyStatusText: String {
+        let provider = appState.aiDirectProviderDraft
+        guard !provider.isEmpty else {
+            return "Select a provider to manage its API key."
         }
-        if appState.aiDirectAPIKeyConfigured {
-            return "A \(appState.aiDirectProviderDraft.capitalized) API key is stored on the server. It cannot be read back in the app."
-        }
-        return "No \(appState.aiDirectProviderDraft.capitalized) API key is currently stored on the server."
+        return appState.aiDirectAPIKeyConfigured
+            ? "\(provider.capitalized) API key saved in this device's Keychain."
+            : "No \(provider.capitalized) API key saved yet. Enter your key above and tap Save."
+    }
+
+    private func runTestKey() async {
+        isTestingAIKey = true
+        aiKeyTestResult = nil
+        defer { isTestingAIKey = false }
+        aiKeyTestResult = await appState.testAIKey()
     }
 
     private func runImageBackfill() async {
@@ -1541,3 +1531,542 @@ private struct GrocerySection: View {
         }
     }
 }
+
+// MARK: - ImportWeeksSection (SP-C slice 3)
+
+/// Settings section for the one-shot "Import my weeks from the old app" trigger.
+///
+/// Shows a `SignInWithAppleButton` to obtain a Fly JWT, then calls
+/// `AppState.importWeeksFromFly(appleIdentityToken:)`. The section is only rendered
+/// once a CloudKit household session is live (caller guard) and collapses to a
+/// "Already imported" label once the `migrated:weeks` receipt is stamped.
+///
+/// The Apple sign-in is purely an auth mechanism here — it does NOT change the
+/// everyday identity (CloudKit is the identity). The JWT is a one-shot credential
+/// to call the Fly /api/weeks endpoint; it is discarded after the import completes.
+#if canImport(CloudKit)
+private struct ImportWeeksSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.weekImportState {
+            case .alreadyImported:
+                Label("Weeks already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Weeks imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing weeks…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                importButton
+
+            case .idle:
+                importButton
+            }
+        } header: {
+            SmithSectionHeader("import history")
+        } footer: {
+            if appState.weekImportState == .idle || appState.weekImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your week plans and grocery lists from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshWeekImportState()
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.weekImportState == .running)
+        // The button's system label ("Sign in with Apple") is contextually explained
+        // by the section header ("import history") and footer text above, so no
+        // custom label is needed.
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.weekImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importWeeksFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.weekImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.WeekImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - ImportEventsSection (SP-C slice 4)
+
+/// Settings section for the one-shot "Import my events + guests from the old app" trigger.
+///
+/// Mirrors `ImportWeeksSection` exactly, bound to `eventImportState` / `importEventsFromFly` /
+/// `refreshEventImportState`. GATED on the weeks import having run first: migrated event-grocery
+/// rows point at week GroceryItem records the WEEKS migration creates, so until the
+/// `migrated:weeks` receipt is present the import button is replaced by an "import weeks first"
+/// disabled prompt.
+private struct ImportEventsSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.eventImportState {
+            case .alreadyImported:
+                Label("Events already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Events imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing events…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                gatedImportControl
+
+            case .idle:
+                gatedImportControl
+            }
+        } header: {
+            SmithSectionHeader("import events")
+        } footer: {
+            if !appState.weeksImportComplete {
+                Text("Import your weeks first — event grocery lists merge into your weekly lists, so the weeks need to be in place before events are imported.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            } else if appState.eventImportState == .idle || appState.eventImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your events, guests, and event grocery lists from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshEventImportState()
+        }
+    }
+
+    /// The import control, gated on the weeks import having completed. Until then it shows a
+    /// disabled "import weeks first" label instead of the Apple sign-in button.
+    @ViewBuilder
+    private var gatedImportControl: some View {
+        if appState.weeksImportComplete {
+            importButton
+        } else {
+            Label("Import weeks first", systemImage: "lock.fill")
+                .foregroundStyle(SMColor.textTertiary)
+                .font(SMFont.subheadline)
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.eventImportState == .running)
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.eventImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importEventsFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.eventImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.EventImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - ImportPantryProfileSection (SP-C slice 5)
+
+/// Settings section for the one-shot "Import my pantry + profile + prefs" trigger.
+///
+/// Mirrors `ImportWeeksSection` / `ImportEventsSection` in structure. Bound to
+/// `pantryProfileImportState` / `importPantryProfileFromFly` / `refreshPantryProfileImportState`.
+///
+/// Receipt is a PRIVATE-PLANE receipt (not a household zone receipt) because the profile
+/// and ingredient-preference data is per-user (private plane), not household-shared.
+/// The migration also writes pantry items and aliases to the household zone, but the
+/// private-plane receipt is the single gate for the whole bundle.
+private struct ImportPantryProfileSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Section {
+            switch appState.pantryProfileImportState {
+            case .alreadyImported:
+                Label("Pantry & profile already imported", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .font(SMFont.subheadline)
+
+            case .done:
+                Label("Pantry & profile imported successfully", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(SMColor.textPrimary)
+                    .font(SMFont.subheadline)
+
+            case .running:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text("Importing pantry & profile…")
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Import failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                importButton
+
+            case .idle:
+                importButton
+            }
+        } header: {
+            SmithSectionHeader("import pantry & profile")
+        } footer: {
+            if appState.pantryProfileImportState == .idle || appState.pantryProfileImportState.isFailed {
+                Text("Sign in with your Apple ID to pull your pantry items, dietary goal, ingredient preferences, and household term aliases from the previous app version. This runs once and is receipt-gated — safe to retry.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
+        }
+        .onAppear {
+            appState.refreshPantryProfileImportState()
+        }
+    }
+
+    private var importButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.pantryProfileImportState == .running)
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.pantryProfileImportState = .failed("Could not read Apple identity token.")
+                return
+            }
+            await appState.importPantryProfileFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.pantryProfileImportState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.PantryProfileImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - StartFreshSection (SP-C factory-reset)
+
+/// Destructive "Start Fresh from Fly" Settings section.
+///
+/// Explains that the action WIPES all CloudKit household data then re-imports
+/// everything from Fly. A `.confirmationDialog` is presented before the Apple
+/// sign-in button appears, so the user must explicitly acknowledge the wipe.
+///
+/// Auth pattern mirrors `ImportWeeksSection` exactly: the Apple identity token
+/// is exchanged for a one-shot Fly JWT, the orchestration runs under that JWT,
+/// then the JWT is discarded. The wipe never starts until the exchange succeeds
+/// (auth-first ordering, spec §3 step 1).
+private struct StartFreshSection: View {
+    @Environment(AppState.self) private var appState
+
+    /// Whether the user has acknowledged the confirmation dialog and the Apple
+    /// sign-in button should now be shown.
+    @State private var showingSignIn = false
+    /// Whether the confirmation dialog is currently presented.
+    @State private var showingConfirmation = false
+
+    var body: some View {
+        Section {
+            switch appState.startFreshState {
+            case .running(let progress):
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text(progress)
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .done(let result):
+                resultView(result)
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Reset failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                resetControl
+
+            case .idle:
+                resetControl
+            }
+        } header: {
+            SmithSectionHeader("danger zone")
+        } footer: {
+            switch appState.startFreshState {
+            case .idle, .failed:
+                Text("This deletes ALL your CloudKit household data on this account and re-imports everything fresh from Fly. Use this if your data looks wrong or duplicated. Your Fly data is never deleted — only the CloudKit copy is wiped.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            default:
+                EmptyView()
+            }
+        }
+        .confirmationDialog(
+            "Start Fresh from Fly?",
+            isPresented: $showingConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Erase & Re-import", role: .destructive) {
+                showingSignIn = true
+            }
+            Button("Cancel", role: .cancel) {
+                showingSignIn = false
+            }
+        } message: {
+            Text("This will permanently delete all your CloudKit households and re-import your data from Fly. You cannot undo the CloudKit wipe. Your Fly data is safe.")
+        }
+    }
+
+    /// The control shown in `.idle` and `.failed` states: a destructive trigger
+    /// button that raises the confirmation dialog, then (after confirmation) the
+    /// Apple sign-in button.
+    @ViewBuilder
+    private var resetControl: some View {
+        if showingSignIn {
+            signInButton
+        } else {
+            Button(role: .destructive) {
+                showingConfirmation = true
+            } label: {
+                Label("Start Fresh from Fly", systemImage: "arrow.counterclockwise.circle")
+            }
+            .disabled(appState.startFreshState.isRunning)
+        }
+    }
+
+    private var signInButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.startFreshState.isRunning)
+    }
+
+    @ViewBuilder
+    private func resultView(_ result: AppState.StartFreshResult) -> some View {
+        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            Label("Re-import complete", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(SMColor.success)
+                .font(SMFont.subheadline)
+
+            let deletedCount = result.deletedHouseholdIDs.count
+            LabeledContent("Zones cleared") {
+                Text("\(deletedCount)")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .monospacedDigit()
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Recipes") {
+                Text(result.recipesImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.recipesImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Weeks") {
+                Text(result.weeksImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.weeksImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Events") {
+                Text(result.eventsImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.eventsImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Pantry & Profile") {
+                Text(result.pantryProfileImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.pantryProfileImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            if let newID = result.newHouseholdID {
+                LabeledContent("New household") {
+                    Text(String(newID.prefix(8)) + "…")
+                        .foregroundStyle(SMColor.textSecondary)
+                        .monospacedDigit()
+                }
+                .font(SMFont.caption)
+            }
+
+            if !result.warnings.isEmpty {
+                ForEach(result.warnings, id: \.self) { warning in
+                    Text("⚠︎ \(warning)")
+                        .font(SMFont.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.startFreshState = .failed("Could not read Apple identity token.")
+                return
+            }
+            showingSignIn = false
+            await appState.startFreshFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.startFreshState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.StartFreshState {
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+#endif

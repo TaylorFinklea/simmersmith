@@ -1,36 +1,58 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+#endif
 
-/// M28 — pantry state + helpers.
+/// SP-C slice 5 — pantry state delegated to PantryRepository (household zone).
 ///
-/// Pantry items live on `AppState.pantryItems` once the user opens
-/// the Pantry view. Mutations call the dedicated PATCH-by-id
-/// endpoints so recurring metadata + last_applied_at survive across
-/// edits (the legacy `PUT /api/profile` staple flow recreates rows
-/// by name, which would lose those columns).
+/// `AppState.pantryItems` is an @Observable stored property that views bind to.
+/// Each method delegates to `pantryRepository` when the CloudKit session is ready,
+/// then mirrors the repo's in-memory list onto `pantryItems` so views update.
+///
+/// The `addPantryItem(_ body:)` overload accepting a Fly `PantryItemAddBody` is
+/// preserved for call sites (SaveLeftoversToFreezerSheet, PantryItemEditorSheet)
+/// that pre-date the CloudKit repo. It maps the body to the repo's parameters.
 extension AppState {
+
+    // MARK: - Read
+
     func loadPantryItems() async {
-        do {
-            pantryItems = try await apiClient.fetchPantryItems()
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = pantryRepository else { return }
+        repo.loadPantryItems()
+        pantryItems = repo.pantryItems
+        #endif
     }
 
+    // MARK: - Add
+
+    /// Add a pantry item via the repo.
     func addPantryItem(_ body: SimmerSmithAPIClient.PantryItemAddBody) async {
-        do {
-            let added = try await apiClient.addPantryItem(body: body)
-            pantryItems.append(added)
-            pantryItems.sort(by: { $0.stapleName.lowercased() < $1.stapleName.lowercased() })
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = pantryRepository else { return }
+        repo.addPantryItem(
+            stapleName: body.stapleName,
+            normalizedName: body.normalizedName,
+            notes: body.notes,
+            isActive: body.isActive,
+            typicalQuantity: body.typicalQuantity,
+            typicalUnit: body.typicalUnit,
+            recurringQuantity: body.recurringQuantity,
+            recurringUnit: body.recurringUnit,
+            recurringCadence: body.recurringCadence,
+            category: body.category,
+            categories: body.categories,
+            frozenAt: body.frozenAt
+        )
+        pantryItems = repo.pantryItems
+        #endif
     }
 
-    /// Build 88: quick-add an ingredient to the pantry from a grocery
-    /// or plan-shopping row. Skips if a pantry item with the same
-    /// normalized name already exists. Returns `true` when a new row
-    /// was created so callers can show "Added to pantry" feedback.
+    // MARK: - Quick-add
+
+    /// Quick-add an ingredient to the pantry from a grocery or plan-shopping row.
+    /// Dedupes by normalizedName — returns `true` when a new row was created.
     @discardableResult
     func quickAddIngredientToPantry(
         name: String,
@@ -38,66 +60,65 @@ extension AppState {
         unit: String = "",
         normalizedNameHint: String = ""
     ) async -> Bool {
-        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedName.isEmpty else { return false }
-        let normalized = normalizedNameHint.isEmpty
-            ? cleanedName.lowercased()
-            : normalizedNameHint.lowercased()
-        if pantryItems.isEmpty {
-            await loadPantryItems()
-        }
-        if pantryItems.contains(where: {
-            $0.normalizedName.lowercased() == normalized
-                || $0.stapleName.lowercased() == cleanedName.lowercased()
-        }) {
-            return false
-        }
-        let body = SimmerSmithAPIClient.PantryItemAddBody(
-            stapleName: cleanedName,
-            normalizedName: normalized,
+        #if canImport(CloudKit)
+        guard let repo = pantryRepository else { return false }
+        let added = repo.quickAddIngredientToPantry(
+            name: name,
             category: category,
-            categories: category.isEmpty ? [] : [category]
+            unit: unit,
+            normalizedNameHint: normalizedNameHint
         )
-        let before = pantryItems.count
-        await addPantryItem(body)
-        return pantryItems.count > before
+        pantryItems = repo.pantryItems
+        return added
+        #else
+        return false
+        #endif
     }
+
+    // MARK: - Patch
 
     func patchPantryItem(itemID: String, body: SimmerSmithAPIClient.PantryItemPatchBody) async {
-        do {
-            let updated = try await apiClient.patchPantryItem(itemID: itemID, body: body)
-            if let idx = pantryItems.firstIndex(where: { $0.pantryItemId == itemID }) {
-                pantryItems[idx] = updated
-            } else {
-                pantryItems.append(updated)
-            }
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = pantryRepository else { return }
+        repo.patchPantryItem(
+            itemID: itemID,
+            stapleName: body.stapleName,
+            notes: body.notes,
+            isActive: body.isActive,
+            typicalQuantity: body.typicalQuantity.map { .set($0) } ?? (body.clearTypicalQuantity == true ? .clear : nil),
+            typicalUnit: body.typicalUnit,
+            recurringQuantity: body.recurringQuantity.map { .set($0) } ?? (body.clearRecurringQuantity == true ? .clear : nil),
+            recurringUnit: body.recurringUnit,
+            recurringCadence: body.recurringCadence,
+            category: body.category,
+            categories: body.categories,
+            frozenAt: body.frozenAt.map { .set($0) } ?? (body.clearFrozenAt == true ? .clear : nil)
+        )
+        pantryItems = repo.pantryItems
+        #endif
     }
+
+    // MARK: - Delete (soft)
 
     func deletePantryItem(itemID: String) async {
-        do {
-            try await apiClient.deletePantryItem(itemID: itemID)
-            pantryItems.removeAll(where: { $0.pantryItemId == itemID })
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let repo = pantryRepository else { return }
+        repo.deletePantryItem(itemID: itemID)
+        pantryItems = repo.pantryItems
+        #endif
     }
 
-    /// Apply pantry recurrings to the given week and refresh both the
-    /// pantry list (last_applied_at moved) and the week (new grocery
-    /// rows landed). Wired to a manual "Apply to this week" button so
-    /// users can force a re-fold without waiting for the next regen.
+    // MARK: - Apply recurrings
+
+    /// Fold recurring pantry items into the current week's grocery list.
+    /// Delegates to PantryRepository.applyPantryToCurrentWeek.
     func applyPantryToCurrentWeek() async {
-        guard let weekID = currentWeek?.weekId else { return }
-        do {
-            pantryItems = try await apiClient.applyPantryToWeek(weekID: weekID)
-            let week = try await apiClient.fetchWeek(weekID: weekID)
-            currentWeek = week
-            try? cacheStore.saveCurrentWeek(week)
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        #if canImport(CloudKit)
+        guard let weekID = currentWeek?.weekId,
+              let pantryRepo = pantryRepository,
+              let groceryRepo = groceryRepository else { return }
+        pantryRepo.applyPantryToCurrentWeek(weekID: weekID, groceryRepository: groceryRepo)
+        pantryItems = pantryRepo.pantryItems
+        #endif
     }
 }

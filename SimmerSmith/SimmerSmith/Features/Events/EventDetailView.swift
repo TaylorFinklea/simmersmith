@@ -40,7 +40,8 @@ struct EventDetailView: View {
                     autoMergeRow(for: event)
                     generateSection
                     menuSection(for: event)
-                    pantrySupplementsSection(for: event)
+                    // SP-C slice 4: Pantry supplement section HIDDEN — deferred to Pantry
+                    // slice (slice 5). pantrySupplementsSection(for: event)
                     guestsBringingSection(for: event)
                     if !event.groceryItems.isEmpty {
                         grocerySection(for: event)

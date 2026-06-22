@@ -21,6 +21,27 @@ import Testing
     #expect(migrateEventGroceryItem(["total_quantity": NSNumber(value: 1)]) == nil)   // no id -> nil
 }
 
+// C3 (review) — the event migration must populate normalized_name (computed via
+// GroceryNormalize.name, the SAME function EventGroceryGenerator uses) so migrated event rows
+// match the week's rows by name when there's no baseIngredientID. A migrated row carrying an
+// empty normalizedName would spawn spurious event-only week rows instead of contributing
+// eventQuantity. EventMigrationLoader can't run headless (app target), but the transform +
+// normalization it relies on are pure: feed a row the way the loader now builds it.
+@Test func migrateEventGroceryItem_normalizedNameIsNonEmptyAndMatchesGenerator() {
+    let ingredientName = "Roma Tomatoes & Basil"
+    // EventMigrationLoader computes normalized_name = GroceryNormalize.name(ingredientName).
+    let computed = GroceryNormalize.name(ingredientName)
+    let row: [String: Any] = [
+        "id": "EG1", "ingredient_name": ingredientName, "normalized_name": computed,
+        "unit": "cup", "total_quantity": NSNumber(value: 2)]
+    let got = migrateEventGroceryItem(row)
+    #expect(got?.normalizedName.isEmpty == false)
+    // Matches what EventGroceryGenerator emits for the same name (event_grocery.py:98 —
+    // GroceryNormalize.name(normalized_name or ingredient_name)).
+    #expect(got?.normalizedName == GroceryNormalize.name(ingredientName))
+    #expect(got?.normalizedName == "roma tomatoes and basil")
+}
+
 @Test func migrateEvent_autoMergeDefaultsTrueAndBoolFromInt() {
     let full: [String: Any] = ["id": "EV1", "name": "Party", "event_date": "2026-07-04",
         "linked_week_id": "W1", "manually_merged": NSNumber(value: 1), "auto_merge_grocery": NSNumber(value: 0),

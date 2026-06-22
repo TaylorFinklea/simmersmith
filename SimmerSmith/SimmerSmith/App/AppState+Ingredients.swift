@@ -202,7 +202,19 @@ extension AppState {
         try await apiClient.resolveIngredient(ingredient)
     }
 
+    // SP-C slice 5 — ingredient preferences now route through PreferenceRepository
+    // (private plane, NSPCKC). The Fly path is retained as a pre-session fallback
+    // only; once the CloudKit session is active the repo is the source of truth.
+
     func refreshIngredientPreferences() async {
+        #if canImport(CloudKit)
+        if let repo = preferenceRepository {
+            repo.reload()
+            ingredientPreferences = repo.preferences
+            return
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session).
         guard hasSavedConnection else { return }
         do {
             ingredientPreferences = try await apiClient.fetchIngredientPreferences()
@@ -221,6 +233,44 @@ extension AppState {
         notes: String = "",
         rank: Int = 1
     ) async throws -> IngredientPreference {
+        #if canImport(CloudKit)
+        if let repo = preferenceRepository {
+            // Build a transient IngredientPreference via JSON round-trip
+            // (IngredientPreference has no memberwise init — decoder-only).
+            let prefID = preferenceID ?? ""
+            var dict: [String: Any] = [
+                "preferenceId": prefID,
+                "baseIngredientId": baseIngredientID,
+                "baseIngredientName": "",
+                "preferredBrand": preferredBrand,
+                "choiceMode": choiceMode,
+                "active": active,
+                "notes": notes,
+                "rank": rank,
+                "updatedAt": ISO8601DateFormatter().string(from: Date()),
+            ]
+            if let varID = preferredVariationID { dict["preferredVariationId"] = varID }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard
+                let data = try? JSONSerialization.data(withJSONObject: dict),
+                let preference = try? decoder.decode(IngredientPreference.self, from: data)
+            else {
+                throw NSError(
+                    domain: "SimmerSmith.PreferenceRepository",
+                    code: 422,
+                    userInfo: [NSLocalizedDescriptionKey: "Could not build preference object."]
+                )
+            }
+            let mintedID = repo.upsert(preference)
+            repo.reload()
+            ingredientPreferences = repo.preferences
+            // Return the upserted preference with the minted ID, or the transient one.
+            let finalID = mintedID ?? prefID
+            return repo.preferences.first(where: { $0.preferenceId == finalID }) ?? preference
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session).
         let preference = try await apiClient.upsertIngredientPreference(
             preferenceID: preferenceID,
             baseIngredientID: baseIngredientID,

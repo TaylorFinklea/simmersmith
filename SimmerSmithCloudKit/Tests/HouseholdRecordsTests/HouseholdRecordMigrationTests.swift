@@ -184,6 +184,45 @@ import CloudKit
     #expect(HouseholdRecordType.weekChangeBatch.refs.first?.kind == .cascadeParent)
 }
 
+// MARK: SP-C Task 2 — .weekMealSide manifest type
+
+@Test func migrateWeekMealSide_cascadeWeekMealSetNullRecipe() {
+    let row: [String: Any] = [
+        "id": "S1",
+        "week_meal_id": "M1",
+        "recipe_id": "R1",
+        "recipe_name": "Guac",
+        "name": "Guacamole",
+        "notes": "extra lime",
+        "sort_order": NSNumber(value: 1),
+        "created_at": "2026-06-29T10:00:00Z",
+        "updated_at": "2026-06-29T11:00:00Z",
+    ]
+    let v = migrateHouseholdRecord(.weekMealSide, row)!
+    #expect(v.recordName == "S1")
+    #expect(v.scalars["name"] == .string("Guacamole"))
+    #expect(v.scalars["recipeName"] == .string("Guac"))
+    #expect(v.scalars["notes"] == .string("extra lime"))
+    #expect(v.scalars["sortOrder"] == .int(1))
+    #expect(v.refs["weekMeal"] == "M1")   // cascadeParent
+    #expect(v.refs["recipe"] == "R1")     // setNullInZone
+    // Verify ref kinds round-trip through the codec.
+    let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefaultName)
+    let rec = HouseholdRecordCodec.encode(v, zoneID: zoneID)
+    #expect((rec["weekMeal"] as? CKRecord.Reference)?.action == .deleteSelf)             // CASCADE
+    #expect((rec["recipe"] as? CKRecord.Reference)?.action == CKRecord.ReferenceAction.none) // SET-NULL
+    // Dates parsed.
+    #expect({ if case .date? = v.scalars["createdAt"] { return true }; return false }())
+    #expect({ if case .date? = v.scalars["updatedAt"] { return true }; return false }())
+}
+
+@Test func migrateWeekMealSide_noRecipeIsAbsent() {
+    let v = migrateHouseholdRecord(.weekMealSide, [
+        "id": "S2", "week_meal_id": "M1", "name": "Rice", "sort_order": NSNumber(value: 0)])
+    #expect(v?.refs["recipe"] == nil)
+    #expect(v?.scalars["recipeName"] == nil)
+}
+
 // MARK: Task 4b — ManagedListItem household type (det key, scalars, no refs)
 
 @Test func migrateManagedListItem_detKeyAndScalars() {
@@ -208,6 +247,88 @@ import CloudKit
     // missing identity (kind or name absent) → nil
     #expect(migrateHouseholdRecord(.managedListItem, ["kind": "cuisine"]) == nil)   // no name
     #expect(migrateHouseholdRecord(.managedListItem, ["name": "Italian"]) == nil)   // no kind
+}
+
+// MARK: SP-C Task 1 — .pantryItem manifest type (household zone)
+
+@Test func migratePantryItem_scalarsNullAndCategories() {
+    let row: [String: Any] = [
+        "id": "P1",
+        "staple_name": "Olive Oil",
+        "normalized_name": "olive oil",
+        "notes": "extra virgin",
+        "is_active": NSNumber(value: true),
+        "typical_quantity": NSNumber(value: 1.0),
+        "typical_unit": "bottle",
+        "recurring_quantity": NSNumber(value: 1.0),
+        "recurring_unit": "bottle",
+        "recurring_cadence": "monthly",
+        "category": "oils",
+        "categories": "[\"oils\",\"condiments\"]",
+        "last_applied_at": "2026-06-01T09:00:00Z",
+        "frozen_at": NSNull(),                          // explicit null → absent
+        "created_at": "2026-06-01T09:00:00Z",
+        "updated_at": "2026-06-18T10:00:00Z",
+    ]
+    let v = migrateHouseholdRecord(.pantryItem, row)
+    // recordName is .pk — the legacy UUID id
+    #expect(v?.recordName == "P1")
+    #expect(HouseholdRecordType.pantryItem.namePolicy == .pk)
+    // Scalar round-trip
+    #expect(v?.scalars["stapleName"] == .string("Olive Oil"))
+    #expect(v?.scalars["normalizedName"] == .string("olive oil"))
+    #expect(v?.scalars["notes"] == .string("extra virgin"))
+    #expect(v?.scalars["isActive"] == .bool(true))
+    #expect(v?.scalars["typicalQuantity"] == .double(1.0))
+    #expect(v?.scalars["typicalUnit"] == .string("bottle"))
+    #expect(v?.scalars["recurringQuantity"] == .double(1.0))
+    #expect(v?.scalars["recurringUnit"] == .string("bottle"))
+    #expect(v?.scalars["recurringCadence"] == .string("monthly"))
+    #expect(v?.scalars["category"] == .string("oils"))
+    // categories: stored as JSON-array string (same pattern as Recipe.tags)
+    #expect(v?.scalars["categories"] == .string("[\"oils\",\"condiments\"]"))
+    // dates parsed
+    #expect({ if case .date? = v?.scalars["lastAppliedAt"] { return true }; return false }())
+    #expect({ if case .date? = v?.scalars["createdAt"] { return true }; return false }())
+    #expect({ if case .date? = v?.scalars["updatedAt"] { return true }; return false }())
+    // NSNull → absent
+    #expect(v?.scalars["frozenAt"] == nil)
+    // no refs
+    #expect(v?.refs.isEmpty == true)
+    #expect(HouseholdRecordType.pantryItem.refs.isEmpty)
+}
+
+@Test func migratePantryItem_categoriesSerializationRoundTrip() {
+    // Verify the JSON-array string encodes through codec and decodes back intact.
+    let categoriesJSON = "[\"produce\",\"pantry\"]"
+    let row: [String: Any] = [
+        "id": "P2",
+        "staple_name": "Garlic",
+        "is_active": NSNumber(value: 1),
+        "categories": categoriesJSON,
+    ]
+    let v = migrateHouseholdRecord(.pantryItem, row)!
+    #expect(v.scalars["categories"] == .string(categoriesJSON))
+    // Codec round-trip preserves the JSON string verbatim.
+    let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: CKCurrentUserDefaultName)
+    let rec = HouseholdRecordCodec.encode(v, zoneID: zoneID)
+    let back = HouseholdRecordCodec.decode(rec, as: .pantryItem)
+    #expect(back.scalars["categories"] == .string(categoriesJSON))
+}
+
+@Test func migratePantryItem_missingIdReturnsNil() {
+    // .pk policy → nil when id is absent or empty
+    #expect(migrateHouseholdRecord(.pantryItem, ["staple_name": "Salt"]) == nil)
+    #expect(migrateHouseholdRecord(.pantryItem, ["id": ""]) == nil)
+    #expect(migrateHouseholdRecord(.pantryItem, ["id": NSNull()]) == nil)
+}
+
+@Test func migratePantryItem_minimalRowIsValid() {
+    // Only id required (all other fields optional per spec)
+    let v = migrateHouseholdRecord(.pantryItem, ["id": "P3"])
+    #expect(v?.recordName == "P3")
+    #expect(v?.scalars.isEmpty == true)
+    #expect(v?.refs.isEmpty == true)
 }
 
 // MARK: full migrate → encode → decode round-trip (headless CloudKit)

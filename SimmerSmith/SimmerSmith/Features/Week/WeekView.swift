@@ -67,6 +67,12 @@ struct WeekView: View {
     // Rebalance-this-day
     @State private var rebalancingDayKey: String?
 
+    // SP-C AI-1: direct week generation (BYO-key, no Smith tab required).
+    @State private var isGeneratingWeek = false
+    @State private var showingAIKeyPrompt = false
+    @State private var generateWeekPrompt: String = ""
+    @State private var showingGenerateWeekInput = false
+
     private var displayedWeek: WeekSnapshot? {
         if displayedWeekStart != nil {
             return appState.browsedWeek ?? appState.currentWeek
@@ -405,6 +411,25 @@ struct WeekView: View {
                     totals: day.totals
                 )
             }
+        }
+        // SP-C AI-1: no-key prompt — directs user to Settings → AI.
+        .alert("Add an AI Key to Generate Your Week", isPresented: $showingAIKeyPrompt) {
+            Button("Open Settings") { showingSettings = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Week generation uses your own OpenAI or Anthropic key. Open Settings → AI to add one — it stays on this device, never sent to SimmerSmith.")
+        }
+        // SP-C AI-1: prompt input before generating.
+        .alert("Generate Week", isPresented: $showingGenerateWeekInput) {
+            TextField("Any requests? (optional)", text: $generateWeekPrompt)
+            Button("Generate") {
+                let prompt = generateWeekPrompt
+                generateWeekPrompt = ""
+                Task { await runGenerateWeek(prompt: prompt) }
+            }
+            Button("Cancel", role: .cancel) { generateWeekPrompt = "" }
+        } message: {
+            Text("Describe your week, or leave blank for a balanced plan.")
         }
         .task {
             await loadAvailableWeeks()
@@ -1053,14 +1078,76 @@ struct WeekView: View {
                 Text("No Week Yet")
                     .font(SMFont.headline)
                     .foregroundStyle(SMColor.textPrimary)
-                Text("Tap the sparkle button to chat with the AI and plan your first week.")
+                Text("Generate a full 7-day meal plan with AI, or add meals manually.")
                     .font(SMFont.body)
                     .foregroundStyle(SMColor.textSecondary)
                     .multilineTextAlignment(.center)
             }
+
+            // SP-C AI-1: generate-week entry on the empty state.
+            if appState.aiService != nil {
+                Button {
+                    if appState.aiDirectAPIKeyConfigured {
+                        showingGenerateWeekInput = true
+                    } else {
+                        showingAIKeyPrompt = true
+                    }
+                } label: {
+                    HStack(spacing: SMSpacing.sm) {
+                        if isGeneratingWeek {
+                            ProgressView().controlSize(.small).tint(.white)
+                            Text("Generating…")
+                        } else {
+                            Image(systemName: "sparkles")
+                            Text("Generate Week with AI")
+                        }
+                    }
+                    .font(SMFont.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, SMSpacing.xl)
+                    .padding(.vertical, SMSpacing.md)
+                    .background(SMColor.ember, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isGeneratingWeek)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, SMSpacing.xxl)
+    }
+
+    // MARK: - SP-C AI-1: Week generation
+
+    /// Generate a 21-meal week on-device via the user's BYO key.
+    /// Creates the week record if one doesn't exist yet for the displayed
+    /// week-start, then calls `generateWeekFromAI`. Surfaces errors via
+    /// `appState.lastErrorMessage` so the existing error banner handles them.
+    private func runGenerateWeek(prompt: String) async {
+        isGeneratingWeek = true
+        defer { isGeneratingWeek = false }
+
+        do {
+            // Resolve or create the target week.
+            let week: WeekSnapshot
+            if let existing = displayedWeek {
+                week = existing
+            } else {
+                // No week displayed — create one for today's Monday.
+                var cal = Calendar(identifier: .iso8601)
+                cal.timeZone = TimeZone(secondsFromGMT: 0)!
+                let today = cal.startOfDay(for: Date())
+                let weekday = cal.component(.weekday, from: today)
+                // .iso8601 weekday: 2=Mon … 1=Sun. Offset to Monday.
+                let daysToMon = (weekday == 1 ? -6 : 2 - weekday)
+                let monday = cal.date(byAdding: .day, value: daysToMon, to: today) ?? today
+                week = try await appState.createWeek(weekStart: monday)
+            }
+            let updated = try await appState.generateWeekFromAI(weekID: week.weekId, prompt: prompt)
+            if !isViewingCurrentWeek { appState.browsedWeek = updated }
+            await loadAvailableWeeks()
+        } catch {
+            appState.lastErrorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Approval Actions
@@ -1614,6 +1701,28 @@ struct WeekView: View {
                         Label(needsApproval ? "Approve all meals" : "All meals approved", systemImage: "checkmark.seal")
                     }
                     .disabled(!needsApproval || isApprovingAll)
+                }
+            }
+
+            // SP-C AI-1: week generation via BYO-key. Only in CloudKit
+            // mode (aiService present). Shows a key-setup prompt when no
+            // key is configured; otherwise opens the prompt input.
+            if appState.aiService != nil {
+                Section("AI") {
+                    Button {
+                        if appState.aiDirectAPIKeyConfigured {
+                            showingGenerateWeekInput = true
+                        } else {
+                            showingAIKeyPrompt = true
+                        }
+                    } label: {
+                        if isGeneratingWeek {
+                            Label("Generating week…", systemImage: "sparkles")
+                        } else {
+                            Label("Generate week with AI", systemImage: "sparkles")
+                        }
+                    }
+                    .disabled(isGeneratingWeek)
                 }
             }
 

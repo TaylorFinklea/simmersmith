@@ -478,7 +478,8 @@ struct GroceryView: View {
     private func dedupe() async {
         guard let weekID = appState.currentWeek?.weekId else { return }
         do {
-            _ = try await appState.apiClient.dedupeGrocery(weekID: weekID)
+            // SP-C: routed through AppState façade (closes the direct apiClient leak).
+            try await appState.dedupeGrocery(weekID: weekID)
             await appState.refreshWeek()
             await appState.syncGroceryToReminders()
         } catch {

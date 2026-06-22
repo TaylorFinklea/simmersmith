@@ -16,17 +16,6 @@
 	<string>SimmerSmith mirrors your household's grocery list to a Reminders list of your choosing so you can check items off while shopping.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>SimmerSmith mirrors your household's grocery list to a Reminders list of your choosing so you can check items off while shopping.</string>
-	<key>GIDClientID</key>
-	<string>463593575959-6u86n3qeqq6kf0717medmej9gne3jurg.apps.googleusercontent.com</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.463593575959-6u86n3qeqq6kf0717medmej9gne3jurg</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

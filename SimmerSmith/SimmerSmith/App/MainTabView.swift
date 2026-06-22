@@ -9,6 +9,8 @@ struct MainTabView: View {
 
         ZStack {
             TabView(selection: $appState.selectedTab) {
+                // SP-C slices 3 + 4: Week, Grocery, and Events are now CloudKit-backed.
+                // Smith (AI) remains coming-soon.
                 NavigationStack {
                     WeekView()
                 }
@@ -33,13 +35,16 @@ struct MainTabView: View {
                     Label("Grocery", systemImage: "cart")
                 }
 
-                EventsView()
-                    .tag(AppState.MainTab.events)
-                    .tabItem {
-                        Label("Events", systemImage: "party.popper")
-                    }
+                // SP-C slice 4: Events tab un-gated — CloudKit-backed.
+                NavigationStack {
+                    EventsView()
+                }
+                .tag(AppState.MainTab.events)
+                .tabItem {
+                    Label("Events", systemImage: "party.popper")
+                }
 
-                AssistantView()
+                comingSoon(feature: "Smith", tab: .assistant)
                     .tag(AppState.MainTab.assistant)
                     .tabItem {
                         Label("Smith", systemImage: "sparkles")
@@ -55,5 +60,12 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .environment(coordinator)
+    }
+
+    /// Returns `ComingSoonView` for features not yet cut over to CloudKit.
+    /// Slices 3 + 4 (Weeks + Grocery + Events) cut over — Smith remains here.
+    @ViewBuilder
+    private func comingSoon(feature: String, tab: AppState.MainTab) -> some View {
+        ComingSoonView(feature: feature)
     }
 }

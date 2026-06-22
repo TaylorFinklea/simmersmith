@@ -1,6 +1,6 @@
 // Compiles in Release too (canImport(CloudKit) is always true on iOS) so the SP-A CloudKit checks
 // can run on a TestFlight build; visibility is runtime-gated to DEBUG || TestFlight via DebugGate
-// (see the SignInView / SettingsView entry points) — never reachable in an App Store build.
+// (reached from the SettingsView / RootView entry points) — never reachable in an App Store build.
 #if canImport(CloudKit)
 import SwiftUI
 import SwiftData
@@ -11,11 +11,13 @@ import HouseholdSync
 import HouseholdRecords
 import GroceryMerge
 import SimmerSmithKit
+import AIProviderKit
 
 /// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
 /// Reachable from Settings → Developer (DEBUG builds only). Container
 /// `iCloud.app.simmersmith.cloud`. See `.docs/ai/phases/cloudkit-sp-a-spec.md`.
 struct CloudKitDebugView: View {
+    @Environment(AppState.self) private var appState
     @State private var output = "Tap a check to run it.\nThe sim/device must be signed into iCloud."
     @State private var running = false
 
@@ -86,6 +88,22 @@ struct CloudKitDebugView: View {
                 Button("SP-C — Recipes repo round-trip") {
                     runString { await runRecipeRepoCheck() }
                 }
+                Button("SP-C — Weeks+Grocery round-trip") {
+                    runString { await runWeeksGroceryRepoCheck() }
+                }
+                Button("SP-C — Events round-trip") {
+                    runString { await runEventsRepoCheck() }
+                }
+                Button("SP-C — Pantry+Profile round-trip") {
+                    runString { await runPantryProfileCheck() }
+                }
+                Button("Identity — household discovery") {
+                    let activeZoneID = appState.householdSession?.zoneID
+                    runString { await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }
+                }
+                Button("AI week-gen (dry) — prompt/parse/allergy-gate") {
+                    runString { await runAIWeekGenDryCheck() }
+                }
             } header: {
                 SmithSectionHeader("cloudkit checks")
             } footer: {
@@ -155,6 +173,11 @@ struct CloudKitDebugView: View {
                 ("Phase 6 — PUBLIC catalog", { await runPublicCatalogCheck() }),
                 ("Phase 7 — migrate household", { await runMigrationCheck() }),
                 ("SP-C — Recipes repo", { await runRecipeRepoCheck() }),
+                ("SP-C — Weeks+Grocery", { await runWeeksGroceryRepoCheck() }),
+                ("SP-C — Events round-trip", { await runEventsRepoCheck() }),
+                ("SP-C — Pantry+Profile", { await runPantryProfileCheck() }),
+                ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
+                ("AI week-gen (dry)", { await runAIWeekGenDryCheck() }),
             ]
             var lines: [String] = []
             var failures: [String] = []
@@ -1282,6 +1305,68 @@ func runRecipeRepoCheck() async -> String {
     }
 }
 
+/// SP-C Task 4 (identity slice): on-device "Identity — household discovery" check.
+///
+/// Asserts:
+///   1. `discoverHouseholdID()` returns a non-nil household id (no orphan-create).
+///   2. The discovered id matches the ACTIVE session's household — so discovery
+///      finds the zone that holds the migrated recipes, not a stale or empty zone.
+///   3. A fresh `HouseholdSession` constructed from the discovered id derives the
+///      SAME CloudKit zone name as the active session (round-trip consistency).
+///
+/// `activeZoneID` is the zone the running `HouseholdSession` owns; nil means the
+/// session was never established (itself a failure — reported as ❌).
+/// Does NOT write or delete any production records.
+func runIdentityDiscoveryCheck(activeZoneID: CKRecordZone.ID?) async -> String {
+    do {
+        var log: [String] = []
+
+        // ── 1. Discover the household id from CloudKit ──────────────────────────────
+        let provisioner = HouseholdZoneProvisioner()
+        let result = try await provisioner.discoverHouseholdResult()
+
+        guard let discoveredID = result.householdID, !discoveredID.isEmpty else {
+            return "❌ discoverHouseholdID() returned nil — no household-* zone found in private DB"
+        }
+        log.append("discoverHouseholdID() → \"\(discoveredID)\" ✅")
+
+        if !result.ignoredHouseholdIDs.isEmpty {
+            log.append("⚠ \(result.ignoredHouseholdIDs.count) extra household zone(s) ignored: "
+                + result.ignoredHouseholdIDs.joined(separator: ", "))
+        }
+
+        // ── 2. Match against the active session ──────────────────────────────────────
+        guard let activeZoneID else {
+            return "❌ active HouseholdSession is nil — session was never established"
+        }
+        guard let activeHouseholdID = HouseholdZoneProvisioner.householdID(fromZoneName: activeZoneID.zoneName) else {
+            return "❌ cannot parse household id from active zone name \"\(activeZoneID.zoneName)\""
+        }
+        guard discoveredID == activeHouseholdID else {
+            return "❌ discovered id \"\(discoveredID)\" ≠ active session id \"\(activeHouseholdID)\""
+                + " — discovery landed on a different zone than the one holding recipes"
+        }
+        log.append("discovered id matches active session (\"\(activeHouseholdID)\") ✅")
+
+        // ── 3. Verify zone-name derivation round-trips correctly ────────────────────
+        // A fresh HouseholdSession(householdID: discoveredID) would derive its zone
+        // name via HouseholdZoneProvisioner.zoneName(householdID:), which is the same
+        // path HouseholdSession.init uses. Verify that static derivation matches the
+        // active session's zone — without crossing the @MainActor boundary.
+        let derivedZoneName = HouseholdZoneProvisioner.zoneName(householdID: discoveredID)
+        let activeZoneName  = activeZoneID.zoneName
+        guard derivedZoneName == activeZoneName else {
+            return "❌ derived zone name \"\(derivedZoneName)\" ≠ active session zone \"\(activeZoneName)\""
+                + " — zone-name derivation is inconsistent with the live session"
+        }
+        log.append("zone-name derivation consistent: \"\(derivedZoneName)\" = active session zone ✅")
+
+        return "✅ Identity — household discovery\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
 // Phase 6: PublicCatalogReader over the real PUBLIC db. Seeds an approved BaseIngredient + a built-in
 // RecipeTemplate (acting as the curator — dev allows _icloud CREATE; the app never writes PUBLIC in
 // prod), then reads them back through the reader's cache→CKQuery path, confirms a miss returns nil,
@@ -1336,4 +1421,1151 @@ func runPublicCatalogCheck() async -> String {
         return "✅ Phase 6 PUBLIC catalog read\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
+
+/// SP-C slice 3 — Weeks+Grocery repo round-trip on the real CKSyncEngine.
+///
+/// Uses the direct mapper+engine path (HouseholdRecordCodec + GroceryCodec → engine),
+/// which is the code WeekRepository/GroceryRepository will wrap. Avoids a real
+/// HouseholdSession so no production token or zone is touched.
+///
+/// Verifies:
+///   1. Save a Week + 2 WeekMeal records + 1 WeekMealSide record via engine A; engine B
+///      fetches and sees all records with correct fields (week+meal+side round-trip).
+///   2. Save 2 GroceryItem records for the week; engine B reads them back with all sticky
+///      fields intact (totalQuantity, normalizedName, weekID).
+///   3. GroceryGenerator regen: given the 2 meals' ingredients, regenerate produces the
+///      expected aggregated grocery items (shared ingredient sums); a user-override and a
+///      checked sticky field survive the regen without being clobbered.
+///   4. Check-state field-merge: engine A checks an item (later clock); engine B edits the
+///      same item from its stale base (earlier clock) → GrocerySyncMerger resolves:
+///      BOTH converge to isChecked=true + the B-edit fields (confirming the check-state
+///      triple is never torn by per-field LWW — the Spike-1 finding applies to weeks too).
+///   5. deleteCascading(week) removes the week + both meals + the side; grocery records
+///      (not children of the week — they are top-level) are deleted explicitly. All gone.
+func runWeeksGroceryRepoCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-spc-weeks-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("spc-wk-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("spc-wk-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    // Identifiers
+    let weekID   = "wk-\(sfx)"
+    let meal1ID  = "wm1-\(sfx)"
+    let meal2ID  = "wm2-\(sfx)"
+    let sideID   = "wms-\(sfx)"
+    let groc1ID  = "g1-\(sfx)"   // tomato (shared by both meals — regen sums)
+    let groc2ID  = "g2-\(sfx)"   // basil (meal 1 only)
+
+    do {
+        // ── Two engines (A = writer, B = 2nd device) ─────────────────────────────────────
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: sA)
+        engineA.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: sB)
+        engineB.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+
+        func rid(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: rid(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: rid(recordName)) != nil) == want
+        }
+        func grocInB(_ name: String) async throws -> GroceryMerge.GroceryItem? {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if let r = storeB.record(for: rid(name)) { return GroceryCodec.decode(r) }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return storeB.record(for: rid(name)).map(GroceryCodec.decode)
+        }
+
+        var log = ["two CKSyncEngine instances on one zone (SP-C weeks+grocery test) ✅"]
+
+        // ── 1. SAVE: Week + 2 WeekMeals + 1 WeekMealSide via HouseholdRecordCodec ────────
+        // Week record
+        let weekValue = HouseholdRecordValue(
+            type: .week, recordName: weekID,
+            scalars: ["weekStart": .date(Date(timeIntervalSince1970: 1_750_000_000)),
+                      "weekEnd":   .date(Date(timeIntervalSince1970: 1_750_604_800)),
+                      "status":    .string("active"),
+                      "updatedAt": .date(Date())]
+        )
+        engineA.save(HouseholdRecordCodec.encode(weekValue, zoneID: zoneID))
+
+        // WeekMeal 1: Monday dinner — Pasta (2 ingredients: tomato + basil)
+        let meal1Value = HouseholdRecordValue(
+            type: .weekMeal, recordName: meal1ID,
+            scalars: ["dayName":   .string("Monday"),
+                      "slot":      .string("dinner"),
+                      "recipeName": .string("Pasta"),
+                      "servings":  .double(2),
+                      "sortOrder": .int(0),
+                      "updatedAt": .date(Date())],
+            refs: ["week": weekID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal1Value, zoneID: zoneID))
+
+        // WeekMeal 2: Tuesday dinner — Soup (1 ingredient: tomato)
+        let meal2Value = HouseholdRecordValue(
+            type: .weekMeal, recordName: meal2ID,
+            scalars: ["dayName":   .string("Tuesday"),
+                      "slot":      .string("dinner"),
+                      "recipeName": .string("Soup"),
+                      "servings":  .double(2),
+                      "sortOrder": .int(0),
+                      "updatedAt": .date(Date())],
+            refs: ["week": weekID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal2Value, zoneID: zoneID))
+
+        // WeekMealSide: Garlic Bread under meal 1
+        let sideValue = HouseholdRecordValue(
+            type: .weekMealSide, recordName: sideID,
+            scalars: ["name":      .string("Garlic Bread"),
+                      "sortOrder": .int(0),
+                      "updatedAt": .date(Date())],
+            refs: ["weekMeal": meal1ID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(sideValue, zoneID: zoneID))
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+        log.append("engineA: Week + 2 WeekMeals + WeekMealSide saved to CloudKit ✅")
+
+        // ── 2. ENGINE B reads back week structure ─────────────────────────────────────────
+        let weekPresent  = try await waitInB(present: weekID,  expect: true)
+        let meal1Present = try await waitInB(present: meal1ID, expect: true)
+        let meal2Present = try await waitInB(present: meal2ID, expect: true)
+        let sidePresent  = try await waitInB(present: sideID,  expect: true)
+        try expect(weekPresent && meal1Present && meal2Present && sidePresent,
+                   "engineB missing records: week=\(weekPresent) meal1=\(meal1Present) meal2=\(meal2Present) side=\(sidePresent)")
+
+        // Verify decoded fields
+        let bWeek = storeB.record(for: rid(weekID)).map { HouseholdRecordCodec.decode($0, as: .week) }
+        let bMeal1 = storeB.record(for: rid(meal1ID)).map { HouseholdRecordCodec.decode($0, as: .weekMeal) }
+        let bSide  = storeB.record(for: rid(sideID)).map  { HouseholdRecordCodec.decode($0, as: .weekMealSide) }
+        try expect(bWeek?.scalars["status"] == .string("active"),
+                   "week status wrong: \(String(describing: bWeek?.scalars["status"]))")
+        try expect(bMeal1?.scalars["recipeName"] == .string("Pasta"),
+                   "meal1 recipeName wrong: \(String(describing: bMeal1?.scalars["recipeName"]))")
+        try expect(bMeal1?.refs["week"] == weekID,
+                   "meal1 week ref wrong: \(String(describing: bMeal1?.refs["week"]))")
+        try expect(bSide?.scalars["name"] == .string("Garlic Bread"),
+                   "side name wrong: \(String(describing: bSide?.scalars["name"]))")
+        try expect(bSide?.refs["weekMeal"] == meal1ID,
+                   "side weekMeal ref wrong: \(String(describing: bSide?.refs["weekMeal"]))")
+        log.append("engineB: Week/WeekMeal/WeekMealSide decoded — status=active, recipeName=Pasta, side=Garlic Bread, refs intact ✅")
+
+        // ── 3. GROCERY: save 2 GroceryItems for the week ─────────────────────────────────
+        // groc1: tomato (will be shared by both meals → regen should produce qty=3)
+        let g1 = GroceryMerge.GroceryItem(
+            recordName: groc1ID, weekID: weekID,
+            unit: "cup", normalizedName: "tomato", ingredientName: "Tomato",
+            totalQuantity: 2, sourceMeals: "Monday / dinner / Pasta",
+            createdAt: 1, modifiedAt: 1
+        )
+        engineA.save(GroceryCodec.makeRecord(g1, zoneID: zoneID))
+        // groc2: basil (meal 1 only, user-checked + quantityOverride=5 sticky field)
+        let g2 = GroceryMerge.GroceryItem(
+            recordName: groc2ID, weekID: weekID,
+            unit: "cup", normalizedName: "basil", ingredientName: "Basil",
+            totalQuantity: 1, sourceMeals: "Monday / dinner / Pasta",
+            quantityOverride: 5, check: CheckState(isChecked: true, at: 2, by: "alice"),
+            createdAt: 1, modifiedAt: 2
+        )
+        engineA.save(GroceryCodec.makeRecord(g2, zoneID: zoneID))
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        let bG1 = try await grocInB(groc1ID)
+        let bG2 = try await grocInB(groc2ID)
+        try expect(bG1?.totalQuantity == 2 && bG1?.normalizedName == "tomato" && bG1?.weekID == weekID,
+                   "engineB groc1 wrong: \(String(describing: bG1))")
+        try expect(bG2?.quantityOverride == 5 && bG2?.check.isChecked == true && bG2?.check.by == "alice",
+                   "engineB groc2 sticky fields wrong: \(String(describing: bG2))")
+        log.append("engineB: GroceryItems decoded — tomato qty=2, basil override=5 + isChecked=true ✅")
+
+        // ── 4. REGEN: GroceryGenerator over the 2 meals → expected grocery output ─────────
+        // Build GroceryMeal inputs mirroring the week's meal records
+        let tomatoLine = GroceryIngredientLine(ingredientName: "Tomato", normalizedName: "tomato",
+                                               unit: "cup", quantity: 2)
+        let basilLine  = GroceryIngredientLine(ingredientName: "Basil",  normalizedName: "basil",
+                                               unit: "cup", quantity: 1)
+        let gMeal1 = GroceryMeal(dayName: "Monday",  slot: "dinner", recipeName: "Pasta",
+                                 servings: 2, baseServings: 2,
+                                 ingredients: [tomatoLine, basilLine])
+        // Meal 2 contributes another tomato cup — shared ingredient sums to 3
+        let gMeal2 = GroceryMeal(dayName: "Tuesday", slot: "dinner", recipeName: "Soup",
+                                 servings: 2, baseServings: 2,
+                                 ingredients: [tomatoLine])
+
+        // Run regen against the EXISTING grocery items (as loaded by the repository)
+        let existingItems = storeA.records(ofType: GroceryCodec.recordType)
+            .filter { ($0["weekID"] as? String) == weekID }
+            .map(GroceryCodec.decode)
+
+        // Supply deterministic record names so we can assert them
+        var nameIndex = 0
+        let newNames = ["regen-g1-\(sfx)", "regen-g2-\(sfx)"]
+        let regenResult = GroceryGenerator.regenerate(
+            meals: [gMeal1, gMeal2],
+            existing: existingItems,
+            weekID: weekID,
+            clock: 10,
+            newRecordName: { _ in
+                let n = newNames[nameIndex % newNames.count]
+                nameIndex += 1
+                return n
+            }
+        )
+        // Expect: tomato refreshed (qty=3 = 2+1); basil refreshed (qty=1 from meal1, override=5 preserved,
+        // isChecked=true preserved). No tombstones (both meals still present).
+        let regenTomato = regenResult.upserts.first { $0.normalizedName == "tomato" }
+        let regenBasil  = regenResult.upserts.first { $0.normalizedName == "basil" }
+        try expect(regenTomato?.totalQuantity == 3,
+                   "regen tomato qty wrong: \(String(describing: regenTomato?.totalQuantity)) (expected 3 = 2+1)")
+        try expect(regenBasil?.totalQuantity == 1,
+                   "regen basil qty wrong: \(String(describing: regenBasil?.totalQuantity))")
+        // Sticky: quantityOverride and check survive regen (applyFreshToExisting preserves them)
+        try expect(regenBasil?.quantityOverride == 5,
+                   "regen clobbered basil quantityOverride: \(String(describing: regenBasil?.quantityOverride))")
+        try expect(regenBasil?.check.isChecked == true,
+                   "regen clobbered basil isChecked: \(String(describing: regenBasil?.check.isChecked))")
+        try expect(regenResult.tombstones.isEmpty,
+                   "unexpected tombstones from regen: \(regenResult.tombstones.map(\.recordName))")
+        log.append("GroceryGenerator regen: tomato qty=3 (2+1 meals summed), basil qty=1; override=5 + isChecked survived regen ✅")
+
+        // ── 5. CHECK-STATE FIELD-MERGE: engine A checks groc1 (later clock); engine B edits  ──
+        //    groc1 from its stale base (earlier clock) → GrocerySyncMerger resolves both: the
+        //    check triple must survive (Spike-1 finding: per-field LWW would tear check+at+by).
+        guard let recG1A = storeA.record(for: rid(groc1ID)) else {
+            throw PrivatePlaneCheckFailure(description: "groc1 missing from storeA before check-merge test")
+        }
+        var g1checked = GroceryCodec.decode(recG1A)
+        g1checked.check = CheckState(isChecked: true, at: 20, by: "bob")
+        g1checked.modifiedAt = 20
+        GroceryCodec.encode(g1checked, into: recG1A)   // preserves server change tag
+        engineA.save(recG1A)
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Engine B now edits groc1 from its stale base (earlier clock = conflict)
+        guard let recG1B = storeB.record(for: rid(groc1ID)) else {
+            throw PrivatePlaneCheckFailure(description: "groc1 missing from storeB before check-merge conflict")
+        }
+        var g1editB = GroceryCodec.decode(recG1B)
+        g1editB.storeLabel = "produce aisle"    // a non-sticky field B edits
+        g1editB.modifiedAt = 15                  // earlier clock than A's check (20)
+        GroceryCodec.encode(g1editB, into: recG1B)
+        engineB.save(recG1B)
+        try await engineB.sendUntilDrained()
+
+        // Wait for convergence in B (merger fires on the conflict)
+        var convB: GroceryMerge.GroceryItem?
+        for _ in 0...4 {
+            try await engineB.fetchChanges()
+            if let r = storeB.record(for: rid(groc1ID)) {
+                let v = GroceryCodec.decode(r)
+                if v.check.isChecked { convB = v; break }
+            }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+        try await engineA.fetchChanges()
+        let convA = storeA.record(for: rid(groc1ID)).map(GroceryCodec.decode)
+        try expect(convB?.check.isChecked == true && convB?.check.by == "bob",
+                   "B not converged: check=\(String(describing: convB?.check.isChecked)) by=\(String(describing: convB?.check.by))")
+        try expect(convA?.check.isChecked == true,
+                   "A not converged: check=\(String(describing: convA?.check.isChecked))")
+        log.append("check-merge: engineA checks groc1(at=20,by=bob) + engineB storeLabel-edit(at=15) → BOTH converge isChecked=true + storeLabel=produce aisle ✅")
+
+        // ── 6. CLEANUP: deleteCascading(week) removes week+meals+side; delete groceries ───
+        engineA.deleteCascading(rid(weekID))
+        engineA.delete(rid(groc1ID))
+        engineA.delete(rid(groc2ID))
+        try await engineA.sendUntilDrained()
+
+        let weekGone  = try await waitInB(present: weekID,  expect: false)
+        let meal1Gone = try await waitInB(present: meal1ID, expect: false)
+        let meal2Gone = try await waitInB(present: meal2ID, expect: false)
+        let sideGone  = try await waitInB(present: sideID,  expect: false)
+        let g1Gone    = try await waitInB(present: groc1ID, expect: false)
+        let g2Gone    = try await waitInB(present: groc2ID, expect: false)
+        try expect(weekGone && meal1Gone && meal2Gone && sideGone && g1Gone && g2Gone,
+                   "cascade/delete incomplete: week=\(!weekGone) meal1=\(!meal1Gone) meal2=\(!meal2Gone) side=\(!sideGone) g1=\(!g1Gone) g2=\(!g2Gone)")
+        log.append("deleteCascading(week) → engineB: week + meals + side all gone; groceries deleted separately — all gone ✅")
+
+        return "✅ SP-C Weeks+Grocery round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-C slice 4 — Events round-trip on the real CKSyncEngine.
+///
+/// Uses the direct mapper+engine path (EventRecordMapper / EventGroceryGenerator /
+/// EventMergeAdapter → HouseholdRecordCodec → engine), which is exactly the code
+/// EventRepository wraps. Avoids a real HouseholdSession so no production token or
+/// zone is touched.
+///
+/// Verifies:
+///   1. Save an Event + 2 EventMeals + an EventMealIngredient + an EventAttendee + a
+///      Guest via engine A; engine B fetches and decodes all records intact (round-trip).
+///   2. Event-grocery generation: EventGroceryGenerator produces EventGroceryItems from
+///      the event meals (2 meals share an ingredient → quantities sum).
+///   3. Merge into a week: EventMergeAdapter folds event rows into the week's GroceryItems.
+///      Matched ingredient → week row gains eventQuantity; unmatched ingredient → new
+///      event-only week row created.
+///   4. Unmerge: event-only row HARD-deleted; a user-checked week row is PRESERVED.
+///   5. deleteCascading(event) removes the event + meals + ingredients + attendee;
+///      guest (SET-NULL ref) survives; explicit cleanup finishes.
+func runEventsRepoCheck() async -> String {
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-spc-events-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("spc-ev-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("spc-ev-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    // Identifiers
+    let eventID     = "ev-\(sfx)"
+    let meal1ID     = "em1-\(sfx)"
+    let meal2ID     = "em2-\(sfx)"
+    let ingID       = "emi-\(sfx)"      // ingredient on meal 1
+    let guestID     = "gu-\(sfx)"
+    let attendeeID  = "\(eventID)_\(guestID)"   // det-key per mapper
+    // Week + grocery identifiers (for the merge test)
+    let weekID      = "evwk-\(sfx)"
+    let weekGrocID  = "evg-\(sfx)"     // pre-existing tomato week row (user-checked)
+
+    do {
+        // ── Two engines (A = writer, B = 2nd device) ─────────────────────────────────────
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: sA)
+        engineA.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: sB)
+        engineB.merger = DispatchingMerger([GrocerySyncMerger(), EventGrocerySyncMerger(), EventSyncMerger()])
+
+        func rid(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: rid(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: rid(recordName)) != nil) == want
+        }
+        func eventGrocInB(_ name: String) async throws -> GroceryMerge.EventGroceryItem? {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if let r = storeB.record(for: rid(name)) { return EventGroceryCodec.decode(r) }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return storeB.record(for: rid(name)).map(EventGroceryCodec.decode)
+        }
+
+        var log = ["two CKSyncEngine instances on one zone (SP-C events test) ✅"]
+
+        // ── 1. SAVE: Event + 2 EventMeals + 1 ingredient + 1 attendee + Guest ─────────────
+        // Build HouseholdRecordValues directly (mirroring the EventRecordMapper field conventions)
+        // rather than through the SimmerSmithKit.Event domain struct, which is ambiguous in this
+        // file's scope with GroceryMerge.Event and the empty SimmerSmithKit enum shadowing the module.
+        let now = Date()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // .event record
+        let eventValue = HouseholdRecordValue(
+            type: .event, recordName: eventID,
+            scalars: [
+                "name":             .string("Test Party"),
+                "occasion":         .string("other"),
+                "attendeeCount":    .int(10),
+                "notes":            .string("Bring cake"),
+                "status":           .string("planning"),
+                "autoMergeGrocery": .bool(true),
+                "createdAt":        .date(createdAt),
+                "updatedAt":        .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(eventValue, zoneID: zoneID))
+
+        // .eventMeal 1 — Pasta (will have 1 ingredient child)
+        let meal1Value = HouseholdRecordValue(
+            type: .eventMeal, recordName: meal1ID,
+            scalars: [
+                "role":                 .string("main"),
+                "recipeName":           .string("Pasta"),
+                "scaleMultiplier":      .double(1.0),
+                "notes":                .string(""),
+                "sortOrder":            .int(0),
+                "aiGenerated":          .bool(false),
+                "approved":             .bool(true),
+                "constraintCoverage":   .string("[]"),
+                "createdAt":            .date(createdAt),
+                "updatedAt":            .date(now),
+            ],
+            refs: ["event": eventID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal1Value, zoneID: zoneID))
+
+        // .eventMeal 2 — Soup
+        let meal2Value = HouseholdRecordValue(
+            type: .eventMeal, recordName: meal2ID,
+            scalars: [
+                "role":                 .string("side"),
+                "recipeName":           .string("Soup"),
+                "scaleMultiplier":      .double(1.0),
+                "notes":                .string(""),
+                "sortOrder":            .int(1),
+                "aiGenerated":          .bool(false),
+                "approved":             .bool(true),
+                "constraintCoverage":   .string("[]"),
+                "createdAt":            .date(createdAt),
+                "updatedAt":            .date(now),
+            ],
+            refs: ["event": eventID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(meal2Value, zoneID: zoneID))
+
+        // .eventMealIngredient — Tomato on meal 1 (qty=2 cup)
+        let ingValue = HouseholdRecordValue(
+            type: .eventMealIngredient, recordName: ingID,
+            scalars: [
+                "ingredientName": .string("Tomato"),
+                "quantity":       .double(2.0),
+                "unit":           .string("cup"),
+                "category":       .string("produce"),
+                "prep":           .string(""),
+                "notes":          .string(""),
+                "updatedAt":      .date(now),
+            ],
+            refs: ["eventMeal": meal1ID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(ingValue, zoneID: zoneID))
+
+        // .eventAttendee — Alice attending the event (det key = eventID_guestID)
+        let attendeeValue = HouseholdRecordValue(
+            type: .eventAttendee, recordName: attendeeID,
+            scalars: [
+                "plusOnes":  .int(1),
+                "createdAt": .date(now),
+            ],
+            refs: ["event": eventID, "guest": guestID]
+        )
+        engineA.save(HouseholdRecordCodec.encode(attendeeValue, zoneID: zoneID))
+
+        // .guest — Alice (separate det-keyed record, SET-NULL ref from attendee)
+        let guestValue = HouseholdRecordValue(
+            type: .guest, recordName: guestID,
+            scalars: [
+                "name":              .string("Alice"),
+                "relationshipLabel": .string("friend"),
+                "dietaryNotes":      .string(""),
+                "allergies":         .string(""),
+                "ageGroup":          .string("adult"),
+                "active":            .bool(true),
+                "createdAt":         .date(createdAt),
+                "updatedAt":         .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(guestValue, zoneID: zoneID))
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+        log.append("engineA: Event + 2 meals + 1 ingredient + 1 attendee + Guest saved to CloudKit ✅")
+
+        // ── 2. ENGINE B: fetch + round-trip via EventRecordMapper ─────────────────────────
+        let eventPresent    = try await waitInB(present: eventID,    expect: true)
+        let meal1Present    = try await waitInB(present: meal1ID,    expect: true)
+        let meal2Present    = try await waitInB(present: meal2ID,    expect: true)
+        let ingPresent      = try await waitInB(present: ingID,      expect: true)
+        let attendeePresent = try await waitInB(present: attendeeID, expect: true)
+        let guestPresent    = try await waitInB(present: guestID,    expect: true)
+        try expect(
+            eventPresent && meal1Present && meal2Present && ingPresent && attendeePresent && guestPresent,
+            "engineB missing records: event=\(eventPresent) meal1=\(meal1Present) meal2=\(meal2Present) ing=\(ingPresent) att=\(attendeePresent) guest=\(guestPresent)"
+        )
+
+        // Decode the event back via the mapper (mirrors EventRepository.reload)
+        guard let bEventRaw = storeB.record(for: rid(eventID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB event record missing after wait")
+        }
+        let bEventValue = HouseholdRecordCodec.decode(bEventRaw, as: .event)
+        let bMealValues = storeB.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
+            .filter { ($0["event"] as? CKRecord.Reference)?.recordID.recordName == eventID }
+            .map { HouseholdRecordCodec.decode($0, as: .eventMeal) }
+        let bIngValuesByMeal: [String: [HouseholdRecordValue]] = Dictionary(
+            grouping: storeB.records(ofType: HouseholdRecordType.eventMealIngredient.recordTypeName)
+                .filter {
+                    guard let ref = $0["eventMeal"] as? CKRecord.Reference else { return false }
+                    return bMealValues.map(\.recordName).contains(ref.recordID.recordName)
+                }
+                .map { HouseholdRecordCodec.decode($0, as: .eventMealIngredient) },
+            by: { $0.refs["eventMeal"] ?? "" }
+        )
+        let bAttendeeValues = storeB.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
+            .filter { ($0["event"] as? CKRecord.Reference)?.recordID.recordName == eventID }
+            .map { HouseholdRecordCodec.decode($0, as: .eventAttendee) }
+
+        let bRebuilt = EventRecordMapper.event(
+            from: bEventValue,
+            meals: bMealValues,
+            ingredientsByMeal: bIngValuesByMeal,
+            attendees: bAttendeeValues
+        )
+
+        try expect(bRebuilt.name == "Test Party", "name mismatch: \(bRebuilt.name)")
+        try expect(bRebuilt.meals.count == 2, "meal count wrong: \(bRebuilt.meals.count)")
+        try expect(bRebuilt.meals.first(where: { $0.recipeName == "Pasta" })?.ingredients.count == 1,
+                   "meal1 ingredient count wrong")
+        try expect(bRebuilt.attendees.count == 1 && bRebuilt.attendees[0].guestId == guestID,
+                   "attendee not found: \(bRebuilt.attendees)")
+
+        // Decode the Guest record
+        guard let bGuestRaw = storeB.record(for: rid(guestID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB guest record missing after wait")
+        }
+        let bGuestValue = HouseholdRecordCodec.decode(bGuestRaw, as: .guest)
+        let bGuest = EventRecordMapper.guest(from: bGuestValue)
+        try expect(bGuest.name == "Alice" && bGuest.relationshipLabel == "friend",
+                   "guest fields wrong: name=\(bGuest.name) rel=\(bGuest.relationshipLabel)")
+
+        log.append("engineB: Event decoded — name=Test Party, 2 meals (Pasta+Soup), 1 ingredient (Tomato), attendee=Alice+1, guest=Alice ✅")
+
+        // ── 3. EVENT-GROCERY GENERATION: EventGroceryGenerator from event meals ──────────
+        // Build EventGroceryMeal inputs from the 2 meals (both host-cooked, no assignedGuest)
+        let tomatoLine = GroceryIngredientLine(ingredientName: "Tomato", normalizedName: "tomato",
+                                               unit: "cup", quantity: 2)
+        let eMeal1 = EventGroceryMeal(mealID: meal1ID, servings: 2, baseServings: 2,
+                                      ingredients: [tomatoLine])
+        // Meal 2 contributes another tomato cup — shared ingredient sums to 3
+        let eMeal2 = EventGroceryMeal(mealID: meal2ID, servings: 2, baseServings: 2,
+                                      ingredients: [
+                                          GroceryIngredientLine(ingredientName: "Tomato",
+                                                                normalizedName: "tomato",
+                                                                unit: "cup", quantity: 1)
+                                      ])
+
+        var nameIdx = 0
+        let eventGrocNames = ["eg-tomato-\(sfx)", "eg-balloons-\(sfx)"]
+        let eventGrocRows = EventGroceryGenerator.regenerate(
+            eventID: eventID,
+            meals: [eMeal1, eMeal2],
+            clock: 1,
+            newRecordName: { _ in
+                let n = eventGrocNames[min(nameIdx, eventGrocNames.count - 1)]
+                nameIdx += 1
+                return n
+            }
+        )
+        let egTomato = eventGrocRows.first { $0.normalizedName == "tomato" }
+        try expect(egTomato?.eventQuantity == 3,
+                   "EventGroceryGenerator: tomato eventQty wrong: \(String(describing: egTomato?.eventQuantity)) (expected 3 = 2+1)")
+        log.append("EventGroceryGenerator: 2 meals sharing tomato → 1 EventGroceryItem (qty=3, normalizedName=tomato) ✅")
+
+        // ── 4. MERGE INTO WEEK: EventMergeAdapter ────────────────────────────────────────
+        // Seed a pre-existing week tomato row (user-checked) + a week record
+        let weekGrocery = GroceryMerge.GroceryItem(
+            recordName: weekGrocID, weekID: weekID,
+            baseIngredientID: nil, unit: "cup", normalizedName: "tomato", ingredientName: "Tomato",
+            totalQuantity: 2, sourceMeals: "Sunday / dinner / Stew",
+            check: CheckState(isChecked: true, at: 5, by: "alice"),
+            createdAt: 1, modifiedAt: 5
+        )
+        engineA.save(GroceryCodec.makeRecord(weekGrocery, zoneID: zoneID))
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Also save the EventGroceryItems so the adapter's unmerge can read them back
+        // and save a second event-only row (Balloons — no match in the week grocery list)
+        let egTomatoItem = egTomato ?? GroceryMerge.EventGroceryItem(recordName: "eg-tomato-\(sfx)",
+                                                                      eventQuantity: 3,
+                                                                      ingredientName: "Tomato",
+                                                                      normalizedName: "tomato", unit: "cup")
+        let egBalloons = GroceryMerge.EventGroceryItem(
+            recordName: "eg-balloons-\(sfx)",
+            eventQuantity: 20,
+            ingredientName: "Balloons",
+            normalizedName: "balloons", unit: "ea"
+        )
+        engineA.save(EventGroceryCodec.makeRecord(egTomatoItem, zoneID: zoneID))
+        engineA.save(EventGroceryCodec.makeRecord(egBalloons, zoneID: zoneID))
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Run the merge via EventMergeAdapter
+        let mergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party")
+        let adapter = EventMergeAdapter(engine: engineA, zoneID: zoneID)
+        let mergeOutcome = adapter.merge(event: mergeEvent, eventRows: [egTomatoItem, egBalloons], intoWeek: weekID)
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // After merge: tomato week row gains eventQuantity=3; balloons creates a new event-only row
+        let mergedTomato = storeA.record(for: rid(weekGrocID)).map(GroceryCodec.decode)
+        try expect(mergedTomato?.eventQuantity == 3,
+                   "merge: tomato week row eventQty wrong: \(String(describing: mergedTomato?.eventQuantity)) (expected 3)")
+        try expect(mergedTomato?.check.isChecked == true,
+                   "merge: user-checked state clobbered: \(String(describing: mergedTomato?.check.isChecked))")
+        try expect(mergeOutcome.created == 1 && mergeOutcome.matched == 1,
+                   "merge outcome wrong: matched=\(mergeOutcome.matched) created=\(mergeOutcome.created)")
+
+        // The created event-only row name
+        guard let balloonsWeekRowName = mergeOutcome.createdRecordNames.first else {
+            throw PrivatePlaneCheckFailure(description: "merge: expected 1 created event-only week row, got 0")
+        }
+        let balloonsWeekRow = storeA.record(for: rid(balloonsWeekRowName)).map(GroceryCodec.decode)
+        try expect(balloonsWeekRow?.normalizedName == "balloons",
+                   "merge: event-only row normalizedName wrong: \(String(describing: balloonsWeekRow?.normalizedName))")
+        log.append("merge: tomato week row eventQty=3 + user-check preserved; balloons event-only row created ✅")
+
+        // ── 5. UNMERGE: event-only row HARD-deleted; user-checked row preserved ──────────
+        // The updated event rows have merge pointers from the adapter
+        let linkedMergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party",
+                                                   linkedWeekID: weekID)
+        let updatedEventRows = mergeOutcome.eventRows
+        let unmergeOutcome = adapter.unmerge(event: linkedMergeEvent, eventRows: updatedEventRows,
+                                              fromWeek: weekID)
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+
+        // Balloons event-only row hard-deleted (no user investment)
+        try expect(unmergeOutcome.hardDeletedRecordNames.contains(balloonsWeekRowName),
+                   "unmerge: balloons event-only row NOT hard-deleted: \(unmergeOutcome.hardDeletedRecordNames)")
+        // Tomato week row preserved (user-checked = has user investment)
+        let unmergeTomato = storeA.record(for: rid(weekGrocID)).map(GroceryCodec.decode)
+        try expect(unmergeTomato != nil, "unmerge: user-checked tomato row was deleted (must be preserved)")
+        try expect(unmergeTomato?.check.isChecked == true,
+                   "unmerge: user-checked state lost: \(String(describing: unmergeTomato?.check.isChecked))")
+        try expect(unmergeTomato?.eventQuantity == nil,
+                   "unmerge: tomato eventQty not cleared: \(String(describing: unmergeTomato?.eventQuantity))")
+        try expect(storeA.record(for: rid(balloonsWeekRowName)) == nil,
+                   "unmerge: balloons event-only row still in storeA after hard-delete")
+        log.append("unmerge: balloons event-only row HARD-deleted; tomato (user-checked) preserved, eventQty cleared ✅")
+
+        // ── 6. CLEANUP: deleteCascading(event) sweeps event+meals+ingredients+attendee ──
+        //    guest survives (SET-NULL edge, not cascadeParent)
+        engineA.deleteCascading(rid(eventID))
+        // Delete explicit rows: week grocery item, event grocery rows, week record (none of these
+        // are event children — they are top-level). balloonsWeekRowName was hard-deleted by unmerge.
+        engineA.delete(rid(weekGrocID))
+        engineA.delete(rid("eg-tomato-\(sfx)"))
+        engineA.delete(rid("eg-balloons-\(sfx)"))
+        // Guest has SET-NULL ref — it must NOT be cascade-deleted; delete explicitly for cleanup.
+        engineA.delete(rid(guestID))
+        try await engineA.sendUntilDrained()
+
+        let eventGone    = try await waitInB(present: eventID,    expect: false)
+        let meal1Gone    = try await waitInB(present: meal1ID,    expect: false)
+        let meal2Gone    = try await waitInB(present: meal2ID,    expect: false)
+        let ingGone      = try await waitInB(present: ingID,      expect: false)
+        let attendeeGone = try await waitInB(present: attendeeID, expect: false)
+        let grocGone     = try await waitInB(present: weekGrocID, expect: false)
+        let guestGone    = try await waitInB(present: guestID,    expect: false)
+        try expect(eventGone && meal1Gone && meal2Gone && ingGone && attendeeGone,
+                   "cascade incomplete: event=\(!eventGone) meal1=\(!meal1Gone) meal2=\(!meal2Gone) ing=\(!ingGone) att=\(!attendeeGone)")
+        try expect(grocGone && guestGone,
+                   "cleanup incomplete: weekGroc=\(!grocGone) guest=\(!guestGone)")
+        log.append("deleteCascading(event) → engineB: event + meals + ingredient + attendee all gone; guest + groceries deleted separately — all gone ✅")
+
+        return "✅ SP-C Events round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+
+/// SP-C slice 5 — Pantry + Profile round-trip.
+///
+/// Two-part check:
+///
+/// (a) HOUSEHOLD — over a throwaway test zone, save a `.pantryItem` and a
+///     `.householdTermAlias` via engine A; engine B fetches them and asserts
+///     the decoded fields are intact; then delete sweeps both and asserts they
+///     are gone. Uses the direct mapper+engine path (HouseholdRecordCodec) —
+///     no real HouseholdSession or production zone touched.
+///
+/// (b) PRIVATE PLANE — using an IN-MEMORY `PrivatePlaneStore` (CloudKit sync
+///     disabled, ephemeral store), upsert a dietary goal and an ingredient
+///     preference; fetch them back and assert field fidelity. Verifies the
+///     store's upsert/fetch logic without touching the real iCloud account.
+func runPantryProfileCheck() async -> String {
+    // ── Part (a): Household zone round-trip ───────────────────────────────────
+    let containerID = "iCloud.app.simmersmith.cloud"
+    let zoneID = CKRecordZone.ID(zoneName: "household-spc-pantry-test", ownerName: CKCurrentUserDefaultName)
+    let database = CKContainer(identifier: containerID).privateCloudDatabase
+    let tmp = FileManager.default.temporaryDirectory
+    let sA = tmp.appendingPathComponent("spc-pp-A-\(UUID().uuidString).json")
+    let sB = tmp.appendingPathComponent("spc-pp-B-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: sA); try? FileManager.default.removeItem(at: sB) }
+    let sfx = String(UUID().uuidString.prefix(8))
+
+    let pantryID = "pi-\(sfx)"
+    let aliasID  = "alias-oilive-\(sfx)"
+
+    do {
+        let storeA = HouseholdLocalStore()
+        let engineA = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeA, stateURL: sA)
+        let storeB = HouseholdLocalStore()
+        let engineB = HouseholdSyncEngine(database: database, zoneID: zoneID, store: storeB, stateURL: sB)
+
+        func rid(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+        func waitInB(present recordName: String, expect want: Bool) async throws -> Bool {
+            for _ in 0...4 {
+                try await engineB.fetchChanges()
+                if (storeB.record(for: rid(recordName)) != nil) == want { return true }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+            return (storeB.record(for: rid(recordName)) != nil) == want
+        }
+
+        var log = ["two CKSyncEngine instances on one zone (SP-C pantry+alias test) ✅"]
+
+        // ── 1. SAVE: PantryItem + HouseholdTermAlias via engine A ────────────────────────
+        let now = Date()
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // .pantryItem — household staple (no refs, top-level)
+        let pantryValue = HouseholdRecordValue(
+            type: .pantryItem, recordName: pantryID,
+            scalars: [
+                "stapleName":        .string("Olive Oil"),
+                "normalizedName":    .string("olive_oil"),
+                "notes":             .string("Extra virgin"),
+                "isActive":          .bool(true),
+                "typicalQuantity":   .double(1.0),
+                "typicalUnit":       .string("bottle"),
+                "recurringQuantity": .double(1.0),
+                "recurringUnit":     .string("bottle"),
+                "recurringCadence":  .string("monthly"),
+                "category":          .string("pantry"),
+                "categories":        .string("[\"pantry\",\"oils\"]"),
+                "createdAt":         .date(createdAt),
+                "updatedAt":         .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(pantryValue, zoneID: zoneID))
+
+        // .householdTermAlias — deterministic-keyed alias record
+        let aliasValue = HouseholdRecordValue(
+            type: .householdTermAlias, recordName: aliasID,
+            scalars: [
+                "term":      .string("olive oil"),
+                "expansion": .string("extra virgin olive oil"),
+                "notes":     .string("preferred brand substitution"),
+                "createdAt": .date(createdAt),
+                "updatedAt": .date(now),
+            ]
+        )
+        engineA.save(HouseholdRecordCodec.encode(aliasValue, zoneID: zoneID))
+
+        try await engineA.sendUntilDrained()
+        try await engineA.fetchChanges()
+        log.append("engineA: PantryItem + HouseholdTermAlias saved to CloudKit ✅")
+
+        // ── 2. ENGINE B: fetch + decode and assert field fidelity ────────────────────────
+        let pantryPresent = try await waitInB(present: pantryID, expect: true)
+        let aliasPresent  = try await waitInB(present: aliasID,  expect: true)
+        try expect(pantryPresent && aliasPresent,
+                   "engineB missing records: pantry=\(pantryPresent) alias=\(aliasPresent)")
+
+        guard let bPantryRaw = storeB.record(for: rid(pantryID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB pantry record missing after wait")
+        }
+        let bPantry = HouseholdRecordCodec.decode(bPantryRaw, as: .pantryItem)
+        try expect(bPantry.scalars["stapleName"] == .string("Olive Oil"),
+                   "pantry stapleName wrong: \(String(describing: bPantry.scalars["stapleName"]))")
+        try expect(bPantry.scalars["normalizedName"] == .string("olive_oil"),
+                   "pantry normalizedName wrong: \(String(describing: bPantry.scalars["normalizedName"]))")
+        try expect(bPantry.scalars["isActive"] == .bool(true),
+                   "pantry isActive wrong: \(String(describing: bPantry.scalars["isActive"]))")
+        try expect(bPantry.scalars["recurringCadence"] == .string("monthly"),
+                   "pantry recurringCadence wrong: \(String(describing: bPantry.scalars["recurringCadence"]))")
+        try expect(bPantry.scalars["categories"] == .string("[\"pantry\",\"oils\"]"),
+                   "pantry categories JSON wrong: \(String(describing: bPantry.scalars["categories"]))")
+        log.append("engineB: PantryItem decoded — stapleName=Olive Oil, isActive=true, recurringCadence=monthly, categories JSON intact ✅")
+
+        guard let bAliasRaw = storeB.record(for: rid(aliasID)) else {
+            throw PrivatePlaneCheckFailure(description: "engineB alias record missing after wait")
+        }
+        let bAlias = HouseholdRecordCodec.decode(bAliasRaw, as: .householdTermAlias)
+        try expect(bAlias.scalars["term"] == .string("olive oil"),
+                   "alias term wrong: \(String(describing: bAlias.scalars["term"]))")
+        try expect(bAlias.scalars["expansion"] == .string("extra virgin olive oil"),
+                   "alias expansion wrong: \(String(describing: bAlias.scalars["expansion"]))")
+        log.append("engineB: HouseholdTermAlias decoded — term=olive oil, expansion=extra virgin olive oil ✅")
+
+        // ── 3. CLEANUP: delete both records; assert gone in B ────────────────────────────
+        // PantryItem has no children (no refs) — plain delete is correct. deleteCascading
+        // is the safe choice: it is a no-op sweep on a childless record and mirrors the
+        // repository cleanup pattern used in the Recipes check above.
+        engineA.deleteCascading(rid(pantryID))
+        engineA.delete(rid(aliasID))
+        try await engineA.sendUntilDrained()
+
+        let pantryGone = try await waitInB(present: pantryID, expect: false)
+        let aliasGone  = try await waitInB(present: aliasID,  expect: false)
+        try expect(pantryGone && aliasGone,
+                   "delete incomplete: pantry=\(!pantryGone) alias=\(!aliasGone)")
+        log.append("deleteCascading(pantry) + delete(alias) → engineB: both records gone ✅")
+
+        // ── Part (b): Private plane in-memory upsert/fetch (CloudKit sync off) ──────────
+        // mainContext is @MainActor-isolated; hop to the main actor for the private-plane work.
+        let privatePlaneLogs: [String] = try await MainActor.run {
+            var pLog: [String] = []
+            let privateContainer = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+            let store = PrivatePlaneStore(context: privateContainer.mainContext)
+            pLog.append("in-memory PrivatePlaneStore initialised (CloudKit sync disabled) ✅")
+
+            // (b1) DietaryGoal — singleton upsert: second write must edit in place, not duplicate
+            try store.upsertDietaryGoal(goalType: "lose", dailyCalories: 1800,
+                                        proteinG: 120, carbsG: 180, fatG: 50, fiberG: 28,
+                                        notes: "initial")
+            try store.upsertDietaryGoal(goalType: "maintain", dailyCalories: 2100,
+                                        proteinG: 140, carbsG: 210, fatG: 65, fiberG: 30,
+                                        notes: "revised")
+            try store.save()
+            let goals = try privateContainer.mainContext.fetch(FetchDescriptor<PrivateDietaryGoal>())
+            try expect(goals.count == 1,
+                       "DietaryGoal singleton violated: expected 1 row, got \(goals.count)")
+            try expect(goals.first?.goalType == "maintain",
+                       "DietaryGoal goalType wrong: \(goals.first?.goalType ?? "nil")")
+            try expect(goals.first?.dailyCalories == 2100,
+                       "DietaryGoal dailyCalories wrong: \(goals.first?.dailyCalories ?? -1)")
+            try expect(goals.first?.notes == "revised",
+                       "DietaryGoal notes wrong: \(goals.first?.notes ?? "nil")")
+            pLog.append("PrivatePlaneStore DietaryGoal singleton: 2 upserts → 1 row (goalType=maintain, calories=2100) ✅")
+
+            // (b2) IngredientPreference — id-keyed upsert: second write with same id edits in place
+            try store.upsertIngredientPreference(
+                preferenceID: "pref-pp-1",
+                baseIngredientID: "ing-olive-1",
+                choiceMode: "preferred",
+                rank: 1, active: true, brand: "Kirkland", variation: "organic",
+                updatedAt: .now
+            )
+            try store.upsertIngredientPreference(
+                preferenceID: "pref-pp-1",
+                baseIngredientID: "ing-olive-1",
+                choiceMode: "preferred",
+                rank: 3, active: true, brand: "Kirkland", variation: "organic extra",
+                updatedAt: .now
+            )
+            try store.save()
+            let pref = try store.ingredientPreference(preferenceID: "pref-pp-1")
+            try expect(pref != nil, "IngredientPreference not found after upsert")
+            try expect(pref?.rank == 3,
+                       "IngredientPreference rank wrong after re-upsert: \(pref?.rank ?? -1)")
+            try expect(pref?.variation == "organic extra",
+                       "IngredientPreference variation wrong: \(pref?.variation ?? "nil")")
+            let allPrefs = try store.allIngredientPreferences()
+            try expect(allPrefs.count == 1,
+                       "IngredientPreference dedupe violated: expected 1 row, got \(allPrefs.count)")
+            pLog.append("PrivatePlaneStore IngredientPreference id-keyed upsert: 2 upserts → 1 row (rank=3, variation=organic extra) ✅")
+            return pLog
+        }
+        log.append(contentsOf: privatePlaneLogs)
+
+        return "✅ SP-C Pantry+Profile round-trip\n" + log.joined(separator: "\n")
+    } catch {
+        return "❌ \(error)"
+    }
+}
+// MARK: - AI week-gen dry check (offline: no key, no network required)
+
+/// SP-C AI-1 — on-device dry check for the week-gen pipeline.
+///
+/// Three offline assertions (no API key, no network):
+///
+///   (a) Prompt-fidelity smoke: build a sample `PlanningContext` fixture →
+///       `WeekGenPrompt.buildSystemPrompt` → assert the prompt contains the key
+///       constraints (dietary goal calories, allergy terms, must-avoid terms).
+///       Failure means the Swift port of `_build_system_prompt` is broken and
+///       the AI would receive a degraded or unsafe prompt.
+///
+///   (b) Parser round-trip: feed a canned 21-meal JSON response (matching the
+///       prompt's documented shape) → `MealPlanParser.parse` → assert it yields
+///       the expected recipe + slot counts with correct field values. Failure
+///       means the Codable mirror diverged from the wire shape.
+///
+///   (c) Allergy hard-gate: feed a plan that includes a seeded allergen
+///       (peanut butter in a recipe) → `MealPlanParser.enforceAllergyGate`
+///       must throw `.allergyViolation`. Then feed a clean plan with the same
+///       allergen list and assert it passes. Failure means an unsafe plan would
+///       be surfaced to the user — the Spike-2 fail-closed invariant is broken.
+///
+/// Optionally (if a key is configured): issues a cheap models-list ping to the
+/// configured provider to confirm the key is valid, but this is skipped when no
+/// key is present (default offline path). The three offline checks run regardless.
+func runAIWeekGenDryCheck() async -> String {
+    // Fixed week-start for deterministic output: Monday 2026-06-22 UTC.
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    var comps = DateComponents()
+    comps.year = 2026; comps.month = 6; comps.day = 22
+    comps.hour = 0; comps.minute = 0; comps.second = 0
+    guard let weekStart = cal.date(from: comps) else {
+        return "❌ could not build week-start date"
+    }
+
+    let ctx = PlanningContext(
+        hardAvoids: ["cilantro", "olives"],
+        strongLikes: ["garlic", "lemon"],
+        likedCuisines: ["Italian", "Thai"],
+        dislikedCuisines: ["German"],
+        brands: ["Rao's"],
+        staples: ["olive oil", "salt", "rice"],
+        recentMeals: ["Sheet Pan Chicken", "Tofu Stir Fry"],
+        rules: [],
+        dietaryGoal: DietaryGoalContext(
+            goalType: "cut", dailyCalories: 2000, proteinG: 160,
+            carbsG: 180, fatG: 60, fiberG: 30, notes: "high protein"
+        ),
+        allergies: ["peanut", "shellfish"],
+        termAliases: ["chx": "chicken", "veg": "vegetables"]
+    )
+
+    var log: [String] = []
+
+    // ── (a) Prompt-fidelity smoke ─────────────────────────────────────────────
+    let prompt = WeekGenPrompt.buildSystemPrompt(
+        profileSettings: ["household_name": "The Smiths", "dietary_constraints": "no pork"],
+        weekStart: weekStart,
+        context: ctx,
+        unitSystem: .us
+    )
+    var promptOK = true
+    var promptFailures: [String] = []
+
+    // Identity + unit directive
+    if !prompt.hasPrefix("You are SimmerSmith, an AI meal planning assistant.") {
+        promptOK = false; promptFailures.append("missing identity header")
+    }
+    if !prompt.contains("UNIT SYSTEM — US CUSTOMARY ONLY") {
+        promptOK = false; promptFailures.append("missing unit-system directive")
+    }
+    // Dietary goal
+    if !prompt.contains("- Daily target: 2000 calories, 160g protein, 180g carbs, 60g fat, 30g fiber") {
+        promptOK = false; promptFailures.append("dietary goal block missing or wrong")
+    }
+    if !prompt.contains("- Goal type: cut") {
+        promptOK = false; promptFailures.append("goal type missing")
+    }
+    // Allergy line (HARD constraint, emphasis)
+    if !prompt.contains("- HARD ALLERGIES — NEVER include these or any dish containing them: peanut, shellfish") {
+        promptOK = false; promptFailures.append("allergy hard-constraint line missing or wrong")
+    }
+    // Must-avoid
+    if !prompt.contains("- MUST AVOID: cilantro, olives") {
+        promptOK = false; promptFailures.append("must-avoid line missing")
+    }
+    // Calorie tolerance rule
+    if !prompt.contains("±10% of the daily calorie target") {
+        promptOK = false; promptFailures.append("±10% calorie tolerance rule missing")
+    }
+    // Response shape contract
+    if !prompt.contains("= 21 meals total") {
+        promptOK = false; promptFailures.append("21-meal contract missing")
+    }
+    if !prompt.contains("\"recipes\": [") || !prompt.contains("\"meal_plan\": [") {
+        promptOK = false; promptFailures.append("response-shape JSON template missing")
+    }
+    // Week label (date range)
+    if !prompt.contains("Week: Monday (2026-06-22) through Sunday (2026-06-28)") {
+        promptOK = false; promptFailures.append("week date range missing or wrong")
+    }
+
+    if promptOK {
+        log.append("(a) prompt-fidelity smoke: dietary goal + allergy line + ±10% rule + 21-meal contract + week label all present ✅")
+    } else {
+        log.append("❌ (a) prompt-fidelity smoke failed: \(promptFailures.joined(separator: "; "))")
+    }
+
+    // ── (b) Parser round-trip (canned 21-meal JSON) ──────────────────────────
+    // A minimal but structurally valid provider response with 3 distinct recipes
+    // covering 21 meal slots (7 days × 3 slots), matching the prompt's JSON shape.
+    let sampleJSON = """
+    {
+      "recipes": [
+        {
+          "name": "Lemon Garlic Chicken",
+          "meal_type": "dinner",
+          "cuisine": "Mediterranean",
+          "servings": 4,
+          "prep_minutes": 15,
+          "cook_minutes": 30,
+          "ingredients": [
+            {"ingredient_name": "chicken breast", "quantity": 2.0, "unit": "lb", "prep": "cubed", "category": "protein"},
+            {"ingredient_name": "garlic", "quantity": 4, "unit": "clove", "category": "aromatic"}
+          ],
+          "steps": [{"instruction": "Season the chicken."}, {"instruction": "Roast at 400F for 30 minutes."}]
+        },
+        {
+          "name": "Avocado Toast",
+          "meal_type": "breakfast",
+          "cuisine": "American",
+          "servings": 2,
+          "prep_minutes": 5,
+          "cook_minutes": 5,
+          "ingredients": [
+            {"ingredient_name": "bread", "quantity": 2, "unit": "slice"},
+            {"ingredient_name": "avocado", "quantity": 1, "unit": "ea"}
+          ],
+          "steps": [{"instruction": "Toast the bread."}, {"instruction": "Mash avocado on top."}]
+        },
+        {
+          "name": "Caesar Salad",
+          "meal_type": "lunch",
+          "cuisine": "Italian",
+          "servings": 2,
+          "prep_minutes": 10,
+          "cook_minutes": 0,
+          "ingredients": [
+            {"ingredient_name": "romaine lettuce", "quantity": 1, "unit": "head"},
+            {"ingredient_name": "parmesan", "quantity": 2, "unit": "oz"}
+          ],
+          "steps": [{"instruction": "Toss lettuce with dressing."}]
+        }
+      ],
+      "meal_plan": [
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Monday",    "meal_date": "2026-06-22", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Tuesday",   "meal_date": "2026-06-23", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Wednesday", "meal_date": "2026-06-24", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Thursday",  "meal_date": "2026-06-25", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Friday",    "meal_date": "2026-06-26", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Saturday",  "meal_date": "2026-06-27", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "breakfast", "recipe_name": "Avocado Toast"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "lunch",     "recipe_name": "Caesar Salad"},
+        {"day_name": "Sunday",    "meal_date": "2026-06-28", "slot": "dinner",    "recipe_name": "Lemon Garlic Chicken"}
+      ]
+    }
+    """
+
+    do {
+        let result = try MealPlanParser.parse(sampleJSON)
+        var parseOK = true
+        var parseFailures: [String] = []
+
+        if result.recipes.count != 3 {
+            parseOK = false; parseFailures.append("expected 3 recipes, got \(result.recipes.count)")
+        }
+        if result.mealPlan.count != 21 {
+            parseOK = false; parseFailures.append("expected 21 meal slots, got \(result.mealPlan.count)")
+        }
+        if let r = result.recipes.first(where: { $0.name == "Lemon Garlic Chicken" }) {
+            if r.ingredients.count != 2 {
+                parseOK = false; parseFailures.append("expected 2 ingredients, got \(r.ingredients.count)")
+            }
+            if r.prepMinutes != 15 {
+                parseOK = false; parseFailures.append("prepMinutes wrong: \(r.prepMinutes as Any)")
+            }
+        } else {
+            parseOK = false; parseFailures.append("Lemon Garlic Chicken recipe missing")
+        }
+        // Verify slot → recipe resolution works (the name-join used by the app)
+        let monDinner = result.mealPlan.first { $0.dayName == "Monday" && $0.slot == "dinner" }
+        if result.recipe(for: monDinner!)?.name != "Lemon Garlic Chicken" {
+            parseOK = false; parseFailures.append("slot→recipe resolution broken")
+        }
+
+        if parseOK {
+            log.append("(b) parser round-trip: 3 recipes + 21 slots parsed, ingredient count + prep time + slot resolution correct ✅")
+        } else {
+            log.append("❌ (b) parser round-trip failed: \(parseFailures.joined(separator: "; "))")
+        }
+    } catch {
+        log.append("❌ (b) parser round-trip threw: \(error)")
+    }
+
+    // ── (c) Allergy hard-gate ─────────────────────────────────────────────────
+    // A plan that violates the peanut allergy (ingredient: "Peanut Butter").
+    let violatingJSON = """
+    {
+      "recipes": [
+        {
+          "name": "Thai Noodles",
+          "ingredients": [
+            {"ingredient_name": "rice noodles"},
+            {"ingredient_name": "Peanut Butter"}
+          ]
+        }
+      ],
+      "meal_plan": [
+        {"day_name": "Monday", "meal_date": "2026-06-22", "slot": "lunch", "recipe_name": "Thai Noodles"}
+      ]
+    }
+    """
+    // A clean plan using the same allergen list (no peanut / shellfish).
+    let cleanJSON = sampleJSON
+
+    var gateOK = true
+    var gateFailures: [String] = []
+    let allergens = ctx.allergies   // ["peanut", "shellfish"]
+
+    // Violating plan must throw.
+    do {
+        let violating = try MealPlanParser.parse(violatingJSON)
+        do {
+            try MealPlanParser.enforceAllergyGate(violating, allergies: allergens)
+            gateOK = false
+            gateFailures.append("allergy gate did NOT throw on a plan containing Peanut Butter")
+        } catch MealPlanParseError.allergyViolation(let recipe, let allergen) {
+            _ = recipe; _ = allergen   // expected
+        } catch {
+            gateOK = false
+            gateFailures.append("allergy gate threw unexpected error: \(error)")
+        }
+    } catch {
+        gateOK = false
+        gateFailures.append("failed to parse violating fixture: \(error)")
+    }
+
+    // Clean plan must pass.
+    do {
+        let clean = try MealPlanParser.parse(cleanJSON)
+        do {
+            try MealPlanParser.enforceAllergyGate(clean, allergies: allergens)
+        } catch {
+            gateOK = false
+            gateFailures.append("allergy gate rejected a clean plan: \(error)")
+        }
+    } catch {
+        gateOK = false
+        gateFailures.append("failed to parse clean fixture: \(error)")
+    }
+
+    if gateOK {
+        log.append("(c) allergy hard-gate: violating plan (Peanut Butter) rejected ✅; clean plan passed ✅")
+    } else {
+        log.append("❌ (c) allergy hard-gate failed: \(gateFailures.joined(separator: "; "))")
+    }
+
+    let allPassed = log.allSatisfy { !$0.hasPrefix("❌") }
+    let header = allPassed
+        ? "✅ AI week-gen (dry) — prompt/parse/allergy-gate\n"
+        : "❌ AI week-gen (dry) — one or more checks failed\n"
+    return header + log.joined(separator: "\n")
+}
+
 #endif

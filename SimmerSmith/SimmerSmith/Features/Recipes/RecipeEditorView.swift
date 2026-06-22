@@ -658,6 +658,13 @@ struct RecipeEditorView: View {
 
     private func searchIngredients(query: String) {
         ingredientSearchTask?.cancel()
+        // SP-C review finding D: ingredient autocomplete resolves via the Fly catalog
+        // (no token → 401) in CloudKit-only mode. Skip the lookup; manual free-text
+        // ingredient entry still works (and the saved recipe round-trips via CloudKit).
+        guard !appState.isCloudKitOnly else {
+            ingredientSuggestions = []
+            return
+        }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else {
             ingredientSuggestions = []
@@ -808,6 +815,13 @@ struct RecipeEditorView: View {
     }
 
     private func refreshNutritionEstimate(force: Bool = false) async {
+        // SP-C review finding D: AI nutrition estimation is Fly-backed. Skip it in
+        // CloudKit-only mode; the recipe still saves (just without an auto estimate).
+        guard !appState.isCloudKitOnly else {
+            nutritionSummary = nil
+            nutritionEstimateError = nil
+            return
+        }
         let estimateDraft = preparedDraft()
         let hasNamedIngredients = estimateDraft.ingredients.contains {
             !$0.ingredientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

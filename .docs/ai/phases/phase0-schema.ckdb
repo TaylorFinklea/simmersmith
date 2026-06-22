@@ -460,3 +460,46 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- SP-C Task 2: WeekMealSide — side dish attached to a WeekMeal.
+    //      weekMeal is the CASCADE parent (.deleteSelf); recipe is SET-NULL (soft edge).
+    //      recordName policy: .pk (sideId). HUMAN STEP: Deploy to Production in CloudKit
+    //      Dashboard before on-device use. ----
+
+    RECORD TYPE WeekMealSide (
+        recipeName STRING,
+        name STRING,
+        notes STRING,
+        sortOrder INT64,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        weekMeal REFERENCE,
+        recipe REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    // ---- SP-C Task 1: PantryItem — household-zone pantry staple (spec §2).
+    //      recordName policy: .pk (legacy UUID id). No refs — top-level aggregate root.
+    //      categories: JSON-array string (same serialization as Recipe.tags).
+    //      HUMAN STEP: Deploy to Production in CloudKit Dashboard before on-device use. ----
+
+    RECORD TYPE PantryItem (
+        stapleName STRING,
+        normalizedName STRING,
+        notes STRING,
+        isActive INT64,
+        typicalQuantity DOUBLE,
+        typicalUnit STRING,
+        recurringQuantity DOUBLE,
+        recurringUnit STRING,
+        recurringCadence STRING,
+        category STRING,
+        categories STRING,
+        lastAppliedAt TIMESTAMP,
+        frozenAt TIMESTAMP,
+        createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );

@@ -174,11 +174,8 @@ struct IngredientLinkPickerSheet: View {
         defer { isSearching = false }
         errorMessage = nil
         do {
-            results = try await appState.apiClient.fetchBaseIngredients(
-                query: trimmed,
-                limit: 25,
-                includeProductLike: true
-            )
+            // SP-C: routed through AppState façade (closes the direct apiClient leak).
+            results = try await appState.fetchBaseIngredients(query: trimmed, limit: 25)
         } catch {
             errorMessage = "Search failed: \(error.localizedDescription)"
             results = []

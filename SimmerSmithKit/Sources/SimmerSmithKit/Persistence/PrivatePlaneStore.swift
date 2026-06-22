@@ -112,6 +112,7 @@ public struct PrivatePlaneStore {
     public func upsertIngredientPreference(
         preferenceID: String,
         baseIngredientID: String,
+        baseIngredientName: String = "",
         choiceMode: String,
         rank: Int,
         active: Bool,
@@ -121,6 +122,7 @@ public struct PrivatePlaneStore {
     ) throws -> PrivateIngredientPreference {
         if let row: PrivateIngredientPreference = try fetchFirst(#Predicate { $0.recordKey == preferenceID }) {
             row.baseIngredientID = baseIngredientID
+            if !baseIngredientName.isEmpty { row.baseIngredientName = baseIngredientName }
             row.choiceMode = choiceMode
             row.rank = rank
             row.active = active
@@ -130,11 +132,22 @@ public struct PrivatePlaneStore {
             return row
         }
         let row = PrivateIngredientPreference(
-            preferenceID: preferenceID, baseIngredientID: baseIngredientID, choiceMode: choiceMode,
+            preferenceID: preferenceID, baseIngredientID: baseIngredientID,
+            baseIngredientName: baseIngredientName, choiceMode: choiceMode,
             rank: rank, active: active, brand: brand, variation: variation, updatedAt: updatedAt
         )
         context.insert(row)
         return row
+    }
+
+    /// A single ingredient preference by its id-key, or nil when absent.
+    public func ingredientPreference(preferenceID: String) throws -> PrivateIngredientPreference? {
+        try fetchFirst(#Predicate { $0.recordKey == preferenceID })
+    }
+
+    /// All ingredient preferences, unsorted (the repository sorts by rank).
+    public func allIngredientPreferences() throws -> [PrivateIngredientPreference] {
+        try context.fetch(FetchDescriptor<PrivateIngredientPreference>())
     }
 
     // MARK: Assistant threads + messages
@@ -209,6 +222,40 @@ public struct PrivatePlaneStore {
         }
         context.insert(PrivateMigrationReceipt(scope: scope, createdAt: date))
         return true
+    }
+
+    /// Whether a migration receipt for `scope` is present. The public read counterpart to
+    /// `claimMigrationScope` — lets callers gate UI on "already migrated" without reaching
+    /// into a raw `FetchDescriptor<PrivateMigrationReceipt>` (which the private `fetchFirst`
+    /// would otherwise force them to duplicate). Returns `false` on any fetch error.
+    public func hasMigrationReceipt(scope: String) -> Bool {
+        ((try? fetchFirst(#Predicate<PrivateMigrationReceipt> { $0.recordKey == scope })) ?? nil) != nil
+    }
+
+    // MARK: Factory reset (SP-C clean-slate)
+
+    /// Delete EVERY private-plane @Model instance (receipts, dietary goal, ingredient
+    /// preferences, profile settings, preference signals, assistant threads + messages)
+    /// then `save()` so NSPersistentCloudKitContainer propagates the deletes to the user's
+    /// private DB. Clears the `pantry-profile` receipt + stale per-user data ahead of a
+    /// fresh re-import from Fly (spec §2). Threads are deleted last; the cascade takes their
+    /// messages, but messages are fetched-and-deleted explicitly too so the wipe is total
+    /// regardless of relationship state.
+    public func clearPrivatePlane() throws {
+        try deleteAll(PrivateMigrationReceipt.self)
+        try deleteAll(PrivateDietaryGoal.self)
+        try deleteAll(PrivateIngredientPreference.self)
+        try deleteAll(PrivateProfileSetting.self)
+        try deleteAll(PrivatePreferenceSignal.self)
+        try deleteAll(PrivateAssistantMessage.self)
+        try deleteAll(PrivateAssistantThread.self)
+        try save()
+    }
+
+    private func deleteAll<T: PersistentModel>(_ type: T.Type) throws {
+        for row in try context.fetch(FetchDescriptor<T>()) {
+            context.delete(row)
+        }
     }
 
     public func save() throws {

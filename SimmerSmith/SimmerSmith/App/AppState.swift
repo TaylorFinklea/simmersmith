@@ -1,5 +1,4 @@
 import Foundation
-import GoogleSignIn
 import Observation
 import SwiftData
 import UserNotifications
@@ -74,6 +73,22 @@ final class AppState {
     @ObservationIgnored var householdSession: HouseholdSession?
     @ObservationIgnored var recipeRepository: RecipeRepository?
     @ObservationIgnored var metadataRepository: MetadataRepository?
+    // SP-C slice 3: week + grocery CloudKit repos.
+    @ObservationIgnored var weekRepository: WeekRepository?
+    @ObservationIgnored var groceryRepository: GroceryRepository?
+    // SP-C slice 4: event + guest CloudKit repos.
+    @ObservationIgnored var eventRepository: EventRepository?
+    @ObservationIgnored var guestRepository: GuestRepository?
+    // SP-C slice 5: per-user PRIVATE-plane repos (NSPCKC, not the household zone).
+    @ObservationIgnored var profileRepository: ProfileRepository?
+    @ObservationIgnored var preferenceRepository: PreferenceRepository?
+    // SP-C slice 5: household-zone pantry + alias repos.
+    @ObservationIgnored var pantryRepository: PantryRepository?
+    @ObservationIgnored var aliasRepository: AliasRepository?
+    // SP-C AI-1: the single AI call seam. Constructed alongside profileRepository
+    // once the CloudKit session is live. API keys live in Keychain; provider/model
+    // config in the private plane. nil before the session is ready.
+    @ObservationIgnored var aiService: AIService?
     /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
     /// any `await`) so a second concurrent caller on MainActor sees it and
     /// awaits the same task instead of starting a second setup. Cleared on
@@ -175,9 +190,81 @@ final class AppState {
     var availableAIModelsByProvider: [String: [AIModelOption]] = [:]
     var aiModelErrorByProvider: [String: String] = [:]
 
+    // MARK: - SP-C slice 3: weeks import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit weeks+grocery import for the Settings trigger.
+    /// `WeekImportState` enum is declared in `AppState+Recipes` (same extension).
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var weekImportState: WeekImportState = .idle
+    #endif
+
+    // MARK: - SP-C slice 4: events import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit events+guests+event-grocery import for the
+    /// Settings trigger. `EventImportState` enum is declared in `AppState+Recipes`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var eventImportState: EventImportState = .idle
+    #endif
+
+    // MARK: - SP-C slice 5: pantry + profile import trigger state
+
+    /// Tracks the one-shot Fly→CloudKit pantry+profile+prefs+aliases import for the
+    /// Settings trigger. `PantryProfileImportState` enum is declared in `AppState+Recipes`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var pantryProfileImportState: PantryProfileImportState = .idle
+    #endif
+
+    // MARK: - SP-C factory reset: Start Fresh from Fly trigger state
+
+    /// Tracks the destructive "Start Fresh from Fly" flow (wipe all CloudKit +
+    /// re-import) for the Settings trigger. `StartFreshState` enum and the
+    /// `StartFreshResult` summary are declared in `AppState+FactoryReset`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var startFreshState: StartFreshState = .idle
+    #endif
+
+    // MARK: - SP-C identity slice: CloudKit-only launch gate
+
+    /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.
+    /// RootView gates on this — shows a loading state while `.resolving`,
+    /// `MainTabView` once `.ready`, and a friendly "Sign in to iCloud" prompt
+    /// when `.iCloudUnavailable`. The Fly sign-in screen is no longer shown.
+    enum HouseholdLaunchPhase: Equatable {
+        /// CloudKit household resolution in progress (initial state).
+        case resolving
+        /// Household resolved — ready to show `MainTabView`.
+        case ready
+        /// iCloud account not signed in or CKAccountStatus is not `.available`.
+        case iCloudUnavailable
+    }
+
+    /// Current phase of the iCloud-native launch gate.
+    var householdLaunchPhase: HouseholdLaunchPhase = .resolving
+
+    /// Single source of truth: this build is CloudKit-only. Features not yet
+    /// migrated to CloudKit (Weeks / Grocery / Events / Profile / AI) render
+    /// `ComingSoonView` at their tab entry points so no Fly call is made and
+    /// no 401 banners appear. Recipes is the first (and currently only) fully
+    /// cut-over feature; subsequent slices will flip their gating off.
+    let isCloudKitOnly: Bool = AppState.cloudKitOnlyBuild
+
     var syncPhase: SyncPhase = .idle
     var lastErrorMessage: String?
-    var selectedTab: MainTab = .week
+    /// SP-C identity slice (review finding C): in CloudKit-only mode the `.week` tab
+    /// renders `ComingSoonView`, so landing there opens the app on an hourglass. Default
+    /// to the cut-over Recipes (Forge) tab instead. `defaultLandingTab` is the single
+    /// source of truth for both the initial value and the post-clear reset.
+    var selectedTab: MainTab = AppState.defaultLandingTab
+    /// The tab the app should open to. `.week` now that Weeks + Grocery are cut over;
+    /// the Recipes fallback is retained here only for historical reference.
+    static var defaultLandingTab: MainTab { .week }
+    /// Compile-time mirror of `isCloudKitOnly` so the static `defaultLandingTab` can read
+    /// it without an instance. Keep in lockstep with `isCloudKitOnly`.
+    private static let cloudKitOnlyBuild = true
     /// Build 68 — bumped whenever the user changes a per-tab top-bar
     /// primary action in Settings. Views that build toolbars read this
     /// (via @Observable) so the SwiftUI graph re-renders without
@@ -343,24 +430,6 @@ final class AppState {
         }
     }
 
-    func signInWithGoogle(identityToken: String) async {
-        lastErrorMessage = nil
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        serverURLDraft = Self.productionServerURL
-
-        do {
-            let response = try await apiClient.signInWithGoogle(identityToken: identityToken)
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
-            authTokenDraft = response.token
-            await refreshAll()
-            if response.isNewUser {
-                showOnboardingInterview = true
-            }
-        } catch {
-            lastErrorMessage = "Google sign in failed: \(error.localizedDescription)"
-        }
-    }
-
     func saveConnectionDetails() async {
         let normalizedURL = ConnectionSettingsStore.normalizeServerURL(serverURLDraft)
         settingsStore.save(serverURLString: normalizedURL, authToken: authTokenDraft)
@@ -445,9 +514,20 @@ final class AppState {
             if let threads = try? await apiClient.fetchAssistantThreads() {
                 assistantThreads = threads
             }
+            // SP-C slice 5: ingredient preferences come from PreferenceRepository (private
+            // plane) when the CloudKit session is active; fall back to Fly pre-session.
+            #if canImport(CloudKit)
+            if let prefRepo = preferenceRepository {
+                prefRepo.reload()
+                ingredientPreferences = prefRepo.preferences
+            } else if let preferences = try? await apiClient.fetchIngredientPreferences() {
+                ingredientPreferences = preferences
+            }
+            #else
             if let preferences = try? await apiClient.fetchIngredientPreferences() {
                 ingredientPreferences = preferences
             }
+            #endif
             await refreshAIModels(for: aiDirectProviderDraft)
 
             syncPhase = .synced(.now)
@@ -501,7 +581,9 @@ final class AppState {
         currentHousehold = nil
         syncPhase = .idle
         lastErrorMessage = nil
-        selectedTab = .week
+        // Review finding C: reset to the cut-over landing tab, not `.week` (which renders
+        // ComingSoonView in CloudKit-only mode).
+        selectedTab = AppState.defaultLandingTab
         assistantLaunchContext = nil
         assistantSendingThreadIDs = []
         assistantErrorByThreadID = [:]
@@ -539,9 +621,6 @@ final class AppState {
         // who signs in on this device gets a clean mapping for their
         // chosen Reminders list.
         clearReminderMappings()
-        // Also clear the Google Sign-In cache so the next sign-in presents
-        // the account picker instead of silently reusing the previous user.
-        GIDSignIn.sharedInstance.signOut()
         clearLocalCache()
     }
 

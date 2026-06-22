@@ -1,10 +1,20 @@
 import Foundation
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+#endif
 
 extension AppState {
     // MARK: - Guests
 
     func refreshGuests() async {
+        #if canImport(CloudKit)
+        if let repo = guestRepository {
+            repo.reload()
+            mirrorGuestsFromRepository()
+            return
+        }
+        #endif
         guard hasSavedConnection else { return }
         do {
             guests = try await apiClient.fetchGuests(includeInactive: true)
@@ -23,6 +33,21 @@ extension AppState {
         ageGroup: String = "adult",
         active: Bool = true
     ) async throws -> Guest {
+        #if canImport(CloudKit)
+        if let repo = guestRepository {
+            let updated = repo.upsertGuest(
+                guestID: guestID,
+                name: name,
+                relationshipLabel: relationshipLabel,
+                dietaryNotes: dietaryNotes,
+                allergies: allergies,
+                ageGroup: ageGroup,
+                active: active
+            )
+            mirrorGuestsFromRepository()
+            return updated
+        }
+        #endif
         let updated = try await apiClient.upsertGuest(
             guestID: guestID,
             name: name,
@@ -43,6 +68,13 @@ extension AppState {
     }
 
     func deleteGuest(_ guest: Guest) async throws {
+        #if canImport(CloudKit)
+        if let repo = guestRepository {
+            repo.deleteGuest(guest.guestId)
+            mirrorGuestsFromRepository()
+            return
+        }
+        #endif
         try await apiClient.deleteGuest(guestID: guest.guestId)
         guests.removeAll { $0.guestId == guest.guestId }
     }
@@ -50,6 +82,13 @@ extension AppState {
     // MARK: - Events
 
     func refreshEvents() async {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            repo.reload()
+            mirrorEventsFromRepository()
+            return
+        }
+        #endif
         guard hasSavedConnection else { return }
         do {
             eventSummaries = try await apiClient.fetchEvents()
@@ -60,6 +99,20 @@ extension AppState {
 
     @discardableResult
     func fetchEvent(eventID: String) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            repo.reload()
+            mirrorEventsFromRepository()
+            if let event = repo.event(forId: eventID) {
+                return event
+            }
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Event not found in the local store."]
+            )
+        }
+        #endif
         let event = try await apiClient.fetchEvent(eventID: eventID)
         eventDetails[eventID] = event
         syncSummary(from: event)
@@ -75,6 +128,26 @@ extension AppState {
         notes: String = "",
         attendees: [(guestID: String, plusOnes: Int)] = []
     ) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.createEvent(
+                name: name,
+                eventDate: eventDate,
+                occasion: occasion,
+                attendeeCount: attendeeCount,
+                notes: notes,
+                attendees: attendees
+            ) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 500,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to create event in CloudKit store."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.createEvent(
             name: name,
             eventDate: eventDate,
@@ -99,6 +172,28 @@ extension AppState {
         status: String,
         attendees: [(guestID: String, plusOnes: Int)]
     ) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.updateEvent(
+                eventID: eventID,
+                name: name,
+                eventDate: eventDate,
+                occasion: occasion,
+                attendeeCount: attendeeCount,
+                notes: notes,
+                status: status,
+                attendees: attendees
+            ) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after updateEvent."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.updateEvent(
             eventID: eventID,
             name: name,
@@ -115,6 +210,14 @@ extension AppState {
     }
 
     func deleteEvent(_ event: EventSummary) async throws {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            repo.deleteEvent(eventID: event.eventId)
+            eventSummaries.removeAll { $0.eventId == event.eventId }
+            eventDetails.removeValue(forKey: event.eventId)
+            return
+        }
+        #endif
         try await apiClient.deleteEvent(eventID: event.eventId)
         eventSummaries.removeAll { $0.eventId == event.eventId }
         eventDetails.removeValue(forKey: event.eventId)
@@ -130,6 +233,27 @@ extension AppState {
         notes: String = "",
         assignedGuestID: String? = nil
     ) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.addEventMeal(
+                eventID: eventID,
+                role: role,
+                recipeName: recipeName,
+                recipeID: recipeID,
+                servings: servings,
+                notes: notes,
+                assignedGuestID: assignedGuestID
+            ) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after addEventMeal."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.addEventMeal(
             eventID: eventID,
             role: role,
@@ -156,6 +280,29 @@ extension AppState {
         assignedGuestID: String? = nil,
         clearAssignee: Bool = false
     ) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.updateEventMeal(
+                eventID: eventID,
+                mealID: mealID,
+                role: role,
+                recipeID: recipeID,
+                recipeName: recipeName,
+                servings: servings,
+                notes: notes,
+                assignedGuestID: assignedGuestID,
+                clearAssignee: clearAssignee
+            ) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after updateEventMeal."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.updateEventMeal(
             eventID: eventID,
             mealID: mealID,
@@ -174,13 +321,27 @@ extension AppState {
 
     @discardableResult
     func deleteEventMeal(eventID: String, mealID: String) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.deleteEventMeal(eventID: eventID, mealID: mealID) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after deleteEventMeal."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.deleteEventMeal(eventID: eventID, mealID: mealID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)
         return event
     }
 
-    /// M28 phase 2 — pantry supplements.
+    /// M28 phase 2 — pantry supplements. DEFERRED (Pantry slice). Methods left dormant;
+    /// callers should not be reached in this build (supplement UI is hidden in EventDetailView).
     @discardableResult
     func addEventSupplement(
         eventID: String,
@@ -189,6 +350,15 @@ extension AppState {
         unit: String = "",
         notes: String = ""
     ) async throws -> Event {
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.addEventSupplement(
             eventID: eventID,
             body: SimmerSmithAPIClient.EventSupplementAddBody(
@@ -209,6 +379,15 @@ extension AppState {
         supplementID: String,
         body: SimmerSmithAPIClient.EventSupplementPatchBody
     ) async throws -> Event {
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.patchEventSupplement(
             eventID: eventID,
             supplementID: supplementID,
@@ -221,18 +400,37 @@ extension AppState {
 
     @discardableResult
     func deleteEventSupplement(eventID: String, supplementID: String) async throws -> Event {
+        // DEFER: depends on the Pantry slice (slice 5). Supplement UI is hidden — but guard so
+        // a stray call in CloudKit-only mode never silently hits Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "Pantry supplements are coming soon."]
+            )
+        }
         let event = try await apiClient.deleteEventSupplement(eventID: eventID, supplementID: supplementID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)
         return event
     }
 
+    /// AI TRACK — coming-soon. generateEventMenu is AI-backed and not yet wired to CloudKit.
+    /// Guard: throw a user-readable error in CloudKit-only mode so no Fly call is made.
     @discardableResult
     func generateEventMenu(
         eventID: String,
         prompt: String = "",
         roles: [String] = []
     ) async throws -> EventMenuResponse {
+        // AI TRACK: rewire to AIProviderKit before SP-D — AI menu design. Stays on Fly.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI menu generation is coming soon."]
+            )
+        }
         let response = try await apiClient.generateEventMenu(
             eventID: eventID,
             prompt: prompt,
@@ -243,8 +441,48 @@ extension AppState {
         return response
     }
 
+    /// AI TRACK — coming-soon. generateEventMealRecipe routes through AppState (not apiClient
+    /// directly) so the CloudKit-only guard lives here. Closes the
+    /// EventMealEditorSheet → apiClient direct leak.
+    @discardableResult
+    func generateEventMealRecipe(
+        eventID: String,
+        mealID: String,
+        prompt: String = "",
+        servings: Int = 0
+    ) async throws -> RecipeDraft {
+        // AI TRACK: rewire to AIProviderKit before SP-D — AI recipe draft for event meals.
+        if isCloudKitOnly {
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI recipe generation for event meals is coming soon."]
+            )
+        }
+        return try await apiClient.generateEventMealRecipe(
+            eventID: eventID,
+            mealID: mealID,
+            prompt: prompt,
+            servings: servings
+        )
+    }
+
     @discardableResult
     func refreshEventGrocery(eventID: String) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            repo.refreshEventGrocery(eventID: eventID)
+            mirrorEventsFromRepository()
+            if let event = repo.event(forId: eventID) {
+                return event
+            }
+            throw NSError(
+                domain: "SimmerSmith.EventRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Event not found after refreshEventGrocery."]
+            )
+        }
+        #endif
         let event = try await apiClient.refreshEventGrocery(eventID: eventID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)
@@ -253,6 +491,19 @@ extension AppState {
 
     @discardableResult
     func mergeEventGroceryIntoWeek(eventID: String, weekID: String) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.mergeEventGroceryIntoWeek(eventID: eventID, weekID: weekID) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after mergeEventGroceryIntoWeek."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.mergeEventGroceryIntoWeek(eventID: eventID, weekID: weekID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)
@@ -261,6 +512,19 @@ extension AppState {
 
     @discardableResult
     func unmergeEventGroceryFromWeek(eventID: String, weekID: String) async throws -> Event {
+        #if canImport(CloudKit)
+        if let repo = eventRepository {
+            guard let event = repo.unmergeEventGroceryFromWeek(eventID: eventID, weekID: weekID) else {
+                throw NSError(
+                    domain: "SimmerSmith.EventRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Event not found after unmergeEventGroceryFromWeek."]
+                )
+            }
+            mirrorEventsFromRepository()
+            return event
+        }
+        #endif
         let event = try await apiClient.unmergeEventGroceryFromWeek(eventID: eventID, weekID: weekID)
         eventDetails[event.eventId] = event
         syncSummary(from: event)

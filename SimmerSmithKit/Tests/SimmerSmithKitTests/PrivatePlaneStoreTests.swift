@@ -110,3 +110,34 @@ func migrationScopeClaimsOnce() throws {
     #expect(try store.claimMigrationScope("households") == false)
     #expect(try store.claimMigrationScope("recipes") == true)
 }
+
+// SP-C factory reset (spec §2/§4): `clearPrivatePlane` deletes every private-plane @Model
+// type. Verified against the in-memory store (CloudKit sync off); the on-device propagation
+// is verified separately. Seeds a row across every type, wipes, asserts every fetch empty.
+@Test @MainActor
+func clearPrivatePlaneDeletesEveryType() throws {
+    let store = try makeStore()
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    try store.upsertProfileSetting(key: "unit_system", value: "metric")
+    try store.upsertDietaryGoal(goalType: "lose", dailyCalories: 2000, proteinG: 150,
+                                carbsG: 200, fatG: 60, fiberG: 30, notes: "n")
+    try store.upsertPreferenceSignal(signalType: "cuisine", name: "Thai", normalizedName: "thai", score: 0.8, active: true)
+    try store.upsertIngredientPreference(preferenceID: "pref-1", baseIngredientID: "ing-1",
+                                         choiceMode: "preferred", rank: 1, active: true, brand: "Acme", variation: "organic")
+    let thread = try store.upsertAssistantThread(threadID: "t1", title: "Plan", createdAt: base, updatedAt: base)
+    try store.upsertAssistantMessage(messageID: "m1", thread: thread, role: "user", content: "hi", createdAt: base)
+    #expect(try store.claimMigrationScope("pantry-profile") == true)
+    try store.save()
+
+    try store.clearPrivatePlane()
+
+    #expect(try store.context.fetch(FetchDescriptor<PrivateProfileSetting>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivateDietaryGoal>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivatePreferenceSignal>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivateIngredientPreference>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivateAssistantThread>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivateAssistantMessage>()).isEmpty)
+    #expect(try store.context.fetch(FetchDescriptor<PrivateMigrationReceipt>()).isEmpty)
+    // Re-claiming a previously-cleared scope succeeds — the receipt is truly gone.
+    #expect(try store.claimMigrationScope("pantry-profile") == true)
+}

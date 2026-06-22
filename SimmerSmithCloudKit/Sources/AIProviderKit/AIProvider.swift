@@ -34,10 +34,21 @@ public enum CloudModel: Sendable, Equatable {
 
 public struct AIRequest: Sendable {
     public var feature: AIFeature
+    /// For Anthropic: sent via the `system` field; for OpenAI: prepended as a
+    /// `{"role": "system", ...}` message. Leave nil to use a single user message.
+    public var systemPrompt: String?
     public var prompt: String
     public var wantsStructuredJSON: Bool
-    public init(feature: AIFeature, prompt: String, wantsStructuredJSON: Bool = false) {
-        self.feature = feature; self.prompt = prompt; self.wantsStructuredJSON = wantsStructuredJSON
+    public init(
+        feature: AIFeature,
+        systemPrompt: String? = nil,
+        prompt: String,
+        wantsStructuredJSON: Bool = false
+    ) {
+        self.feature = feature
+        self.systemPrompt = systemPrompt
+        self.prompt = prompt
+        self.wantsStructuredJSON = wantsStructuredJSON
     }
 }
 
@@ -50,6 +61,12 @@ public struct AIResponse: Sendable, Equatable {
 public enum AIError: Error, Equatable {
     case noProviderAvailable(AIFeature)
     case notWiredYet(AITier)           // SP-B fills the real backends
+    /// The user has not configured a key for the given cloud model.
+    case noKeyConfigured(CloudModel)
+    /// The provider returned a non-200 HTTP status.
+    case httpError(provider: String, statusCode: Int, body: String)
+    /// The provider returned a 200 but the response shape was unexpected.
+    case malformedResponse(String)
 }
 
 /// A backend that can answer a request at a given tier.

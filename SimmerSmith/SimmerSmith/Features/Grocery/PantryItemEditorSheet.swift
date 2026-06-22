@@ -247,11 +247,9 @@ struct PantryItemEditorSheet: View {
         isSearchingIngredients = true
         defer { isSearchingIngredients = false }
         do {
-            let results = try await appState.apiClient.fetchBaseIngredients(
-                query: query,
-                limit: 8,
-                includeProductLike: false
-            )
+            // Route through the catalog façade in AppState (AppState+Recipes.swift)
+            // so PantryItemEditorSheet does NOT reach into apiClient directly.
+            let results = try await appState.fetchBaseIngredients(query: query, limit: 8)
             // Don't replace results with stale data if the user has
             // typed past this query already.
             if !Task.isCancelled, query == lastSearchedQuery {

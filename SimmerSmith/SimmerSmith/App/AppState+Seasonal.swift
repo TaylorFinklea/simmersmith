@@ -32,6 +32,15 @@ extension AppState {
     /// in-season list since the cache key includes the region.
     func saveUserRegion(_ value: String) async {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if canImport(CloudKit)
+        if let repo = profileRepository {
+            repo.setSetting("user_region", trimmed)
+            userRegionDraft = trimmed
+            await forceRefreshSeasonalProduce()
+            return
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session).
         guard hasSavedConnection else { return }
         do {
             let updated = try await apiClient.updateProfile(settings: ["user_region": trimmed])

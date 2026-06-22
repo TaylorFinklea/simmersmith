@@ -138,41 +138,22 @@ struct GroceryArchiveSheet: View {
     }
 
     private func restore(id: String) async {
-        guard let weekID = appState.currentWeek?.weekId else { return }
         restoringIDs.insert(id)
         defer { restoringIDs.remove(id) }
-        do {
-            var body = SimmerSmithAPIClient.GroceryItemPatchBody()
-            body.removed = false
-            let restored = try await appState.apiClient.patchGroceryItem(
-                weekID: weekID, itemID: id, body: body
-            )
-            items.removeAll { $0.groceryItemId == id }
-            appState.insertGroceryItemInCurrentWeek(restored)
-            await appState.syncGroceryToReminders()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        // SP-C: routed through AppState façade (closes the direct apiClient leak).
+        await appState.restoreGroceryItem(id: id)
+        items.removeAll { $0.groceryItemId == id }
     }
 
     private func restoreAll() async {
-        guard let weekID = appState.currentWeek?.weekId else { return }
         let toRestore = items
         for item in toRestore {
             restoringIDs.insert(item.groceryItemId)
         }
         defer { restoringIDs.removeAll() }
         for item in toRestore {
-            do {
-                var body = SimmerSmithAPIClient.GroceryItemPatchBody()
-                body.removed = false
-                let restored = try await appState.apiClient.patchGroceryItem(
-                    weekID: weekID, itemID: item.groceryItemId, body: body
-                )
-                appState.insertGroceryItemInCurrentWeek(restored)
-            } catch {
-                print("[GroceryArchiveSheet] restore \(item.groceryItemId) failed: \(error)")
-            }
+            // SP-C: routed through AppState façade (closes the direct apiClient leak).
+            await appState.restoreGroceryItem(id: item.groceryItemId)
         }
         items = []
         await appState.syncGroceryToReminders()

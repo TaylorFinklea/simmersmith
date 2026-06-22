@@ -103,6 +103,10 @@ public final class PrivateIngredientPreference {
     // Identity is the app's existing preferenceId.
     public var recordKey: String = ""
     public var baseIngredientID: String = ""
+    /// The human-readable ingredient name (e.g. "peanuts", "shellfish"). Stored here so
+    /// the allergy hard-gate has a name to match against without a catalog round-trip.
+    /// NSPCKC handles this as an additive field (CloudKit schema migration is automatic).
+    public var baseIngredientName: String = ""
     public var choiceMode: String = ""
     public var rank: Int = 0
     public var active: Bool = true
@@ -113,6 +117,7 @@ public final class PrivateIngredientPreference {
     public init(
         preferenceID: String = "",
         baseIngredientID: String = "",
+        baseIngredientName: String = "",
         choiceMode: String = "",
         rank: Int = 0,
         active: Bool = true,
@@ -122,6 +127,7 @@ public final class PrivateIngredientPreference {
     ) {
         self.recordKey = preferenceID
         self.baseIngredientID = baseIngredientID
+        self.baseIngredientName = baseIngredientName
         self.choiceMode = choiceMode
         self.rank = rank
         self.active = active

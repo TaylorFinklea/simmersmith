@@ -209,25 +209,19 @@ struct DietaryGoalView: View {
         isSaving = true
         errorMessage = nil
         defer { isSaving = false }
-        do {
-            _ = try await appState.apiClient.saveDietaryGoal(goal)
-            await appState.refreshAll()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        // Route through AppState — delegates to ProfileRepository (private plane)
+        // when the CloudKit session is active; falls back to Fly pre-session.
+        await appState.saveDietaryGoal(goal)
+        dismiss()
     }
 
     private func clear() async {
         isClearing = true
         errorMessage = nil
         defer { isClearing = false }
-        do {
-            try await appState.apiClient.clearDietaryGoal()
-            await appState.refreshAll()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        // Route through AppState — delegates to ProfileRepository (private plane)
+        // when the CloudKit session is active; falls back to Fly pre-session.
+        await appState.clearDietaryGoal()
+        dismiss()
     }
 }

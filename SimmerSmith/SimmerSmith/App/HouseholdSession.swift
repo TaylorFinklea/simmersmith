@@ -2,6 +2,8 @@
 import CloudKit
 import Foundation
 import Observation
+import SwiftData
+import SimmerSmithKit
 import CloudKitProvisioning
 import HouseholdSync
 
@@ -24,6 +26,34 @@ final class HouseholdSession {
     let catalog: PublicCatalogReader
     let zoneID: CKRecordZone.ID
     private let householdID: String
+
+    // MARK: — Per-user PRIVATE plane (NSPCKC)
+    //
+    // SP-C slice 5: a SEPARATE mechanism from the household CKSyncEngine stack above.
+    // This is SwiftData over the user's PRIVATE CloudKit DB (NSPersistentCloudKitContainer
+    // underneath) and it syncs AUTOMATICALLY — no engine, no merger, no manual save-to-
+    // CloudKit. It is PER-USER (the signed-in iCloud account), NOT keyed by householdID:
+    // every device on the same account converges via NSPCKC. Phase 0.5 proved NSPCKC and
+    // the household CKSyncEngine stack coexist in one container with no token/zone clash.
+    //
+    // Created in `start()` (mirrors CloudKitDebugView.runPrivatePlaneCheck's construction:
+    // `makeSimmerSmithPrivatePlaneContainer()` → `container.mainContext`). It stays nil if
+    // construction throws (e.g. iCloud unavailable) — the household plane works regardless.
+    private var privateContainer: ModelContainer?
+
+    /// Upsert/read façade over the private plane's `@MainActor` ModelContext. Returns nil
+    /// until `start()` succeeds in creating the container (degraded / pre-boot). The
+    /// Profile/Preference repositories read/write exclusively through this.
+    ///
+    /// `@MainActor`-isolated because it touches `privateContainer.mainContext` (a
+    /// `@MainActor` property). All callers are already MainActor, so this is a clean
+    /// hardening — it makes the isolation explicit rather than relying on the enclosing
+    /// `@MainActor` class annotation for a computed property the compiler could otherwise
+    /// treat as non-isolated.
+    @MainActor var privateStore: PrivatePlaneStore? {
+        guard let privateContainer else { return nil }
+        return PrivatePlaneStore(context: privateContainer.mainContext)
+    }
     /// Durable URL of the sync-engine state token. Held so `clearState()` can delete it
     /// on sign-out — otherwise a different household signed in on this device would
     /// inherit the prior household's sync token (Task-3 token-leakage risk).
@@ -90,6 +120,18 @@ final class HouseholdSession {
     /// set syncPhase. Must not crash if iCloud is unavailable — sets .offline on throw.
     func start() async {
         syncPhase = .loading  // AppState.SyncPhase.loading
+
+        // 0. Boot the per-user PRIVATE plane (NSPCKC). Independent of the household
+        //    CKSyncEngine boot below — a failure here (or there) must not take the other
+        //    down. Construction can throw if iCloud is unavailable or the store fails to
+        //    open; on throw we leave `privateContainer` nil and the household plane still
+        //    works. NSPCKC then syncs automatically once it's created (no fetch kick here).
+        do {
+            privateContainer = try makeSimmerSmithPrivatePlaneContainer()
+        } catch {
+            privateContainer = nil
+            print("[HouseholdSession] private plane container create failed: \(error)")
+        }
 
         do {
             // 1. Ensure the zone exists (idempotent — safe to call every launch).
