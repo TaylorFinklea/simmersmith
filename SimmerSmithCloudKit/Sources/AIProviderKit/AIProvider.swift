@@ -79,6 +79,14 @@ public enum AIError: Error, Equatable {
     /// A web-search request was issued to a provider/model that can't run the
     /// built-in web-search tool (e.g. Gemini / OpenRouter in this build).
     case webSearchUnsupported(CloudModel)
+    /// Image generation failed. `transient` is true for plausibly-retryable
+    /// failures (5xx, 429, network-level errors) — the failover layer
+    /// (AIService, AI-4) retries OpenAI→Gemini once when it's set and a Gemini
+    /// key exists. Permanent failures (4xx/auth/content-policy, malformed
+    /// response) carry `transient == false` and surface as-is. Ports the
+    /// `RecipeImageTransientError` vs `RecipeImageError` split in
+    /// `app/services/recipe_image_ai.py`.
+    case imageGenFailed(provider: String, transient: Bool, detail: String)
 }
 
 /// A backend that can answer a request at a given tier.
