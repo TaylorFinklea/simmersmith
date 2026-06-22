@@ -27,23 +27,6 @@ struct SettingsView: View {
 
         Form {
             Section {
-                TextField("Server URL", text: $appState.serverURLDraft)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                SecureField("Bearer token", text: $appState.authTokenDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-
-                Button("Save Connection") {
-                    Task { await appState.saveConnectionDetails() }
-                }
-                .buttonStyle(.borderedProminent)
-            } header: {
-                SmithSectionHeader("server")
-            }
-
-            Section {
                 Text(appState.syncStatusText)
                     .foregroundStyle(SMColor.textSecondary)
 
