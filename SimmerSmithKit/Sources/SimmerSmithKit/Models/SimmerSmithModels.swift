@@ -1788,6 +1788,11 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
 public struct EventMenuResponse: Codable, Hashable, Sendable {
     public let event: Event
     public let coverageSummary: String
+
+    public init(event: Event, coverageSummary: String) {
+        self.event = event
+        self.coverageSummary = coverageSummary
+    }
 }
 
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {

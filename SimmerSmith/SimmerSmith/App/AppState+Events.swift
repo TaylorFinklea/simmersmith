@@ -415,57 +415,6 @@ extension AppState {
         return event
     }
 
-    /// AI TRACK — coming-soon. generateEventMenu is AI-backed and not yet wired to CloudKit.
-    /// Guard: throw a user-readable error in CloudKit-only mode so no Fly call is made.
-    @discardableResult
-    func generateEventMenu(
-        eventID: String,
-        prompt: String = "",
-        roles: [String] = []
-    ) async throws -> EventMenuResponse {
-        // AI TRACK: rewire to AIProviderKit before SP-D — AI menu design. Stays on Fly.
-        if isCloudKitOnly {
-            throw NSError(
-                domain: "SimmerSmith.EventRepository",
-                code: 503,
-                userInfo: [NSLocalizedDescriptionKey: "AI menu generation is coming soon."]
-            )
-        }
-        let response = try await apiClient.generateEventMenu(
-            eventID: eventID,
-            prompt: prompt,
-            roles: roles
-        )
-        eventDetails[response.event.eventId] = response.event
-        syncSummary(from: response.event)
-        return response
-    }
-
-    /// AI TRACK — coming-soon. generateEventMealRecipe routes through AppState (not apiClient
-    /// directly) so the CloudKit-only guard lives here. Closes the
-    /// EventMealEditorSheet → apiClient direct leak.
-    @discardableResult
-    func generateEventMealRecipe(
-        eventID: String,
-        mealID: String,
-        prompt: String = "",
-        servings: Int = 0
-    ) async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — AI recipe draft for event meals.
-        if isCloudKitOnly {
-            throw NSError(
-                domain: "SimmerSmith.EventRepository",
-                code: 503,
-                userInfo: [NSLocalizedDescriptionKey: "AI recipe generation for event meals is coming soon."]
-            )
-        }
-        return try await apiClient.generateEventMealRecipe(
-            eventID: eventID,
-            mealID: mealID,
-            prompt: prompt,
-            servings: servings
-        )
-    }
 
     @discardableResult
     func refreshEventGrocery(eventID: String) async throws -> Event {
@@ -533,7 +482,7 @@ extension AppState {
 
     // MARK: - Helpers
 
-    private func syncSummary(from event: Event) {
+    func syncSummary(from event: Event) {
         let summary = EventSummary(
             eventId: event.eventId,
             name: event.name,

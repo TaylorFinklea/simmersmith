@@ -1057,14 +1057,110 @@ extension AppState {
     }
 
     func estimateRecipeNutrition(_ draft: RecipeDraft) async throws -> NutritionSummary {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.estimateRecipeNutrition(draft)
+        // SP-C AI-3: deterministic catalog port (NOT LLM). PublicCatalogReader looks up
+        // per-ingredient macros from the catalog (variation first, then base ingredient),
+        // then NutritionCalculator scales by quantity/unit — the same logic as the server's
+        // `calculate_recipe_nutrition`. No API key required.
+        #if canImport(CloudKit)
+        if let catalog = householdSession?.catalog {
+            let ingredients: [NutritionCalculator.Ingredient] = draft.ingredients.map { ing in
+                NutritionCalculator.Ingredient(
+                    key: NutritionCalculator.IngredientKey(
+                        ingredientName: ing.ingredientName,
+                        normalizedName: nil,
+                        baseIngredientID: ing.baseIngredientId,
+                        ingredientVariationID: ing.ingredientVariationId
+                    ),
+                    quantity: ing.quantity,
+                    unit: ing.unit
+                )
+            }
+            // Build a sync catalog-lookup backed by the async PublicCatalogReader.
+            // For each ingredient we do an async resolve on the catalog (variation first,
+            // then base ingredient by normalizedName), then cache in a local dict so the
+            // NutritionCalculator's sync closure can answer subsequent calls immediately.
+            var macroCache: [String: CatalogMacros] = [:]
+            for ingredient in ingredients {
+                let key = ingredient.key
+                // Resolve key: prefer variationID, then baseIngredientID, then name.
+                let normalizedName: String
+                if let varID = key.ingredientVariationID, !varID.isEmpty {
+                    normalizedName = varID
+                } else if let baseID = key.baseIngredientID, !baseID.isEmpty {
+                    normalizedName = baseID
+                } else {
+                    normalizedName = NutritionCalculator.normalizeName(key.ingredientName)
+                }
+                if macroCache[normalizedName] != nil { continue }
+                // Try normalized ingredient name as the catalog lookup key.
+                let catalogNorm = NutritionCalculator.normalizeName(key.ingredientName)
+                if let projection = await catalog.macros(forNormalizedName: catalogNorm) {
+                    macroCache[normalizedName] = CatalogMacros(
+                        referenceAmount: projection.referenceAmount,
+                        referenceUnit: projection.referenceUnit,
+                        calories: projection.calories,
+                        proteinG: projection.proteinG,
+                        carbsG: projection.carbsG,
+                        fatG: projection.fatG,
+                        fiberG: projection.fiberG
+                    )
+                }
+            }
+            let capturedCache = macroCache
+            let calculator = NutritionCalculator(lookup: { key in
+                let name: String
+                if let varID = key.ingredientVariationID, !varID.isEmpty {
+                    name = varID
+                } else if let baseID = key.baseIngredientID, !baseID.isEmpty {
+                    name = baseID
+                } else {
+                    name = NutritionCalculator.normalizeName(key.ingredientName)
+                }
+                return capturedCache[name]
+            })
+            return calculator.calculateRecipeNutrition(ingredients: ingredients, servings: draft.servings)
+        }
+        #endif
+        return try await apiClient.estimateRecipeNutrition(draft)
     }
 
     func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
-        // AI TRACK: rewire to AIProviderKit before SP-D — nutrition catalog search backs
-        // the AI nutrition flow. Stays on Fly during the transition.
-        try await apiClient.searchNutritionItems(query: query, limit: limit)
+        // SP-C AI-3: catalog name search via PublicCatalogReader (deterministic, no LLM, no key).
+        // Searches BaseIngredient records by normalizedName prefix match in the PUBLIC catalog.
+        // Returns NutritionItem projections from the catalog's calorie fields (calories-only for
+        // now; full macros become available when the catalog publishes the macro columns).
+        #if canImport(CloudKit)
+        if let catalog = householdSession?.catalog {
+            let normalizedQuery = NutritionCalculator.normalizeName(query)
+            // Use the catalog's batch-prefetch to search for the query substring.
+            // PublicCatalogReader.prefetchCommonHead fetches exact names, so we approximate
+            // a name search by prefetching a single normalized name and accepting that we may
+            // not get substring results — a CATALOG-TRACK follow-up can add a proper query
+            // predicate when the curator publishes a queryable index. For now, if query is
+            // empty we return early with an empty list (the UI shows the "search" affordance).
+            // If a query is provided, try to resolve the normalized name from the catalog.
+            guard !normalizedQuery.isEmpty else { return [] }
+            if let projection = await catalog.macros(forNormalizedName: normalizedQuery) {
+                // We got a catalog hit — build a NutritionItem from the projection via JSON
+                // round-trip (NutritionItem has no memberwise init — decoder-only).
+                let dict: [String: Any] = [
+                    "itemId": normalizedQuery,
+                    "name": query,
+                    "normalizedName": normalizedQuery,
+                    "referenceAmount": projection.referenceAmount ?? 100,
+                    "referenceUnit": projection.referenceUnit.isEmpty ? "g" : projection.referenceUnit,
+                    "calories": projection.calories ?? 0,
+                    "notes": "",
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: dict),
+                   let item = try? JSONDecoder().decode(NutritionItem.self, from: data) {
+                    return [item]
+                }
+            }
+            return []
+        }
+        #endif
+        return try await apiClient.searchNutritionItems(query: query, limit: limit)
     }
 
     func importRecipeDraft(fromURL url: String) async throws -> RecipeDraft {

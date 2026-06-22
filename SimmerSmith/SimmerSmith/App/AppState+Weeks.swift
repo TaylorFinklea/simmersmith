@@ -2,6 +2,7 @@ import Foundation
 import SimmerSmithKit
 #if canImport(CloudKit)
 import CloudKit
+import AIProviderKit
 #endif
 
 extension AppState {
@@ -359,22 +360,116 @@ extension AppState {
         return week
     }
 
-    // MARK: - AI TRACK: rebalanceDay (coming-soon; stays on Fly)
+    // MARK: - SP-C AI-3: rebalanceDay (on-device via AIService)
 
-    /// AI day-rebalance. NOT cut over to CloudKit — AI track. Guarded in the UI
-    /// by the rebalanceBanner being hidden when `isCloudKitOnly` (no profile
-    /// dietaryGoal is returned by CloudKit, so the banner condition never fires).
-    /// // AI TRACK
+    /// AI day-rebalance. SP-C AI-3: build the day+goal context → DayRebalancePrompt →
+    /// AIService (the same week-gen system prompt + a day-scoped user prompt) → parse
+    /// (MealPlanParser + allergy gate) → apply defaults → save via saveWeekMeals for
+    /// that day only. Un-gated: the rebalance banner shows whenever a dietary goal +
+    /// meals are present (the CloudKit private-plane profile now carries the goal).
     func rebalanceDay(weekID: String, mealDate: Date) async throws -> WeekSnapshot {
-        // AI TRACK: rewire to AIProviderKit when the AI slice lands. Stays on Fly.
-        let week = try await apiClient.rebalanceDay(weekID: weekID, mealDate: mealDate)
-        if currentWeek?.weekId == week.weekId {
-            currentWeek = week
-            try? cacheStore.saveCurrentWeek(week)
+        #if canImport(CloudKit)
+        if let aiSvc = aiService, let weekRepo = weekRepository {
+            guard let week = weekRepo.week(forId: weekID) else {
+                throw WeekGenError.weekNotFound
+            }
+
+            // 1. Derive day name + ISO date (mirrors rebalance_day's target_date derivation).
+            let dayFormatter: DateFormatter = {
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.timeZone = TimeZone(identifier: "UTC")
+                f.dateFormat = "yyyy-MM-dd"
+                return f
+            }()
+            let weekdayFormatter: DateFormatter = {
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.timeZone = TimeZone(identifier: "UTC")
+                f.dateFormat = "EEEE"
+                return f
+            }()
+            let targetDateISO = dayFormatter.string(from: mealDate)
+            let dayName = weekdayFormatter.string(from: mealDate)
+
+            // 2. Build context (planning context shared with week-gen).
+            let context = gatherWeekGenContext(excludeWeekId: nil)
+            let unitSystem = UnitSystem.normalized(
+                profileRepository?.settings["unit_system"] ?? profile?.settings["unit_system"]
+            )
+
+            // 3. Build the system + user prompts (the day-rebalance system prompt is the
+            //    same as week-gen; the user prompt narrows to this one day).
+            // Build the visible profile settings (mirror visibleProfileSettings in AppState+WeekGen).
+            let secretKeys: Set<String> = [
+                "ai_openai_api_key", "ai_anthropic_api_key", "ai_direct_api_key",
+            ]
+            var profileSettings = profile?.settings ?? [:]
+            for key in secretKeys { profileSettings.removeValue(forKey: key) }
+
+            let systemPrompt = DayRebalancePrompt.systemPrompt(
+                profileSettings: profileSettings,
+                weekStart: week.weekStart,
+                context: context,
+                unitSystem: unitSystem
+            )
+            let userPrompt = DayRebalancePrompt.userPrompt(
+                dayName: dayName,
+                targetDateISO: targetDateISO
+            )
+
+            // 4. Call the AI (structured JSON; same .weekGen feature as week-gen).
+            let request = AIRequest(
+                feature: .weekGen,
+                systemPrompt: systemPrompt,
+                prompt: userPrompt,
+                wantsStructuredJSON: true
+            )
+            let aiResponse = try await aiSvc.generate(request)
+
+            // 5. Parse → allergy gate → stamp day defaults.
+            var result = try MealPlanParser.parseAndGate(aiResponse.text, allergies: context.allergies)
+            result = DayRebalancePrompt.applyDayDefaults(result, dayName: dayName, targetDateISO: targetDateISO)
+
+            // 6. Map only this day's slots to MealUpdateRequest (like mealUpdateRequests but
+            //    for 3 slots, replacing the current day's meals).
+            let dayMeals = mealUpdateRequests(from: result, weekStart: week.weekStart)
+            guard !dayMeals.isEmpty else { throw WeekGenError.emptyPlan }
+
+            // 7. Save via WeekRepository (replaces only the rebalanced day's meals by
+            //    keeping all other days' meals and overwriting this day's slots).
+            let existingMeals: [MealUpdateRequest] = week.meals
+                .filter { meal in
+                    // Keep meals NOT on the target date.
+                    let d = dayFormatter.string(from: meal.mealDate)
+                    return d != targetDateISO
+                }
+                .map { meal in
+                    MealUpdateRequest(
+                        mealId: meal.mealId,
+                        dayName: meal.dayName,
+                        mealDate: meal.mealDate,
+                        slot: meal.slot,
+                        recipeId: meal.recipeId,
+                        recipeName: meal.recipeName,
+                        servings: meal.servings,
+                        scaleMultiplier: meal.scaleMultiplier,
+                        notes: meal.notes,
+                        approved: meal.approved
+                    )
+                }
+            let allMeals = existingMeals + dayMeals
+            return try await saveWeekMeals(weekID: weekID, meals: allMeals)
         }
-        syncPhase = .synced(.now)
-        return week
+        #endif
+        // No AI service: surface a clear error (no Fly fallback for LLM features).
+        throw NSError(
+            domain: "SimmerSmith.WeekRepository",
+            code: 503,
+            userInfo: [NSLocalizedDescriptionKey: "AI day rebalance requires an AI key — open Settings → AI to add yours."]
+        )
     }
+
 
     // MARK: - AI: generateWeekFromAI (SP-C AI-1 — on-device BYO-key week-gen)
 

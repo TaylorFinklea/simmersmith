@@ -353,7 +353,7 @@ public struct NutritionCalculator: Sendable {
 
     /// Port of the server `normalize_name`: lowercased, `&`→` and `, non-alphanumerics→space,
     /// whitespace collapsed + trimmed. Used both for unit normalization and unmatched-name dedupe.
-    static func normalizeName(_ value: String) -> String {
+    public static func normalizeName(_ value: String) -> String {
         var cleaned = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         cleaned = cleaned.replacingOccurrences(of: "&", with: " and ")
         let scalars = cleaned.unicodeScalars.map { scalar -> Character in

@@ -5,7 +5,7 @@ import Foundation
 // The companion to `EventMenuPrompt`: the prompt instructs the model to return
 // `{menu: [...], coverage_summary: "..."}` — the exact shape
 // `app/services/event_ai.py::_build_prompt` documents. This file is the Codable
-// mirror of that shape (`EventMenuResponse`), a parser that tolerates the same
+// mirror of that shape (`EventMenuParseResult`), a parser that tolerates the same
 // markdown-fence / prose wrapping the server's `extract_json_object` handled, and
 // the name→guest-id coverage resolution `event_ai._resolve_coverage` performs.
 //
@@ -127,7 +127,7 @@ public struct EventMenuDish: Codable, Sendable, Equatable {
 
 /// The full parsed event-menu response: the dishes + the coverage summary.
 /// Mirrors `event_ai._AIResponse` (`menu` + `coverage_summary`).
-public struct EventMenuResponse: Codable, Sendable, Equatable {
+public struct EventMenuParseResult: Codable, Sendable, Equatable {
     public var menu: [EventMenuDish]
     public var coverageSummary: String
 
@@ -208,16 +208,16 @@ public enum EventMenuParseError: Error, Equatable {
 
 public enum EventMenuParser {
 
-    /// Parse a raw provider response into an `EventMenuResponse`. Tolerates the same
+    /// Parse a raw provider response into an `EventMenuParseResult`. Tolerates the same
     /// markdown-fence / leading-prose wrapping `assistant_ai.extract_json_object`
     /// handled (reuses `RecipeAIParser.extractJSONObject`). Throws `.invalidJSON` on
     /// non-JSON and `.emptyMenu` when the menu carries no dishes.
-    public static func parse(_ raw: String) throws -> EventMenuResponse {
+    public static func parse(_ raw: String) throws -> EventMenuParseResult {
         let json = RecipeAIParser.extractJSONObject(raw)
         guard let data = json.data(using: .utf8) else { throw EventMenuParseError.invalidJSON }
-        let response: EventMenuResponse
+        let response: EventMenuParseResult
         do {
-            response = try JSONDecoder().decode(EventMenuResponse.self, from: data)
+            response = try JSONDecoder().decode(EventMenuParseResult.self, from: data)
         } catch {
             throw EventMenuParseError.invalidJSON
         }

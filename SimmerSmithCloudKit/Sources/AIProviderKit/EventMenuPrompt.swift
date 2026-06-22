@@ -40,7 +40,7 @@ public enum EventMenuPrompt {
     /// `event_ai._describe_guests`: one line per guest with optional `(+N more)`,
     /// relationship label, non-adult age hint, ALLERGIES, and dietary notes — in that
     /// order. Returns the placeholder when there are no attendees.
-    static func describeGuests(_ attendees: [EventAttendee]) -> String {
+    public static func describeGuests(_ attendees: [EventAttendee]) -> String {
         if attendees.isEmpty {
             return "(no specific guests listed — design for a general audience)"
         }
