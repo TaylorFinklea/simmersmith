@@ -212,6 +212,8 @@ extension AppState {
             return "No provider available for \(feature.rawValue)."
         case .notWiredYet(let tier):
             return "Provider tier not yet available: \(tier)."
+        case .webSearchUnsupported(let model):
+            return "Web search isn't available for \(model). Switch to OpenAI or Anthropic in Settings → AI."
         }
     }
     #endif

@@ -39,16 +39,25 @@ public struct AIRequest: Sendable {
     public var systemPrompt: String?
     public var prompt: String
     public var wantsStructuredJSON: Bool
+    /// When true, the provider runs its built-in web-search tool instead of a plain
+    /// chat completion (OpenAI Responses API `web_search`; Anthropic Messages
+    /// `web_search_20250305`). Backs `searchRecipeOnWeb`. A provider/tier without the
+    /// tool throws `AIError.webSearchUnsupported`. The structured-output prefill is
+    /// suppressed in this mode (the tool loop is incompatible with it) — the prompt
+    /// carries the JSON contract instead.
+    public var wantsWebSearch: Bool
     public init(
         feature: AIFeature,
         systemPrompt: String? = nil,
         prompt: String,
-        wantsStructuredJSON: Bool = false
+        wantsStructuredJSON: Bool = false,
+        wantsWebSearch: Bool = false
     ) {
         self.feature = feature
         self.systemPrompt = systemPrompt
         self.prompt = prompt
         self.wantsStructuredJSON = wantsStructuredJSON
+        self.wantsWebSearch = wantsWebSearch
     }
 }
 
@@ -67,6 +76,9 @@ public enum AIError: Error, Equatable {
     case httpError(provider: String, statusCode: Int, body: String)
     /// The provider returned a 200 but the response shape was unexpected.
     case malformedResponse(String)
+    /// A web-search request was issued to a provider/model that can't run the
+    /// built-in web-search tool (e.g. Gemini / OpenRouter in this build).
+    case webSearchUnsupported(CloudModel)
 }
 
 /// A backend that can answer a request at a given tier.

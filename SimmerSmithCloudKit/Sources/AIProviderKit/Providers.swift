@@ -63,6 +63,18 @@ public struct BYOKeyProvider: AIProvider {
     }
 
     public func generate(_ request: AIRequest) async throws -> AIResponse {
+        if request.wantsWebSearch {
+            switch model {
+            case .openAI:
+                return try await searchOpenAI(request)
+            case .anthropic:
+                return try await searchAnthropic(request)
+            case .gemini, .openRouter:
+                // No built-in web-search tool wired for these providers — degrade with
+                // a clear, typed error the UI can surface (AI-2 spec §5).
+                throw AIError.webSearchUnsupported(model)
+            }
+        }
         switch model {
         case .openAI:
             return try await callOpenAI(request)
@@ -154,6 +166,113 @@ public struct BYOKeyProvider: AIProvider {
             result = text
         }
         return AIResponse(text: result, tier: tier)
+    }
+
+    // MARK: - OpenAI web search (Responses API)
+
+    /// Web-search mode for OpenAI: the Responses API (`/v1/responses`) with the
+    /// built-in `web_search` tool. Ports `recipe_search_ai._search_openai` — the
+    /// model searches the web, picks one recipe, and returns the recipe JSON as a
+    /// `message` output item. The prompt (built by `RecipeAIPrompt.webSearchInput`)
+    /// carries the schema; there is no `response_format` on this API surface.
+    private func searchOpenAI(_ request: AIRequest) async throws -> AIResponse {
+        guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openAI)
+        }
+        let body: [String: Any] = [
+            "model": openAIModel,
+            "input": request.prompt,
+            "tools": [["type": "web_search"]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: "openai")
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw AIError.malformedResponse("openai")
+        }
+        let text = Self.extractOpenAIResponsesText(json)
+        guard !text.isEmpty else { throw AIError.malformedResponse("openai") }
+        return AIResponse(text: text, tier: tier)
+    }
+
+    /// Pull the model's text from an OpenAI Responses payload. Accepts the top-level
+    /// `output_text` convenience field, else concatenates the `output_text`/`text`
+    /// blocks of any `message` items (skipping `web_search_call` items). Mirrors
+    /// `recipe_search_ai._extract_text_from_openai_payload`.
+    static func extractOpenAIResponsesText(_ json: [String: Any]) -> String {
+        if let convenience = json["output_text"] as? String, !convenience.isEmpty {
+            return convenience
+        }
+        var chunks: [String] = []
+        let output = json["output"] as? [[String: Any]] ?? []
+        for item in output where item["type"] as? String == "message" {
+            let content = item["content"] as? [[String: Any]] ?? []
+            for block in content {
+                let type = block["type"] as? String
+                if type == "output_text" || type == "text",
+                   let text = block["text"] as? String, !text.isEmpty {
+                    chunks.append(text)
+                }
+            }
+        }
+        return chunks.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Anthropic web search (Messages API + web_search_20250305 tool)
+
+    /// Web-search mode for Anthropic: the Messages API with the `web_search_20250305`
+    /// server tool (`max_uses: 5` caps the search subqueries). Ports
+    /// `recipe_search_ai._search_anthropic`. The structured-output `{` prefill used by
+    /// the plain path is intentionally OMITTED — the web-search tool loop is
+    /// incompatible with a forced assistant prefix, so the JSON contract rides in the
+    /// prompt instead.
+    private func searchAnthropic(_ request: AIRequest) async throws -> AIResponse {
+        guard let key = keyStore.key(for: "anthropic"), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.anthropic)
+        }
+        var body: [String: Any] = [
+            "model": anthropicModel,
+            "max_tokens": 8000,
+            "tools": [["type": "web_search_20250305", "name": "web_search", "max_uses": 5]],
+            "messages": [["role": "user", "content": request.prompt]],
+        ]
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            body["system"] = sys
+        }
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.setValue(key, forHTTPHeaderField: "x-api-key")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: "anthropic")
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw AIError.malformedResponse("anthropic")
+        }
+        let text = Self.extractAnthropicText(json)
+        guard !text.isEmpty else { throw AIError.malformedResponse("anthropic") }
+        return AIResponse(text: text, tier: tier)
+    }
+
+    /// Concatenate the final-answer `text` blocks of an Anthropic Messages payload,
+    /// skipping the `server_tool_use` / `web_search_tool_result` blocks the tool loop
+    /// emits. Mirrors `recipe_search_ai._extract_text_from_anthropic_payload`.
+    static func extractAnthropicText(_ json: [String: Any]) -> String {
+        let content = json["content"] as? [[String: Any]] ?? []
+        var chunks: [String] = []
+        for block in content where block["type"] as? String == "text" {
+            if let text = block["text"] as? String, !text.isEmpty {
+                chunks.append(text)
+            }
+        }
+        return chunks.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Shared
