@@ -238,7 +238,10 @@ final class RecipeRepository {
     /// Drain pending CloudKit writes. Logs failures and surfaces them via `lastSyncError`
     /// so Task 5 / the UI can observe and offer a retry. Does NOT throw — the caller's
     /// local write already succeeded; this is a background network flush.
-    private func drainSync() async {
+    ///
+    /// `internal` (not private) so the backfill batch path in AppState+Recipes can
+    /// spawn one drain task after staging all images (AI-4 review fix F3).
+    func drainSync() async {
         do {
             try await session.engine.sendUntilDrained()
             lastSyncError = nil
@@ -469,6 +472,35 @@ final class RecipeRepository {
             }
             reload()
             Task { [weak self] in await self?.drainSync() }
+        } catch {
+            // Staging the asset file failed (disk full, etc.); leave the store untouched.
+        }
+    }
+
+    /// Stage images for multiple recipes WITHOUT reloading or draining after each one.
+    /// After the loop, the caller should call `reload()` once and then `drainSync()`
+    /// (or spawn a task for it). Used by `backfillRecipeImages` to avoid O(N²) reloads
+    /// and N concurrent drain tasks (AI-4 review fix F3).
+    func stageImage(_ recipeId: String, _ data: Data, mime: String) {
+        let image = RecipeImage(
+            recipeID: recipeId,
+            mimeType: mime,
+            prompt: "",
+            generatedAt: Date(),
+            imageData: data
+        )
+        let imgName = RecipeImageCodec.recordName(forRecipe: recipeId)
+        let id = CKRecord.ID(recordName: imgName, zoneID: session.zoneID)
+
+        do {
+            if let existing = session.store.record(for: id) {
+                try RecipeImageCodec.encode(image, into: existing, zoneID: session.zoneID)
+                session.engine.save(existing)
+            } else {
+                let record = try RecipeImageCodec.makeRecord(image, zoneID: session.zoneID)
+                session.engine.save(record)
+            }
+            // No reload() or drainSync() — caller batches those.
         } catch {
             // Staging the asset file failed (disk full, etc.); leave the store untouched.
         }

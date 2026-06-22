@@ -983,7 +983,9 @@ extension AppState {
     }
 
     /// Run the backfill that generates header images for every recipe missing one.
-    /// On the CloudKit path: generates via AIService (BYO key) → RecipeRepository.setImage.
+    /// On the CloudKit path: generates via AIService (BYO key) → RecipeRepository.stageImage
+    /// (staged per recipe without per-item reload/drain), then ONE reload + ONE drain at the
+    /// end. This avoids O(N²) re-decodes and N unbounded concurrent drains (AI-4 fix F3).
     /// Per-recipe errors are counted but do not abort the whole backfill.
     func backfillRecipeImages() async throws -> SimmerSmithAPIClient.RecipeImageBackfillResult {
         #if canImport(CloudKit)
@@ -992,9 +994,10 @@ extension AppState {
             var skipped = 0
             var failed = 0
 
-            // Work off the current in-memory list. Reload first to pick up any images
-            // that were set since the last observe cycle.
+            // Reload first so imageUrl freshness reflects the latest CloudKit state —
+            // a retried backfill should not regenerate already-imaged recipes (F3 staleness fix).
             repo.reload()
+            mirrorRecipesFromRepository()
             let allRecipes = repo.recipes.filter { !$0.archived }
 
             for recipe in allRecipes {
@@ -1010,7 +1013,8 @@ extension AppState {
                         cuisine: recipe.cuisine,
                         ingredients: ingredientNames
                     )
-                    repo.setImage(recipe.recipeId, imageData, mime: mime)
+                    // Stage without per-item reload/drain (batch path — F3).
+                    repo.stageImage(recipe.recipeId, imageData, mime: mime)
                     generated += 1
                 } catch {
                     failed += 1
@@ -1019,6 +1023,9 @@ extension AppState {
             }
 
             if generated > 0 {
+                // ONE reload + ONE drain for all staged images.
+                repo.reload()
+                Task { [weak repo] in await repo?.drainSync() }
                 mirrorRecipesFromRepository()
             }
             return SimmerSmithAPIClient.RecipeImageBackfillResult(

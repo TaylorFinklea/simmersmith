@@ -182,6 +182,23 @@ public struct ImageGenProvider: Sendable {
                                      detail: "Gemini response had no inlineData part")
     }
 
+    // MARK: - Failover decision (AI-4 review fix F2)
+
+    /// Pure predicate: should the caller failover from OpenAI to Gemini?
+    ///
+    /// Returns `true` iff:
+    ///   - `error` is `.imageGenFailed` with `transient == true` (5xx/429/network),
+    ///   - AND `hasGeminiKey` is true (there is a Gemini key to fall back to).
+    ///
+    /// Permanent failures (4xx/auth/malformed) and all non-image errors return `false`.
+    /// Extracted from `AIService.generateRecipeImage` so the decision is unit-testable
+    /// without the @MainActor / session-bound service.
+    public static func shouldFailoverToGemini(error: AIError, hasGeminiKey: Bool) -> Bool {
+        guard hasGeminiKey else { return false }
+        if case .imageGenFailed(_, true, _) = error { return true }
+        return false
+    }
+
     // MARK: - Shared
 
     /// Run a request, mapping any transport-level (network) throw to a transient
@@ -201,11 +218,14 @@ public struct ImageGenProvider: Sendable {
 
     /// Map a non-200 HTTP status to `imageGenFailed`, classifying transient
     /// (5xx/429/408) vs permanent (other 4xx). Mirrors `_TRANSIENT_STATUS_CODES`.
+    /// The body snippet is sanitized before embedding so API keys that provider
+    /// 401 bodies echo ("Incorrect API key provided: sk-proj-…") never reach the
+    /// detail string — see SecretSanitizer (AI-4 review fix F1).
     private func checkImageHTTP(_ response: URLResponse, data: Data, provider: String) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard http.statusCode >= 400 else { return }
         let bodyText = String(data: data, encoding: .utf8) ?? "(no body)"
-        let snippet = String(bodyText.prefix(200))
+        let snippet = SecretSanitizer.redact(String(bodyText.prefix(200)))
         let transient = Self.transientStatusCodes.contains(http.statusCode)
         throw AIError.imageGenFailed(
             provider: provider, transient: transient,

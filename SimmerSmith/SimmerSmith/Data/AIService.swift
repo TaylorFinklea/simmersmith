@@ -117,8 +117,9 @@ final class AIService {
                 return try await provider.generateImage(prompt: prompt, provider: .openAI, key: key)
             } catch let err as AIError {
                 // Transient error + Gemini key available → failover once to Gemini.
-                if case .imageGenFailed(_, true, _) = err,
-                   let geminiKey = keyStore.key(for: "gemini"), !geminiKey.isEmpty {
+                // Decision is isolated in ImageGenProvider.shouldFailoverToGemini (AI-4 F2).
+                let geminiKey = keyStore.key(for: "gemini") ?? ""
+                if ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: !geminiKey.isEmpty) {
                     return try await provider.generateImage(
                         prompt: prompt, provider: .gemini, key: geminiKey)
                 }

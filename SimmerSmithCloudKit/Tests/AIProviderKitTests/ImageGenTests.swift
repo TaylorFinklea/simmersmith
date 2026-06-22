@@ -269,3 +269,71 @@ private struct ThrowingTransport: HTTPTransport {
         throw Boom()
     }
 }
+
+// MARK: - F1: SecretSanitizer (AI-4 review fix)
+
+@Test("redactSecrets: sk- key is replaced, surrounding text preserved")
+func redactSKKey() {
+    let input = "Incorrect API key provided: sk-proj-ABC123xyz456789. Please check your key."
+    let result = SecretSanitizer.redact(input)
+    #expect(!result.contains("sk-proj-ABC123xyz456789"))
+    #expect(result.contains("sk-***"))
+    #expect(result.contains("Incorrect API key provided:"))
+    #expect(result.contains("Please check your key."))
+}
+
+@Test("redactSecrets: short sk- run below 8 chars is NOT redacted")
+func redactSKTooShort() {
+    let input = "sk-abc"
+    let result = SecretSanitizer.redact(input)
+    // Under 8-char suffix → no match → unchanged.
+    #expect(result == "sk-abc")
+}
+
+@Test("redactSecrets: AIza Google key is replaced")
+func redactGoogleKey() {
+    let input = "bad key AIza0987654321abcdefg here"
+    let result = SecretSanitizer.redact(input)
+    #expect(!result.contains("AIza0987654321abcdefg"))
+    #expect(result.contains("AIza***"))
+}
+
+@Test("redactSecrets: Bearer token is replaced")
+func redactBearerToken() {
+    let input = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 rejected"
+    let result = SecretSanitizer.redact(input)
+    #expect(!result.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"))
+    #expect(result.contains("Bearer ***"))
+}
+
+@Test("redactSecrets: plain prose without keys is unchanged")
+func redactPlainProse() {
+    let input = "openai returned 500: internal server error"
+    #expect(SecretSanitizer.redact(input) == input)
+}
+
+// MARK: - F2: shouldFailoverToGemini (AI-4 review fix)
+
+@Test("shouldFailoverToGemini: transient error + Gemini key → true")
+func failoverTransientWithKey() {
+    let err = AIError.imageGenFailed(provider: "openai", transient: true, detail: "server error")
+    #expect(ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: true) == true)
+}
+
+@Test("shouldFailoverToGemini: permanent error + Gemini key → false")
+func failoverPermanentWithKey() {
+    let err = AIError.imageGenFailed(provider: "openai", transient: false, detail: "bad key")
+    #expect(ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: true) == false)
+}
+
+@Test("shouldFailoverToGemini: transient error + no Gemini key → false")
+func failoverTransientNoKey() {
+    let err = AIError.imageGenFailed(provider: "openai", transient: true, detail: "server error")
+    #expect(ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: false) == false)
+}
+
+@Test("shouldFailoverToGemini: non-image error + Gemini key → false")
+func failoverNonImageError() {
+    let err = AIError.malformedResponse("openai")
+    #expect(ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: true) == false)
+}

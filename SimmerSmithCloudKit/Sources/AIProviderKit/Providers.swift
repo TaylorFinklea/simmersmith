@@ -283,7 +283,10 @@ public struct BYOKeyProvider: AIProvider {
     private func checkHTTP(_ response: URLResponse, data: Data, provider: String) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard http.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "(no body)"
+            let rawBody = String(data: data, encoding: .utf8) ?? "(no body)"
+            // Sanitize before storing in the error — provider 401 bodies can echo the
+            // submitted key (AI-4 review fix F1, SecretSanitizer).
+            let body = SecretSanitizer.redact(rawBody)
             throw AIError.httpError(provider: provider, statusCode: http.statusCode, body: body)
         }
     }
