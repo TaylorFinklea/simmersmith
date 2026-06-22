@@ -42,6 +42,7 @@
 		3721F18796F64DD08B559E6C /* OnboardingInterviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */; };
 		39BE1B2E6408402B99902541 /* SaveLeftoversToFreezerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7E9387233EA853A62275E6 /* SaveLeftoversToFreezerSheet.swift */; };
 		3B27C1AB3BF4F270416007B8 /* SimmerSmithUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F87E3578EB62B233EF73EE4 /* SimmerSmithUITests.swift */; };
+		3DC0697FA76B051E1B5941F3 /* AppState+FactoryReset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 521CBBF76636EEE29A70E84D /* AppState+FactoryReset.swift */; };
 		3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E66D6C949E92294D4B03EC /* PantryView.swift */; };
 		40CE736BBE79D9B2FE247E8D /* ConnectionSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0572939C9829F3E57166EB /* ConnectionSetupView.swift */; };
 		43A86380F4CD1FFCA5859FFD /* CuisinePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */; };
@@ -250,6 +251,7 @@
 		50B987531CD5D3613D68015F /* EventMealEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMealEditorSheet.swift; sourceTree = "<group>"; };
 		510372691B220D76A81C3229 /* PantryProfileMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryProfileMigrationLoader.swift; sourceTree = "<group>"; };
 		52086E84A5714DECD4E1229F /* VoiceCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandService.swift; sourceTree = "<group>"; };
+		521CBBF76636EEE29A70E84D /* AppState+FactoryReset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+FactoryReset.swift"; sourceTree = "<group>"; };
 		577414F6ADB8299D9172472F /* SimmerSmith.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimmerSmith.entitlements; sourceTree = "<group>"; };
 		5CB95AB2A0E397EA4483A89C /* OnboardingInterviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingInterviewView.swift; sourceTree = "<group>"; };
 		5CBD6C6A76089A9D8F674887 /* GuestEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestEditorSheet.swift; sourceTree = "<group>"; };
@@ -506,6 +508,7 @@
 				4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */,
 				EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */,
 				7387FA57FB78ACD7148F204D /* AppState+Events.swift */,
+				521CBBF76636EEE29A70E84D /* AppState+FactoryReset.swift */,
 				A99F4CCC2130F15AC404F605 /* AppState+Grocery.swift */,
 				A80D37100BDECCA31338BFE8 /* AppState+Household.swift */,
 				5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */,
@@ -951,6 +954,7 @@
 				CE023FB5F5FA60C88D456E04 /* AppState+Aliases.swift in Sources */,
 				84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */,
 				7807AC58D4B8D2C227EACAB3 /* AppState+Events.swift in Sources */,
+				3DC0697FA76B051E1B5941F3 /* AppState+FactoryReset.swift in Sources */,
 				6EDBEB2CECDA59F00D71E08F /* AppState+Grocery.swift in Sources */,
 				85083B241385537E729DD20E /* AppState+Household.swift in Sources */,
 				44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */,
@@ -1133,7 +1137,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 118;
+				CURRENT_PROJECT_VERSION = 119;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1249,7 +1253,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 118;
+				CURRENT_PROJECT_VERSION = 119;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

@@ -218,6 +218,16 @@ final class AppState {
     var pantryProfileImportState: PantryProfileImportState = .idle
     #endif
 
+    // MARK: - SP-C factory reset: Start Fresh from Fly trigger state
+
+    /// Tracks the destructive "Start Fresh from Fly" flow (wipe all CloudKit +
+    /// re-import) for the Settings trigger. `StartFreshState` enum and the
+    /// `StartFreshResult` summary are declared in `AppState+FactoryReset`.
+    /// Needs to live here (main class body) to be tracked by `@Observable`.
+    #if canImport(CloudKit)
+    var startFreshState: StartFreshState = .idle
+    #endif
+
     // MARK: - SP-C identity slice: CloudKit-only launch gate
 
     /// SP-C identity slice (spec §1.3): phases of the iCloud-native launch.
