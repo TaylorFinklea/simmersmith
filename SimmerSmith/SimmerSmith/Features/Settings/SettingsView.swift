@@ -534,6 +534,7 @@ struct SettingsView: View {
                 ImportWeeksSection()
                 ImportEventsSection()
                 ImportPantryProfileSection()
+                StartFreshSection()
             }
             #endif
 
@@ -1880,6 +1881,206 @@ private struct ImportPantryProfileSection: View {
 }
 
 extension AppState.PantryProfileImportState {
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+// MARK: - StartFreshSection (SP-C factory-reset)
+
+/// Destructive "Start Fresh from Fly" Settings section.
+///
+/// Explains that the action WIPES all CloudKit household data then re-imports
+/// everything from Fly. A `.confirmationDialog` is presented before the Apple
+/// sign-in button appears, so the user must explicitly acknowledge the wipe.
+///
+/// Auth pattern mirrors `ImportWeeksSection` exactly: the Apple identity token
+/// is exchanged for a one-shot Fly JWT, the orchestration runs under that JWT,
+/// then the JWT is discarded. The wipe never starts until the exchange succeeds
+/// (auth-first ordering, spec §3 step 1).
+private struct StartFreshSection: View {
+    @Environment(AppState.self) private var appState
+
+    /// Whether the user has acknowledged the confirmation dialog and the Apple
+    /// sign-in button should now be shown.
+    @State private var showingSignIn = false
+    /// Whether the confirmation dialog is currently presented.
+    @State private var showingConfirmation = false
+
+    var body: some View {
+        Section {
+            switch appState.startFreshState {
+            case .running(let progress):
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.85)
+                    Text(progress)
+                        .font(SMFont.subheadline)
+                        .foregroundStyle(SMColor.textSecondary)
+                }
+
+            case .done(let result):
+                resultView(result)
+
+            case .failed(let reason):
+                VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                    Label("Reset failed", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(SMColor.destructive)
+                        .font(SMFont.subheadline)
+                    Text(reason)
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textTertiary)
+                }
+                resetControl
+
+            case .idle:
+                resetControl
+            }
+        } header: {
+            SmithSectionHeader("danger zone")
+        } footer: {
+            switch appState.startFreshState {
+            case .idle, .failed:
+                Text("This deletes ALL your CloudKit household data on this account and re-imports everything fresh from Fly. Use this if your data looks wrong or duplicated. Your Fly data is never deleted — only the CloudKit copy is wiped.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            default:
+                EmptyView()
+            }
+        }
+        .confirmationDialog(
+            "Start Fresh from Fly?",
+            isPresented: $showingConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Erase & Re-import", role: .destructive) {
+                showingSignIn = true
+            }
+            Button("Cancel", role: .cancel) {
+                showingSignIn = false
+            }
+        } message: {
+            Text("This will permanently delete all your CloudKit households and re-import your data from Fly. You cannot undo the CloudKit wipe. Your Fly data is safe.")
+        }
+    }
+
+    /// The control shown in `.idle` and `.failed` states: a destructive trigger
+    /// button that raises the confirmation dialog, then (after confirmation) the
+    /// Apple sign-in button.
+    @ViewBuilder
+    private var resetControl: some View {
+        if showingSignIn {
+            signInButton
+        } else {
+            Button(role: .destructive) {
+                showingConfirmation = true
+            } label: {
+                Label("Start Fresh from Fly", systemImage: "arrow.counterclockwise.circle")
+            }
+            .disabled(appState.startFreshState.isRunning)
+        }
+    }
+
+    private var signInButton: some View {
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            request.requestedScopes = [.email]
+        }, onCompletion: { result in
+            Task { await handleAppleResult(result) }
+        })
+        .signInWithAppleButtonStyle(.white)
+        .frame(height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                .strokeBorder(SMColor.divider, lineWidth: 1)
+        )
+        .disabled(appState.startFreshState.isRunning)
+    }
+
+    @ViewBuilder
+    private func resultView(_ result: AppState.StartFreshResult) -> some View {
+        VStack(alignment: .leading, spacing: SMSpacing.sm) {
+            Label("Re-import complete", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(SMColor.success)
+                .font(SMFont.subheadline)
+
+            let deletedCount = result.deletedHouseholdIDs.count
+            LabeledContent("Zones cleared") {
+                Text("\(deletedCount)")
+                    .foregroundStyle(SMColor.textSecondary)
+                    .monospacedDigit()
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Recipes") {
+                Text(result.recipesImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.recipesImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Weeks") {
+                Text(result.weeksImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.weeksImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Events") {
+                Text(result.eventsImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.eventsImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            LabeledContent("Pantry & Profile") {
+                Text(result.pantryProfileImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.pantryProfileImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
+            if let newID = result.newHouseholdID {
+                LabeledContent("New household") {
+                    Text(String(newID.prefix(8)) + "…")
+                        .foregroundStyle(SMColor.textSecondary)
+                        .monospacedDigit()
+                }
+                .font(SMFont.caption)
+            }
+
+            if !result.warnings.isEmpty {
+                ForEach(result.warnings, id: \.self) { warning in
+                    Text("⚠︎ \(warning)")
+                        .font(SMFont.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                appState.startFreshState = .failed("Could not read Apple identity token.")
+                return
+            }
+            showingSignIn = false
+            await appState.startFreshFromFly(appleIdentityToken: token)
+
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appState.startFreshState = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension AppState.StartFreshState {
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
     var isFailed: Bool {
         if case .failed = self { return true }
         return false
