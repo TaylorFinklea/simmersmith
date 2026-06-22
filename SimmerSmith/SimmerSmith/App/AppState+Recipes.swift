@@ -1067,7 +1067,7 @@ extension AppState {
                 NutritionCalculator.Ingredient(
                     key: NutritionCalculator.IngredientKey(
                         ingredientName: ing.ingredientName,
-                        normalizedName: nil,
+                        normalizedName: ing.normalizedName,
                         baseIngredientID: ing.baseIngredientId,
                         ingredientVariationID: ing.ingredientVariationId
                     ),
@@ -1076,26 +1076,32 @@ extension AppState {
                 )
             }
             // Build a sync catalog-lookup backed by the async PublicCatalogReader.
-            // For each ingredient we do an async resolve on the catalog (variation first,
-            // then base ingredient by normalizedName), then cache in a local dict so the
-            // NutritionCalculator's sync closure can answer subsequent calls immediately.
+            // For each ingredient we do an async resolve on the catalog, then cache in a
+            // local dict so the NutritionCalculator's sync closure can answer subsequent
+            // calls immediately.
+            //
+            // NAME-ONLY RESOLUTION (SP-C AI-3): the public catalog
+            // (`PublicCatalogReader.macros(forNormalizedName:)`) resolves a row ONLY by
+            // `normalizedName` — there is no record-ID index on PUBLIC. The server's
+            // ID-preference (variation → base → name) therefore CANNOT be honored against
+            // the public catalog. So the fetch, the cache store, AND the lookup closure are
+            // ALL keyed by `NutritionCalculator.normalizeName(ingredientName)` (preferring
+            // the ingredient's own `normalizedName` field when present). A prior version keyed
+            // the store by the record-ID (variationID ?? baseID ?? name) while the catalog
+            // query + store value came from the normalized NAME — so any ingredient carrying a
+            // baseIngredientID/variationID was stored and looked up under a key the catalog
+            // never populated, returning nil → marked unmatched → wrong/zero calories. Dropping
+            // the ID indirection fixes that.
+            @Sendable func catalogKey(_ key: NutritionCalculator.IngredientKey) -> String {
+                if let normalized = key.normalizedName, !normalized.isEmpty { return normalized }
+                return NutritionCalculator.normalizeName(key.ingredientName)
+            }
             var macroCache: [String: CatalogMacros] = [:]
             for ingredient in ingredients {
-                let key = ingredient.key
-                // Resolve key: prefer variationID, then baseIngredientID, then name.
-                let normalizedName: String
-                if let varID = key.ingredientVariationID, !varID.isEmpty {
-                    normalizedName = varID
-                } else if let baseID = key.baseIngredientID, !baseID.isEmpty {
-                    normalizedName = baseID
-                } else {
-                    normalizedName = NutritionCalculator.normalizeName(key.ingredientName)
-                }
-                if macroCache[normalizedName] != nil { continue }
-                // Try normalized ingredient name as the catalog lookup key.
-                let catalogNorm = NutritionCalculator.normalizeName(key.ingredientName)
-                if let projection = await catalog.macros(forNormalizedName: catalogNorm) {
-                    macroCache[normalizedName] = CatalogMacros(
+                let cacheKey = catalogKey(ingredient.key)
+                if macroCache[cacheKey] != nil { continue }
+                if let projection = await catalog.macros(forNormalizedName: cacheKey) {
+                    macroCache[cacheKey] = CatalogMacros(
                         referenceAmount: projection.referenceAmount,
                         referenceUnit: projection.referenceUnit,
                         calories: projection.calories,
@@ -1108,15 +1114,7 @@ extension AppState {
             }
             let capturedCache = macroCache
             let calculator = NutritionCalculator(lookup: { key in
-                let name: String
-                if let varID = key.ingredientVariationID, !varID.isEmpty {
-                    name = varID
-                } else if let baseID = key.baseIngredientID, !baseID.isEmpty {
-                    name = baseID
-                } else {
-                    name = NutritionCalculator.normalizeName(key.ingredientName)
-                }
-                return capturedCache[name]
+                capturedCache[catalogKey(key)]
             })
             return calculator.calculateRecipeNutrition(ingredients: ingredients, servings: draft.servings)
         }
@@ -1132,13 +1130,14 @@ extension AppState {
         #if canImport(CloudKit)
         if let catalog = householdSession?.catalog {
             let normalizedQuery = NutritionCalculator.normalizeName(query)
-            // Use the catalog's batch-prefetch to search for the query substring.
-            // PublicCatalogReader.prefetchCommonHead fetches exact names, so we approximate
-            // a name search by prefetching a single normalized name and accepting that we may
-            // not get substring results — a CATALOG-TRACK follow-up can add a proper query
-            // predicate when the curator publishes a queryable index. For now, if query is
-            // empty we return early with an empty list (the UI shows the "search" affordance).
-            // If a query is provided, try to resolve the normalized name from the catalog.
+            // CATALOG TRACK: substring search needs a catalog list/index. The server did a
+            // LIKE %query% (up to 20 rows), but the PUBLIC catalog (PublicCatalogReader) only
+            // exposes a point-lookup by `normalizedName` — PUBLIC indexes only
+            // `normalizedName`/`builtIn`, so a substring/LIKE predicate or an "iterate all
+            // rows" scan is not possible (CloudKit forbids unindexed full-table queries). So
+            // this returns at most ONE exact normalizedName match. A proper substring search
+            // becomes feasible once the curator publishes a queryable catalog list/index.
+            // The UI degrades sanely: an empty query and a no-hit query both yield [] (no crash).
             guard !normalizedQuery.isEmpty else { return [] }
             if let projection = await catalog.macros(forNormalizedName: normalizedQuery) {
                 // We got a catalog hit — build a NutritionItem from the projection via JSON

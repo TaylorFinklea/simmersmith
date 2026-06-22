@@ -99,6 +99,56 @@ func nutritionUnavailableWhenNothingMatches() {
     #expect(summary.unmatchedIngredientCount == 1)
 }
 
+// MARK: - Name-only catalog resolution (C3 regression)
+
+/// A name-only catalog: it resolves ONLY by `normalizeName(ingredientName)`, exactly like the
+/// PUBLIC catalog (`PublicCatalogReader.macros(forNormalizedName:)`), which has no record-ID index.
+/// This is the closure the app wires in. A resolved ingredient — one carrying a
+/// baseIngredientID/variationID — MUST still compute calories, because the lookup keys by the
+/// normalized NAME (the catalog's only index), not by the record id. The prior app-layer code keyed
+/// the cache + lookup by `variationID ?? baseID ?? name`, so a row stored under the name was never
+/// found for an ingredient with an id → nil → unmatched → wrong/zero calories. This locks that in.
+private func nameOnlyLookup(_ table: [String: CatalogMacros]) -> NutritionCalculator.CatalogLookup {
+    { key in
+        let name = key.normalizedName.flatMap { $0.isEmpty ? nil : $0 }
+            ?? NutritionCalculator.normalizeName(key.ingredientName)
+        return table[name]
+    }
+}
+
+@Test
+func nutritionResolvesByNameEvenWhenIngredientCarriesARecordID() {
+    // Catalog keyed by normalized name only (no id index), mirroring the public catalog.
+    let calc = NutritionCalculator(
+        lookup: nameOnlyLookup([
+            "chicken breast": CatalogMacros(referenceAmount: 100, referenceUnit: "g", calories: 165),
+        ]),
+        now: { fixedNow }
+    )
+    // The ingredient is "resolved": it carries a baseIngredientID + variationID (the common case
+    // for saved recipes). The lookup must key by the NAME, not the id.
+    let summary = calc.calculateRecipeNutrition(
+        ingredients: [
+            NutritionCalculator.Ingredient(
+                key: .init(
+                    ingredientName: "Chicken Breast",
+                    baseIngredientID: "base-abc-123",
+                    ingredientVariationID: "var-def-456"
+                ),
+                quantity: 200,
+                unit: "g"
+            ),
+        ],
+        servings: 2
+    )
+    // 165 * (200/100) = 330 — NOT nil/unmatched.
+    #expect(summary.totalCalories == 330.0)
+    #expect(summary.caloriesPerServing == 165.0)
+    #expect(summary.coverageStatus == "complete")
+    #expect(summary.matchedIngredientCount == 1)
+    #expect(summary.unmatchedIngredientCount == 0)
+}
+
 // MARK: - Unit conversion (cross-unit within a dimension)
 
 @Test

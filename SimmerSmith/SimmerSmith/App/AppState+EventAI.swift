@@ -110,10 +110,26 @@ extension AppState {
                 attendeeCount: event.attendeeCount
             )
 
-            // 5. Apply each dish via EventRepository.addEventMeal.
+            // 5. Replace prior AI dishes, then apply each fresh dish via addEventMeal.
+            //    Server authority (`events.py replace_event_meals(preserve_manual=True)`):
+            //    DELETE the event's existing ai_generated meals first (keeping manual /
+            //    guest-assigned ones), then add each new dish stamped ai_generated:true with its
+            //    resolved constraint_coverage AND its parsed ingredients — so a 2nd generate
+            //    REPLACES (not accretes) the AI dishes and the dish ingredients feed the grocery.
+            eventRepo.deleteAIGeneratedEventMeals(eventID: eventID)
             var latestEvent: Event = event
             for dish in menuResult.dishes {
                 let servings = dish.servings ?? Double(max(event.attendeeCount, 1))
+                let ingredients: [EventRepository.EventMealIngredientInput] = dish.ingredients.map { ing in
+                    EventRepository.EventMealIngredientInput(
+                        ingredientName: ing.ingredientName,
+                        quantity: ing.quantity,
+                        unit: ing.unit,
+                        prep: ing.prep,
+                        category: ing.category,
+                        notes: ing.notes
+                    )
+                }
                 if let updated = eventRepo.addEventMeal(
                     eventID: eventID,
                     role: dish.role,
@@ -121,7 +137,10 @@ extension AppState {
                     recipeID: nil,
                     servings: servings,
                     notes: dish.notes,
-                    assignedGuestID: nil
+                    assignedGuestID: nil,
+                    aiGenerated: true,
+                    constraintCoverage: dish.constraintCoverage,
+                    ingredients: ingredients
                 ) {
                     latestEvent = updated
                 }
