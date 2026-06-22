@@ -290,6 +290,21 @@ public struct BYOKeyProvider: AIProvider {
             throw AIError.httpError(provider: provider, statusCode: http.statusCode, body: body)
         }
     }
+
+    // MARK: - Internal seams for BYOKeyProviderTools (AI-5)
+    //
+    // The tool-use call lives in a sibling file (BYOKeyProviderTools.swift); these
+    // module-internal accessors let it reach the otherwise-private dependencies
+    // without widening their visibility to the whole module's public API.
+
+    var cloudModel: CloudModel { model }
+    var transportRef: HTTPTransport { transport }
+    var resolvedOpenAIModel: String { openAIModel }
+    var resolvedAnthropicModel: String { anthropicModel }
+    func resolvedKey(for provider: String) -> String? { keyStore.key(for: provider) }
+    func checkHTTPShared(_ response: URLResponse, data: Data, provider: String) throws {
+        try checkHTTP(response, data: data, provider: provider)
+    }
 }
 
 /// Provider capable of listing available models — used by the "Test key" button
