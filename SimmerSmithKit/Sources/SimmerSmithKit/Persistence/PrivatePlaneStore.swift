@@ -238,17 +238,19 @@ public struct PrivatePlaneStore {
     /// preferences, profile settings, preference signals, assistant threads + messages)
     /// then `save()` so NSPersistentCloudKitContainer propagates the deletes to the user's
     /// private DB. Clears the `pantry-profile` receipt + stale per-user data ahead of a
-    /// fresh re-import from Fly (spec §2). Threads are deleted last; the cascade takes their
-    /// messages, but messages are fetched-and-deleted explicitly too so the wipe is total
-    /// regardless of relationship state.
+    /// fresh re-import from Fly (spec §2). Threads are deleted FIRST: `messages` has a
+    /// `.cascade` rule, so deleting a thread removes its messages automatically (parent-first
+    /// is the clean cascade order — deleting messages first leaves the thread delete to
+    /// cascade onto already-removed rows). A final message sweep catches any orphan
+    /// (nil-thread) rows.
     public func clearPrivatePlane() throws {
         try deleteAll(PrivateMigrationReceipt.self)
         try deleteAll(PrivateDietaryGoal.self)
         try deleteAll(PrivateIngredientPreference.self)
         try deleteAll(PrivateProfileSetting.self)
         try deleteAll(PrivatePreferenceSignal.self)
-        try deleteAll(PrivateAssistantMessage.self)
-        try deleteAll(PrivateAssistantThread.self)
+        try deleteAll(PrivateAssistantThread.self)   // .cascade removes attached messages
+        try deleteAll(PrivateAssistantMessage.self)  // sweep any orphan (nil-thread) messages
         try save()
     }
 
