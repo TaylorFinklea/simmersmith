@@ -113,6 +113,16 @@ extension AppState {
         // 2. WIPE CLOUDKIT. Capture the private store from the CURRENT session BEFORE teardown
         //    nils it — `teardownHouseholdSession()` releases `householdSession`, and with it the
         //    `privateStore` accessor, so the private-plane wipe must run first.
+        //
+        //    I1: the `PrivatePlaneStore` we capture wraps a `ModelContext`, which holds a STRONG
+        //    reference to its `ModelContainer`. `HouseholdSession.privateContainer` is otherwise the
+        //    ONLY strong ref, so `teardownHouseholdSession()` would normally release the container
+        //    immediately — before NSPCKC's async background export pushes the local deletes to the
+        //    user's PRIVATE DB. The private plane is PER-USER (not household-keyed), so the next
+        //    session re-mirrors that DB and would RESURRECT any un-exported rows (assistant
+        //    threads/messages, dietary goal, preference signals — none of which this flow re-imports).
+        //    Holding `privateStore` in scope across teardown + mint keeps the container alive so the
+        //    export has the best chance to run before the new container mirrors the DB.
         startFreshState = .running(progress: "Erasing CloudKit households…")
         let privateStore = householdSession?.privateStore
 
@@ -129,10 +139,15 @@ extension AppState {
 
         // Private-plane wipe is non-fatal: the receipts gate re-import locally, and a degraded
         // private plane (iCloud hiccup) shouldn't block the household wipe + re-import. Record a
-        // warning rather than aborting.
+        // warning rather than aborting. Track whether it SUCCEEDED, though: a FAILED wipe leaves the
+        // old `pantry-profile` receipt in the mirror, which makes `migratePantryProfileIfNeeded`
+        // SKIP — so we must NOT later report `pantryProfileImported == true` off a surviving receipt
+        // (C2). `nil` private store counts as a failure (nothing was cleared).
+        var privatePlaneWiped = false
         if let privateStore {
             do {
                 try privateStore.clearPrivatePlane()
+                privatePlaneWiped = true
             } catch {
                 result.warnings.append("Private data wasn't fully cleared: \(error.localizedDescription)")
             }
@@ -143,7 +158,24 @@ extension AppState {
         // 3. WIPE LOCAL — engine token file + repos, then the SwiftData cache + in-memory props.
         startFreshState = .running(progress: "Clearing local data…")
         teardownHouseholdSession()
+        // I2: drop the per-device Reminders mapping too (as `resetConnection` does). After the
+        // re-import, grocery items get NEW ids; a stale `GroceryReminderMapping` (old id → reminder)
+        // would dangle and produce duplicate / mis-targeted Reminders. The fresh import re-maps clean.
+        clearReminderMappings()
         clearLocalCache()
+
+        // C1: `clearLocalCache()` spawns `postClearRefreshTask = Task { await refreshAll() }` whenever
+        //     `hasSavedConnection` is true — which it IS here, because step 1 wrote the production URL +
+        //     JWT to `settingsStore`. That detached refresh would call `ensureHouseholdSession()` again
+        //     AND write Fly `profile`/`currentWeek`, racing this flow's own mint (step 4) + re-import
+        //     (step 5) + reload (step 7) — a network-timing coin flip that can clobber the
+        //     CloudKit-imported state with Fly data. The factory-reset flow OWNS the reload, so kill the
+        //     rogue refresh outright; the final in-memory state must come from the CloudKit re-import.
+        //     (`clearLocalCache` also cancels any PRE-EXISTING task at its top, covering that case too.)
+        postClearRefreshTask?.cancel()
+        postClearRefreshTask = nil
+        // The post-clear refresh set `.loading`; restore the in-progress reset status.
+        syncPhase = .idle
 
         // 4. MINT FRESH — discovery now finds zero zones and mints exactly one clean household.
         startFreshState = .running(progress: "Creating a fresh household…")
@@ -161,10 +193,28 @@ extension AppState {
         }
         result.newHouseholdID = HouseholdZoneProvisioner.householdID(fromZoneName: session.zoneID.zoneName)
 
+        // I1: now that the fresh session is ready, give the OLD private container's NSPCKC export a
+        //     brief settle before we let it go, so the `clearPrivatePlane()` deletes have the best
+        //     chance to reach the user's private DB ahead of the new container mirroring it. The
+        //     captured `privateStore` holds a `ModelContext`, which holds a STRONG ref to the old
+        //     `ModelContainer`; keeping `privateStore` alive across this await (it is referenced again
+        //     just below) pins that container so the export can run. Residual limitation: NSPCKC export
+        //     timing is opaque — there is no API to confirm the push completed, so this is best-effort;
+        //     if iCloud is slow, a re-run (idempotent) re-wipes.
+        if privatePlaneWiped {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        // Keep the old private container alive until AFTER the settle above (and the new session is
+        // ready), so its NSPCKC export isn't cut short by an early release. No-op at runtime.
+        _ = privateStore
+
         // 5. RE-IMPORT under the JWT'd client, into the fresh session, in order. The fresh
         //    household has no receipts, so each loader runs. The recipe loader is run EXPLICITLY
-        //    here because its first-launch auto-path (inside ensureHouseholdSession) can't carry
-        //    a Fly JWT post-identity — only this one-shot flow provides one (spec §1 GAP).
+        //    here for parity / belt-and-suspenders: `ensureHouseholdSession` (step 4) ALSO calls
+        //    `migrateRecipesIfNeeded` with this JWT (the apiClient reads its token from settingsStore
+        //    per-request, and step 1 wrote it there), so by here the recipes receipt is usually
+        //    already stamped and this call is a receipt-gated no-op. Keeping it explicit guards against
+        //    a future refactor that drops the recipe migration from the launch path.
         startFreshState = .running(progress: "Importing recipes…")
         await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
         result.recipesImported = hasReceipt(scope: "recipes", session: session)
@@ -179,8 +229,21 @@ extension AppState {
 
         startFreshState = .running(progress: "Importing pantry & profile…")
         await migratePantryProfileIfNeeded(session: session, apiClient: apiClient)
-        result.pantryProfileImported =
-            session.privateStore?.hasMigrationReceipt(scope: "pantry-profile") ?? false
+        // C2: only trust the receipt as proof of a real re-import if the old private plane was
+        //     actually wiped. If `clearPrivatePlane()` FAILED (or was unavailable), the stale
+        //     `pantry-profile` receipt may survive in the fresh session's NSPCKC mirror, which makes
+        //     `migratePantryProfileIfNeeded` SKIP — so a present receipt here would NOT mean fresh data
+        //     landed. Don't report success for a step that was skipped because the wipe failed; report
+        //     not-imported and warn the user the old data may remain.
+        if privatePlaneWiped {
+            result.pantryProfileImported =
+                session.privateStore?.hasMigrationReceipt(scope: "pantry-profile") ?? false
+        } else {
+            result.pantryProfileImported = false
+            result.warnings.append(
+                "Pantry/Profile was NOT re-imported — old private data may remain. Please run Start Fresh again."
+            )
+        }
 
         // 6. DISCARD the one-shot JWT — no everyday flow reads from Fly.
         discardOneShotJWT()
@@ -204,11 +267,16 @@ extension AppState {
         return session.store.record(for: receiptID) != nil
     }
 
-    /// Drop the temporary one-shot Fly JWT (clears it from `settingsStore` so the everyday
-    /// `apiClient` returns to unauthenticated). Mirrors the post-import cleanup in
-    /// `importWeeksFromFly`.
+    /// Drop the temporary one-shot Fly JWT AND the stored server URL, returning the app to its
+    /// everyday post-identity no-Fly state. I4: clearing only the token but keeping
+    /// `serverURLString = productionServerURL` leaves `hasSavedConnection == true`, so a later
+    /// everyday `clearLocalCache()` (e.g. the standalone Settings "Clear Local Cache" button) would
+    /// spawn a `refreshAll()` that 401s against Fly with no token. Factory-reset's contract is a
+    /// clean slate, so wipe the URL too (`hasSavedConnection == false`) — matching how the app
+    /// normally sits post-identity (no server URL set; all data paths are CloudKit-gated).
     private func discardOneShotJWT() {
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+        settingsStore.clear()
+        serverURLDraft = ""
         authTokenDraft = ""
     }
 
