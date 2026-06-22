@@ -923,8 +923,28 @@ extension AppState {
 
     /// Re-roll the AI-generated header image for one recipe.
     func regenerateRecipeImage(recipeID: String) async throws {
-        // AI TRACK: rewire to AIProviderKit before SP-D — image gen needs a model,
-        // not the data plane. Stays on Fly during the transition.
+        #if canImport(CloudKit)
+        if let repo = recipeRepository, let aiSvc = aiService {
+            // Gather recipe fields for the prompt.
+            guard let recipe = repo.recipes.first(where: { $0.recipeId == recipeID }) else {
+                throw NSError(
+                    domain: "SimmerSmith.RecipeRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Recipe not found."]
+                )
+            }
+            let ingredientNames = recipe.ingredients.map(\.ingredientName)
+            let (imageData, mime) = try await aiSvc.generateRecipeImage(
+                name: recipe.name,
+                cuisine: recipe.cuisine,
+                ingredients: ingredientNames
+            )
+            repo.setImage(recipeID, imageData, mime: mime)
+            mirrorRecipesFromRepository()
+            return
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session or non-CloudKit build).
         let updated = try await apiClient.regenerateRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
@@ -962,14 +982,50 @@ extension AppState {
         try? cacheStore.saveRecipes(recipes)
     }
 
-    /// Run the server-side backfill that generates header images for
-    /// every recipe missing one. Refreshes the local recipe cache on
-    /// success so the new `imageURL` fields show up in lists/detail
-    /// without a manual sync.
+    /// Run the backfill that generates header images for every recipe missing one.
+    /// On the CloudKit path: generates via AIService (BYO key) → RecipeRepository.setImage.
+    /// Per-recipe errors are counted but do not abort the whole backfill.
     func backfillRecipeImages() async throws -> SimmerSmithAPIClient.RecipeImageBackfillResult {
-        // AI TRACK: rewire to AIProviderKit before SP-D — AI header-image generation.
-        // Stays on Fly during the transition; an `async throws` failure surfaces via the
-        // caller's UI error handling rather than crashing.
+        #if canImport(CloudKit)
+        if let repo = recipeRepository, let aiSvc = aiService {
+            var generated = 0
+            var skipped = 0
+            var failed = 0
+
+            // Work off the current in-memory list. Reload first to pick up any images
+            // that were set since the last observe cycle.
+            repo.reload()
+            let allRecipes = repo.recipes.filter { !$0.archived }
+
+            for recipe in allRecipes {
+                // hasImage is derived from the presence of a RecipeImage child record.
+                if recipe.imageUrl != nil {
+                    skipped += 1
+                    continue
+                }
+                let ingredientNames = recipe.ingredients.map(\.ingredientName)
+                do {
+                    let (imageData, mime) = try await aiSvc.generateRecipeImage(
+                        name: recipe.name,
+                        cuisine: recipe.cuisine,
+                        ingredients: ingredientNames
+                    )
+                    repo.setImage(recipe.recipeId, imageData, mime: mime)
+                    generated += 1
+                } catch {
+                    failed += 1
+                    // Count + continue — don't abort the whole backfill on one failure.
+                }
+            }
+
+            if generated > 0 {
+                mirrorRecipesFromRepository()
+            }
+            return SimmerSmithAPIClient.RecipeImageBackfillResult(
+                generated: generated, failed: failed, skipped: skipped)
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session or non-CloudKit build).
         let result = try await apiClient.backfillRecipeImages()
         if result.generated > 0 {
             await refreshRecipes()

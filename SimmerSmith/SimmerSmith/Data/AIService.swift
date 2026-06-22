@@ -67,6 +67,66 @@ final class AIService {
         return try await client.generate(request)
     }
 
+    // MARK: - Image generation
+
+    /// Keychain provider ID for the Gemini image key. Separate from the text
+    /// provider so an Anthropic-text user can still key in OpenAI/Gemini for images.
+    static let keychainGeminiImageKey = "gemini"
+
+    /// True when a Gemini image key is saved in the Keychain.
+    var hasGeminiImageKey: Bool { hasKey(for: Self.keychainGeminiImageKey) }
+
+    /// Generate a recipe header image for the given recipe fields.
+    ///
+    /// Reads `image_provider` from the private plane to pick the provider:
+    ///   • `"openai"` (default) — reuses the OpenAI Keychain key (the same one text calls use).
+    ///   • `"gemini"` — uses the Gemini Keychain key (separate from the text key).
+    ///
+    /// Failover: if `image_provider == openai` and the call fails transiently (5xx/429/network)
+    /// AND a Gemini key exists in the Keychain, retries once via Gemini. Gemini-primary → no
+    /// failover (user chose Gemini explicitly). Ports `recipe_image_ai.generate_recipe_image`.
+    ///
+    /// Throws `AIServiceError.noKeyConfigured` when the resolved provider has no key.
+    func generateRecipeImage(
+        name: String,
+        cuisine: String = "",
+        ingredients: [String] = []
+    ) async throws -> (Data, String) {
+        guard let store = session.privateStore else {
+            throw AIServiceError.noProviderConfigured
+        }
+        let raw = ((try? store.profileSetting(key: "image_provider"))?.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let imageProvider: ImageProvider = (raw == "gemini") ? .gemini : .openAI
+
+        let prompt = RecipeImagePrompt.build(name: name, cuisine: cuisine, ingredients: ingredients)
+        let provider = ImageGenProvider()
+
+        switch imageProvider {
+        case .gemini:
+            guard let key = keyStore.key(for: "gemini"), !key.isEmpty else {
+                throw AIServiceError.noKeyConfigured("Gemini image")
+            }
+            return try await provider.generateImage(prompt: prompt, provider: .gemini, key: key)
+
+        case .openAI:
+            guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
+                throw AIServiceError.noKeyConfigured("OpenAI image")
+            }
+            do {
+                return try await provider.generateImage(prompt: prompt, provider: .openAI, key: key)
+            } catch let err as AIError {
+                // Transient error + Gemini key available → failover once to Gemini.
+                if case .imageGenFailed(_, true, _) = err,
+                   let geminiKey = keyStore.key(for: "gemini"), !geminiKey.isEmpty {
+                    return try await provider.generateImage(
+                        prompt: prompt, provider: .gemini, key: geminiKey)
+                }
+                throw err
+            }
+        }
+    }
+
     /// Validate the key by listing models — cheap, no generation. Returns the
     /// provider name ("openai" / "anthropic") on success so the UI can confirm.
     func testKey() async throws -> String {

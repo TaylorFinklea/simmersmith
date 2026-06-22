@@ -169,6 +169,33 @@ extension AppState {
         #endif
     }
 
+    // MARK: - Image-provider key (Gemini image key, separate from text key)
+
+    /// True when a Gemini image key is saved in the Keychain.
+    /// OpenAI image generation reuses the text key (`aiDirectAPIKeyConfigured` when
+    /// provider == openai), so only Gemini needs its own presence check here.
+    var geminiImageKeyConfigured: Bool {
+        #if canImport(CloudKit)
+        if let svc = aiService { return svc.hasGeminiImageKey }
+        #endif
+        return false
+    }
+
+    /// Save or clear the Gemini image key in the Keychain.
+    func saveGeminiImageKey(_ key: String) {
+        #if canImport(CloudKit)
+        guard let svc = aiService else { return }
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        svc.saveKey(trimmed.isEmpty ? "" : trimmed, for: "gemini")
+        #endif
+    }
+
+    func clearGeminiImageKey() {
+        #if canImport(CloudKit)
+        aiService?.clearKey(for: "gemini")
+        #endif
+    }
+
     // MARK: - Key presence (Keychain)
 
     /// Returns true if the user has a saved Keychain key for the given provider.
@@ -214,6 +241,8 @@ extension AppState {
             return "Provider tier not yet available: \(tier)."
         case .webSearchUnsupported(let model):
             return "Web search isn't available for \(model). Switch to OpenAI or Anthropic in Settings → AI."
+        case .imageGenFailed(let provider, _, let detail):
+            return "\(provider.capitalized) image generation failed: \(detail)"
         }
     }
     #endif

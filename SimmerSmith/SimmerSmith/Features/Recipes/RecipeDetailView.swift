@@ -179,17 +179,15 @@ struct RecipeDetailView: View {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
                             Divider()
-                            // SP-C review finding D: AI image regen is Fly-backed. Hide in
-                            // CloudKit-only mode; the user-photo upload + removal below run
-                            // through CloudKit and stay available.
-                            if !appState.isCloudKitOnly {
-                                Button {
-                                    Task { await regenerateImage(recipe) }
-                                } label: {
-                                    Label("Regenerate image", systemImage: "sparkles")
-                                }
-                                .disabled(isRegeneratingImage)
+                            // SP-C AI-4: image regen now routes through AIService (BYO key).
+                            // Available in CloudKit mode; surfaces a no-key error if no image
+                            // key is configured (shown via imageActionToast in regenerateImage).
+                            Button {
+                                Task { await regenerateImage(recipe) }
+                            } label: {
+                                Label("Regenerate image", systemImage: "sparkles")
                             }
+                            .disabled(isRegeneratingImage)
                             Button {
                                 isOverridingImage = true
                             } label: {
