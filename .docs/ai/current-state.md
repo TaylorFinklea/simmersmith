@@ -3,21 +3,20 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
-## Current (2026-06-22) — SP-C CloudKit cutover: VALIDATED ON-DEVICE, READY TO MERGE
+## Current (2026-06-22) — SP-C CloudKit cutover MERGED to main + cleaned up
 
-Branch: `sp-c/cloudkit-cutover-identity` (6 slices, 41 commits).
+Branch `sp-c/cloudkit-cutover-identity` MERGED to `main` (`a9e8d8a`, --no-ff). NOT pushed (local only).
 
-**Status:** Cutover validated on-device — recipes restored via Start Fresh (build 120); all CloudKit
-pipes + Weeks/Grocery/Events/Pantry/Profile + AI-1 (week-gen + BYO keys + allergy gate) proven live.
-Remaining tasks: (1) schema deploy to CloudKit Production (one-click), (2) dead-code cleanup (current),
-(3) merge to main.
+**Status:** Cutover validated on-device (build 120: recipes restored via Start Fresh; Weeks/Grocery/
+Events/Pantry/Profile + AI-1 week-gen all live) → merged → dead-code cleanup landed (GoogleSignIn gone,
+self-hosted UI gone, current-state trimmed, stray review docs dropped).
 
-**Slices completed & verified:**
-- [x] 1 Recipes — merged to main
-- [x] 2 Identity → 6 AI-1 — all built + reviewed-clean + on-device-validated
+**Done:** Identity → AI-1 (6 slices) built/reviewed/on-device-validated; factory-reset "Start Fresh from
+Fly"; household-discovery orphan-recipes fix; dead-code cleanup; merged to main.
 
-**Blockers:** None. Ready to merge after schema deploy.
+**Open items (human):** push `main` when ready (not pushed); CloudKit Production schema deploy for full
+re-import of weeks/events/pantry (recipes already deployed).
 
 **Deferred follow-ons:** AI-2 (recipe import/variations) · AI-3 (nutrition/event AI) · AI-4 (AI images) ·
-AI-5 (assistant) · CKShare-participant · SP-D (retire Fly). `// AI TRACK` + `// CATALOG TRACK` markers
-guide the next slices. Ingredient prefs empty until re-run import.
+AI-5 (assistant) · CKShare-participant · SP-D (retire Fly + dead Fly fallback branches). Backlog:
+PrivatePlaneStore SwiftData tests crash under macOS `swift test` (pre-existing, masked — see roadmap).
