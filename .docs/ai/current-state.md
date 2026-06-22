@@ -5,35 +5,38 @@
 > questions only). Everything below the "Current" block is legacy journal that belongs in
 > git log / decisions.md / phases/*. Trim on the next maintenance pass.
 
-## Current (2026-06-20) — SP-C CloudKit app cutover, driving slice-by-slice (ultracode, native-only)
+## Current (2026-06-21) — SP-C CloudKit cutover: 6 slices built, AT VERIFY+MERGE CHECKPOINT
 
 Goal: full-parity CloudKit build, drop Fly from new builds; Savanne stays on the Fly build until she
-migrates (split household accepted). AI = BYO-key + on-device, its own track. Each slice reuses the
-Recipes skeleton (HouseholdSession + per-feature repositories + mapper + schema-complete+deploy +
-one-time migration + un-gate). Specs in `phases/cloudkit-cutover-*-spec.md`.
+migrates. Each slice reuses the Recipes skeleton (HouseholdSession + per-feature repos + mapper +
+schema-complete+deploy + one-time Fly→CloudKit migration via a Settings "import" + un-gate). Specs in
+`phases/cloudkit-cutover-*-spec.md`. ALL on branch `sp-c/cloudkit-cutover-identity` (41 commits, stacked).
+Native-only workflows (no pi). Every slice: built → 2/3-lens native review → fixer → re-review Approved.
 
-Slices:
-- [x] **1 Recipes — MERGED to main** (`050aa96`); on-device-verified (build 113, recipes migrated). Done.
-- [~] **2 Identity (no sign-in, iCloud-native)** — built + 3-lens-reviewed + opus-fix (orphan-recipe
-  risks closed) + re-review Approved. Branch `sp-c/cloudkit-cutover-identity`. Build **114** on TestFlight,
-  ON-DEVICE PENDING. Discovers householdId from CloudKit zones; sign-in UI deleted; Fly dropped from the
-  everyday flow; coming-soon for not-yet-cutover tabs.
-- [~] **3 Weeks+Grocery** — built (6 tasks) + reviewed (opus: no Critical; light fixes done — quantity-flag
-  + token-clear). GroceryGenerator ports the server regen (sticky-preserving). Schema completed in DEV
-  (Week/WeekMeal/GroceryItem + new WeekMealSide), **deploy-to-prod PENDING**. Build **115** cutting.
-  AI week-gen/rebalance stay coming-soon. On the same identity branch (stacked).
-- [ ] **4 Events** — mapping now (event↔week merge engine already built in SP-A Phase 5).
-- [ ] 5 Pantry/Profile/preferences (private plane) · [ ] AI track (BYO-key + on-device; needs its own
-  brainstorm) · [ ] CKShare participant (Savanne joins) · [ ] SP-D Fly retirement.
+Slices (all built + reviewed-clean; user chose PAUSE to verify on-device, then merge all 6 to main):
+- [x] **1 Recipes — MERGED to main** (`050aa96`), on-device-verified (build 113). Done.
+- [~] **2 Identity** — no sign-in; householdId discovered from CloudKit zones; Fly dropped from everyday flow.
+- [~] **3 Weeks+Grocery** — GroceryGenerator ports server regen (sticky-preserving); field-merge wired.
+- [~] **4 Events** — event↔week merge engine wired; manuallyMerged-pin + unmerge-before-delete fixed.
+- [~] **5 Pantry+Profile+Prefs** — NSPCKC private plane wired into the session; pantry/aliases in household zone.
+- [~] **AI-1 (infra + week-gen)** — real BYOKeyProvider (OpenAI/Anthropic, key in Keychain), week-gen prompt
+  ported from week_planner.py, allergy hard-gate (caught failing-open, fixed). Build **118**.
 
-Blockers / pending (human): (a) **deploy slice-3 schema** dev→prod (Dashboard "Deploy to Production" —
-Week/WeekMeal/WeekMealSide/GroceryItem completed in dev); (b) on-device verify **114** (identity) + **115**
-(weeks+grocery); (c) merge the `sp-c/cloudkit-cutover-identity` branch → main once verified (slices 2+3
-stacked there). Schema-deploy + on-device are the only human gates per slice.
+PENDING (human — the verify+merge checkpoint):
+1. **ONE schema deploy:** CloudKit Dashboard → Production → "Deploy Schema Changes to Production" (covers
+   Week/WeekMeal/WeekMealSide/Event/EventMeal/EventAttendee/Guest/PantryItem/HouseholdTermAlias — all in dev).
+2. **Install build 118**, run the Settings "Import …" actions (one-shot Apple auth pulls weeks/grocery/
+   events/pantry/profile from Fly), exercise the tabs, add a BYO API key → generate a week → confirm allergy gate.
+3. On confirmation → **merge `sp-c/cloudkit-cutover-identity` → main** (controller does this).
 
-Deferred (follow-ons, not blockers): recipe templates/memories thin; substring catalog search on Fly
-(`// CATALOG TRACK`); grocery `checkedBy` attribution (participant slice); meal manual-reorder persistence
-(WeekMeal sortOrder); AI methods on Fly (`// AI TRACK`).
+Remaining after merge: AI-2 (recipe import/variations) · AI-3 (nutrition/event AI) · AI-4 (AI images) ·
+AI-5 (assistant) · CKShare-participant (Savanne joins) · SP-D (retire Fly). `// AI TRACK` markers in
+AppState+{Events,Profile,Recipes,Weeks}.swift = the still-Fly AI methods for AI-2…AI-5.
+
+Deferred (follow-ons): recipe templates/memories thin; substring catalog search on Fly (`// CATALOG TRACK`);
+grocery `checkedBy` (participant slice); WeekMeal sortOrder reorder-persistence; preference-signal context
+for week-gen (likes/cuisines/brands empty until stored); pre-fix ingredient prefs have empty
+baseIngredientName (re-run import to arm the allergy gate).
 
 ---
 
