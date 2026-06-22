@@ -1016,6 +1016,12 @@ public struct RecipeAIDraft: Codable, Hashable, Sendable {
     public let goal: String
     public let rationale: String
     public let draft: RecipeDraft
+
+    public init(goal: String, rationale: String, draft: RecipeDraft) {
+        self.goal = goal
+        self.rationale = rationale
+        self.draft = draft
+    }
 }
 
 public struct RecipeAIDraftOption: Codable, Identifiable, Hashable, Sendable {
@@ -1025,12 +1031,25 @@ public struct RecipeAIDraftOption: Codable, Identifiable, Hashable, Sendable {
     public let draft: RecipeDraft
 
     public var id: String { optionId }
+
+    public init(optionId: String, label: String, rationale: String, draft: RecipeDraft) {
+        self.optionId = optionId
+        self.label = label
+        self.rationale = rationale
+        self.draft = draft
+    }
 }
 
 public struct RecipeAIOptions: Codable, Hashable, Sendable {
     public let goal: String
     public let rationale: String
     public let options: [RecipeAIDraftOption]
+
+    public init(goal: String, rationale: String, options: [RecipeAIDraftOption]) {
+        self.goal = goal
+        self.rationale = rationale
+        self.options = options
+    }
 }
 
 /// M26 Phase 5 — when an assistant tool returns a `proposed_change`

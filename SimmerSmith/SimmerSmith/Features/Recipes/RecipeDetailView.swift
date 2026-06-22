@@ -131,24 +131,24 @@ struct RecipeDetailView: View {
                             } label: {
                                 Label("Create Variation", systemImage: "square.on.square")
                             }
-                            // SP-C review finding D: AI variation / companion drafts and
-                            // the Fly-backed assistant launch are unavailable in
-                            // CloudKit-only mode (no token → 401). Hide until the AI slice.
-                            if !appState.isCloudKitOnly {
-                                Menu("AI Variation Draft") {
-                                    ForEach(RecipeVariationGoal.allCases) { goal in
-                                        Button(goal.title) {
-                                            Task { await generateVariation(recipe, goal: goal) }
-                                        }
-                                        .disabled(isGeneratingVariation)
+                            // SP-C AI-2: AI variation + companion now run on AIService (BYO key).
+                            // Un-gated: the user sees AIServiceError.noKeyConfigured if no key is set.
+                            // The Fly-backed assistant launch stays guarded.
+                            Menu("AI Variation Draft") {
+                                ForEach(RecipeVariationGoal.allCases) { goal in
+                                    Button(goal.title) {
+                                        Task { await generateVariation(recipe, goal: goal) }
                                     }
+                                    .disabled(isGeneratingVariation)
                                 }
-                                Button {
-                                    Task { await generateCompanions(recipe) }
-                                } label: {
-                                    Label("AI Companion Suggestions", systemImage: "sparkles")
-                                }
-                                .disabled(isGeneratingCompanions)
+                            }
+                            Button {
+                                Task { await generateCompanions(recipe) }
+                            } label: {
+                                Label("AI Companion Suggestions", systemImage: "sparkles")
+                            }
+                            .disabled(isGeneratingCompanions)
+                            if !appState.isCloudKitOnly {
                                 Button {
                                     Task {
                                         do {
