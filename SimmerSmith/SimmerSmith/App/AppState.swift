@@ -152,6 +152,15 @@ final class AppState {
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
     var aiAnthropicModelDraft: String = ""
+    /// SP-C — CloudKit-path model dropdown state, keyed by provider
+    /// ("openai"/"anthropic"). Populated by `refreshCKAIModels(for:)` from the
+    /// provider's live `/v1/models` (curated) or the static fallback. The Settings
+    /// "Model" Picker reads these; replaces the retired Fly `availableAIModelsByProvider`.
+    var ckAIModelOptions: [String: [String]] = [:]
+    var ckAIModelFetchError: [String: String] = [:]
+    /// Keyed by provider so overlapping fetches (e.g. a fast provider flip) don't
+    /// clear each other's spinner.
+    var isFetchingAIModels: [String: Bool] = [:]
 
     var profile: ProfileSnapshot?
     var currentWeek: WeekSnapshot?

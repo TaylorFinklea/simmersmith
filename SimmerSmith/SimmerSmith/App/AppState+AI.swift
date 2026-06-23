@@ -31,12 +31,12 @@ extension AppState {
             if let store = householdSession?.privateStore {
                 do {
                     try store.upsertProfileSetting(key: AIService.keyProvider, value: provider)
-                    if !openAIModel.isEmpty {
-                        try store.upsertProfileSetting(key: AIService.keyOpenAIModel, value: openAIModel)
-                    }
-                    if !anthropicModel.isEmpty {
-                        try store.upsertProfileSetting(key: AIService.keyAnthropicModel, value: anthropicModel)
-                    }
+                    // Always upsert — including an empty value — so clearing a model
+                    // back to the default actually clears storage instead of leaving
+                    // the old value behind to be re-hydrated. resolveConfiguration()
+                    // maps an empty stored value to the provider default at call time.
+                    try store.upsertProfileSetting(key: AIService.keyOpenAIModel, value: openAIModel)
+                    try store.upsertProfileSetting(key: AIService.keyAnthropicModel, value: anthropicModel)
                     try store.save()
                     repo.reload()
                 } catch {
@@ -117,6 +117,53 @@ extension AppState {
         return "Key testing requires iCloud."
         #endif
     }
+
+    // MARK: - Refresh AI models (CloudKit path — key-aware dropdown)
+
+    /// Populate `ckAIModelOptions[provider]` for the Settings → AI model Picker.
+    /// Seeds the curated fallback immediately so the Picker is never empty, then —
+    /// when a key is configured for `providerID` — fetches the provider's live
+    /// `/v1/models` and curates it (chat models, best-first). On any failure (no
+    /// key, offline, provider error) the fallback stays and a short reason is
+    /// recorded. Safe to call repeatedly (on appear, provider change, after save).
+    func refreshCKAIModels(for providerID: String) async {
+        #if canImport(CloudKit)
+        let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard provider == "openai" || provider == "anthropic" else { return }
+
+        if ckAIModelOptions[provider]?.isEmpty ?? true {
+            ckAIModelOptions[provider] = AIModelCatalog.fallback(for: provider)
+        }
+
+        guard let svc = aiService, svc.hasKey(for: provider) else {
+            // No key yet → fallback only (the key-status row already nudges the user).
+            ckAIModelFetchError[provider] = nil
+            return
+        }
+
+        isFetchingAIModels[provider] = true
+        defer { isFetchingAIModels[provider] = false }
+        do {
+            let raw = try await svc.listModels(for: provider)
+            let curated = AIModelCatalog.curatedModels(provider: provider, rawIDs: raw)
+            ckAIModelOptions[provider] = curated.isEmpty
+                ? AIModelCatalog.fallback(for: provider)
+                : curated
+            ckAIModelFetchError[provider] = nil
+        } catch {
+            // Keep the already-seeded fallback; surface a short reason.
+            ckAIModelFetchError[provider] = modelFetchErrorMessage(error)
+        }
+        #endif
+    }
+
+    #if canImport(CloudKit)
+    private func modelFetchErrorMessage(_ error: Error) -> String {
+        if let svcErr = error as? AIServiceError { return svcErr.localizedDescription }
+        if let aiErr = error as? AIError { return aiErrorMessage(aiErr) }
+        return "Couldn't load models: \(error.localizedDescription)"
+    }
+    #endif
 
     // MARK: - Refresh AI models (Fly path — for the model picker)
 

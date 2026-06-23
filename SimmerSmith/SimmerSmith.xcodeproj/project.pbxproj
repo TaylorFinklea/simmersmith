@@ -52,6 +52,7 @@
 		4706C35EAD6EE2D739E87D76 /* AppState+TopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93F63F17E10C86615058DC2D /* AppState+TopBar.swift */; };
 		48D2EA94C48A2183C278FFCC /* EventMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8E58D8B9A530AEDFB06F7B /* EventMigrationLoader.swift */; };
 		4A8C79F7471AAC3982276DF8 /* MealSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6E839108F9DCE492AA99BF /* MealSidesSheet.swift */; };
+		4C91E2DD9E73ADB2C2368E55 /* AIModelPickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */; };
 		4D81DB0094FCF466FF95C371 /* WeekMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DC9FE6CC5748257D90048D /* WeekMigrationLoader.swift */; };
 		4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C86214020223D614C5A52CE /* CompactMealCard.swift */; };
 		4E9D70ECD621F2F9FA5CDC5D /* EventCreateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */; };
@@ -243,6 +244,7 @@
 		49A10F1ED3FB047CF6466481 /* IngredientsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsView.swift; sourceTree = "<group>"; };
 		49F8EB47D3C6DF82D0407A0A /* ProfileRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileRepository.swift; sourceTree = "<group>"; };
 		4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Aliases.swift"; sourceTree = "<group>"; };
+		4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIModelPickerRow.swift; sourceTree = "<group>"; };
 		4C7E9387233EA853A62275E6 /* SaveLeftoversToFreezerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveLeftoversToFreezerSheet.swift; sourceTree = "<group>"; };
 		4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderListPickerSheet.swift; sourceTree = "<group>"; };
 		4DD4B0B2B48797EDA3DA4907 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
@@ -655,6 +657,7 @@
 		AF385378308CFFCC95BB6B62 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */,
 				6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */,
 				826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */,
 				BC21B409CD23A4D526A595F7 /* HouseholdAliasesView.swift */,
@@ -940,6 +943,7 @@
 				29A9AC1DE5234183061C4F90 /* AIAssistantOverlay.swift in Sources */,
 				2DA9EBFE63A7FC470500DAE7 /* AIAssistantSheetView.swift in Sources */,
 				097FB013DA02BB597480D9C3 /* AIFloatingButton.swift in Sources */,
+				4C91E2DD9E73ADB2C2368E55 /* AIModelPickerRow.swift in Sources */,
 				E395F9237FD8F1D10B4A2113 /* AIPageContext.swift in Sources */,
 				9A7934F2F992CC2878F8B317 /* AIRecipeCreateSheet.swift in Sources */,
 				53E90CA14D487FE87C7C06FD /* AIService.swift in Sources */,

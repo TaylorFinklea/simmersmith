@@ -146,6 +146,27 @@ final class AIService {
         return providerKey
     }
 
+    /// List the models the user's key can call, for the given provider, so Settings
+    /// can offer a dropdown instead of a free-text field. Builds a provider for the
+    /// REQUESTED provider (independent of the currently-saved one), so the dropdown
+    /// can populate for whichever provider the user has selected in the draft.
+    /// Throws `noKeyConfigured` when that provider has no key, `unsupportedProvider`
+    /// for anything but openai/anthropic, or an `AIError.*` on provider failure.
+    func listModels(for providerID: String) async throws -> [String] {
+        let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cloudModel: CloudModel
+        switch provider {
+        case "openai":    cloudModel = .openAI
+        case "anthropic": cloudModel = .anthropic
+        default: throw AIServiceError.unsupportedProvider(providerID)
+        }
+        guard hasKey(for: provider) else {
+            throw AIServiceError.noKeyConfigured(provider)
+        }
+        let byo = BYOKeyProvider(model: cloudModel, keyStore: keyStore)
+        return try await byo.listModels()
+    }
+
     // MARK: - Key management (Keychain)
 
     func saveKey(_ key: String, for providerID: String) {
@@ -166,7 +187,10 @@ final class AIService {
     /// Read the AI provider/model settings from the private plane store.
     func loadAISettings() -> (provider: String, openAIModel: String, anthropicModel: String) {
         guard let store = session.privateStore else { return ("", "", "") }
-        let provider = (try? store.profileSetting(key: Self.keyProvider))?.value ?? ""
+        // Normalize to match resolveConfiguration() — downstream (the Settings model
+        // Picker, field routing) compares against lowercase "openai"/"anthropic".
+        let provider = ((try? store.profileSetting(key: Self.keyProvider))?.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let oaModel = (try? store.profileSetting(key: Self.keyOpenAIModel))?.value ?? ""
         let anModel = (try? store.profileSetting(key: Self.keyAnthropicModel))?.value ?? ""
         return (provider, oaModel, anModel)

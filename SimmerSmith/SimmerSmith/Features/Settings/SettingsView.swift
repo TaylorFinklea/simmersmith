@@ -70,21 +70,10 @@ struct SettingsView: View {
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
-                    // Model field: free-text so the user can pin any model.
-                    // The Fly model-discovery endpoint is no longer called in CK builds.
-                    @Bindable var bindable = appState
-                    switch appState.aiDirectProviderDraft {
-                    case "openai":
-                        TextField("OpenAI model (e.g. gpt-4o)", text: $bindable.aiOpenAIModelDraft)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    case "anthropic":
-                        TextField("Anthropic model (e.g. claude-opus-4-5)", text: $bindable.aiAnthropicModelDraft)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    default:
-                        EmptyView()
-                    }
+                    // SP-C — model selection is a key-aware dropdown: the provider's
+                    // live /v1/models (curated) with a static fallback, plus a
+                    // "Custom…" escape hatch. Replaces the old free-text field.
+                    AIModelPickerRow(provider: appState.aiDirectProviderDraft)
 
                     // Key status (read from Keychain — never from Fly).
                     HStack(spacing: 6) {
@@ -98,7 +87,7 @@ struct SettingsView: View {
 
                     SecureField(
                         "New \(appState.aiDirectProviderDraft.capitalized) API key",
-                        text: $bindable.aiDirectAPIKeyDraft
+                        text: $appState.aiDirectAPIKeyDraft
                     )
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
