@@ -17,9 +17,15 @@ on-device with the user's BYO key.
   AI + rebalance · AI-4 images (OpenAI/Gemini) · AI-5 the tool-calling Assistant (12 tools, private-plane
   threads). All via AIService/BYOKeyProvider, keys in Keychain.
 
-**Open items (human):** push `main` when ready (124 commits, not pushed) · on-device verify the AI track
-(add a BYO key in Settings → try generate-week, import-a-URL, an image, the assistant) · CloudKit Prod
-schema deploy for weeks/events/pantry full re-import (recipes deployed; AI track added NO new types).
+**Follow-up (2026-06-23, branch `sp-c/cloudkit-cutover-identity`, NOT merged/pushed):** `b1500ef` —
+Settings → AI model is now a **key-aware dropdown** (provider's live /v1/models curated, static fallback,
+"Custom…" escape hatch) replacing the free-text field. New AIModelCatalog (+13 tests) · AIService.listModels
+· AppState.refreshCKAIModels · AIModelPickerRow. 7 review findings fixed (Critical: clearing a model no
+longer resurrects a stale stored value). App builds, 147 CK tests pass.
+
+**Open items (human):** push `main` + this branch when ready (not pushed) · on-device verify the AI track
+(add a BYO key in Settings → try the **model dropdown**, generate-week, import-a-URL, an image, the
+assistant) · CloudKit Prod schema deploy for weeks/events/pantry full re-import (recipes deployed; no new types).
 
 **Deferred follow-ons:** CKShare-participant (Savanne joins) · SP-D (retire Fly + the dead Fly fallback
 branches). AI v2 refinements: token-streaming the assistant, full 49-tool set, web-search/exports tools,
