@@ -37,8 +37,9 @@ public enum AssistantSystemPrompt {
         When a tool returns ok=false, tell the user the tool's detail verbatim and propose a recovery.
         After you call tools, end your turn with a short, natural-language summary of what changed. \
         Do NOT wrap your final reply in JSON or markdown fences.
-        Prefer small edits (add/swap/remove/rebalance) to a full regenerate — only call generate_week_plan \
-        when the user asks for a full reset.
+        Prefer small edits to a full regenerate: use weeks_update_meals to add, swap, remove, or rebalance \
+        meals, and only call weeks_apply_ai_draft (which replaces the whole week) when the user asks for a \
+        full reset or a brand-new plan.
         Be concise. Two or three sentences per reply is plenty.
 
         Thread: \(title)

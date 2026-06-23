@@ -46,12 +46,16 @@ final class ToolRegistry {
     /// The runner the engine calls per requested tool. `@Sendable`; dispatches by name into
     /// the matching `@MainActor` repo/façade action. A failure becomes a clean `ok:false`
     /// result rather than a thrown error so the loop can recover (system-prompt contract).
+    ///
+    /// C3 (review): captures `self` STRONGLY for the turn's duration. `ToolRegistry` is
+    /// built as a local var in `sendAssistantMessage` and only the engine's closures hold
+    /// it; a `[weak self]` capture let it deinit mid-turn (the runner would then silently
+    /// fail every tool). The registry only references `AppState` weakly, so this strong
+    /// self-capture can't create a retain cycle — it just pins the registry alive while
+    /// the engine stream runs.
     var runner: AssistantToolRunner {
-        { [weak self] call in
-            guard let self else {
-                return ToolRegistry.failure("The assistant isn't ready yet.")
-            }
-            return await self.execute(name: call.name, argsJSON: call.argsJSON)
+        { call in
+            await self.execute(name: call.name, argsJSON: call.argsJSON)
         }
     }
 

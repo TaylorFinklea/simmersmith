@@ -2575,6 +2575,39 @@ public struct MealUpdateRequest: Codable, Sendable, Hashable {
         self.notes = notes
         self.approved = approved
     }
+
+    enum CodingKeys: String, CodingKey {
+        case mealId
+        case dayName
+        case mealDate
+        case slot
+        case recipeId
+        case recipeName
+        case servings
+        case scaleMultiplier
+        case notes
+        case approved
+    }
+
+    /// Tolerant decoder so the assistant's `weeks_update_meals` tool can pass the
+    /// schema-shaped meal (`day_name`, `meal_date`, `slot`, `recipe_name`, `notes`)
+    /// WITHOUT the fields the tool's `input_schema` omits. The synthesized Codable
+    /// required `scale_multiplier`/`approved`/`notes` and threw `keyNotFound`,
+    /// killing every swap/add/remove edit. Mirrors `RecipeDraft`'s hardened decoder:
+    /// `decodeIfPresent` with defaults for every field the schema doesn't require.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mealId = try container.decodeIfPresent(String.self, forKey: .mealId)
+        dayName = try container.decode(String.self, forKey: .dayName)
+        mealDate = try container.decode(Date.self, forKey: .mealDate)
+        slot = try container.decode(String.self, forKey: .slot)
+        recipeId = try container.decodeIfPresent(String.self, forKey: .recipeId)
+        recipeName = try container.decode(String.self, forKey: .recipeName)
+        servings = try container.decodeIfPresent(Double.self, forKey: .servings)
+        scaleMultiplier = try container.decodeIfPresent(Double.self, forKey: .scaleMultiplier) ?? 1.0
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        approved = try container.decodeIfPresent(Bool.self, forKey: .approved) ?? false
+    }
 }
 
 public struct WeekCreateRequest: Codable, Sendable {

@@ -169,8 +169,10 @@ extension AppState {
         )
         try applyAssistantStreamEvent(threadID: threadID, event: userMsgEvent)
 
-        // 3. Build the conversation history (prior messages, newest-first from repo, then
-        //    project to AIChatMessage for the engine). Include the just-added user message.
+        // 3. Build the conversation history. `PrivatePlaneStore.messages(forThreadID:)`
+        //    sorts createdAt FORWARD, so these arrive oldest-first (chronological) and
+        //    already include the just-added user message as the last entry. The engine
+        //    appends `userText` itself, so we drop that last entry below (priorHistory).
         let history: [AIChatMessage]
         if let detail = repo.thread(id: threadID) {
             history = detail.messages
@@ -208,16 +210,40 @@ extension AppState {
 
         do {
             for try await event in engineStream {
-                // Bridge AssistantStreamEvent → AssistantStreamEnvelope (structurally identical).
+                // C2 (review): a throw from `applyAssistantStreamEvent` (a malformed
+                // single event → DecodingError) must NOT kill the conversation. Catch
+                // non-cancellation errors per-event: log and CONTINUE the stream so the
+                // remaining events (incl. assistant.completed) still process and the
+                // final message still persists. Only a true CancellationError (sheet
+                // dismissed) breaks out — handled by the outer catch.
                 let envelope = AssistantStreamEnvelope(event: event.event, data: event.data)
-                try applyAssistantStreamEvent(threadID: threadID, event: envelope)
+                do {
+                    try applyAssistantStreamEvent(threadID: threadID, event: envelope)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // A single malformed event — log it (debug) and keep processing.
+                    // We deliberately do NOT surface a raw DecodingError to the user via
+                    // `assistantErrorByThreadID`: one bad event must not abort the turn.
+                    assertionFailure("applyAssistantStreamEvent failed for \(event.event): \(error)")
+                }
 
                 // Capture the message id and final content from the engine's events.
+                // This runs even if `applyAssistantStreamEvent` above threw, so the final
+                // assistant message is still persisted from the accumulated content.
                 switch event.event {
                 case "assistant.message.created":
                     if let decoded = try? SimmerSmithJSONCoding.makeDecoder()
                         .decode(AssistantMessage.self, from: event.data) {
                         assistantMsgID = decoded.messageId
+                    }
+                case "assistant.delta":
+                    // Fallback accumulator: if the completed event is itself malformed,
+                    // we still have the streamed text to persist. v1 emits the whole
+                    // reply in one delta, so this captures the full content.
+                    if let decoded = try? SimmerSmithJSONCoding.makeDecoder()
+                        .decode(AssistantDeltaEvent.self, from: event.data) {
+                        finalContent += decoded.delta
                     }
                 case "assistant.completed":
                     if let decoded = try? SimmerSmithJSONCoding.makeDecoder()

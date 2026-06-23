@@ -256,6 +256,54 @@ func cancellationStopsLoop() async throws {
     #expect(!names(events).contains("assistant.error"))
 }
 
+// MARK: - I1: cancelling mid-tool emits no spurious failed tool_result
+
+@Test("A tool cancelled mid-run does NOT emit a failed tool_result card")
+func cancelMidToolNoFailureCard() async throws {
+    // The runner is non-throwing: when the task is cancelled mid-tool it returns an
+    // ok:false ToolRunResult (the ToolRegistry maps CancellationError to a failure).
+    // The engine must check cancellation BEFORE emitting and bail — no "failed" card.
+    let started = AsyncStream<Void>.makeStream()
+    let provider = MockToolChat(turns: Array(repeating:
+        ToolUseTurn(text: nil, toolCalls: [toolCall("weeks_apply_ai_draft")], finished: false),
+        count: 20
+    ))
+    let runner: AssistantToolRunner = { _ in
+        started.continuation.yield()
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        // Mirror ToolRegistry's behavior: a cancelled tool returns an ok:false result.
+        return ToolRunResult(resultJSON: #"{"ok":false}"#, ok: false, detail: "cancelled")
+    }
+
+    let stream = AssistantEngine.run(
+        systemPrompt: "sys", history: [], userText: "plan my whole week",
+        tools: [], messageId: "m1", threadId: "t1",
+        provider: provider, runner: runner
+    )
+
+    let consumer = Task { () -> [AssistantStreamEvent] in
+        var out: [AssistantStreamEvent] = []
+        for try await event in stream { out.append(event) }
+        return out
+    }
+
+    var it = started.stream.makeAsyncIterator()
+    _ = await it.next()
+    consumer.cancel()
+
+    let events = try await consumer.value
+    // The tool_call (running) may have been emitted, but NO tool_result — and
+    // certainly none with status "failed" — because the engine checks cancellation
+    // after the runner returns and bails before emitting the result.
+    let failedResults = events.filter {
+        $0.event == "assistant.tool_result" && (payload($0)["status"] as? String == "failed")
+    }
+    #expect(failedResults.isEmpty)
+    #expect(!names(events).contains("assistant.tool_result"))
+    #expect(!names(events).contains("assistant.completed"))
+    #expect(!names(events).contains("assistant.error"))
+}
+
 // MARK: - Error mapping
 
 @Test("A thrown provider error is mapped to a single assistant.error")
@@ -306,6 +354,11 @@ func systemPromptPort() {
     #expect(prompt.contains("Thread: Dinner this week"))
     // The units directive is injected near the top.
     #expect(prompt.contains("US CUSTOMARY"))
+    // I1 (review): the prompt must reference tools that ACTUALLY exist in the curated
+    // v1 toolset — not a phantom `generate_week_plan` / `generate_*` tool.
+    #expect(prompt.contains("weeks_update_meals"))
+    #expect(prompt.contains("weeks_apply_ai_draft"))
+    #expect(!prompt.contains("generate_week_plan"))
 }
 
 @Test("An empty thread title defaults to Weekly Planning")

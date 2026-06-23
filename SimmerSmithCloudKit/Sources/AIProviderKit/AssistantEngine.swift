@@ -250,6 +250,14 @@ public enum AssistantEngine {
 
                 let outcome = await runner(call)
 
+                // I1 (review): the runner is non-throwing, so a tool cancelled mid-run
+                // (e.g. a long weeks_apply_ai_draft when the user dismisses the sheet)
+                // surfaces as an `ok:false` ToolRunResult. Emitting it would paint a
+                // spurious "failed" tool_result card on what is really a clean cancel.
+                // Check cancellation BEFORE emitting and bail out — `run`'s outer
+                // CancellationError catch then finishes the stream with no further event.
+                try Task.checkCancellation()
+
                 let completedAt = ISO8601DateFormatter().string(from: Date())
                 emit(toolResultEvent(
                     call: call, outcome: outcome,
