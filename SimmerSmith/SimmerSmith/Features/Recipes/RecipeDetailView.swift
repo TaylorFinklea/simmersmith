@@ -131,40 +131,39 @@ struct RecipeDetailView: View {
                             } label: {
                                 Label("Create Variation", systemImage: "square.on.square")
                             }
-                            // SP-C review finding D: AI variation / companion drafts and
-                            // the Fly-backed assistant launch are unavailable in
-                            // CloudKit-only mode (no token → 401). Hide until the AI slice.
-                            if !appState.isCloudKitOnly {
-                                Menu("AI Variation Draft") {
-                                    ForEach(RecipeVariationGoal.allCases) { goal in
-                                        Button(goal.title) {
-                                            Task { await generateVariation(recipe, goal: goal) }
-                                        }
-                                        .disabled(isGeneratingVariation)
+                            // SP-C AI-2: AI variation + companion now run on AIService (BYO key).
+                            // Un-gated: the user sees AIServiceError.noKeyConfigured if no key is set.
+                            // SP-C AI-5: assistant launch is also un-gated (on-device engine; BYO key).
+                            Menu("AI Variation Draft") {
+                                ForEach(RecipeVariationGoal.allCases) { goal in
+                                    Button(goal.title) {
+                                        Task { await generateVariation(recipe, goal: goal) }
+                                    }
+                                    .disabled(isGeneratingVariation)
+                                }
+                            }
+                            Button {
+                                Task { await generateCompanions(recipe) }
+                            } label: {
+                                Label("AI Companion Suggestions", systemImage: "sparkles")
+                            }
+                            .disabled(isGeneratingCompanions)
+                            // SP-C AI-5: un-gated — assistant runs on-device (BYO key; CloudKit-only ok).
+                            Button {
+                                Task {
+                                    do {
+                                        try await appState.beginAssistantLaunch(
+                                            initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
+                                            title: recipe.name,
+                                            attachedRecipeID: recipe.recipeId,
+                                            intent: "cooking_help"
+                                        )
+                                    } catch {
+                                        errorMessage = error.localizedDescription
                                     }
                                 }
-                                Button {
-                                    Task { await generateCompanions(recipe) }
-                                } label: {
-                                    Label("AI Companion Suggestions", systemImage: "sparkles")
-                                }
-                                .disabled(isGeneratingCompanions)
-                                Button {
-                                    Task {
-                                        do {
-                                            try await appState.beginAssistantLaunch(
-                                                initialText: "Help me with this recipe. Suggest improvements, substitutions, or troubleshooting advice.",
-                                                title: recipe.name,
-                                                attachedRecipeID: recipe.recipeId,
-                                                intent: "cooking_help"
-                                            )
-                                        } catch {
-                                            errorMessage = error.localizedDescription
-                                        }
-                                    }
-                                } label: {
-                                    Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
-                                }
+                            } label: {
+                                Label("Ask Assistant", systemImage: "bubble.left.and.text.bubble.right")
                             }
                             Button {
                                 assignmentContext = RecipeAssignmentSheetContext(recipes: [recipe])
@@ -179,17 +178,15 @@ struct RecipeDetailView: View {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
                             Divider()
-                            // SP-C review finding D: AI image regen is Fly-backed. Hide in
-                            // CloudKit-only mode; the user-photo upload + removal below run
-                            // through CloudKit and stay available.
-                            if !appState.isCloudKitOnly {
-                                Button {
-                                    Task { await regenerateImage(recipe) }
-                                } label: {
-                                    Label("Regenerate image", systemImage: "sparkles")
-                                }
-                                .disabled(isRegeneratingImage)
+                            // SP-C AI-4: image regen now routes through AIService (BYO key).
+                            // Available in CloudKit mode; surfaces a no-key error if no image
+                            // key is configured (shown via imageActionToast in regenerateImage).
+                            Button {
+                                Task { await regenerateImage(recipe) }
+                            } label: {
+                                Label("Regenerate image", systemImage: "sparkles")
                             }
+                            .disabled(isRegeneratingImage)
                             Button {
                                 isOverridingImage = true
                             } label: {

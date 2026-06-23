@@ -1019,3 +1019,63 @@ func encoderHandlesRecipeIngredientWithAllFields() throws {
     #expect(json?["category"] as? String == "Protein")
     #expect(json?["notes"] as? String == "Buy free-range if available")
 }
+
+// SP-C AI-5 review fix C1 — the assistant's `weeks_update_meals` tool decodes the
+// model's meals into `[MealUpdateRequest]`. The tool's `input_schema` only requires
+// `day_name`, `meal_date`, `slot`, `recipe_name` (plus optional recipe_id/servings/
+// notes) and OMITS `scale_multiplier`/`approved`. The synthesized Codable required
+// those non-optionals and threw `keyNotFound("scaleMultiplier")`, so every edit
+// failed with "Could not read the meals payload." The tolerant decoder must fill the
+// schema-omitted non-optionals from defaults.
+@Test
+func mealUpdateRequestDecodesSchemaShapedMealWithDefaults() throws {
+    // Exactly what the model sends per the weeks_update_meals input_schema — no
+    // scale_multiplier, no approved.
+    let json = """
+    {
+      "day_name": "Tuesday",
+      "meal_date": "2026-06-23",
+      "slot": "dinner",
+      "recipe_name": "Veggie Tacos",
+      "notes": "double the salsa"
+    }
+    """
+    let data = Data(json.utf8)
+
+    let meal = try SimmerSmithJSONCoding.makeDecoder().decode(MealUpdateRequest.self, from: data)
+
+    #expect(meal.dayName == "Tuesday")
+    #expect(meal.slot == "dinner")
+    #expect(meal.recipeName == "Veggie Tacos")
+    #expect(meal.notes == "double the salsa")
+    // The schema-omitted non-optionals fall back to their defaults instead of throwing.
+    #expect(meal.scaleMultiplier == 1.0)
+    #expect(meal.approved == false)
+    // Optional / unspecified fields are nil.
+    #expect(meal.mealId == nil)
+    #expect(meal.recipeId == nil)
+    #expect(meal.servings == nil)
+}
+
+// And the array form (the tool decodes `[MealUpdateRequest]`), with `notes` ALSO
+// omitted on one entry — notes is non-optional too and must default to "".
+@Test
+func mealUpdateRequestArrayDecodesWithMissingOptionalFields() throws {
+    let json = """
+    [
+      {"day_name":"Monday","meal_date":"2026-06-22","slot":"dinner","recipe_name":"Soup"},
+      {"day_name":"Tuesday","meal_date":"2026-06-23","slot":"lunch","recipe_name":"Salad","servings":2}
+    ]
+    """
+    let data = Data(json.utf8)
+
+    let meals = try SimmerSmithJSONCoding.makeDecoder().decode([MealUpdateRequest].self, from: data)
+
+    #expect(meals.count == 2)
+    #expect(meals[0].recipeName == "Soup")
+    #expect(meals[0].notes == "")
+    #expect(meals[0].scaleMultiplier == 1.0)
+    #expect(meals[0].approved == false)
+    #expect(meals[1].servings == 2)
+    #expect(meals[1].notes == "")
+}

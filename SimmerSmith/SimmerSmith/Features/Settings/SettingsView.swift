@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var isCreatingGuest: Bool = false
     @State private var isBackfillingImages = false
     @State private var imageBackfillToast: String?
+    @State private var geminiImageKeyDraft: String = ""
     /// Build 91 — Reminders picker presentation lives at the SettingsView
     /// level (not inside GrocerySection) because iOS 26 dismisses a
     /// sheet-attached-to-a-Section within ~1s if the Section re-renders
@@ -181,6 +182,48 @@ struct SettingsView: View {
                 Text("Affects new recipes, regenerations, and the backfill below. Existing images stay unchanged until you regenerate them.")
                     .font(.footnote)
                     .foregroundStyle(SMColor.textSecondary)
+
+                // SP-C AI-4: image-provider key UX.
+                // OpenAI images reuse the OpenAI text key (shown in the AI section above).
+                // Gemini images need a separate Gemini key entered here.
+                if appState.imageProviderDraft == "gemini" {
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.geminiImageKeyConfigured ? "key.fill" : "key.slash")
+                            .foregroundStyle(appState.geminiImageKeyConfigured ? SMColor.success : SMColor.textTertiary)
+                            .imageScale(.small)
+                        Text(appState.geminiImageKeyConfigured
+                             ? "Gemini key saved in this device's Keychain."
+                             : "No Gemini key saved yet. Enter your key below and tap Save.")
+                            .font(.footnote)
+                            .foregroundStyle(appState.geminiImageKeyConfigured ? SMColor.textSecondary : .orange)
+                    }
+                    SecureField("Gemini API key", text: $geminiImageKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button("Save Gemini Image Key") {
+                        appState.saveGeminiImageKey(geminiImageKeyDraft)
+                        geminiImageKeyDraft = ""
+                    }
+                    .disabled(geminiImageKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if appState.geminiImageKeyConfigured {
+                        Button("Clear Gemini Image Key", role: .destructive) {
+                            appState.clearGeminiImageKey()
+                        }
+                    }
+                } else {
+                    // OpenAI image key = the OpenAI text key. Show its status here so the
+                    // user doesn't have to scroll up to the AI section to check.
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.providerAPIKeyConfigured(providerID: "openai") ? "key.fill" : "key.slash")
+                            .foregroundStyle(appState.providerAPIKeyConfigured(providerID: "openai") ? SMColor.success : SMColor.textTertiary)
+                            .imageScale(.small)
+                        Text(appState.providerAPIKeyConfigured(providerID: "openai")
+                             ? "OpenAI key saved (shared with the AI section above)."
+                             : "No OpenAI key saved yet. Add it in the AI section above.")
+                            .font(.footnote)
+                            .foregroundStyle(appState.providerAPIKeyConfigured(providerID: "openai") ? SMColor.textSecondary : .orange)
+                    }
+                }
 
                 Button {
                     Task { await runImageBackfill() }

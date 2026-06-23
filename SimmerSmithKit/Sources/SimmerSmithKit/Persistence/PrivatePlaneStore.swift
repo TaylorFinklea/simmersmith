@@ -202,6 +202,17 @@ public struct PrivatePlaneStore {
         return row
     }
 
+    /// A single assistant thread by its id-key, or nil when absent.
+    public func assistantThread(threadID: String) throws -> PrivateAssistantThread? {
+        try fetchFirst(#Predicate { $0.recordKey == threadID })
+    }
+
+    /// All assistant threads, unsorted (the repository sorts + filters archived). The
+    /// read counterpart to `upsertAssistantThread` — used by the on-device thread list.
+    public func allAssistantThreads() throws -> [PrivateAssistantThread] {
+        try context.fetch(FetchDescriptor<PrivateAssistantThread>())
+    }
+
     /// Messages for a thread in stable transcript order (createdAt ascending).
     public func messages(forThreadID threadID: String) throws -> [PrivateAssistantMessage] {
         let descriptor = FetchDescriptor<PrivateAssistantMessage>(

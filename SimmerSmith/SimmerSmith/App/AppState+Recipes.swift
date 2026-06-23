@@ -4,6 +4,7 @@ import SimmerSmithKit
 import CloudKit
 import CloudKitProvisioning
 import HouseholdSync
+import AIProviderKit
 #endif
 
 extension AppState {
@@ -85,6 +86,8 @@ extension AppState {
             // SP-C AI-1: AIService — the single seam for all AI calls. Keychain key
             // store; reads provider/model config from private-plane store directly.
             let aiSvc = AIService(session: session)
+            // SP-C AI-5: assistant conversation storage over the per-user private plane.
+            let assistantRepo = AssistantRepository(session: session)
 
             householdSession = session
             recipeRepository = recipeRepo
@@ -98,6 +101,7 @@ extension AppState {
             pantryRepository = pantryRepo
             aliasRepository = aliasRepo
             aiService = aiSvc
+            assistantRepository = assistantRepo
 
             // Initial kick — the repos auto-reload on session.storeRevision, but need a
             // first read after construction.
@@ -314,6 +318,7 @@ extension AppState {
         pantryRepository = nil
         aliasRepository = nil
         aiService = nil
+        assistantRepository = nil
         // Clear the dedup task so a subsequent sign-in can start a fresh setup.
         householdSessionSetupTask = nil
         // Reset the launch phase so RootView shows the loading state on next launch.
@@ -922,8 +927,28 @@ extension AppState {
 
     /// Re-roll the AI-generated header image for one recipe.
     func regenerateRecipeImage(recipeID: String) async throws {
-        // AI TRACK: rewire to AIProviderKit before SP-D — image gen needs a model,
-        // not the data plane. Stays on Fly during the transition.
+        #if canImport(CloudKit)
+        if let repo = recipeRepository, let aiSvc = aiService {
+            // Gather recipe fields for the prompt.
+            guard let recipe = repo.recipes.first(where: { $0.recipeId == recipeID }) else {
+                throw NSError(
+                    domain: "SimmerSmith.RecipeRepository",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Recipe not found."]
+                )
+            }
+            let ingredientNames = recipe.ingredients.map(\.ingredientName)
+            let (imageData, mime) = try await aiSvc.generateRecipeImage(
+                name: recipe.name,
+                cuisine: recipe.cuisine,
+                ingredients: ingredientNames
+            )
+            repo.setImage(recipeID, imageData, mime: mime)
+            mirrorRecipesFromRepository()
+            return
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session or non-CloudKit build).
         let updated = try await apiClient.regenerateRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
@@ -961,14 +986,57 @@ extension AppState {
         try? cacheStore.saveRecipes(recipes)
     }
 
-    /// Run the server-side backfill that generates header images for
-    /// every recipe missing one. Refreshes the local recipe cache on
-    /// success so the new `imageURL` fields show up in lists/detail
-    /// without a manual sync.
+    /// Run the backfill that generates header images for every recipe missing one.
+    /// On the CloudKit path: generates via AIService (BYO key) → RecipeRepository.stageImage
+    /// (staged per recipe without per-item reload/drain), then ONE reload + ONE drain at the
+    /// end. This avoids O(N²) re-decodes and N unbounded concurrent drains (AI-4 fix F3).
+    /// Per-recipe errors are counted but do not abort the whole backfill.
     func backfillRecipeImages() async throws -> SimmerSmithAPIClient.RecipeImageBackfillResult {
-        // AI TRACK: rewire to AIProviderKit before SP-D — AI header-image generation.
-        // Stays on Fly during the transition; an `async throws` failure surfaces via the
-        // caller's UI error handling rather than crashing.
+        #if canImport(CloudKit)
+        if let repo = recipeRepository, let aiSvc = aiService {
+            var generated = 0
+            var skipped = 0
+            var failed = 0
+
+            // Reload first so imageUrl freshness reflects the latest CloudKit state —
+            // a retried backfill should not regenerate already-imaged recipes (F3 staleness fix).
+            repo.reload()
+            mirrorRecipesFromRepository()
+            let allRecipes = repo.recipes.filter { !$0.archived }
+
+            for recipe in allRecipes {
+                // hasImage is derived from the presence of a RecipeImage child record.
+                if recipe.imageUrl != nil {
+                    skipped += 1
+                    continue
+                }
+                let ingredientNames = recipe.ingredients.map(\.ingredientName)
+                do {
+                    let (imageData, mime) = try await aiSvc.generateRecipeImage(
+                        name: recipe.name,
+                        cuisine: recipe.cuisine,
+                        ingredients: ingredientNames
+                    )
+                    // Stage without per-item reload/drain (batch path — F3).
+                    repo.stageImage(recipe.recipeId, imageData, mime: mime)
+                    generated += 1
+                } catch {
+                    failed += 1
+                    // Count + continue — don't abort the whole backfill on one failure.
+                }
+            }
+
+            if generated > 0 {
+                // ONE reload + ONE drain for all staged images.
+                repo.reload()
+                Task { [weak repo] in await repo?.drainSync() }
+                mirrorRecipesFromRepository()
+            }
+            return SimmerSmithAPIClient.RecipeImageBackfillResult(
+                generated: generated, failed: failed, skipped: skipped)
+        }
+        #endif
+        // Fly fallback (pre-CloudKit-session or non-CloudKit build).
         let result = try await apiClient.backfillRecipeImages()
         if result.generated > 0 {
             await refreshRecipes()
@@ -1056,24 +1124,146 @@ extension AppState {
     }
 
     func estimateRecipeNutrition(_ draft: RecipeDraft) async throws -> NutritionSummary {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.estimateRecipeNutrition(draft)
+        // SP-C AI-3: deterministic catalog port (NOT LLM). PublicCatalogReader looks up
+        // per-ingredient macros from the catalog (variation first, then base ingredient),
+        // then NutritionCalculator scales by quantity/unit — the same logic as the server's
+        // `calculate_recipe_nutrition`. No API key required.
+        #if canImport(CloudKit)
+        if let catalog = householdSession?.catalog {
+            let ingredients: [NutritionCalculator.Ingredient] = draft.ingredients.map { ing in
+                NutritionCalculator.Ingredient(
+                    key: NutritionCalculator.IngredientKey(
+                        ingredientName: ing.ingredientName,
+                        normalizedName: ing.normalizedName,
+                        baseIngredientID: ing.baseIngredientId,
+                        ingredientVariationID: ing.ingredientVariationId
+                    ),
+                    quantity: ing.quantity,
+                    unit: ing.unit
+                )
+            }
+            // Build a sync catalog-lookup backed by the async PublicCatalogReader.
+            // For each ingredient we do an async resolve on the catalog, then cache in a
+            // local dict so the NutritionCalculator's sync closure can answer subsequent
+            // calls immediately.
+            //
+            // NAME-ONLY RESOLUTION (SP-C AI-3): the public catalog
+            // (`PublicCatalogReader.macros(forNormalizedName:)`) resolves a row ONLY by
+            // `normalizedName` — there is no record-ID index on PUBLIC. The server's
+            // ID-preference (variation → base → name) therefore CANNOT be honored against
+            // the public catalog. So the fetch, the cache store, AND the lookup closure are
+            // ALL keyed by `NutritionCalculator.normalizeName(ingredientName)` (preferring
+            // the ingredient's own `normalizedName` field when present). A prior version keyed
+            // the store by the record-ID (variationID ?? baseID ?? name) while the catalog
+            // query + store value came from the normalized NAME — so any ingredient carrying a
+            // baseIngredientID/variationID was stored and looked up under a key the catalog
+            // never populated, returning nil → marked unmatched → wrong/zero calories. Dropping
+            // the ID indirection fixes that.
+            @Sendable func catalogKey(_ key: NutritionCalculator.IngredientKey) -> String {
+                if let normalized = key.normalizedName, !normalized.isEmpty { return normalized }
+                return NutritionCalculator.normalizeName(key.ingredientName)
+            }
+            var macroCache: [String: CatalogMacros] = [:]
+            for ingredient in ingredients {
+                let cacheKey = catalogKey(ingredient.key)
+                if macroCache[cacheKey] != nil { continue }
+                if let projection = await catalog.macros(forNormalizedName: cacheKey) {
+                    macroCache[cacheKey] = CatalogMacros(
+                        referenceAmount: projection.referenceAmount,
+                        referenceUnit: projection.referenceUnit,
+                        calories: projection.calories,
+                        proteinG: projection.proteinG,
+                        carbsG: projection.carbsG,
+                        fatG: projection.fatG,
+                        fiberG: projection.fiberG
+                    )
+                }
+            }
+            let capturedCache = macroCache
+            let calculator = NutritionCalculator(lookup: { key in
+                capturedCache[catalogKey(key)]
+            })
+            return calculator.calculateRecipeNutrition(ingredients: ingredients, servings: draft.servings)
+        }
+        #endif
+        return try await apiClient.estimateRecipeNutrition(draft)
     }
 
     func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
-        // AI TRACK: rewire to AIProviderKit before SP-D — nutrition catalog search backs
-        // the AI nutrition flow. Stays on Fly during the transition.
-        try await apiClient.searchNutritionItems(query: query, limit: limit)
+        // SP-C AI-3: catalog name search via PublicCatalogReader (deterministic, no LLM, no key).
+        // Searches BaseIngredient records by normalizedName prefix match in the PUBLIC catalog.
+        // Returns NutritionItem projections from the catalog's calorie fields (calories-only for
+        // now; full macros become available when the catalog publishes the macro columns).
+        #if canImport(CloudKit)
+        if let catalog = householdSession?.catalog {
+            let normalizedQuery = NutritionCalculator.normalizeName(query)
+            // CATALOG TRACK: substring search needs a catalog list/index. The server did a
+            // LIKE %query% (up to 20 rows), but the PUBLIC catalog (PublicCatalogReader) only
+            // exposes a point-lookup by `normalizedName` — PUBLIC indexes only
+            // `normalizedName`/`builtIn`, so a substring/LIKE predicate or an "iterate all
+            // rows" scan is not possible (CloudKit forbids unindexed full-table queries). So
+            // this returns at most ONE exact normalizedName match. A proper substring search
+            // becomes feasible once the curator publishes a queryable catalog list/index.
+            // The UI degrades sanely: an empty query and a no-hit query both yield [] (no crash).
+            guard !normalizedQuery.isEmpty else { return [] }
+            if let projection = await catalog.macros(forNormalizedName: normalizedQuery) {
+                // We got a catalog hit — build a NutritionItem from the projection via JSON
+                // round-trip (NutritionItem has no memberwise init — decoder-only).
+                let dict: [String: Any] = [
+                    "itemId": normalizedQuery,
+                    "name": query,
+                    "normalizedName": normalizedQuery,
+                    "referenceAmount": projection.referenceAmount ?? 100,
+                    "referenceUnit": projection.referenceUnit.isEmpty ? "g" : projection.referenceUnit,
+                    "calories": projection.calories ?? 0,
+                    "notes": "",
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: dict),
+                   let item = try? JSONDecoder().decode(NutritionItem.self, from: data) {
+                    return [item]
+                }
+            }
+            return []
+        }
+        #endif
+        return try await apiClient.searchNutritionItems(query: query, limit: limit)
     }
 
     func importRecipeDraft(fromURL url: String) async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.importRecipe(fromURL: url)
+        // SP-C AI-2: deterministic JSON-LD first; LLM fallback when no Recipe node.
+        // JSON-LD requires no API key; LLM fallback requires a key — the caller sees
+        // AIServiceError.noKeyConfigured if no key is set and JSON-LD was absent.
+        let html = try await RecipeURLFetcher().fetchHTML(from: url)
+        if let draft = JSONLDRecipeExtractor.extract(fromHTML: html, sourceURL: url) {
+            return draft
+        }
+        // No JSON-LD Recipe node — fall back to LLM extraction.
+        return try await importRecipeDraft(fromHTML: html, sourceURL: url, sourceLabel: "")
     }
 
     func importRecipeDraft(fromHTML html: String, sourceURL: String, sourceLabel: String = "") async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.importRecipe(fromHTML: html, sourceURL: sourceURL, sourceLabel: sourceLabel)
+        // SP-C AI-2: JSON-LD first (no key needed); LLM extraction fallback.
+        if let draft = JSONLDRecipeExtractor.extract(fromHTML: html, sourceURL: sourceURL.isEmpty ? nil : sourceURL) {
+            return draft
+        }
+        // No JSON-LD — LLM extraction. Requires a key; surfaces AIServiceError.noKeyConfigured.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let prompt = RecipeAIPrompt.extractionPrompt(rawText: html, unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseRecipe(response.text)
+        return recipeDraft(from: wire, source: "url_import", sourceURL: sourceURL, sourceLabelOverride: sourceLabel)
+        #else
+        return try await apiClient.importRecipe(fromHTML: html, sourceURL: sourceURL, sourceLabel: sourceLabel)
+        #endif
     }
 
     func importRecipeDraft(
@@ -1083,19 +1273,63 @@ extension AppState {
         sourceLabel: String = "",
         sourceURL: String = ""
     ) async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.importRecipe(
+        // SP-C AI-2: LLM extraction from unstructured text (OCR, paste). Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let prompt = RecipeAIPrompt.extractionPrompt(rawText: text, unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseRecipe(response.text)
+        var draft = recipeDraft(from: wire, source: source, sourceURL: sourceURL, sourceLabelOverride: sourceLabel)
+        if !title.isEmpty, draft.name.isEmpty { draft.name = title }
+        return draft
+        #else
+        return try await apiClient.importRecipe(
             fromText: text,
             title: title,
             source: source,
             sourceLabel: sourceLabel,
             sourceURL: sourceURL
         )
+        #endif
     }
 
     func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.generateRecipeVariationDraft(recipeID: recipeID, goal: goal)
+        // SP-C AI-2: on-device LLM variation via RecipeAIPrompt. Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        guard let recipe = recipes.first(where: { $0.recipeId == recipeID }) else {
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Recipe not found."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let context = recipeContext(from: recipe)
+        let prompt = RecipeAIPrompt.variationPrompt(recipe: context, goal: goal, unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseVariation(response.text)
+        var draft = recipeDraft(from: wire.recipe, source: "ai_variation", sourceURL: recipe.sourceUrl, sourceLabelOverride: "")
+        draft.baseRecipeId = recipe.recipeId
+        return RecipeAIDraft(goal: goal, rationale: wire.rationale, draft: draft)
+        #else
+        return try await apiClient.generateRecipeVariationDraft(recipeID: recipeID, goal: goal)
+        #endif
     }
 
     /// Ask the backend for AI-generated pairing suggestions (M12 Phase 1).
@@ -1109,19 +1343,205 @@ extension AppState {
     /// to review in the editor before saving — same flow URL/photo
     /// imports take.
     func searchRecipeOnWeb(query: String) async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.searchRecipeOnWeb(query: query)
+        // SP-C AI-2: on-device provider web-search tool. Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let prompt = RecipeAIPrompt.webSearchInput(query: query, unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsWebSearch: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseRecipe(response.text)
+        return recipeDraft(from: wire, source: "web_search", sourceURL: wire.sourceUrl, sourceLabelOverride: wire.sourceLabel)
+        #else
+        return try await apiClient.searchRecipeOnWeb(query: query)
+        #endif
     }
 
     func generateRecipeSuggestionDraft(goal: String) async throws -> RecipeAIDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.generateRecipeSuggestionDraft(goal: goal)
+        // SP-C AI-2: on-device LLM suggestion via RecipeAIPrompt. Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let recentNames = recipes.prefix(20).map(\.name)
+        let prompt = RecipeAIPrompt.suggestionPrompt(goal: goal, recentNames: Array(recentNames), unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        // SP-C AI-2 review I2: the prompt asks for the `{rationale, recipe}` envelope,
+        // but a model that returns a FLAT recipe object would otherwise throw
+        // `.invalidJSON`. Try the envelope first, then fall back to the flat
+        // `parseRecipe` shape (deriving an empty rationale) so a flat response still
+        // produces a usable draft instead of an error.
+        let recipe: RecipeAIRecipe
+        let rationale: String
+        if let envelope = try? RecipeAIParser.parseVariation(response.text) {
+            recipe = envelope.recipe
+            rationale = envelope.rationale
+        } else {
+            recipe = try RecipeAIParser.parseRecipe(response.text)
+            rationale = ""
+        }
+        let draft = recipeDraft(from: recipe, source: "ai_suggestion", sourceURL: "", sourceLabelOverride: "")
+        return RecipeAIDraft(goal: goal, rationale: rationale, draft: draft)
+        #else
+        return try await apiClient.generateRecipeSuggestionDraft(goal: goal)
+        #endif
     }
 
     func generateRecipeCompanionDrafts(recipeID: String) async throws -> RecipeAIOptions {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.generateRecipeCompanionDrafts(recipeID: recipeID)
+        // SP-C AI-2: on-device LLM companion suggestions. Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        guard let recipe = recipes.first(where: { $0.recipeId == recipeID }) else {
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Recipe not found."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let context = recipeContext(from: recipe)
+        let prompt = RecipeAIPrompt.companionPrompt(recipe: context, unit: unit)
+        let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseCompanion(response.text)
+        let options = wire.options.map { opt in
+            RecipeAIDraftOption(
+                optionId: opt.optionId,
+                label: opt.label,
+                rationale: opt.rationale,
+                draft: recipeDraft(from: opt.recipe, source: "ai_companion", sourceURL: "", sourceLabelOverride: "")
+            )
+        }
+        return RecipeAIOptions(goal: recipe.name, rationale: wire.rationale, options: options)
+        #else
+        return try await apiClient.generateRecipeCompanionDrafts(recipeID: recipeID)
+        #endif
     }
+
+    // MARK: - SP-C AI-2: recipe-AI helpers (prompt input + wire-to-domain mapping)
+
+    /// Convert a saved `RecipeSummary` to the dependency-free `RecipeContext` the
+    /// prompt builders need. Ingredients are rendered as "quantity unit name (prep)"
+    /// strings; steps use their instruction text in sort order.
+    private func recipeContext(from recipe: RecipeSummary) -> RecipeContext {
+        RecipeContext(
+            name: recipe.name,
+            mealType: recipe.mealType,
+            cuisine: recipe.cuisine,
+            servings: recipe.servings,
+            prepMinutes: recipe.prepMinutes,
+            cookMinutes: recipe.cookMinutes,
+            tags: recipe.tags,
+            ingredients: recipe.ingredients.map { renderIngredient($0) },
+            steps: recipe.steps.sorted { $0.sortOrder < $1.sortOrder }.map(\.instruction),
+            notes: recipe.notes
+        )
+    }
+
+    /// Convert an in-flight `RecipeDraft` to `RecipeContext` for the refine prompt.
+    private func recipeContext(from draft: RecipeDraft) -> RecipeContext {
+        RecipeContext(
+            name: draft.name,
+            mealType: draft.mealType,
+            cuisine: draft.cuisine,
+            servings: draft.servings,
+            prepMinutes: draft.prepMinutes,
+            cookMinutes: draft.cookMinutes,
+            tags: draft.tags,
+            ingredients: draft.ingredients.map { renderIngredient($0) },
+            steps: draft.steps.sorted { $0.sortOrder < $1.sortOrder }.map(\.instruction),
+            notes: draft.notes
+        )
+    }
+
+    private func renderIngredient(_ ing: RecipeIngredient) -> String {
+        var parts: [String] = []
+        if let qty = ing.quantity {
+            parts.append(qty == qty.rounded() ? String(Int(qty)) : String(qty))
+        }
+        if !ing.unit.isEmpty { parts.append(ing.unit) }
+        parts.append(ing.ingredientName.isEmpty ? "—" : ing.ingredientName)
+        if !ing.prep.isEmpty { parts.append("(\(ing.prep))") }
+        return parts.joined(separator: " ")
+    }
+
+    /// Map a `RecipeAIRecipe` wire value onto a `RecipeDraft` with the given source
+    /// metadata. All identity fields (recipeId, baseRecipeId) are left nil — callers
+    /// set them as needed (variation sets baseRecipeId; refine restores recipeId).
+    private func recipeDraft(
+        from wire: RecipeAIRecipe,
+        source: String,
+        sourceURL: String,
+        sourceLabelOverride: String
+    ) -> RecipeDraft {
+        let ingredients: [RecipeIngredient] = wire.ingredients.map { ai in
+            RecipeIngredient(
+                ingredientName: ai.ingredientName,
+                resolutionStatus: "unresolved",
+                quantity: ai.quantity,
+                unit: ai.unit,
+                prep: ai.prep,
+                category: ai.category,
+                notes: ai.notes
+            )
+        }
+        let steps: [RecipeStep] = wire.steps.enumerated().map { index, ai in
+            RecipeStep(sortOrder: index + 1, instruction: ai.instruction)
+        }
+        let summary = steps
+            .map { "\($0.sortOrder). \($0.instruction)" }
+            .joined(separator: "\n")
+        let effectiveSourceLabel = sourceLabelOverride.isEmpty ? wire.sourceLabel : sourceLabelOverride
+        let effectiveSourceURL = sourceURL.isEmpty ? wire.sourceUrl : sourceURL
+        return RecipeDraft(
+            name: wire.name,
+            mealType: wire.mealType,
+            cuisine: wire.cuisine,
+            servings: wire.servings,
+            prepMinutes: wire.prepMinutes,
+            cookMinutes: wire.cookMinutes,
+            tags: wire.tags,
+            instructionsSummary: summary,
+            source: source,
+            sourceLabel: effectiveSourceLabel,
+            sourceUrl: effectiveSourceURL,
+            notes: wire.notes,
+            ingredients: ingredients,
+            steps: steps
+        )
+    }
+
+    /// Resolve the user's unit-system preference — mirrors `currentUnitSystemSetting()`
+    /// in `AppState+WeekGen` but scoped to the recipe-AI methods.
+    #if canImport(CloudKit)
+    private func currentUnitSystem() -> UnitSystem {
+        let raw: String?
+        if let v = profileRepository?.settings["unit_system"], !v.isEmpty {
+            raw = v
+        } else {
+            raw = profile?.settings["unit_system"]
+        }
+        return UnitSystem.normalized(raw)
+    }
+    #endif
 
     /// AI ingredient-substitution suggestions for one recipe ingredient.
     /// Façade so `SubstitutionSheetView` no longer reaches into `apiClient` directly.
@@ -1175,12 +1595,39 @@ extension AppState {
         prompt: String,
         contextHint: String = ""
     ) async throws -> RecipeDraft {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.refineRecipeDraft(
+        // SP-C AI-2: on-device LLM refinement. Requires a key.
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let context = recipeContext(from: currentDraft)
+        let builtPrompt = RecipeAIPrompt.refinePrompt(
+            draft: context,
+            instruction: prompt,
+            contextHint: contextHint,
+            unit: unit
+        )
+        let request = AIRequest(feature: .companionDraft, prompt: builtPrompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try RecipeAIParser.parseVariation(response.text)
+        // Preserve the draft's identity fields (recipeId, baseRecipeId, source) — the refine
+        // path is "apply instruction, change as little as possible"; the caller owns save.
+        var refined = recipeDraft(from: wire.recipe, source: currentDraft.source, sourceURL: currentDraft.sourceUrl, sourceLabelOverride: currentDraft.sourceLabel)
+        refined.recipeId = currentDraft.recipeId
+        refined.baseRecipeId = currentDraft.baseRecipeId
+        return refined
+        #else
+        return try await apiClient.refineRecipeDraft(
             draft: currentDraft,
             prompt: prompt,
             contextHint: contextHint
         )
+        #endif
     }
 
     // MARK: - SP-C Task 5: ingredient catalog façade (§7 leak closure)

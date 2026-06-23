@@ -67,6 +67,67 @@ final class AIService {
         return try await client.generate(request)
     }
 
+    // MARK: - Image generation
+
+    /// Keychain provider ID for the Gemini image key. Separate from the text
+    /// provider so an Anthropic-text user can still key in OpenAI/Gemini for images.
+    static let keychainGeminiImageKey = "gemini"
+
+    /// True when a Gemini image key is saved in the Keychain.
+    var hasGeminiImageKey: Bool { hasKey(for: Self.keychainGeminiImageKey) }
+
+    /// Generate a recipe header image for the given recipe fields.
+    ///
+    /// Reads `image_provider` from the private plane to pick the provider:
+    ///   • `"openai"` (default) — reuses the OpenAI Keychain key (the same one text calls use).
+    ///   • `"gemini"` — uses the Gemini Keychain key (separate from the text key).
+    ///
+    /// Failover: if `image_provider == openai` and the call fails transiently (5xx/429/network)
+    /// AND a Gemini key exists in the Keychain, retries once via Gemini. Gemini-primary → no
+    /// failover (user chose Gemini explicitly). Ports `recipe_image_ai.generate_recipe_image`.
+    ///
+    /// Throws `AIServiceError.noKeyConfigured` when the resolved provider has no key.
+    func generateRecipeImage(
+        name: String,
+        cuisine: String = "",
+        ingredients: [String] = []
+    ) async throws -> (Data, String) {
+        guard let store = session.privateStore else {
+            throw AIServiceError.noProviderConfigured
+        }
+        let raw = ((try? store.profileSetting(key: "image_provider"))?.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let imageProvider: ImageProvider = (raw == "gemini") ? .gemini : .openAI
+
+        let prompt = RecipeImagePrompt.build(name: name, cuisine: cuisine, ingredients: ingredients)
+        let provider = ImageGenProvider()
+
+        switch imageProvider {
+        case .gemini:
+            guard let key = keyStore.key(for: "gemini"), !key.isEmpty else {
+                throw AIServiceError.noKeyConfigured("Gemini image")
+            }
+            return try await provider.generateImage(prompt: prompt, provider: .gemini, key: key)
+
+        case .openAI:
+            guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
+                throw AIServiceError.noKeyConfigured("OpenAI image")
+            }
+            do {
+                return try await provider.generateImage(prompt: prompt, provider: .openAI, key: key)
+            } catch let err as AIError {
+                // Transient error + Gemini key available → failover once to Gemini.
+                // Decision is isolated in ImageGenProvider.shouldFailoverToGemini (AI-4 F2).
+                let geminiKey = keyStore.key(for: "gemini") ?? ""
+                if ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: !geminiKey.isEmpty) {
+                    return try await provider.generateImage(
+                        prompt: prompt, provider: .gemini, key: geminiKey)
+                }
+                throw err
+            }
+        }
+    }
+
     /// Validate the key by listing models — cheap, no generation. Returns the
     /// provider name ("openai" / "anthropic") on success so the UI can confirm.
     func testKey() async throws -> String {
@@ -109,6 +170,25 @@ final class AIService {
         let oaModel = (try? store.profileSetting(key: Self.keyOpenAIModel))?.value ?? ""
         let anModel = (try? store.profileSetting(key: Self.keyAnthropicModel))?.value ?? ""
         return (provider, oaModel, anModel)
+    }
+
+    // MARK: - Assistant provider factory (SP-C AI-5)
+
+    /// Build a `BYOKeyProvider` for the assistant tool-calling loop. Throws
+    /// `AIServiceError.noProviderConfigured` or `AIServiceError.noKeyConfigured`
+    /// when the provider or key isn't set — identical gate as `generate()`.
+    func makeAssistantProvider() throws -> BYOKeyProvider {
+        let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
+        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        guard hasKey(for: providerKey) else {
+            throw AIServiceError.noKeyConfigured(providerKey)
+        }
+        return BYOKeyProvider(
+            model: cloudModel,
+            keyStore: keyStore,
+            openAIModel: openAIModel,
+            anthropicModel: anthropicModel
+        )
     }
 
     // MARK: - Provider resolution

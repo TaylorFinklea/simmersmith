@@ -370,7 +370,46 @@ final class EventRepository {
 
     // MARK: - Write: meals
 
-    /// Add a meal to an event. `sortOrder` = max existing + 1. Returns the reloaded aggregate.
+    /// One inline ingredient line for an event meal (the analog of the server's
+    /// EventMealIngredient payload in `replace_event_meals`). Written as a
+    /// `.eventMealIngredient` cascade-child of the meal so the event-grocery generator can
+    /// aggregate it — without these, an AI-generated (recipe-less) dish contributes ZERO
+    /// grocery lines and the event grocery comes out empty.
+    struct EventMealIngredientInput {
+        var ingredientName: String
+        var quantity: Double?
+        var unit: String
+        var prep: String
+        var category: String
+        var notes: String
+        var baseIngredientID: String?
+        var ingredientVariationID: String?
+
+        init(
+            ingredientName: String,
+            quantity: Double? = nil,
+            unit: String = "",
+            prep: String = "",
+            category: String = "",
+            notes: String = "",
+            baseIngredientID: String? = nil,
+            ingredientVariationID: String? = nil
+        ) {
+            self.ingredientName = ingredientName
+            self.quantity = quantity
+            self.unit = unit
+            self.prep = prep
+            self.category = category
+            self.notes = notes
+            self.baseIngredientID = baseIngredientID
+            self.ingredientVariationID = ingredientVariationID
+        }
+    }
+
+    /// Add a meal to an event. `sortOrder` = max existing + 1. Optionally writes the dish's
+    /// inline `.eventMealIngredient` grandchildren (so a recipe-less dish still feeds the
+    /// event grocery), and stamps `aiGenerated` + `constraintCoverage` (server authority:
+    /// `events.py replace_event_meals` writes both per dish). Returns the reloaded aggregate.
     @discardableResult
     func addEventMeal(
         eventID: String,
@@ -379,7 +418,10 @@ final class EventRepository {
         recipeID: String? = nil,
         servings: Double? = nil,
         notes: String = "",
-        assignedGuestID: String? = nil
+        assignedGuestID: String? = nil,
+        aiGenerated: Bool = false,
+        constraintCoverage: [String] = [],
+        ingredients: [EventMealIngredientInput] = []
     ) -> DomainEvent? {
         let existing = session.store.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
             .filter { refName($0["event"]) == eventID }
@@ -391,12 +433,12 @@ final class EventRepository {
             "recipeName": .string(recipeName),
             "scaleMultiplier": .double(1.0),
             "sortOrder": .int(nextSort),
-            "aiGenerated": .bool(false),
+            "aiGenerated": .bool(aiGenerated),
             "approved": .bool(false),
-            // constraintCoverage starts empty for a manually-added meal — JSON empty array.
-            // (EventRecordMapper.encodeStringArray is internal to SimmerSmithKit; "[]" is its
-            // output for [] and is what the reverse map decodes back to an empty [String].)
-            "constraintCoverage": .string("[]"),
+            // constraintCoverage: the resolved guest-coverage (guest ids) → JSON-array string.
+            // Mirrors EventRecordMapper.encodeStringArray; "[]" for an empty list, which the
+            // reverse map decodes back to an empty [String].
+            "constraintCoverage": .string(encodeStringArray(constraintCoverage)),
             "createdAt": .date(Date()),
             "updatedAt": .date(Date()),
         ]
@@ -408,8 +450,53 @@ final class EventRepository {
         if let assignedGuestID { refs["assignedGuest"] = assignedGuestID }
 
         upsertRecord(HouseholdRecordValue(type: .eventMeal, recordName: mealID, scalars: scalars, refs: refs))
+        writeEventMealIngredients(mealID: mealID, ingredients: ingredients)
         afterMealMutation(eventID: eventID)
         return event(forId: eventID)
+    }
+
+    /// Write a meal's inline ingredient lines as `.eventMealIngredient` cascade-children
+    /// (det record names `<mealID>_ing_<n>`, mirroring EventRecordMapper.buildIngredientRecord
+    /// + the server's per-meal-ingredient id `{meal.id}:{index}`). normalizedName is computed
+    /// from the display name (the server lowercases `normalized_name or ingredient_name`).
+    private func writeEventMealIngredients(mealID: String, ingredients: [EventMealIngredientInput]) {
+        for (index, ing) in ingredients.enumerated() {
+            let recordName = "\(mealID)_ing_\(index)"
+            var scalars: [String: ScalarValue] = [
+                "ingredientName": .string(ing.ingredientName),
+                "normalizedName": .string(ing.ingredientName.lowercased()),
+                "resolutionStatus": .string("unresolved"),
+                "createdAt": .date(Date()),
+                "updatedAt": .date(Date()),
+            ]
+            if let q = ing.quantity { scalars["quantity"] = .double(q) }
+            if !ing.unit.isEmpty { scalars["unit"] = .string(ing.unit) }
+            if !ing.prep.isEmpty { scalars["prep"] = .string(ing.prep) }
+            if !ing.category.isEmpty { scalars["category"] = .string(ing.category) }
+            if !ing.notes.isEmpty { scalars["notes"] = .string(ing.notes) }
+
+            var refs: [String: String] = ["eventMeal": mealID]
+            if let v = ing.baseIngredientID, !v.isEmpty { refs["baseIngredientID"] = v }
+            if let v = ing.ingredientVariationID, !v.isEmpty { refs["ingredientVariationID"] = v }
+
+            upsertRecord(HouseholdRecordValue(
+                type: .eventMealIngredient, recordName: recordName, scalars: scalars, refs: refs))
+        }
+    }
+
+    /// Delete the event's AI-generated meals, preserving manual ones. Mirrors the
+    /// `preserve_manual=True` path of the server's `replace_event_meals`: regen must REPLACE
+    /// (not accrete) prior AI dishes while keeping user/guest-assigned (manual) dishes. Each
+    /// meal cascade-deletes its `.eventMealIngredient` grandchildren. Does NOT refresh grocery
+    /// — the caller adds the fresh AI dishes and triggers a single regen afterward.
+    func deleteAIGeneratedEventMeals(eventID: String) {
+        let aiMealIDs = session.store.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
+            .filter { refName($0["event"]) == eventID }
+            .filter { ($0["aiGenerated"] as? Int ?? 0) != 0 }
+            .map { $0.recordID.recordName }
+        for mealID in aiMealIDs {
+            session.engine.deleteCascading(CKRecord.ID(recordName: mealID, zoneID: session.zoneID))
+        }
     }
 
     /// Patch an existing meal. `clearAssignee` nulls the assignedGuest ref (a guest no longer
@@ -827,6 +914,15 @@ final class EventRepository {
         } else {
             session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
         }
+    }
+
+    /// JSON-encode a `[String]` to the same wire shape `EventRecordMapper.encodeStringArray`
+    /// produces for `constraintCoverage` (that helper is internal to SimmerSmithKit). "[]" for
+    /// an empty list — what the reverse map decodes back to an empty `[String]`.
+    private func encodeStringArray(_ arr: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(arr),
+              let s = String(data: data, encoding: .utf8) else { return "[]" }
+        return s
     }
 
     private func ckValue(for scalar: ScalarValue) -> CKRecordValue {

@@ -1478,6 +1478,11 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         public let generated: Int
         public let failed: Int
         public let skipped: Int
+        public init(generated: Int, failed: Int, skipped: Int) {
+            self.generated = generated
+            self.failed = failed
+            self.skipped = skipped
+        }
     }
 
     /// Generate header images for every recipe missing one. Reuses

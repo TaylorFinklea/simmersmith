@@ -43,6 +43,64 @@ public struct CatalogRow: Sendable, Equatable {
     public func date(_ key: String) -> Date? { dates[key] }
 }
 
+/// The per-reference nutrition fields a PUBLIC catalog row may carry (SP-C AI-3). Mirrors the
+/// server BaseIngredient / IngredientVariation macro columns: a reference amount/unit and the
+/// macros at that reference. Any field may be nil.
+///
+/// CATALOG-MACRO REALITY (verified 2026-06-22): the PUBLIC catalog is a frozen one-time seed and
+/// there is no in-repo curator publish path yet, so the published records are not guaranteed to
+/// carry the full macro columns — many rows are calories-only. `macroProjection` reads whatever
+/// fields are present (snake_case keys, matching the household-record publish convention:
+/// `proteinG → protein_g`); when only calories are present the caller still gets a calorie-level
+/// projection, and full-macro nutrition becomes available the moment the catalog publishes the
+/// macro columns — no client change needed.
+public struct CatalogMacroProjection: Sendable, Equatable {
+    public let referenceAmount: Double?
+    public let referenceUnit: String
+    public let calories: Double?
+    public let proteinG: Double?
+    public let carbsG: Double?
+    public let fatG: Double?
+    public let fiberG: Double?
+
+    /// True when the row carries any macro beyond calories (i.e. the catalog has been
+    /// republished with the macro columns). Lets the app surface "full macro" vs "calories-only".
+    public var hasFullMacros: Bool {
+        proteinG != nil || carbsG != nil || fatG != nil || fiberG != nil
+    }
+}
+
+public extension CatalogRow {
+    /// Project this row's nutrition fields. Reads the PUBLIC record's snake_case macro keys; absent
+    /// keys stay nil. `nil` only when the row carries no reference amount AND no nutrition at all.
+    var macroProjection: CatalogMacroProjection? {
+        let referenceAmount = number("nutrition_reference_amount")
+        let referenceUnit = string("nutrition_reference_unit") ?? ""
+        let calories = number("calories")
+        let proteinG = number("protein_g")
+        let carbsG = number("carbs_g")
+        let fatG = number("fat_g")
+        let fiberG = number("fiber_g")
+        if referenceAmount == nil
+            && calories == nil
+            && proteinG == nil
+            && carbsG == nil
+            && fatG == nil
+            && fiberG == nil {
+            return nil
+        }
+        return CatalogMacroProjection(
+            referenceAmount: referenceAmount,
+            referenceUnit: referenceUnit,
+            calories: calories,
+            proteinG: proteinG,
+            carbsG: carbsG,
+            fatG: fatG,
+            fiberG: fiberG
+        )
+    }
+}
+
 /// Thread-safe partial-catalog cache. One dict keyed by `<type>\u1<normalizedName>`; on a duplicate
 /// `normalizedName` the more-authoritative row wins (later `updatedAt`, ties broken by lowest
 /// recordName for determinism). Plus the built-in template list.
@@ -112,6 +170,22 @@ public struct PublicCatalogReader: Sendable {
     /// gate, but archived/merged-away rows must not be served as the canonical match).
     public func resolveIngredientVariation(normalizedName: String) async -> CatalogRow? {
         await resolve(type: Self.variationType, normalizedName: normalizedName, filter: Self.isActive)
+    }
+
+    /// SP-C AI-3 — resolve an ingredient's nutrition macros from the PUBLIC catalog by normalized
+    /// name (variation first, then base ingredient — mirroring the server's `_lookup_catalog_*`
+    /// preference). Returns nil when neither resolves or the resolved row carries no nutrition.
+    /// The app wires this into `NutritionCalculator`'s injectable catalog-lookup closure.
+    public func macros(forNormalizedName normalizedName: String) async -> CatalogMacroProjection? {
+        if let variation = await resolveIngredientVariation(normalizedName: normalizedName),
+           let macros = variation.macroProjection {
+            return macros
+        }
+        if let base = await resolveBaseIngredient(normalizedName: normalizedName),
+           let macros = base.macroProjection {
+            return macros
+        }
+        return nil
     }
 
     private func resolve(type: String, normalizedName: String,

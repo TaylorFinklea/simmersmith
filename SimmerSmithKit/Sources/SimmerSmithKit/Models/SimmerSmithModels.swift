@@ -1016,6 +1016,12 @@ public struct RecipeAIDraft: Codable, Hashable, Sendable {
     public let goal: String
     public let rationale: String
     public let draft: RecipeDraft
+
+    public init(goal: String, rationale: String, draft: RecipeDraft) {
+        self.goal = goal
+        self.rationale = rationale
+        self.draft = draft
+    }
 }
 
 public struct RecipeAIDraftOption: Codable, Identifiable, Hashable, Sendable {
@@ -1025,12 +1031,25 @@ public struct RecipeAIDraftOption: Codable, Identifiable, Hashable, Sendable {
     public let draft: RecipeDraft
 
     public var id: String { optionId }
+
+    public init(optionId: String, label: String, rationale: String, draft: RecipeDraft) {
+        self.optionId = optionId
+        self.label = label
+        self.rationale = rationale
+        self.draft = draft
+    }
 }
 
 public struct RecipeAIOptions: Codable, Hashable, Sendable {
     public let goal: String
     public let rationale: String
     public let options: [RecipeAIDraftOption]
+
+    public init(goal: String, rationale: String, options: [RecipeAIDraftOption]) {
+        self.goal = goal
+        self.rationale = rationale
+        self.options = options
+    }
 }
 
 /// M26 Phase 5 — when an assistant tool returns a `proposed_change`
@@ -1365,6 +1384,11 @@ public struct AssistantRespondRequestBody: Codable, Hashable, Sendable {
 public struct AssistantStreamEnvelope: Sendable {
     public let event: String
     public let data: Data
+
+    public init(event: String, data: Data) {
+        self.event = event
+        self.data = data
+    }
 
     public func decode<T: Decodable>(_ type: T.Type) throws -> T {
         try SimmerSmithJSONCoding.makeDecoder().decode(T.self, from: data)
@@ -1769,6 +1793,11 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
 public struct EventMenuResponse: Codable, Hashable, Sendable {
     public let event: Event
     public let coverageSummary: String
+
+    public init(event: Event, coverageSummary: String) {
+        self.event = event
+        self.coverageSummary = coverageSummary
+    }
 }
 
 public struct RecipeSummary: Codable, Identifiable, Hashable, Sendable {
@@ -2545,6 +2574,39 @@ public struct MealUpdateRequest: Codable, Sendable, Hashable {
         self.scaleMultiplier = scaleMultiplier
         self.notes = notes
         self.approved = approved
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case mealId
+        case dayName
+        case mealDate
+        case slot
+        case recipeId
+        case recipeName
+        case servings
+        case scaleMultiplier
+        case notes
+        case approved
+    }
+
+    /// Tolerant decoder so the assistant's `weeks_update_meals` tool can pass the
+    /// schema-shaped meal (`day_name`, `meal_date`, `slot`, `recipe_name`, `notes`)
+    /// WITHOUT the fields the tool's `input_schema` omits. The synthesized Codable
+    /// required `scale_multiplier`/`approved`/`notes` and threw `keyNotFound`,
+    /// killing every swap/add/remove edit. Mirrors `RecipeDraft`'s hardened decoder:
+    /// `decodeIfPresent` with defaults for every field the schema doesn't require.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mealId = try container.decodeIfPresent(String.self, forKey: .mealId)
+        dayName = try container.decode(String.self, forKey: .dayName)
+        mealDate = try container.decode(Date.self, forKey: .mealDate)
+        slot = try container.decode(String.self, forKey: .slot)
+        recipeId = try container.decodeIfPresent(String.self, forKey: .recipeId)
+        recipeName = try container.decode(String.self, forKey: .recipeName)
+        servings = try container.decodeIfPresent(Double.self, forKey: .servings)
+        scaleMultiplier = try container.decodeIfPresent(Double.self, forKey: .scaleMultiplier) ?? 1.0
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        approved = try container.decodeIfPresent(Bool.self, forKey: .approved) ?? false
     }
 }
 
