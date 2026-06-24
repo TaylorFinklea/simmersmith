@@ -126,6 +126,17 @@ final class ToolRegistry {
         guard let week = appState.currentWeek else {
             return success(#"{"week":null}"#)
         }
+        // In CloudKit mode, only surface a week the repository can actually resolve —
+        // otherwise the model receives a week_id that every write tool rejects with
+        // "Week not found" (currentWeek can briefly hold a Fly-sourced / cached id not
+        // in this store). Return the repo's fresh snapshot. Fly-only mode (no repo)
+        // keeps the legacy behavior.
+        if let repo = appState.weekRepository {
+            guard let resolved = repo.week(forId: week.weekId) else {
+                return success(#"{"week":null}"#)
+            }
+            return success(encodeWeekResult(resolved))
+        }
         return success(encodeWeekResult(week))
     }
 

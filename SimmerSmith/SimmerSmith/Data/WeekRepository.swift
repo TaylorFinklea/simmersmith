@@ -311,6 +311,22 @@ final class WeekRepository {
         let store = session.store
         let zoneID = session.zoneID
 
+        // Guard: the `.week` parent MUST exist before we write any `.weekMeal` children.
+        // Without this, a stale/phantom weekID — e.g. a Fly-sourced `currentWeek` whose
+        // record was never imported into this CloudKit store — would create ORPHAN meal
+        // records that sync but belong to no week, and the caller would only learn of it
+        // via a confusing "Week not found" AFTER the write. Fail fast, write nothing.
+        // (Mirrors approveWeek's parent check.)
+        guard store.record(for: CKRecord.ID(recordName: weekID, zoneID: zoneID)) != nil else {
+            let knownWeekIDs = weeks.map { $0.weekId }
+            let weekCount = store.records(ofType: HouseholdRecordType.week.recordTypeName).count
+            // Diagnostic disambiguates phantom-id (weekCount 0 / id absent) from a
+            // wrong/foreign zone (weekCount > 0 with other ids) on the next repro.
+            print("[WeekRepository] saveWeekMeals: no .week parent for weekID=\(weekID); " +
+                  "weekCount=\(weekCount); zone=\(zoneID.zoneName); knownWeekIDs=\(knownWeekIDs)")
+            return nil
+        }
+
         // Existing meal record names for this week.
         let existingNames = Set(
             store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName)
