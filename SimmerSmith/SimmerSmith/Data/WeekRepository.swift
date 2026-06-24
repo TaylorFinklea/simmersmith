@@ -193,6 +193,37 @@ final class WeekRepository {
         weeks.first { $0.weekId == weekID }
     }
 
+    /// The week whose `[weekStart, weekStart+7)` (UTC) contains `day`, or nil.
+    func week(covering day: Date) -> WeekSnapshot? {
+        weeks.first { WeekBoundary.weekContains($0.weekStart, day: day) }
+    }
+
+    /// Ensure the store has a week for today's 7-day period — returning the existing one
+    /// when present, or creating it on-device when not — and return it. Idempotent: when a
+    /// week already covers today NOTHING is written. This is the CloudKit cutover's
+    /// current-week owner: the planner no longer depends on Fly to mint the active week.
+    ///
+    /// A newly-created week's start preserves the existing weeks' 7-day phase (anchored to
+    /// the newest week), or anchors to today's UTC day when the store has no weeks yet.
+    @discardableResult
+    func ensureCurrentWeek(today: Date = Date(), preferredStart: Date? = nil) -> WeekSnapshot? {
+        if let existing = week(covering: today) { return existing }
+        let target: Date
+        if let preferredStart, WeekBoundary.weekContains(preferredStart, day: today) {
+            // Caller wants to preserve a specific period (e.g. carrying over an in-memory
+            // week's meals, whose dates must line up with the new week's day grid).
+            target = WeekBoundary.utcCalendar.startOfDay(for: preferredStart)
+        } else {
+            // `weeks` is sorted newest-first; use the newest as the phase anchor.
+            target = WeekBoundary.currentWeekStart(today: today, anchor: weeks.first?.weekStart)
+        }
+        let weekEnd = WeekBoundary.utcCalendar.date(byAdding: .day, value: 7, to: target) ?? target
+        // Deterministic record name keyed on the period's start, so two devices that both
+        // auto-create the same period offline produce the SAME record (one week, not two).
+        let recordName = "week-" + Self.utcDayKey(target)
+        return createWeek(weekStart: target, weekEnd: weekEnd, recordName: recordName)
+    }
+
     // MARK: - Reassembly helpers
 
     /// Run the WeekRecordMapper, then inject each meal's resolved `ingredients` (the mapper
@@ -354,8 +385,10 @@ final class WeekRepository {
     /// Create a new week record (no meals yet). Mirrors the server `createWeek`. Returns the
     /// reloaded snapshot.
     @discardableResult
-    func createWeek(weekStart: Date, weekEnd: Date, notes: String = "") -> WeekSnapshot? {
-        let weekID = UUID().uuidString
+    func createWeek(weekStart: Date, weekEnd: Date, notes: String = "", recordName: String? = nil) -> WeekSnapshot? {
+        // A caller may pin a deterministic record name (see ensureCurrentWeek) so two
+        // devices auto-creating the same period collide into ONE record instead of two.
+        let weekID = recordName ?? UUID().uuidString
         var scalars: [String: ScalarValue] = [
             "weekStart": .date(weekStart),
             "weekEnd": .date(weekEnd),

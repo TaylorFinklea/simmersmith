@@ -173,6 +173,64 @@ extension AppState {
         return week
     }
 
+    #if canImport(CloudKit)
+    /// Make the CloudKit store OWN `currentWeek`: ensure a week exists for today's 7-day
+    /// period (creating it on-device if missing) and point `currentWeek` at it. Called
+    /// during household-session setup so the Week tab and the assistant always operate on
+    /// a real CloudKit week — completing the cutover off Fly's current-week endpoint, and
+    /// closing the "phantom week" gap that produced "Week not found after saveWeekMeals".
+    ///
+    /// Carry-over: when CloudKit has no week for today but the in-memory `currentWeek`
+    /// (e.g. a Fly-sourced / cached week) DOES cover today and has meals, those meals are
+    /// written into the newly-created CloudKit week so the cutover doesn't drop the user's
+    /// active plan. `asMealUpdateRequest()` preserves each `mealId`, so the carry-over is
+    /// deterministic (no duplicate meal records if two devices do it).
+    func ensureCurrentCloudKitWeek() async {
+        guard let repo = weekRepository else { return }
+        let today = Date()
+
+        // Already have a CloudKit week covering today → adopt it, no write.
+        if let existing = repo.week(covering: today) {
+            adoptCurrentWeek(existing)
+            return
+        }
+
+        // The in-memory week (e.g. a Fly-sourced / cached week) that covers today, if any.
+        // We preserve BOTH its period (so carried meal dates line up with the new week's
+        // day grid) and its meals. Captured BEFORE creating the CloudKit week, since
+        // createWeek mirrors and may reassign currentWeek.
+        let coveringInMemory = currentWeek.flatMap {
+            WeekBoundary.weekContains($0.weekStart, day: today) ? $0 : nil
+        }
+        let carryOver = coveringInMemory?.meals.map { $0.asMealUpdateRequest() } ?? []
+
+        guard let created = repo.ensureCurrentWeek(
+            today: today,
+            preferredStart: coveringInMemory?.weekStart
+        ) else { return }
+
+        guard !carryOver.isEmpty else {
+            adoptCurrentWeek(created)
+            return
+        }
+        // saveWeekMeals writes the meals, regenerates grocery, and mirrors currentWeek.
+        if (try? await saveWeekMeals(weekID: created.weekId, meals: carryOver)) != nil,
+           let filled = repo.week(forId: created.weekId) {
+            adoptCurrentWeek(filled)
+        } else {
+            adoptCurrentWeek(created)
+        }
+    }
+
+    /// Point `currentWeek` at `week` and hydrate the derived UI state (cache + the
+    /// grocery-check set for the current week).
+    private func adoptCurrentWeek(_ week: WeekSnapshot) {
+        currentWeek = week
+        try? cacheStore.saveCurrentWeek(week)
+        checkedGroceryItemIDs = Set(week.groceryItems.filter(\.isChecked).map(\.groceryItemId))
+    }
+    #endif
+
     /// Batch-replace a week's meals. CloudKit: write via WeekRepository.
     func saveWeekMeals(weekID: String, meals: [MealUpdateRequest]) async throws -> WeekSnapshot {
         #if canImport(CloudKit)

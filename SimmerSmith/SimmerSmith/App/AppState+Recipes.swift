@@ -138,6 +138,11 @@ extension AppState {
             mirrorRecipesFromRepository()
             mirrorMetadataFromRepository()
             mirrorWeekFromRepository()
+            // SP-C cutover completion: the CloudKit store OWNS the current week. Create
+            // today's week on-device if none covers today (carrying over any in-memory
+            // Fly/cached meals), so the Week tab + assistant always operate on a real
+            // CloudKit week (no Fly current-week dependency).
+            await ensureCurrentCloudKitWeek()
             mirrorEventsFromRepository()
             mirrorGuestsFromRepository()
             mirrorPantryFromRepository()
@@ -386,17 +391,23 @@ extension AppState {
         guard let repo = weekRepository else { return }
         let all = repo.weeks
 
-        // Resolve currentWeek: the week whose weekStart matches today (UTC).
-        let todayKey = Self.utcDayKey(Date())
-        if let todayWeek = all.first(where: { Self.utcDayKey($0.weekStart) == todayKey }) {
-            currentWeek = todayWeek
-        } else if currentWeek == nil {
-            // No week for today yet — default to the newest (weeks sorted newest-first).
-            currentWeek = all.first
+        // Resolve currentWeek: the week whose [weekStart, weekStart+7) CONTAINS today
+        // (UTC) — not merely one that starts exactly today, so a mid-week launch still
+        // resolves the active week.
+        let today = Date()
+        if let coveringToday = all.first(where: { WeekBoundary.weekContains($0.weekStart, day: today) }) {
+            currentWeek = coveringToday
         } else if let cw = currentWeek, let refreshed = all.first(where: { $0.weekId == cw.weekId }) {
-            // Refreshed version of the same week.
+            // Same week, refreshed projection.
             currentWeek = refreshed
+        } else if !all.isEmpty {
+            // No week covers today and the prior currentWeek is gone from the repo
+            // (stale cache / phantom) — fall back to the newest real week rather than
+            // keep a phantom id the write tools can't resolve. (ensureCurrentCloudKitWeek
+            // creates today's week during session setup; this is the reactive fallback.)
+            currentWeek = all.first
         }
+        // If the repo is momentarily empty, leave currentWeek as-is (transient reload).
 
         // Keep browsedWeek fresh if it's still in the list.
         if let bw = browsedWeek, let refreshed = all.first(where: { $0.weekId == bw.weekId }) {
