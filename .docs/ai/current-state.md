@@ -17,15 +17,19 @@ on-device with the user's BYO key.
   AI + rebalance · AI-4 images (OpenAI/Gemini) · AI-5 the tool-calling Assistant (12 tools, private-plane
   threads). All via AIService/BYOKeyProvider, keys in Keychain.
 
-**Follow-up (2026-06-23, branch `sp-c/cloudkit-cutover-identity`, NOT merged/pushed):** `b1500ef` —
-Settings → AI model is now a **key-aware dropdown** (provider's live /v1/models curated, static fallback,
-"Custom…" escape hatch) replacing the free-text field. New AIModelCatalog (+13 tests) · AIService.listModels
-· AppState.refreshCKAIModels · AIModelPickerRow. 7 review findings fixed (Critical: clearing a model no
-longer resurrects a stale stored value). App builds, 147 CK tests pass.
+**Follow-ups (2026-06-23, all on `main`, NOT pushed):**
+- `b1500ef` (build 125) — Settings → AI **key-aware model dropdown** (live /v1/models curated + fallback +
+  Custom…), replacing the free-text field. AIModelCatalog (+13 tests). 7 review fixes.
+- `66c9e59` — assistant **"Week not found"** data-safety: WeekRepository.saveWeekMeals guards the .week parent
+  (no orphan meal writes) + diagnostic; weeks_get_current only surfaces a repo-resolvable week.
+- `0610923` (build 126, cutting) — **CloudKit owns the current week** (cutover off Fly): WeekBoundary (+7
+  tests) · WeekRepository.ensureCurrentWeek (deterministic name) · AppState.ensureCurrentCloudKitWeek carries
+  over the in-memory Fly/cached week's meals + period · mirror resolves by range-contains. 5 review findings,
+  F1+F3 fixed. RCA: currentWeek was Fly-sourced + weeks weren't auto-imported → phantom week.
 
-**Open items (human):** push `main` + this branch when ready (not pushed) · on-device verify the AI track
-(add a BYO key in Settings → try the **model dropdown**, generate-week, import-a-URL, an image, the
-assistant) · CloudKit Prod schema deploy for weeks/events/pantry full re-import (recipes deployed; no new types).
+**Open items (human):** push `main` when ready · on-device verify build 126 (assistant can save to the current
+week; model dropdown) · possible leftover orphan weekMeal records from pre-66c9e59 failed saves (invisible/
+harmless; cleanup available on request) · CloudKit Prod schema deploy for weeks/events/pantry full re-import.
 
 **Deferred follow-ons:** CKShare-participant (Savanne joins) · SP-D (retire Fly + the dead Fly fallback
 branches). AI v2 refinements: token-streaming the assistant, full 49-tool set, web-search/exports tools,
