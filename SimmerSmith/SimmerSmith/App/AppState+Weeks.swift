@@ -189,18 +189,28 @@ extension AppState {
         guard let repo = weekRepository else { return }
         let today = Date()
 
+        // Self-heal: empty auto-created weeks (deterministic "week-<date>" name) that don't
+        // start on Monday are relics of a pre-fix bug that anchored the week to `today`
+        // instead of the Monday start. They hold no data — drop them so the correct
+        // Monday week is (re)created below.
+        let stale = repo.weeks.filter {
+            $0.weekId.hasPrefix("week-") && $0.meals.isEmpty && !WeekBoundary.isMonday($0.weekStart)
+        }
+        for w in stale { repo.deleteWeek(weekID: w.weekId) }
+
         // Already have a CloudKit week covering today → adopt it, no write.
         if let existing = repo.week(covering: today) {
             adoptCurrentWeek(existing)
             return
         }
 
-        // The in-memory week (e.g. a Fly-sourced / cached week) that covers today, if any.
-        // We preserve BOTH its period (so carried meal dates line up with the new week's
-        // day grid) and its meals. Captured BEFORE creating the CloudKit week, since
-        // createWeek mirrors and may reassign currentWeek.
+        // The in-memory week (e.g. a Fly-sourced / cached week) that covers today AND has
+        // meals worth preserving. We carry its meals AND its period (so the dates line up
+        // with the new week's day grid). Requiring meals is important: an EMPTY in-memory
+        // week (including a just-swept artifact) must NOT pin its period — we want the
+        // Monday start, not whatever stale day it had. Captured before createWeek mirrors.
         let coveringInMemory = currentWeek.flatMap {
-            WeekBoundary.weekContains($0.weekStart, day: today) ? $0 : nil
+            (WeekBoundary.weekContains($0.weekStart, day: today) && !$0.meals.isEmpty) ? $0 : nil
         }
         let carryOver = coveringInMemory?.meals.map { $0.asMealUpdateRequest() } ?? []
 

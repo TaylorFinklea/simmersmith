@@ -31,34 +31,24 @@ public enum WeekBoundary {
         return d >= start && d < end
     }
 
-    /// The `weekStart` (UTC midnight) of the 7-day period containing `today`.
+    /// The Monday (UTC midnight) that starts the calendar week containing `day`.
     ///
-    /// With an `anchor` (an existing week's start) the result preserves that week's
-    /// 7-day phase by stepping in 7-day increments toward today. With no anchor it is
-    /// simply today's UTC day (the first week establishes the phase).
+    /// SimmerSmith weeks run Monday–Sunday (household default `week_start_day = Monday`;
+    /// the iOS create paths all snap to Monday — `firstWeekday = 2`). This mirrors the
+    /// WeekView Monday math so an auto-created current week lines up with the day grid.
     ///
-    /// Postcondition: `weekContains(currentWeekStart(today:anchor:), day: today) == true`.
-    public static func currentWeekStart(today: Date, anchor: Date?) -> Date {
+    /// Postcondition: `weekContains(mondayStart(containing: day), day: day) == true`.
+    public static func mondayStart(containing day: Date) -> Date {
         let cal = utcCalendar
-        let todayUTC = cal.startOfDay(for: today)
-        guard let anchor else { return todayUTC }
-        var target = cal.startOfDay(for: anchor)
+        let d = cal.startOfDay(for: day)
+        // iso8601 `.weekday`: 1 = Sunday … 2 = Monday … 7 = Saturday.
+        let weekday = cal.component(.weekday, from: d)
+        let daysToMonday = (weekday == 1 ? -6 : 2 - weekday)
+        return cal.date(byAdding: .day, value: daysToMonday, to: d) ?? d
+    }
 
-        if let endExclusive = cal.date(byAdding: .day, value: 7, to: target), todayUTC >= endExclusive {
-            // Anchor's week ended before today → step forward to today's period.
-            for _ in 0..<520 {
-                guard let next = cal.date(byAdding: .day, value: 7, to: target) else { break }
-                if todayUTC < next { break }
-                target = next
-            }
-        } else if todayUTC < target {
-            // Anchor is in the future → step back to today's period.
-            for _ in 0..<520 {
-                guard let prev = cal.date(byAdding: .day, value: -7, to: target) else { break }
-                target = prev
-                if todayUTC >= target { break }
-            }
-        }
-        return target
+    /// True iff `date`'s UTC day is a Monday (a valid week start).
+    public static func isMonday(_ date: Date) -> Bool {
+        utcCalendar.component(.weekday, from: utcCalendar.startOfDay(for: date)) == 2
     }
 }

@@ -214,8 +214,8 @@ final class WeekRepository {
             // week's meals, whose dates must line up with the new week's day grid).
             target = WeekBoundary.utcCalendar.startOfDay(for: preferredStart)
         } else {
-            // `weeks` is sorted newest-first; use the newest as the phase anchor.
-            target = WeekBoundary.currentWeekStart(today: today, anchor: weeks.first?.weekStart)
+            // Weeks run Monday–Sunday — snap to this week's Monday, not today.
+            target = WeekBoundary.mondayStart(containing: today)
         }
         let weekEnd = WeekBoundary.utcCalendar.date(byAdding: .day, value: 7, to: target) ?? target
         // Deterministic record name keyed on the period's start, so two devices that both
@@ -400,6 +400,14 @@ final class WeekRepository {
         reload()
         Task { [weak self] in await self?.drainSync() }
         return week(forId: weekID)
+    }
+
+    /// Delete a week and (cascading) its meals/sides/grocery. Used to self-heal an empty
+    /// mis-aligned auto-created week (see AppState.ensureCurrentCloudKitWeek).
+    func deleteWeek(weekID: String) {
+        session.engine.deleteCascading(CKRecord.ID(recordName: weekID, zoneID: session.zoneID))
+        reload()
+        Task { [weak self] in await self?.drainSync() }
     }
 
     /// Approve a week: stamp `status=approved` + `approvedAt`. Returns the reloaded snapshot.

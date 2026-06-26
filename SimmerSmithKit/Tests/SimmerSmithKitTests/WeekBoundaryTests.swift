@@ -30,50 +30,41 @@ func weekContainsIgnoresTimeOfDay() {
     #expect(!WeekBoundary.weekContains(start, day: utc(2026, 6, 28)))
 }
 
-// MARK: - currentWeekStart
+// MARK: - mondayStart (weeks run Monday–Sunday)
 
-@Test("currentWeekStart with no anchor is today's UTC day")
-func currentWeekStartNoAnchor() {
-    let today = utc(2026, 6, 24, 14)
-    #expect(WeekBoundary.currentWeekStart(today: today, anchor: nil) == utc(2026, 6, 24))
+// Reference: 2026-06-22 is a Monday; 06-26 is Friday; 06-21 is Sunday; 06-29 is Monday.
+
+@Test("mondayStart from a mid-week day returns that week's Monday")
+func mondayStartMidWeek() {
+    #expect(WeekBoundary.mondayStart(containing: utc(2026, 6, 26, 14)) == utc(2026, 6, 22))  // Fri → Mon 22
 }
 
-@Test("currentWeekStart steps forward from a past anchor, preserving phase")
-func currentWeekStartPastAnchor() {
-    // anchor two+ weeks back; phase 06-07,06-14,06-21,06-28…
-    let target = WeekBoundary.currentWeekStart(today: utc(2026, 6, 24), anchor: utc(2026, 6, 7))
-    #expect(target == utc(2026, 6, 21))
-    #expect(WeekBoundary.weekContains(target, day: utc(2026, 6, 24)))
+@Test("mondayStart from Monday returns the same Monday")
+func mondayStartOnMonday() {
+    #expect(WeekBoundary.mondayStart(containing: utc(2026, 6, 22)) == utc(2026, 6, 22))
+    #expect(WeekBoundary.mondayStart(containing: utc(2026, 6, 29)) == utc(2026, 6, 29))
 }
 
-@Test("currentWeekStart steps back from a future anchor, preserving phase")
-func currentWeekStartFutureAnchor() {
-    // anchor in the future on the same phase → lands on the same 06-21 week.
-    let target = WeekBoundary.currentWeekStart(today: utc(2026, 6, 24), anchor: utc(2026, 7, 5))
-    #expect(target == utc(2026, 6, 21))
-    #expect(WeekBoundary.weekContains(target, day: utc(2026, 6, 24)))
+@Test("mondayStart from Sunday returns the PREVIOUS Monday (Sunday ends the week)")
+func mondayStartOnSunday() {
+    #expect(WeekBoundary.mondayStart(containing: utc(2026, 6, 21)) == utc(2026, 6, 15))  // Sun 21 → Mon 15
+    #expect(WeekBoundary.mondayStart(containing: utc(2026, 6, 28)) == utc(2026, 6, 22))  // Sun 28 → Mon 22
 }
 
-@Test("currentWeekStart returns the anchor's own period when it already covers today")
-func currentWeekStartAnchorCoversToday() {
-    let target = WeekBoundary.currentWeekStart(today: utc(2026, 6, 24), anchor: utc(2026, 6, 22))
-    #expect(target == utc(2026, 6, 22))
-    #expect(WeekBoundary.weekContains(target, day: utc(2026, 6, 24)))
-}
-
-@Test("currentWeekStart postcondition: the result always contains today, for many anchors")
-func currentWeekStartContainsTodayInvariant() {
-    let today = utc(2026, 6, 24)
-    // Sweep anchors across many weeks on a fixed phase, plus off-phase anchors.
-    for deltaWeeks in -8...8 {
-        let anchor = utc(2026, 6, 21).addingTimeInterval(Double(deltaWeeks) * 7 * 86_400)
-        let target = WeekBoundary.currentWeekStart(today: today, anchor: anchor)
-        #expect(WeekBoundary.weekContains(target, day: today), "anchor \(anchor) → \(target)")
+@Test("mondayStart postcondition: the result always contains the day, and is a Monday")
+func mondayStartInvariant() {
+    for dayOffset in 0..<28 {
+        let day = utc(2026, 6, 1).addingTimeInterval(Double(dayOffset) * 86_400)
+        let start = WeekBoundary.mondayStart(containing: day)
+        #expect(WeekBoundary.weekContains(start, day: day), "day \(day) → \(start)")
+        #expect(WeekBoundary.isMonday(start), "start \(start) should be a Monday")
     }
-    // Off-phase anchors (e.g. a Wednesday-started week) still produce a covering week.
-    for offset in [-3, -1, 1, 3] {
-        let anchor = utc(2026, 6, 21).addingTimeInterval(Double(offset) * 86_400)
-        let target = WeekBoundary.currentWeekStart(today: today, anchor: anchor)
-        #expect(WeekBoundary.weekContains(target, day: today), "off-phase anchor \(anchor) → \(target)")
-    }
+}
+
+@Test("isMonday")
+func isMonday() {
+    #expect(WeekBoundary.isMonday(utc(2026, 6, 22)))     // Monday
+    #expect(WeekBoundary.isMonday(utc(2026, 6, 29)))     // Monday
+    #expect(!WeekBoundary.isMonday(utc(2026, 6, 26)))    // Friday
+    #expect(!WeekBoundary.isMonday(utc(2026, 6, 21)))    // Sunday
 }
