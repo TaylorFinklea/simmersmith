@@ -135,6 +135,13 @@ struct SettingsView: View {
                     }
                 }
 
+                // SP-C — customize the assistant's per-screen suggestion chips.
+                NavigationLink {
+                    AssistantPromptsView()
+                } label: {
+                    Label("Assistant prompts", systemImage: "text.bubble")
+                }
+
                 // M27 — unit-system localization. Constrains AI-
                 // generated and AI-found recipes to one unit system.
                 @Bindable var unitsBindable = appState

@@ -153,6 +153,8 @@ extension AppState {
             mirrorPreferencesFromRepository()
             // SP-C AI-1: hydrate AI provider/model drafts from the private plane.
             syncAIDraftsFromRepo()
+            // SP-C: hydrate the user's assistant suggestion-chip overrides.
+            loadAssistantPromptOverrides()
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.

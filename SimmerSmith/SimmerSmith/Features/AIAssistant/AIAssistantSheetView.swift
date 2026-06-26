@@ -181,36 +181,13 @@ struct AIAssistantSheetView: View {
         guard let context = coordinator.currentContext else {
             return ["Plan this week", "What can I make with chicken?"]
         }
-        switch context.pageType {
-        case "week":
-            if let day = context.focusDayName {
-                return [
-                    "Swap \(day) dinner for something lighter",
-                    "Make \(day) higher protein",
-                    "Replan \(day) to hit my macros"
-                ]
-            }
-            return [
-                "Plan this week",
-                "Make the week higher protein",
-                "Swap Tuesday dinner for something lighter"
-            ]
-        case "recipe_detail":
-            if let name = context.recipeName {
-                return [
-                    "Make \(name) lower carb",
-                    "Can I substitute the cream?",
-                    "Add this to the week"
-                ]
-            }
-            return []
-        case "recipes":
-            return ["Find me a quick weeknight dinner", "What should I cook with salmon?"]
-        case "grocery":
-            return ["What else do I need this week?", "What can I skip?"]
-        default:
-            return []
-        }
+        // User-customizable per screen (Settings → AI → Assistant prompts), falling back
+        // to the built-in defaults; {day}/{recipe} tokens fill from the current context.
+        return appState.resolvedAssistantPrompts(
+            pageType: context.pageType,
+            day: context.focusDayName,
+            recipe: context.recipeName
+        )
     }
 
     @ViewBuilder

@@ -161,6 +161,10 @@ final class AppState {
     /// Keyed by provider so overlapping fetches (e.g. a fast provider flip) don't
     /// clear each other's spinner.
     var isFetchingAIModels: [String: Bool] = [:]
+    /// SP-C — user overrides for the AI-assistant suggestion chips, keyed by pageType
+    /// ("week"/"recipe_detail"/…). Empty for a screen = the built-in defaults. Hydrated
+    /// from the private-plane `assistant_prompts` setting; edited in Settings → AI.
+    var assistantPromptOverrides: [String: [String]] = [:]
 
     var profile: ProfileSnapshot?
     var currentWeek: WeekSnapshot?
