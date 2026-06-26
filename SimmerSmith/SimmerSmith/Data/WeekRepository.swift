@@ -193,9 +193,12 @@ final class WeekRepository {
         weeks.first { $0.weekId == weekID }
     }
 
-    /// The week whose `[weekStart, weekStart+7)` (UTC) contains `day`, or nil.
+    /// The week covering `day`. PREFERS the Monday-aligned (canonical) week so a stray
+    /// mis-aligned week (e.g. a pre-fix Friday-started artifact still syncing) never wins
+    /// over the real Monday week; falls back to any overlapping week when none is aligned.
     func week(covering day: Date) -> WeekSnapshot? {
-        weeks.first { WeekBoundary.weekContains($0.weekStart, day: day) }
+        weeks.first { WeekBoundary.weekContains($0.weekStart, day: day) && WeekBoundary.isMonday($0.weekStart) }
+            ?? weeks.first { WeekBoundary.weekContains($0.weekStart, day: day) }
     }
 
     /// Ensure the store has a week for today's 7-day period — returning the existing one
@@ -207,15 +210,22 @@ final class WeekRepository {
     /// the newest week), or anchors to today's UTC day when the store has no weeks yet.
     @discardableResult
     func ensureCurrentWeek(today: Date = Date(), preferredStart: Date? = nil) -> WeekSnapshot? {
-        if let existing = week(covering: today) { return existing }
+        // The canonical start for today's week: the carry-over period when given, else
+        // this week's Monday (weeks run Monday–Sunday).
         let target: Date
         if let preferredStart, WeekBoundary.weekContains(preferredStart, day: today) {
             // Caller wants to preserve a specific period (e.g. carrying over an in-memory
             // week's meals, whose dates must line up with the new week's day grid).
             target = WeekBoundary.utcCalendar.startOfDay(for: preferredStart)
         } else {
-            // Weeks run Monday–Sunday — snap to this week's Monday, not today.
             target = WeekBoundary.mondayStart(containing: today)
+        }
+        // Reuse the week that starts ON the target day. A mis-aligned week that merely
+        // OVERLAPS today (a stray Friday-started artifact) does NOT count — so the correct
+        // canonical week is created even while that stray still exists, and resolution
+        // (week(covering:)) then prefers it.
+        if let existing = weeks.first(where: { WeekBoundary.isSameUTCDay($0.weekStart, target) }) {
+            return existing
         }
         let weekEnd = WeekBoundary.utcCalendar.date(byAdding: .day, value: 7, to: target) ?? target
         // Deterministic record name keyed on the period's start, so two devices that both

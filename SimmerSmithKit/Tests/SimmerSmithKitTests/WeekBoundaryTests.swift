@@ -68,3 +68,9 @@ func isMonday() {
     #expect(!WeekBoundary.isMonday(utc(2026, 6, 26)))    // Friday
     #expect(!WeekBoundary.isMonday(utc(2026, 6, 21)))    // Sunday
 }
+
+@Test("isSameUTCDay")
+func isSameUTCDay() {
+    #expect(WeekBoundary.isSameUTCDay(utc(2026, 6, 22), utc(2026, 6, 22, 18)))   // same day, diff hour
+    #expect(!WeekBoundary.isSameUTCDay(utc(2026, 6, 22), utc(2026, 6, 23)))
+}

@@ -393,9 +393,12 @@ extension AppState {
 
         // Resolve currentWeek: the week whose [weekStart, weekStart+7) CONTAINS today
         // (UTC) — not merely one that starts exactly today, so a mid-week launch still
-        // resolves the active week.
+        // resolves the active week. PREFER the Monday-aligned (canonical) week so a stray
+        // mis-aligned artifact still syncing never shadows the real week.
         let today = Date()
-        if let coveringToday = all.first(where: { WeekBoundary.weekContains($0.weekStart, day: today) }) {
+        let coveringToday = all.first(where: { WeekBoundary.weekContains($0.weekStart, day: today) && WeekBoundary.isMonday($0.weekStart) })
+            ?? all.first(where: { WeekBoundary.weekContains($0.weekStart, day: today) })
+        if let coveringToday {
             currentWeek = coveringToday
         } else if let cw = currentWeek, let refreshed = all.first(where: { $0.weekId == cw.weekId }) {
             // Same week, refreshed projection.

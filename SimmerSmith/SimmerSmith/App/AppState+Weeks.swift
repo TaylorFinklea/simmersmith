@@ -198,8 +198,13 @@ extension AppState {
         }
         for w in stale { repo.deleteWeek(weekID: w.weekId) }
 
-        // Already have a CloudKit week covering today → adopt it, no write.
-        if let existing = repo.week(covering: today) {
+        // Already have a CANONICAL (Monday-aligned) week covering today → adopt it, no
+        // write. A stray mis-aligned week that merely overlaps today must NOT short-circuit
+        // here — we fall through to create the proper Monday week, which resolution then
+        // prefers — so a still-syncing artifact can't keep us on the wrong week.
+        if let existing = repo.weeks.first(where: {
+            WeekBoundary.weekContains($0.weekStart, day: today) && WeekBoundary.isMonday($0.weekStart)
+        }) {
             adoptCurrentWeek(existing)
             return
         }

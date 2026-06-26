@@ -51,4 +51,9 @@ public enum WeekBoundary {
     public static func isMonday(_ date: Date) -> Bool {
         utcCalendar.component(.weekday, from: utcCalendar.startOfDay(for: date)) == 2
     }
+
+    /// True iff `a` and `b` fall on the same UTC calendar day.
+    public static func isSameUTCDay(_ a: Date, _ b: Date) -> Bool {
+        utcCalendar.isDate(a, inSameDayAs: b)
+    }
 }
