@@ -114,12 +114,22 @@ struct WeekView: View {
                         InSeasonStrip(pickedItem: $pickedSeasonalItem)
                     }
 
-                    if let week = displayedWeek {
-                        todayHero(week)
-                        daysSection(week)
-                    } else {
-                        emptyState
+                    // Build 128 — the week-switch swipe now covers the whole week
+                    // body (today card + day list), not just the hero, so a horizontal
+                    // swipe anywhere on the content jumps weeks. `.simultaneousGesture`
+                    // (+ the hero's existing intentional 60pt / 2:1 threshold) keeps
+                    // vertical scroll and card taps dominant. The in-season strip ABOVE
+                    // is deliberately excluded so its own horizontal scroll keeps working.
+                    VStack(spacing: SMSpacing.lg) {
+                        if let week = displayedWeek {
+                            todayHero(week)
+                            daysSection(week)
+                        } else {
+                            emptyState
+                        }
                     }
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(weekHeroSwipeGesture)
                 }
                 .padding(.horizontal, SMSpacing.lg)
                 .padding(.bottom, 80)
