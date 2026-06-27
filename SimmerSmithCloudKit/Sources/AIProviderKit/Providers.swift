@@ -91,6 +91,20 @@ public struct BYOKeyProvider: AIProvider {
         guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
             throw AIError.noKeyConfigured(.openAI)
         }
+        do {
+            return try await postOpenAIChat(request, key: key, forceJSON: request.wantsStructuredJSON)
+        } catch AIError.httpError(_, 400, _) where request.wantsStructuredJSON {
+            // The chosen model rejected the structured request with a 400 — typically it
+            // doesn't support `response_format: json_object` (some models, e.g.
+            // chatgpt-4o-latest, don't), or the prompt didn't contain the literal word
+            // "json". Retry once WITHOUT response_format: the prompt already asks for JSON
+            // and the parser tolerates it, and the assistant tool-loop runs fine on the
+            // same model without it. If even the plain retry fails, that error surfaces.
+            return try await postOpenAIChat(request, key: key, forceJSON: false)
+        }
+    }
+
+    private func postOpenAIChat(_ request: AIRequest, key: String, forceJSON: Bool) async throws -> AIResponse {
         // Build messages: system (if present) then user (week_planner.py:393-396).
         var messages: [[String: Any]] = []
         if let sys = request.systemPrompt, !sys.isEmpty {
@@ -103,7 +117,7 @@ public struct BYOKeyProvider: AIProvider {
             "messages": messages,
             "temperature": 0.7,         // week_planner.py:397 — default 1.0 is too erratic
         ]
-        if request.wantsStructuredJSON {
+        if forceJSON {
             body["response_format"] = ["type": "json_object"]
         }
         let data = try JSONSerialization.data(withJSONObject: body)
@@ -119,7 +133,26 @@ public struct BYOKeyProvider: AIProvider {
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String
         else { throw AIError.malformedResponse("openai") }
-        return AIResponse(text: content, tier: tier)
+        // Without response_format (the 400 fallback), a model may wrap JSON in a ```json
+        // code fence — strip it so the downstream parser sees raw JSON. No-op on the
+        // response_format path (raw JSON has no fence).
+        let text = request.wantsStructuredJSON ? Self.stripCodeFence(content) : content
+        return AIResponse(text: text, tier: tier)
+    }
+
+    /// Remove a surrounding markdown code fence (```json … ``` or ``` … ```), if present.
+    static func stripCodeFence(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("```") else { return text }
+        if let firstNewline = text.firstIndex(of: "\n") {
+            text = String(text[text.index(after: firstNewline)...])
+        } else {
+            text = String(text.dropFirst(3))
+        }
+        if text.hasSuffix("```") {
+            text = String(text.dropLast(3))
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Anthropic

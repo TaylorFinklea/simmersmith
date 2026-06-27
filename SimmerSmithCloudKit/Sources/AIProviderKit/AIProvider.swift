@@ -89,6 +89,55 @@ public enum AIError: Error, Equatable {
     case imageGenFailed(provider: String, transient: Bool, detail: String)
 }
 
+extension AIError: LocalizedError {
+    /// A human-readable message. WITHOUT this, the default Error description is the
+    /// useless "(AIProviderKit.AIError error N.)" — which hides the HTTP status + body
+    /// (case `.httpError`) that say WHY a call failed. Surfaced by the assistant tools,
+    /// the app error banner, and logs.
+    public var errorDescription: String? {
+        switch self {
+        case .noProviderAvailable(let feature):
+            return "No AI provider is available for \(feature)."
+        case .notWiredYet(let tier):
+            return "That AI path isn't available yet (\(tier))."
+        case .noKeyConfigured(let model):
+            return "No API key is set for \(model). Add one in Settings → AI."
+        case .httpError(let provider, let code, let body):
+            let name = provider.capitalized
+            if code == 401 {
+                return "\(name) rejected the API key (401). Check your key in Settings → AI."
+            }
+            if code == 429 {
+                return "\(name) is rate-limiting requests (429). Try again in a moment."
+            }
+            let reason = Self.providerErrorReason(from: body)
+            let base = "\(name) returned HTTP \(code)."
+            return reason.isEmpty ? base : "\(base) \(reason)"
+        case .malformedResponse(let provider):
+            return "\(provider.capitalized) returned an unexpected response."
+        case .webSearchUnsupported(let model):
+            return "Web search isn't available for \(model). Switch to OpenAI or Anthropic in Settings → AI."
+        case .imageGenFailed(let provider, _, let detail):
+            return "\(provider.capitalized) image generation failed: \(detail)"
+        }
+    }
+
+    /// Pull the human `error.message` out of an OpenAI/Anthropic JSON error body
+    /// (`{"error":{"message":…}}`), else a trimmed snippet of the raw body.
+    private static func providerErrorReason(from body: String) -> String {
+        if let data = body.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let err = obj["error"] as? [String: Any],
+           let message = err["message"] as? String,
+           !message.isEmpty {
+            return message.count > 240 ? String(message.prefix(240)) + "…" : message
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "(no body)" { return "" }
+        return trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
+    }
+}
+
 /// A backend that can answer a request at a given tier.
 public protocol AIProvider: Sendable {
     var tier: AITier { get }
