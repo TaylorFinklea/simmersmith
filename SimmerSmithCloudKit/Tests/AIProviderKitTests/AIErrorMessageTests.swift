@@ -48,3 +48,11 @@ func stripFence() {
     #expect(BYOKeyProvider.stripCodeFence("{\"a\":1}") == "{\"a\":1}")
     #expect(BYOKeyProvider.stripCodeFence("  {\"a\":1}  ") == "{\"a\":1}")
 }
+
+@Test("extractJSONObject pulls JSON from prose/fenced replies")
+func extractJSON() {
+    #expect(BYOKeyProvider.extractJSONObject("Here's your plan:\n\n```json\n{\"a\":1}\n```\nEnjoy!") == "{\"a\":1}")
+    #expect(BYOKeyProvider.extractJSONObject("Sure! {\"a\":1,\"b\":{\"c\":2}} done") == "{\"a\":1,\"b\":{\"c\":2}}")
+    #expect(BYOKeyProvider.extractJSONObject("{\"a\":1}") == "{\"a\":1}")
+    #expect(BYOKeyProvider.extractJSONObject("no json here") == "no json here")
+}

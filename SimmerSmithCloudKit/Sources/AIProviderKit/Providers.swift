@@ -133,10 +133,10 @@ public struct BYOKeyProvider: AIProvider {
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String
         else { throw AIError.malformedResponse("openai") }
-        // Without response_format (the 400 fallback), a model may wrap JSON in a ```json
-        // code fence — strip it so the downstream parser sees raw JSON. No-op on the
-        // response_format path (raw JSON has no fence).
-        let text = request.wantsStructuredJSON ? Self.stripCodeFence(content) : content
+        // On the no-response_format fallback (forceJSON == false) the reply may carry a
+        // preamble / code fence — extract the JSON object so the parser sees raw JSON. The
+        // response_format path returns raw JSON, so leave it untouched.
+        let text = (request.wantsStructuredJSON && !forceJSON) ? Self.extractJSONObject(content) : content
         return AIResponse(text: text, tier: tier)
     }
 
@@ -161,11 +161,22 @@ public struct BYOKeyProvider: AIProvider {
         guard let key = keyStore.key(for: "anthropic"), !key.isEmpty else {
             throw AIError.noKeyConfigured(.anthropic)
         }
+        do {
+            return try await postAnthropicMessages(request, key: key, usePrefill: request.wantsStructuredJSON)
+        } catch AIError.httpError(_, 400, _) where request.wantsStructuredJSON {
+            // Some Anthropic models reject assistant-message prefill ("this model does not
+            // support assistant message prefill; the conversation must end with a user
+            // message"). Retry WITHOUT the prefill and extract the JSON object from the
+            // (possibly prose/fenced) reply. The plain error surfaces if this also fails.
+            return try await postAnthropicMessages(request, key: key, usePrefill: false)
+        }
+    }
+
+    private func postAnthropicMessages(_ request: AIRequest, key: String, usePrefill: Bool) async throws -> AIResponse {
         var messages: [[String: Any]] = [["role": "user", "content": request.prompt]]
         // Structured-output prefill: start the assistant turn with `{` so the model
-        // continues as JSON (Anthropic's documented technique). Only add when the text
-        // doesn't already start with `{` or a code fence.
-        if request.wantsStructuredJSON {
+        // continues as JSON (Anthropic's documented technique). Skipped on the fallback.
+        if usePrefill {
             messages.append(["role": "assistant", "content": "{"])
         }
         var body: [String: Any] = [
@@ -190,15 +201,28 @@ public struct BYOKeyProvider: AIProvider {
               let contentArr = json["content"] as? [[String: Any]],
               let text = contentArr.first?["text"] as? String
         else { throw AIError.malformedResponse("anthropic") }
-        // Re-attach the prefilled `{` only when the response doesn't already start with
-        // it (guard against double-prepend when the model echoes the prefill back).
+
+        guard request.wantsStructuredJSON else { return AIResponse(text: text, tier: tier) }
         let result: String
-        if request.wantsStructuredJSON && !text.hasPrefix("{") && !text.hasPrefix("```") {
-            result = "{" + text
+        if usePrefill {
+            // Re-attach the prefilled `{` unless the model echoed it / used a fence.
+            result = (!text.hasPrefix("{") && !text.hasPrefix("```")) ? "{" + text : text
         } else {
-            result = text
+            // No prefill: the reply may carry a preamble / code fence — extract the JSON.
+            result = Self.extractJSONObject(text)
         }
         return AIResponse(text: result, tier: tier)
+    }
+
+    /// Extract the outermost JSON object from a possibly prose/fenced reply (used by the
+    /// no-prefill / no-response_format fallbacks): strip a code fence, then take from the
+    /// first "{" to the last "}".
+    static func extractJSONObject(_ raw: String) -> String {
+        let unfenced = stripCodeFence(raw)
+        guard let first = unfenced.firstIndex(of: "{"),
+              let last = unfenced.lastIndex(of: "}"),
+              first <= last else { return unfenced }
+        return String(unfenced[first...last])
     }
 
     // MARK: - OpenAI web search (Responses API)
