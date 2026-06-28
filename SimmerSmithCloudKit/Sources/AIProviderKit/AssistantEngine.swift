@@ -236,8 +236,10 @@ public enum AssistantEngine {
 
             // Append the assistant tool-call turn to the running history so the next
             // provider call sees what it asked for (port of `record_assistant_turn`).
+            // Carry the captured reasoning so the open-models encoder can replay it next
+            // iteration — load-bearing for GLM/Kimi/MiniMax (nil for OpenAI/Anthropic).
             messages.append(
-                AIChatMessage(role: .assistant, text: turn.text, toolCalls: turn.toolCalls)
+                AIChatMessage(role: .assistant, text: turn.text, toolCalls: turn.toolCalls, reasoning: turn.reasoning)
             )
 
             // Run each requested tool, emitting running → result (+ week.updated).

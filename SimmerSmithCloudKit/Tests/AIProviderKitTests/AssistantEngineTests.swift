@@ -109,6 +109,29 @@ func toolThenFinalSequence() async throws {
     #expect(provider.callCount == 2)
 }
 
+// MARK: - T6: reasoning is threaded into the assistant history for replay
+
+@Test("Reasoning captured on a tool-call turn is threaded into the next iteration's history")
+func reasoningThreadedIntoHistory() async throws {
+    let provider = MockToolChat(turns: [
+        // Iteration 1: a tool call WITH a captured reasoning trace.
+        ToolUseTurn(text: nil, toolCalls: [toolCall("recipes_list")], finished: false,
+                    reasoning: ReasoningTrace(style: .reasoningContent, text: "thinking...")),
+        // Iteration 2: terminal.
+        ToolUseTurn(text: "done", toolCalls: [], finished: true),
+    ])
+    let runner: AssistantToolRunner = { _ in ToolRunResult(resultJSON: "{}") }
+    _ = try await collect(AssistantEngine.run(
+        systemPrompt: "sys", history: [], userText: "go",
+        tools: [], messageId: "m1", threadId: "t1",
+        provider: provider, runner: runner
+    ))
+    // The 2nd provider call's history must carry the assistant tool-call turn's reasoning.
+    let assistantTurn = provider.lastMessages.first { $0.role == .assistant && !$0.toolCalls.isEmpty }
+    #expect(assistantTurn?.reasoning?.text == "thinking...")
+    #expect(assistantTurn?.reasoning?.style == .reasoningContent)
+}
+
 // MARK: - week.updated rides after a tool that changed a week
 
 @Test("A tool result carrying a changed week emits week.updated after tool_result")
