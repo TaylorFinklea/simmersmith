@@ -12,11 +12,26 @@ public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
-/// Default production transport backed by `URLSession.shared`.
+/// Default production transport backed by a dedicated `URLSession`.
+///
+/// `URLSession.shared` carries the system-default 60s request timeout, which a full
+/// 21-meal week generation routinely exceeds — the model spends 60–120s composing the
+/// plan before the (non-streamed) response arrives, so the idle timer fires and the
+/// call fails with "The request timed out." This session raises the per-request idle
+/// timeout and the overall resource ceiling so long generations complete. (The
+/// reference `SimmerSmithAPIClient` uses 300/600 for the same reason.)
 public struct URLSessionTransport: HTTPTransport {
-    public init() {}
+    let session: URLSession
+
+    public init(requestTimeout: TimeInterval = 180, resourceTimeout: TimeInterval = 300) {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = resourceTimeout
+        self.session = URLSession(configuration: config)
+    }
+
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        try await URLSession.shared.data(for: request)
+        try await session.data(for: request)
     }
 }
 
