@@ -929,3 +929,27 @@ server-to-server key (the cktool USER token becomes read-only on those types) �
 curator path IS the SP-E infrastructure. The share-link publish path + household submissions are
 unaffected (they don't write those catalog types to PUBLIC). Left RED in the on-device run-all as a
 deliberate, tracked exception; the data plane itself is fully green.
+
+## 2026-06-28 - Open-model AI providers (GLM-5.2 / Kimi-K2.6 / MiniMax-M3) with full reasoning replay
+
+- **Direct per-vendor keys, ONE "Open models" Settings entry** (not an OpenRouter aggregator, not three
+  sibling rows). The single entry's model dropdown spans all three vendors; the chosen model determines the
+  vendor key (Keychain: zai/moonshot/minimax) + base URL. Chosen over OpenRouter to avoid the +5.5% fee and
+  the per-call host-routing nondeterminism that would break the 6-iteration tool loop.
+- **Full reasoning preservation (not the disable-thinking hybrid).** Two regimes by call shape: one-shot
+  generate() disables thinking (clean JSON); the assistant tool loop ENABLES thinking and captures+replays the
+  vendor's reasoning verbatim each iteration. Per-vendor: GLM `thinking.clear_thinking:false` + reasoning_content;
+  Kimi `keep:"all"` + reasoning_content + HARD temperature 1.0 (descriptor overrides the loop's 0.3 — the #1
+  silent-failure risk); MiniMax `reasoning_split:true` + reasoning_content + reasoning_details (replayed whole).
+- **Descriptor registry replaces the binary openai/anthropic assumption** (`ProviderDescriptor`/`ProviderRegistry`);
+  OpenAI/Anthropic keep their existing dedicated methods (zero regression surface). A vendor-agnostic
+  `ReasoningTrace` (style + text + detailsJSON) threads through the loop; only the parser (capture) and encoder
+  (replay) know the per-vendor style.
+- **Reasoning replay is IN-MEMORY only — NO CloudKit migration.** Cross-user-turn history rebuilds from persisted
+  markdown, so reasoning never needs to persist; the load-bearing change is one line in `AssistantEngine.drive`.
+- **Empty vendor → GLM default** everywhere (resolveConfiguration / keychain id / Settings labels) so "accept the
+  displayed default" is always a resolvable config (fixed a review-caught silent key-save no-op).
+- **Out of scope v1:** OpenRouter; China-region hosts; vendors' Anthropic-compatible endpoints; json_schema strict
+  mode; MiniMax image input. MUST-VERIFY-IN-CODE (live key, on-device gate): GLM clear_thinking:false replay
+  contract; MiniMax /models existence + response_format honoring; Kimi 400 "reasoning_content is missing" string.
+- Spec: `phases/oss-ai-providers-spec.md`. Shipped TestFlight build 134 (NOT pushed to origin).

@@ -3,6 +3,22 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
+## Current (2026-06-28) — Open-model AI providers (GLM-5.2/Kimi-K2.6/MiniMax-M3) shipped; build 134 on TestFlight
+
+New BYO-key "Open models" provider: GLM-5.2 (Z.ai), Kimi-K2.6 (Moonshot), MiniMax-M3 (MiniMax), direct
+per-vendor keys, ONE Settings entry with a vendor-spanning model dropdown, available across every AI feature
+incl. the 12-tool assistant, with **full reasoning capture/replay** in the tool loop. Built T1-T10 via the
+spec `phases/oss-ai-providers-spec.md` (Opus implemented; 2 adversarial-review workflows caught + fixed: object-
+shaped tool-call args dropped; default-GLM not committed → silent key-save no-op). 318 CK tests pass; app builds.
+**Build 134 uploaded to TestFlight.** Architecture: descriptor registry (no binary openai/anthropic assumption),
+vendor-agnostic ReasoningTrace, in-memory replay in AssistantEngine.drive (NO CloudKit migration). Decisions in
+`decisions.md` (2026-06-28).
+
+**Open items (human, on-device gate per model — needs YOUR keys):** for EACH of GLM-5.2 / Kimi-K2.6 / MiniMax-M3:
+(1) week-gen produces clean strict JSON; (2) a multi-iteration assistant tool sequence holds (no loop, no Kimi 400,
+coherent). MUST-VERIFY-IN-CODE flags (live key): GLM clear_thinking:false replay contract; MiniMax /models endpoint
++ response_format honoring; Kimi 400 string. Also still pending from 133: confirm week-gen timeout + payload-decode.
+
 ## Current (2026-06-27) — on-device QA of the BYO-AI tools; build 133 UPLOADED to TestFlight
 
 Builds 127-132 shipped this session (Monday-week cutover, screen-wide week swipe, customizable per-screen
