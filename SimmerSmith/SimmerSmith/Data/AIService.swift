@@ -28,6 +28,23 @@ final class AIService {
     static let keyProvider = "ai_direct_provider"
     static let keyOpenAIModel = "ai_openai_model"
     static let keyAnthropicModel = "ai_anthropic_model"
+    // Open-models ("openmodels") provider: the selected vendor (glm|kimi|minimax) and
+    // its model id. The vendor implies the base URL + Keychain key via ProviderRegistry.
+    static let keyOpenModelsVendor = "ai_openmodels_vendor"
+    static let keyOpenModelsModel = "ai_openmodels_model"
+
+    /// The Keychain provider id for a resolved cloud model — replaces the old
+    /// `cloudModel == .openAI ? "openai" : "anthropic"` ternary so the open vendors map
+    /// to their own keys (zai/moonshot/minimax).
+    static func keychainKeyID(for model: CloudModel) -> String {
+        switch model {
+        case .openAI: return "openai"
+        case .anthropic: return "anthropic"
+        case .gemini: return "gemini"
+        case .openRouter: return "openrouter"
+        case .openModels(let vendor): return ProviderRegistry.descriptor(for: vendor).keychainKeyID
+        }
+    }
 
     // MARK: - Dependencies
 
@@ -48,8 +65,8 @@ final class AIService {
     /// provider, or `AIServiceError.noProviderConfigured` when no provider is selected.
     /// Provider HTTP/parse errors propagate as `AIError.*`.
     func generate(_ request: AIRequest) async throws -> AIResponse {
-        let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
-        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
+        let providerKey = Self.keychainKeyID(for: cloudModel)
         guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
             throw AIServiceError.noKeyConfigured(providerKey)
         }
@@ -57,7 +74,8 @@ final class AIService {
             model: cloudModel,
             keyStore: keyStore,
             openAIModel: openAIModel,
-            anthropicModel: anthropicModel
+            anthropicModel: anthropicModel,
+            openModelsModel: openModelsModel
         )
         let router = ProviderRouter(onDeviceAvailable: false, byoKey: cloudModel)
         let client = AIClient(router: router) { tier in
@@ -131,14 +149,15 @@ final class AIService {
     /// Validate the key by listing models — cheap, no generation. Returns the
     /// provider name ("openai" / "anthropic") on success so the UI can confirm.
     func testKey() async throws -> String {
-        let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
+        let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
         let provider = BYOKeyProvider(
             model: cloudModel,
             keyStore: keyStore,
             openAIModel: openAIModel,
-            anthropicModel: anthropicModel
+            anthropicModel: anthropicModel,
+            openModelsModel: openModelsModel
         )
-        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        let providerKey = Self.keychainKeyID(for: cloudModel)
         guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
             throw AIServiceError.noKeyConfigured(providerKey)
         }
@@ -158,7 +177,13 @@ final class AIService {
         switch provider {
         case "openai":    cloudModel = .openAI
         case "anthropic": cloudModel = .anthropic
-        default: throw AIServiceError.unsupportedProvider(providerID)
+        default:
+            // Open-models vendors are keyed by their Keychain id (zai/moonshot/minimax).
+            if let vendor = ProviderRegistry.vendor(forKeychainID: provider) {
+                cloudModel = .openModels(vendor)
+            } else {
+                throw AIServiceError.unsupportedProvider(providerID)
+            }
         }
         guard hasKey(for: provider) else {
             throw AIServiceError.noKeyConfigured(provider)
@@ -185,15 +210,18 @@ final class AIService {
     // MARK: - Settings reads (direct from private plane store)
 
     /// Read the AI provider/model settings from the private plane store.
-    func loadAISettings() -> (provider: String, openAIModel: String, anthropicModel: String) {
-        guard let store = session.privateStore else { return ("", "", "") }
+    func loadAISettings() -> (provider: String, openAIModel: String, anthropicModel: String, openModelsVendor: String, openModelsModel: String) {
+        guard let store = session.privateStore else { return ("", "", "", "", "") }
         // Normalize to match resolveConfiguration() — downstream (the Settings model
-        // Picker, field routing) compares against lowercase "openai"/"anthropic".
+        // Picker, field routing) compares against lowercase "openai"/"anthropic"/"openmodels".
         let provider = ((try? store.profileSetting(key: Self.keyProvider))?.value ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let oaModel = (try? store.profileSetting(key: Self.keyOpenAIModel))?.value ?? ""
         let anModel = (try? store.profileSetting(key: Self.keyAnthropicModel))?.value ?? ""
-        return (provider, oaModel, anModel)
+        let omVendor = ((try? store.profileSetting(key: Self.keyOpenModelsVendor))?.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let omModel = (try? store.profileSetting(key: Self.keyOpenModelsModel))?.value ?? ""
+        return (provider, oaModel, anModel, omVendor, omModel)
     }
 
     // MARK: - Assistant provider factory (SP-C AI-5)
@@ -202,8 +230,8 @@ final class AIService {
     /// `AIServiceError.noProviderConfigured` or `AIServiceError.noKeyConfigured`
     /// when the provider or key isn't set — identical gate as `generate()`.
     func makeAssistantProvider() throws -> BYOKeyProvider {
-        let (cloudModel, openAIModel, anthropicModel) = try resolveConfiguration()
-        let providerKey = cloudModel == .openAI ? "openai" : "anthropic"
+        let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
+        let providerKey = Self.keychainKeyID(for: cloudModel)
         guard hasKey(for: providerKey) else {
             throw AIServiceError.noKeyConfigured(providerKey)
         }
@@ -211,13 +239,14 @@ final class AIService {
             model: cloudModel,
             keyStore: keyStore,
             openAIModel: openAIModel,
-            anthropicModel: anthropicModel
+            anthropicModel: anthropicModel,
+            openModelsModel: openModelsModel
         )
     }
 
     // MARK: - Provider resolution
 
-    private func resolveConfiguration() throws -> (CloudModel, openAIModel: String, anthropicModel: String) {
+    private func resolveConfiguration() throws -> (CloudModel, openAIModel: String, anthropicModel: String, openModelsModel: String) {
         guard let store = session.privateStore else {
             throw AIServiceError.noProviderConfigured
         }
@@ -227,9 +256,19 @@ final class AIService {
             throw AIServiceError.noProviderConfigured
         }
         let cloudModel: CloudModel
+        var openModelsModel = ""
         switch providerRaw {
         case "openai":    cloudModel = .openAI
         case "anthropic": cloudModel = .anthropic
+        case "openmodels":
+            let vendorRaw = ((try? store.profileSetting(key: Self.keyOpenModelsVendor))?.value ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard let vendor = OpenModelVendor(rawValue: vendorRaw) else {
+                throw AIServiceError.unsupportedProvider("openmodels:\(vendorRaw)")
+            }
+            cloudModel = .openModels(vendor)
+            openModelsModel = ((try? store.profileSetting(key: Self.keyOpenModelsModel))?.value ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         default: throw AIServiceError.unsupportedProvider(providerRaw)
         }
         let rawOpenAI = ((try? store.profileSetting(key: Self.keyOpenAIModel))?.value ?? "")
@@ -239,7 +278,8 @@ final class AIService {
         return (
             cloudModel,
             rawOpenAI.isEmpty ? "gpt-4o" : rawOpenAI,
-            rawAnthropic.isEmpty ? "claude-opus-4-5" : rawAnthropic
+            rawAnthropic.isEmpty ? "claude-opus-4-5" : rawAnthropic,
+            openModelsModel
         )
     }
 }
@@ -254,7 +294,7 @@ enum AIServiceError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noProviderConfigured:
-            return "No AI provider is selected. Open Settings → AI and choose OpenAI or Anthropic."
+            return "No AI provider is selected. Open Settings → AI and choose a provider."
         case .noKeyConfigured(let provider):
             return "No \(provider.capitalized) API key is saved. Open Settings → AI and enter your key."
         case .unsupportedProvider(let p):

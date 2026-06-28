@@ -152,6 +152,11 @@ final class AppState {
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
     var aiAnthropicModelDraft: String = ""
+    /// SP-C "Open models" entry: the selected vendor (glm|kimi|minimax) and its model id.
+    /// The single "Open models" provider row spans all three vendors; the chosen model
+    /// determines which vendor key + base URL is used (the model dropdown sets both).
+    var aiOpenModelsVendorDraft: String = ""
+    var aiOpenModelsModelDraft: String = ""
     /// SP-C — CloudKit-path model dropdown state, keyed by provider
     /// ("openai"/"anthropic"). Populated by `refreshCKAIModels(for:)` from the
     /// provider's live `/v1/models` (curated) or the static fallback. The Settings

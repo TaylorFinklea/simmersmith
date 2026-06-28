@@ -24,6 +24,8 @@ extension AppState {
             let provider = aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let openAIModel = aiOpenAIModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             let anthropicModel = aiAnthropicModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            let openModelsVendor = aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let openModelsModel = aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
 
             // Provider + model → private plane (not CloudKit household, not Fly).
             // ProfileRepository accepts any key via upsertProfileSetting; we use
@@ -37,6 +39,8 @@ extension AppState {
                     // maps an empty stored value to the provider default at call time.
                     try store.upsertProfileSetting(key: AIService.keyOpenAIModel, value: openAIModel)
                     try store.upsertProfileSetting(key: AIService.keyAnthropicModel, value: anthropicModel)
+                    try store.upsertProfileSetting(key: AIService.keyOpenModelsVendor, value: openModelsVendor)
+                    try store.upsertProfileSetting(key: AIService.keyOpenModelsModel, value: openModelsModel)
                     try store.save()
                     repo.reload()
                 } catch {
@@ -44,14 +48,17 @@ extension AppState {
                 }
             }
 
-            // API key → Keychain (never Fly, never CloudKit).
+            // API key → Keychain (never Fly, never CloudKit). For "openmodels" the key
+            // belongs to the SELECTED vendor (zai/moonshot/minimax), not the literal
+            // "openmodels" provider string.
+            let keychainID = openModelsKeychainID(provider: provider, vendor: openModelsVendor)
             if clearStoredAPIKey {
-                aiSvc.clearKey(for: provider.isEmpty ? aiDirectProviderDraft : provider)
+                if let keychainID { aiSvc.clearKey(for: keychainID) }
                 aiDirectAPIKeyDraft = ""
             } else {
                 let trimmedKey = aiDirectAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedKey.isEmpty && !provider.isEmpty {
-                    aiSvc.saveKey(trimmedKey, for: provider)
+                if !trimmedKey.isEmpty, let keychainID {
+                    aiSvc.saveKey(trimmedKey, for: keychainID)
                     aiDirectAPIKeyDraft = ""
                 }
             }
@@ -129,7 +136,10 @@ extension AppState {
     func refreshCKAIModels(for providerID: String) async {
         #if canImport(CloudKit)
         let provider = providerID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard provider == "openai" || provider == "anthropic" else { return }
+        // Accept the two named providers plus the open-model vendor keychain ids
+        // (zai/moonshot/minimax). AIModelCatalog + AIService.listModels both key by these.
+        let isOpenVendor = ProviderRegistry.vendor(forKeychainID: provider) != nil
+        guard provider == "openai" || provider == "anthropic" || isOpenVendor else { return }
 
         if ckAIModelOptions[provider]?.isEmpty ?? true {
             ckAIModelOptions[provider] = AIModelCatalog.fallback(for: provider)
@@ -209,12 +219,29 @@ extension AppState {
     func syncAIDraftsFromRepo() {
         #if canImport(CloudKit)
         guard let aiSvc = aiService else { return }
-        let (provider, oaModel, anModel) = aiSvc.loadAISettings()
-        if !provider.isEmpty { aiDirectProviderDraft = provider }
-        if !oaModel.isEmpty { aiOpenAIModelDraft = oaModel }
-        if !anModel.isEmpty { aiAnthropicModelDraft = anModel }
+        let s = aiSvc.loadAISettings()
+        if !s.provider.isEmpty { aiDirectProviderDraft = s.provider }
+        if !s.openAIModel.isEmpty { aiOpenAIModelDraft = s.openAIModel }
+        if !s.anthropicModel.isEmpty { aiAnthropicModelDraft = s.anthropicModel }
+        if !s.openModelsVendor.isEmpty { aiOpenModelsVendorDraft = s.openModelsVendor }
+        if !s.openModelsModel.isEmpty { aiOpenModelsModelDraft = s.openModelsModel }
         #endif
     }
+
+    #if canImport(CloudKit)
+    /// Map the selected provider (+ vendor for "openmodels") to its Keychain id.
+    /// openai/anthropic key by their own name; openmodels keys by the vendor (zai/
+    /// moonshot/minimax). Nil when nothing resolvable is selected.
+    private func openModelsKeychainID(provider: String, vendor: String) -> String? {
+        switch provider {
+        case "openai", "anthropic": return provider
+        case "openmodels":
+            guard let v = OpenModelVendor(rawValue: vendor) else { return nil }
+            return ProviderRegistry.descriptor(for: v).keychainKeyID
+        default: return provider.isEmpty ? nil : provider
+        }
+    }
+    #endif
 
     // MARK: - Image-provider key (Gemini image key, separate from text key)
 
@@ -275,7 +302,7 @@ extension AppState {
     private func aiErrorMessage(_ error: AIError) -> String {
         switch error {
         case .noKeyConfigured(let model):
-            return "No key configured for \(model)."
+            return "No key configured for \(model.label)."
         case .httpError(let provider, let code, _):
             if code == 401 { return "\(provider.capitalized) key is invalid (401 Unauthorized)." }
             if code == 429 { return "\(provider.capitalized) rate limit hit — try again later." }
@@ -287,7 +314,7 @@ extension AppState {
         case .notWiredYet(let tier):
             return "Provider tier not yet available: \(tier)."
         case .webSearchUnsupported(let model):
-            return "Web search isn't available for \(model). Switch to OpenAI or Anthropic in Settings → AI."
+            return "Web search isn't available for \(model.label). Switch to a web-search-capable provider (OpenAI or Anthropic) in Settings → AI."
         case .imageGenFailed(let provider, _, let detail):
             return "\(provider.capitalized) image generation failed: \(detail)"
         }
