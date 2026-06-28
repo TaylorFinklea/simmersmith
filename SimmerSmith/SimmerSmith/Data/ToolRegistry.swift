@@ -188,8 +188,11 @@ final class ToolRegistry {
         guard appState.recipeRepository != nil else {
             return Self.failure("Recipes need iCloud — try again after sync finishes.")
         }
-        guard let draft = Self.decodeDraft(recipeObject) else {
-            return Self.failure("Could not read the recipe payload.")
+        let draft: RecipeDraft
+        do {
+            draft = try Self.decodeDraft(recipeObject)
+        } catch {
+            return Self.failure("Could not read the recipe payload: \(Self.decodeReason(error)).")
         }
         do {
             let saved = try await appState.saveRecipe(draft)
@@ -216,8 +219,11 @@ final class ToolRegistry {
         guard let mealsRaw = args["meals"] as? [[String: Any]] else {
             return Self.failure("meals must be a list.")
         }
-        guard let meals = Self.decodeMeals(mealsRaw) else {
-            return Self.failure("Could not read the meals payload.")
+        let meals: [MealUpdateRequest]
+        do {
+            meals = try Self.decodeMeals(mealsRaw)
+        } catch {
+            return Self.failure("Could not read the meals payload: \(Self.decodeReason(error)).")
         }
         do {
             let week = try await appState.saveWeekMeals(weekID: weekID, meals: meals)
@@ -403,15 +409,41 @@ final class ToolRegistry {
     }
 
     /// Decode a snake_case recipe object into a `RecipeDraft` via the SimmerSmith coder.
-    private static func decodeDraft(_ object: [String: Any]) -> RecipeDraft? {
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return try? SimmerSmithJSONCoding.makeDecoder().decode(RecipeDraft.self, from: data)
+    /// Throws so the caller can surface *why* a payload failed (which field / wrong type)
+    /// instead of an opaque "Could not read the recipe payload" — the model occasionally
+    /// emits e.g. ingredients/steps as plain strings, which `decodeIfPresent` rejects.
+    private static func decodeDraft(_ object: [String: Any]) throws -> RecipeDraft {
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return try SimmerSmithJSONCoding.makeDecoder().decode(RecipeDraft.self, from: data)
     }
 
     /// Decode a snake_case meals array into `[MealUpdateRequest]` via the SimmerSmith coder.
-    private static func decodeMeals(_ array: [[String: Any]]) -> [MealUpdateRequest]? {
-        guard let data = try? JSONSerialization.data(withJSONObject: array) else { return nil }
-        return try? SimmerSmithJSONCoding.makeDecoder().decode([MealUpdateRequest].self, from: data)
+    private static func decodeMeals(_ array: [[String: Any]]) throws -> [MealUpdateRequest] {
+        let data = try JSONSerialization.data(withJSONObject: array)
+        return try SimmerSmithJSONCoding.makeDecoder().decode([MealUpdateRequest].self, from: data)
+    }
+
+    /// A concise, human-readable reason for a decode failure: which field and what went
+    /// wrong. Used to turn "Could not read the recipe payload." into something diagnosable.
+    nonisolated static func decodeReason(_ error: Error) -> String {
+        guard let decoding = error as? DecodingError else { return Self.message(for: error) }
+        func path(_ context: DecodingError.Context) -> String {
+            context.codingPath.map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
+        }
+        switch decoding {
+        case let .keyNotFound(key, _):
+            return "missing required field '\(key.stringValue)'"
+        case let .typeMismatch(_, context):
+            let field = path(context)
+            return field.isEmpty ? "a field has the wrong type" : "wrong type for '\(field)'"
+        case let .valueNotFound(_, context):
+            let field = path(context)
+            return field.isEmpty ? "a required field was null" : "'\(field)' was null"
+        case let .dataCorrupted(context):
+            return context.debugDescription
+        @unknown default:
+            return "the payload could not be read"
+        }
     }
 
     // MARK: - The curated tool specs (ported from app/mcp/*)
