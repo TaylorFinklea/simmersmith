@@ -97,3 +97,30 @@ func stripThink() {
     #expect(BYOKeyProvider.stripThinkTags("{\"a\":1}") == "{\"a\":1}")
     #expect(BYOKeyProvider.extractJSONObject("<think>plan</think>\n```json\n{\"a\":1}\n```") == "{\"a\":1}")
 }
+
+// MARK: - T4 listModels + catalog
+
+@Test("open-models listModels parses the vendor /models ids and hits the right URL")
+func glmListModels() async throws {
+    let data = #"{"data":[{"id":"glm-5.2"},{"id":"glm-4.6"}]}"#.data(using: .utf8)!
+    let transport = MockHTTPTransport(responseData: data)
+    let provider = openModelsProvider(.glm, keychainID: "zai", transport: transport)
+    let models = try await provider.listModels()
+    #expect(models == ["glm-5.2", "glm-4.6"])
+    #expect(transport.capturedRequest?.url?.absoluteString == "https://api.z.ai/api/paas/v4/models")
+}
+
+@Test("catalog resolves open vendors by keychain id and raw value, and leaves openai/anthropic alone")
+func catalogOpenVendor() {
+    #expect(AIModelCatalog.defaultModel(for: "zai") == "glm-5.2")
+    #expect(AIModelCatalog.defaultModel(for: "glm") == "glm-5.2")
+    #expect(AIModelCatalog.defaultModel(for: "moonshot") == "kimi-k2.6")
+    #expect(AIModelCatalog.fallback(for: "minimax").contains("MiniMax-M3"))
+
+    let curated = AIModelCatalog.curatedModels(provider: "zai", rawIDs: ["foo", "glm-4.6", "glm-5.2"])
+    #expect(curated.first == "glm-5.2")
+    #expect(curated.contains("foo"))
+
+    #expect(AIModelCatalog.defaultModel(for: "openai") == "gpt-4o")
+    #expect(AIModelCatalog.defaultModel(for: "anthropic") == "claude-opus-4-5")
+}

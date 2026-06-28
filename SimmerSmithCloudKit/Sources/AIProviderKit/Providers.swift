@@ -468,12 +468,62 @@ extension BYOKeyProvider {
             return try await listOpenAIModels()
         case .anthropic:
             return try await listAnthropicModels()
-        case .openModels:
-            // T4 replaces this placeholder with descriptor-driven model listing.
-            throw AIError.notWiredYet(tier)
+        case .openModels(let vendor):
+            return try await listOpenModelsModels(vendor)
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }
+    }
+
+    /// List an open vendor's models from its `/models` endpoint. If the endpoint is
+    /// absent (no `modelsURL`, or it 404s), validate the key with a REAL authenticated
+    /// probe before returning the static fallback — so "Test key" never false-positives.
+    private func listOpenModelsModels(_ vendor: OpenModelVendor) async throws -> [String] {
+        let descriptor = ProviderRegistry.descriptor(for: vendor)
+        guard let key = keyStore.key(for: descriptor.keychainKeyID), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openModels(vendor))
+        }
+        if let modelsURL = descriptor.modelsURL {
+            do {
+                var req = URLRequest(url: URL(string: modelsURL)!)
+                req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                let (responseData, response) = try await transport.data(for: req)
+                try checkHTTP(response, data: responseData, provider: descriptor.id)
+                guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                      let data = json["data"] as? [[String: Any]]
+                else { throw AIError.malformedResponse(descriptor.id) }
+                let ids = data.compactMap { $0["id"] as? String }
+                return ids.isEmpty ? descriptor.fallbackModels : ids
+            } catch AIError.httpError(_, 404, _) {
+                // /models not on this host — validate the key with a real probe, then fall back.
+                try await probeOpenModelsKey(descriptor: descriptor, key: key)
+                return descriptor.fallbackModels
+            }
+        }
+        try await probeOpenModelsKey(descriptor: descriptor, key: key)
+        return descriptor.fallbackModels
+    }
+
+    /// A minimal authenticated chat completion used purely to validate a key when no
+    /// `/models` listing is available. A 200 means the key works; a 401 surfaces as the
+    /// normal httpError. Prevents a static-list return from masquerading as validation.
+    private func probeOpenModelsKey(descriptor: ProviderDescriptor, key: String) async throws {
+        let modelID = openModelsModel.isEmpty ? descriptor.defaultModel : openModelsModel
+        var body: [String: Any] = [
+            "model": modelID,
+            "messages": [["role": "user", "content": "ping"]],
+            "max_tokens": 1,
+            "temperature": descriptor.oneShotTemperature,
+        ]
+        descriptor.applyThinkingDisabled(&body, modelID)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: descriptor.chatURL)!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: descriptor.id)
     }
 
     private func listOpenAIModels() async throws -> [String] {

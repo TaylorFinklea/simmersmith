@@ -24,7 +24,16 @@ public enum AIModelCatalog {
     public static let defaultOpenAIModel = "gpt-4o"
     public static let defaultAnthropicModel = "claude-opus-4-5"
 
+    /// Resolve a provider string to an open-model vendor, accepting either the Keychain
+    /// id ("zai"/"moonshot"/"minimax") or the vendor raw value ("glm"/"kimi"/"minimax").
+    /// Nil for OpenAI/Anthropic/anything else.
+    static func openVendor(_ provider: String) -> OpenModelVendor? {
+        let p = provider.lowercased()
+        return ProviderRegistry.vendor(forKeychainID: p) ?? OpenModelVendor(rawValue: p)
+    }
+
     public static func defaultModel(for provider: String) -> String {
+        if let v = openVendor(provider) { return ProviderRegistry.descriptor(for: v).defaultModel }
         switch provider.lowercased() {
         case "anthropic": return defaultAnthropicModel
         default: return defaultOpenAIModel
@@ -55,6 +64,7 @@ public enum AIModelCatalog {
     ]
 
     public static func fallback(for provider: String) -> [String] {
+        if let v = openVendor(provider) { return ProviderRegistry.descriptor(for: v).fallbackModels }
         switch provider.lowercased() {
         case "anthropic": return anthropicFallback
         default: return openAIFallback
@@ -67,6 +77,12 @@ public enum AIModelCatalog {
     /// best-first list. Returns `[]` for unknown providers or when nothing
     /// survives filtering (callers then fall back to the static list).
     public static func curatedModels(provider: String, rawIDs: [String]) -> [String] {
+        if let v = openVendor(provider) {
+            // Open vendors' /models lists are largely chat models already — light touch:
+            // drop empties and rank the known flagship/fallback ids first.
+            let cleaned = rawIDs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return rankByPreference(cleaned, preference: ProviderRegistry.descriptor(for: v).fallbackModels)
+        }
         switch provider.lowercased() {
         case "openai": return curateOpenAI(rawIDs)
         case "anthropic": return curateAnthropic(rawIDs)
