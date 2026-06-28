@@ -291,7 +291,7 @@ extension BYOKeyProvider {
                       let fn = raw["function"] as? [String: Any],
                       let name = fn["name"] as? String
                 else { continue }
-                let args = fn["arguments"] as? String ?? "{}"
+                let args = Self.toolCallArguments(fn["arguments"])
                 calls.append(ToolCall(id: id, name: name, argsJSON: args))
             }
         }
@@ -420,7 +420,7 @@ extension BYOKeyProvider {
                       let fn = raw["function"] as? [String: Any],
                       let name = fn["name"] as? String
                 else { continue }
-                let args = fn["arguments"] as? String ?? "{}"
+                let args = Self.toolCallArguments(fn["arguments"])
                 calls.append(ToolCall(id: id, name: name, argsJSON: args))
             }
         }
@@ -558,6 +558,16 @@ extension BYOKeyProvider {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [:] }
         return obj
+    }
+
+    /// Normalize an OpenAI-style tool-call `arguments` field to a JSON string. The spec
+    /// is a JSON string, but some OpenAI-compatible servers (GLM/Kimi/MiniMax-class) emit
+    /// an already-parsed object — re-serialize it instead of silently dropping every
+    /// argument (which a bare `as? String` cast would do).
+    static func toolCallArguments(_ raw: Any?) -> String {
+        if let s = raw as? String { return s }
+        if let obj = raw as? [String: Any] { return jsonString(obj) }
+        return "{}"
     }
 
     /// Encode a JSON object to a string; `"{}"` on failure. Used to normalize

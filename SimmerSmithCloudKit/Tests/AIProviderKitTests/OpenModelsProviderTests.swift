@@ -173,6 +173,22 @@ func parseReasoningDetails() throws {
     #expect(parsed?.first?["text"] as? String == "think A")
 }
 
+@Test("A: object-shaped tool-call arguments are re-serialized, not dropped (review fix)")
+func parseObjectArgs() throws {
+    let json: [String: Any] = [
+        "choices": [["message": [
+            "role": "assistant", "content": NSNull(),
+            "tool_calls": [["id": "c1", "type": "function",
+                            "function": ["name": "weeks_update_meals", "arguments": ["week_id": "w1", "n": 3]]]],
+        ], "finish_reason": "tool_calls"]],
+    ]
+    let turn = try BYOKeyProvider.parseOpenModelsToolTurn(json, style: .reasoningContent)
+    let call = try #require(turn.toolCalls.first)
+    let parsed = try JSONSerialization.jsonObject(with: Data(call.argsJSON.utf8)) as? [String: Any]
+    #expect(parsed?["week_id"] as? String == "w1")
+    #expect(parsed?["n"] as? Int == 3)
+}
+
 @Test("A: absent reasoning leaves the turn identical to a plain parse")
 func parseNoReasoning() throws {
     let json: [String: Any] = [
