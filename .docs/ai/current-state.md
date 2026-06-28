@@ -3,19 +3,19 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
-## Current (2026-06-27) — on-device QA of the BYO-AI tools; build 133 staged, NOT uploaded
+## Current (2026-06-27) — on-device QA of the BYO-AI tools; build 133 UPLOADED to TestFlight
 
 Builds 127-132 shipped this session (Monday-week cutover, screen-wide week swipe, customizable per-screen
 assistant prompts, AI error clarity + OpenAI/Anthropic structured-output 400 recovery). Build 132 fixed the
-Anthropic prefill rejection. **Build 133 (committed, c3a5eb2) staged but BLOCKED from upload:** this Xcode
-(26.0.1/17A400) reports the iOS 26.0 **device platform + simulator runtime as uninstalled** — archive
-destination resolution and actool both fail. App+package Swift compile cleanly vs the iOS 26 SDK; 298 CK tests pass.
-Two build-133 fixes (from on-device screenshots): `381f50d` BYO request timeout 60s→180s (week-gen "request
-timed out"); `f652952` surface the real DecodingError on recipe/meals payload ("Could not read the recipe payload").
+Anthropic prefill rejection (confirmed on-device: recipe suggest/save now succeed). **Build 133 uploaded**
+(was briefly blocked: Xcode 26.0.1 had the iOS 26 platform + sim runtime uninstalled post-update; resolved once
+the component download finished). Two build-133 fixes (from on-device screenshots): `381f50d` BYO request timeout
+60s→180s (week-gen "request timed out"); `f652952` surface the real DecodingError on recipe/meals payload
+("Could not read the recipe payload"). 298 CK tests pass.
 
-**Blocker (human):** install iOS 26.0 platform + a simulator runtime via Xcode > Settings > Components, then run
-`scripts/release-ios.sh` to upload build 133. Likely-pending decode follow-up: if the surfaced reason names
-ingredients/steps wrong-type, make the app-level decode tolerant of string-array ingredients/steps.
+**Open items (human):** on-device verify 133 (week-gen no longer times out; the payload error, if it recurs, now
+names the field). Likely decode follow-up: if the surfaced reason names ingredients/steps wrong-type, make the
+app-level decode tolerant of string-array ingredients/steps (deferred — diagnostics-first, see chat).
 
 ## Current (2026-06-22) — SP-C COMPLETE: CloudKit cutover + full AI track, all on main
 
