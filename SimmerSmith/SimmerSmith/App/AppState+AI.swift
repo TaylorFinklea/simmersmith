@@ -57,9 +57,15 @@ extension AppState {
                 aiDirectAPIKeyDraft = ""
             } else {
                 let trimmedKey = aiDirectAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedKey.isEmpty, let keychainID {
-                    aiSvc.saveKey(trimmedKey, for: keychainID)
-                    aiDirectAPIKeyDraft = ""
+                if !trimmedKey.isEmpty {
+                    if let keychainID {
+                        aiSvc.saveKey(trimmedKey, for: keychainID)
+                        aiDirectAPIKeyDraft = ""
+                    } else {
+                        // Never silently swallow a typed key — tell the user why it didn't save.
+                        lastErrorMessage = "Couldn't save the API key — select a provider and model first."
+                        return
+                    }
                 }
             }
             lastErrorMessage = nil
@@ -112,7 +118,7 @@ extension AppState {
         }
         do {
             let provider = try await aiSvc.testKey()
-            return "\(provider.capitalized) key is valid."
+            return "\(friendlyProviderLabel(provider)) key is valid."
         } catch let err as AIServiceError {
             return err.localizedDescription
         } catch let err as AIError {
@@ -236,10 +242,25 @@ extension AppState {
         switch provider {
         case "openai", "anthropic": return provider
         case "openmodels":
-            guard let v = OpenModelVendor(rawValue: vendor) else { return nil }
+            guard let v = resolvedOpenVendor(vendor) else { return nil }
             return ProviderRegistry.descriptor(for: v).keychainKeyID
         default: return provider.isEmpty ? nil : provider
         }
+    }
+
+    /// Resolve an open-models vendor draft, defaulting an EMPTY draft to GLM (the
+    /// displayed default) so "accept the default" keys/persists a resolvable config.
+    /// A non-empty but invalid value stays unresolved (nil).
+    func resolvedOpenVendor(_ raw: String) -> OpenModelVendor? {
+        let r = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return r.isEmpty ? .glm : OpenModelVendor(rawValue: r)
+    }
+
+    /// Friendly label for a Keychain provider id — vendor displayName for the open
+    /// vendors (zai → "GLM (Z.ai)"), capitalized id otherwise.
+    func friendlyProviderLabel(_ keychainID: String) -> String {
+        if let v = ProviderRegistry.vendor(forKeychainID: keychainID) { return v.displayName }
+        return keychainID.capitalized
     }
     #endif
 
@@ -252,7 +273,7 @@ extension AppState {
         case "openai", "anthropic": return p
         case "openmodels":
             #if canImport(CloudKit)
-            guard let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else { return nil }
+            guard let v = resolvedOpenVendor(aiOpenModelsVendorDraft) else { return nil }
             return ProviderRegistry.descriptor(for: v).keychainKeyID
             #else
             return nil
@@ -270,13 +291,30 @@ extension AppState {
         case "anthropic": return "Anthropic"
         case "openmodels":
             #if canImport(CloudKit)
-            if let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            if let v = resolvedOpenVendor(aiOpenModelsVendorDraft) {
                 return v.displayName
             }
             #endif
             return "Open model"
         default: return aiDirectProviderDraft.capitalized
         }
+    }
+
+    /// Commit the displayed GLM default when the provider switches to "openmodels"
+    /// without the user having tapped the model dropdown — otherwise the drafts stay
+    /// empty, the key save no-ops, and resolveConfiguration can't resolve the vendor.
+    /// Idempotent: only fills empty drafts.
+    func seedOpenModelsDefaultsIfNeeded() {
+        #if canImport(CloudKit)
+        guard aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "openmodels" else { return }
+        if aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            aiOpenModelsVendorDraft = OpenModelVendor.glm.rawValue
+        }
+        if aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.lowercased()) ?? .glm
+            aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: v).defaultModel
+        }
+        #endif
     }
 
     // MARK: - Image-provider key (Gemini image key, separate from text key)

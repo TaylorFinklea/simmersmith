@@ -263,7 +263,14 @@ final class AIService {
         case "openmodels":
             let vendorRaw = ((try? store.profileSetting(key: Self.keyOpenModelsVendor))?.value ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard let vendor = OpenModelVendor(rawValue: vendorRaw) else {
+            // An empty vendor means "accept the displayed default" (GLM) — resolve it
+            // rather than throwing, so the default-GLM path is never an unrecoverable config.
+            let vendor: OpenModelVendor
+            if vendorRaw.isEmpty {
+                vendor = .glm
+            } else if let v = OpenModelVendor(rawValue: vendorRaw) {
+                vendor = v
+            } else {
                 throw AIServiceError.unsupportedProvider("openmodels:\(vendorRaw)")
             }
             cloudModel = .openModels(vendor)
@@ -296,7 +303,9 @@ enum AIServiceError: Error, LocalizedError {
         case .noProviderConfigured:
             return "No AI provider is selected. Open Settings → AI and choose a provider."
         case .noKeyConfigured(let provider):
-            return "No \(provider.capitalized) API key is saved. Open Settings → AI and enter your key."
+            // Map a vendor keychain id (zai/moonshot/minimax) to its friendly display name.
+            let label = ProviderRegistry.vendor(forKeychainID: provider)?.displayName ?? provider.capitalized
+            return "No \(label) API key is saved. Open Settings → AI and enter your key."
         case .unsupportedProvider(let p):
             return "Provider \"\(p)\" is not supported in this version."
         }

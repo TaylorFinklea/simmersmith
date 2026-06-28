@@ -69,6 +69,11 @@ struct SettingsView: View {
                     Text("Anthropic").tag("anthropic")
                     Text("Open models").tag("openmodels")
                 }
+                .onChange(of: appState.aiDirectProviderDraft) { _, newValue in
+                    // Commit the displayed GLM default so a default-accept user keys + saves
+                    // a resolvable config without having to open the model dropdown first.
+                    if newValue == "openmodels" { appState.seedOpenModelsDefaultsIfNeeded() }
+                }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
                     // SP-C — model selection is a key-aware dropdown: the provider's
