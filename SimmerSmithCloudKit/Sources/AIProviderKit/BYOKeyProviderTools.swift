@@ -28,17 +28,23 @@ public struct AIChatMessage: Sendable, Equatable {
     /// OpenAI emits one `{role:"tool"}` message per result, Anthropic packs them into a
     /// single user message). Empty otherwise.
     public var toolResults: [ToolResult]
+    /// The reasoning captured on an assistant tool-call turn, re-emitted verbatim by the
+    /// open-models encoder on the next request (reasoning replay). Nil for every other
+    /// turn and for providers without reasoning capture (OpenAI/Anthropic paths).
+    public var reasoning: ReasoningTrace?
 
     public init(
         role: Role,
         text: String? = nil,
         toolCalls: [ToolCall] = [],
-        toolResults: [ToolResult] = []
+        toolResults: [ToolResult] = [],
+        reasoning: ReasoningTrace? = nil
     ) {
         self.role = role
         self.text = text
         self.toolCalls = toolCalls
         self.toolResults = toolResults
+        self.reasoning = reasoning
     }
 
     /// A plain text turn (system / user / assistant).
@@ -109,11 +115,15 @@ public struct ToolUseTurn: Sendable, Equatable {
     public var text: String?
     public var toolCalls: [ToolCall]
     public var finished: Bool
+    /// Reasoning captured from this turn (open-models tool loop), to carry onto the
+    /// assistant history message so the next iteration can replay it. Nil otherwise.
+    public var reasoning: ReasoningTrace?
 
-    public init(text: String?, toolCalls: [ToolCall], finished: Bool) {
+    public init(text: String?, toolCalls: [ToolCall], finished: Bool, reasoning: ReasoningTrace? = nil) {
         self.text = text
         self.toolCalls = toolCalls
         self.finished = finished
+        self.reasoning = reasoning
     }
 }
 
@@ -145,6 +155,9 @@ extension BYOKeyProvider {
                 messages: messages, tools: tools,
                 systemPrompt: systemPrompt, maxTokens: maxTokens
             )
+        case .openModels:
+            // T5 replaces this placeholder with chatWithToolsOpenModels (reasoning replay).
+            throw AIError.notWiredYet(tier)
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }

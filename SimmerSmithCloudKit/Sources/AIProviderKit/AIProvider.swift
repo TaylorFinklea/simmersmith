@@ -27,9 +27,65 @@ public enum AITier: Sendable, Equatable {
     case creditsGateway                // optional SP-E server, our key + ledger
 }
 
+/// One of the directly-keyed open-model vendors (SP-C). Each maps to its own
+/// Keychain key + OpenAI-compatible base URL via `ProviderRegistry`.
+public enum OpenModelVendor: String, Sendable, Equatable, CaseIterable {
+    case glm, kimi, minimax
+    public var displayName: String {
+        switch self {
+        case .glm: return "GLM (Z.ai)"
+        case .kimi: return "Kimi (Moonshot)"
+        case .minimax: return "MiniMax"
+        }
+    }
+}
+
 public enum CloudModel: Sendable, Equatable {
     case openAI, anthropic, gemini
     case openRouter(String)            // FOSS models by slug
+    case openModels(OpenModelVendor)   // SP-C open vendors (GLM/Kimi/MiniMax), direct keys
+
+    /// A human-readable provider label for user-facing messages. Avoids leaking the raw
+    /// enum reflection (e.g. "openModels(AIProviderKit.OpenModelVendor.glm)").
+    public var label: String {
+        switch self {
+        case .openAI: return "OpenAI"
+        case .anthropic: return "Anthropic"
+        case .gemini: return "Gemini"
+        case .openRouter(let slug): return "OpenRouter (\(slug))"
+        case .openModels(let vendor): return vendor.displayName
+        }
+    }
+}
+
+/// How a provider returns and replays model reasoning/thinking across a multi-turn
+/// tool-use conversation. Captured verbatim, replayed verbatim — never reconstructed.
+public enum ReasoningStyle: String, Sendable, Equatable {
+    case none              // no reasoning captured / thinking disabled
+    case reasoningContent  // GLM, Kimi: plaintext `reasoning_content` string is the whole state
+    case reasoningDetails  // MiniMax split=true: `reasoning_content` + verbatim `reasoning_details`
+    case signedBlock       // reserved: Anthropic-style block + signature (unused by the OSS vendors)
+}
+
+/// A vendor-agnostic carrier for one assistant turn's reasoning, threaded through the
+/// tool loop so it can be re-emitted on the next request — vendors require the prior
+/// turn's reasoning replayed within a single tool-call task (GLM Preserved Thinking,
+/// Kimi thinking mode, MiniMax reasoning_split).
+public struct ReasoningTrace: Sendable, Equatable {
+    public var style: ReasoningStyle
+    public var text: String?          // reasoning_content verbatim (GLM/Kimi/MiniMax)
+    public var detailsJSON: String?   // MiniMax reasoning_details array re-encoded to a JSON string
+    public var signature: String?     // signedBlock only; nil for the OSS vendors
+    public init(style: ReasoningStyle = .none, text: String? = nil, detailsJSON: String? = nil, signature: String? = nil) {
+        self.style = style
+        self.text = text
+        self.detailsJSON = detailsJSON
+        self.signature = signature
+    }
+    /// True when there is nothing to replay (no style, or no captured payload).
+    public var isEmpty: Bool {
+        style == .none || ((text?.isEmpty ?? true) && (detailsJSON?.isEmpty ?? true))
+    }
 }
 
 public struct AIRequest: Sendable {
@@ -64,7 +120,14 @@ public struct AIRequest: Sendable {
 public struct AIResponse: Sendable, Equatable {
     public var text: String
     public var tier: AITier
-    public init(text: String, tier: AITier) { self.text = text; self.tier = tier }
+    /// Best-effort reasoning capture (telemetry / one-shot). NOT load-bearing — the
+    /// tool-loop replay rides on `AIChatMessage.reasoning`, not here.
+    public var reasoning: ReasoningTrace?
+    public init(text: String, tier: AITier, reasoning: ReasoningTrace? = nil) {
+        self.text = text
+        self.tier = tier
+        self.reasoning = reasoning
+    }
 }
 
 public enum AIError: Error, Equatable {
@@ -101,7 +164,7 @@ extension AIError: LocalizedError {
         case .notWiredYet(let tier):
             return "That AI path isn't available yet (\(tier))."
         case .noKeyConfigured(let model):
-            return "No API key is set for \(model). Add one in Settings → AI."
+            return "No API key is set for \(model.label). Add one in Settings → AI."
         case .httpError(let provider, let code, let body):
             let name = provider.capitalized
             if code == 401 {
@@ -116,7 +179,7 @@ extension AIError: LocalizedError {
         case .malformedResponse(let provider):
             return "\(provider.capitalized) returned an unexpected response."
         case .webSearchUnsupported(let model):
-            return "Web search isn't available for \(model). Switch to OpenAI or Anthropic in Settings → AI."
+            return "Web search isn't available for \(model.label). Switch to a web-search-capable provider (OpenAI or Anthropic) in Settings → AI."
         case .imageGenFailed(let provider, _, let detail):
             return "\(provider.capitalized) image generation failed: \(detail)"
         }

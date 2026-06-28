@@ -84,9 +84,10 @@ public struct BYOKeyProvider: AIProvider {
                 return try await searchOpenAI(request)
             case .anthropic:
                 return try await searchAnthropic(request)
-            case .gemini, .openRouter:
+            case .gemini, .openRouter, .openModels:
                 // No built-in web-search tool wired for these providers — degrade with
-                // a clear, typed error the UI can surface (AI-2 spec §5).
+                // a clear, typed error the UI can surface (AI-2 spec §5; open models
+                // drive their own tools but have no provider-native web search).
                 throw AIError.webSearchUnsupported(model)
             }
         }
@@ -95,6 +96,9 @@ public struct BYOKeyProvider: AIProvider {
             return try await callOpenAI(request)
         case .anthropic:
             return try await callAnthropic(request)
+        case .openModels:
+            // T3 replaces this placeholder with the descriptor-driven one-shot call.
+            throw AIError.notWiredYet(tier)
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }
@@ -389,6 +393,9 @@ extension BYOKeyProvider {
             return try await listOpenAIModels()
         case .anthropic:
             return try await listAnthropicModels()
+        case .openModels:
+            // T4 replaces this placeholder with descriptor-driven model listing.
+            throw AIError.notWiredYet(tier)
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }
