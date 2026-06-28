@@ -60,6 +60,9 @@ public struct BYOKeyProvider: AIProvider {
     /// Model IDs to use. Callers may override; defaults are current flagship models.
     private let openAIModel: String
     private let anthropicModel: String
+    /// Selected model id when `model == .openModels(...)`. Empty → the vendor's
+    /// descriptor default. A single slot is fine: a provider instance is vendor-specific.
+    private let openModelsModel: String
     private let transport: HTTPTransport
 
     public init(
@@ -67,6 +70,7 @@ public struct BYOKeyProvider: AIProvider {
         keyStore: KeyStore,
         openAIModel: String = "gpt-4o",
         anthropicModel: String = "claude-opus-4-5",
+        openModelsModel: String = "",
         transport: HTTPTransport = URLSessionTransport()
     ) {
         self.tier = .cloudBYOKey(model)
@@ -74,6 +78,7 @@ public struct BYOKeyProvider: AIProvider {
         self.keyStore = keyStore
         self.openAIModel = openAIModel
         self.anthropicModel = anthropicModel
+        self.openModelsModel = openModelsModel
         self.transport = transport
     }
 
@@ -96,12 +101,69 @@ public struct BYOKeyProvider: AIProvider {
             return try await callOpenAI(request)
         case .anthropic:
             return try await callAnthropic(request)
-        case .openModels:
-            // T3 replaces this placeholder with the descriptor-driven one-shot call.
-            throw AIError.notWiredYet(tier)
+        case .openModels(let vendor):
+            return try await callOpenModels(vendor, request)
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }
+    }
+
+    // MARK: - Open models (OpenAI-compatible /chat/completions, descriptor-driven)
+
+    /// One-shot generate() for an open vendor. Thinking is DISABLED (clean JSON; no
+    /// multi-turn continuity to preserve), and the structured path keeps the proven
+    /// 400-retry: if the vendor rejects `response_format`, retry without it and lean on
+    /// `extractJSONObject` (which also strips a leading <think> block).
+    private func callOpenModels(_ vendor: OpenModelVendor, _ request: AIRequest) async throws -> AIResponse {
+        let descriptor = ProviderRegistry.descriptor(for: vendor)
+        guard let key = keyStore.key(for: descriptor.keychainKeyID), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openModels(vendor))
+        }
+        do {
+            return try await postOpenModelsChat(request, descriptor: descriptor, key: key, forceJSON: request.wantsStructuredJSON)
+        } catch AIError.httpError(_, 400, _) where request.wantsStructuredJSON {
+            return try await postOpenModelsChat(request, descriptor: descriptor, key: key, forceJSON: false)
+        }
+    }
+
+    private func postOpenModelsChat(
+        _ request: AIRequest, descriptor: ProviderDescriptor, key: String, forceJSON: Bool
+    ) async throws -> AIResponse {
+        let modelID = openModelsModel.isEmpty ? descriptor.defaultModel : openModelsModel
+        var messages: [[String: Any]] = []
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            messages.append(["role": "system", "content": sys])
+        }
+        messages.append(["role": "user", "content": request.prompt])
+        var body: [String: Any] = [
+            "model": modelID,
+            "messages": messages,
+            "temperature": descriptor.oneShotTemperature,
+        ]
+        // One-shot structured calls disable thinking for every open vendor — clean JSON,
+        // and nothing to preserve since there is no multi-turn tool loop here.
+        descriptor.applyThinkingDisabled(&body, modelID)
+        if forceJSON {
+            body["response_format"] = ["type": "json_object"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: descriptor.chatURL)!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: descriptor.id)
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else { throw AIError.malformedResponse(descriptor.id) }
+        // Defensive for every open vendor: response_format is unreliable on some models
+        // (e.g. MiniMax M3) and reasoning can leak into content. Extract the JSON object
+        // (strip <think> + fence, take first { … last }) whenever JSON is expected.
+        let text = request.wantsStructuredJSON ? Self.extractJSONObject(content) : content
+        return AIResponse(text: text, tier: tier)
     }
 
     // MARK: - OpenAI
@@ -233,11 +295,24 @@ public struct BYOKeyProvider: AIProvider {
         return AIResponse(text: result, tier: tier)
     }
 
-    /// Extract the outermost JSON object from a possibly prose/fenced reply (used by the
-    /// no-prefill / no-response_format fallbacks): strip a code fence, then take from the
-    /// first "{" to the last "}".
+    /// Strip a leading `<think>…</think>` reasoning span. Some open models (notably
+    /// MiniMax M3) can still leak inline thinking into `content`; removing only a LEADING
+    /// block preserves a legitimate "{…}" body. Harmless for vendors that never emit it.
+    static func stripThinkTags(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix("<think>") else { return trimmed }
+        if let close = trimmed.range(of: "</think>", options: .caseInsensitive) {
+            return String(trimmed[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // Unterminated <think>: drop the opening tag and hope the JSON follows.
+        return String(trimmed.dropFirst("<think>".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Extract the outermost JSON object from a possibly prose/fenced/`<think>`-prefixed
+    /// reply (used by the no-prefill / no-response_format / open-models fallbacks): strip
+    /// a leading think block, strip a code fence, then take from the first "{" to last "}".
     static func extractJSONObject(_ raw: String) -> String {
-        let unfenced = stripCodeFence(raw)
+        let unfenced = stripCodeFence(stripThinkTags(raw))
         guard let first = unfenced.firstIndex(of: "{"),
               let last = unfenced.lastIndex(of: "}"),
               first <= last else { return unfenced }
