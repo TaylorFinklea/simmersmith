@@ -155,12 +155,165 @@ extension BYOKeyProvider {
                 messages: messages, tools: tools,
                 systemPrompt: systemPrompt, maxTokens: maxTokens
             )
-        case .openModels:
-            // T5 replaces this placeholder with chatWithToolsOpenModels (reasoning replay).
-            throw AIError.notWiredYet(tier)
+        case .openModels(let vendor):
+            return try await chatWithToolsOpenModels(
+                vendor, messages: messages, tools: tools, systemPrompt: systemPrompt
+            )
         case .gemini, .openRouter:
             throw AIError.notWiredYet(tier)
         }
+    }
+
+    // MARK: Open-models tool-use (OpenAI-compatible + reasoning capture/replay)
+
+    /// The open-models tool-loop call. Thinking is ENABLED per the vendor descriptor and
+    /// the prior turn's reasoning is replayed verbatim (encodeOpenModelsMessages) so the
+    /// vendors that require it (GLM Preserved Thinking, Kimi thinking, MiniMax
+    /// reasoning_split) stay correct across iterations.
+    ///
+    /// IMPORTANT: this DROPS the caller's temperature. The AssistantToolChat conformance
+    /// hardcodes 0.3, but Kimi's thinking mode HARD-requires temperature 1.0 — the
+    /// descriptor's `toolLoopTemperature` is authoritative for every open vendor.
+    private func chatWithToolsOpenModels(
+        _ vendor: OpenModelVendor,
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) async throws -> ToolUseTurn {
+        let descriptor = ProviderRegistry.descriptor(for: vendor)
+        guard let key = resolvedKey(for: descriptor.keychainKeyID), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openModels(vendor))
+        }
+        let modelID = resolvedOpenModelsModel
+        let encoded = Self.encodeOpenModelsMessages(messages, systemPrompt: systemPrompt)
+        let toolSpecs: [[String: Any]] = tools.map { spec in
+            ["type": "function",
+             "function": [
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parametersObject,
+             ]]
+        }
+        var body: [String: Any] = [
+            "model": modelID,
+            "messages": encoded,
+            "temperature": descriptor.toolLoopTemperature,  // descriptor wins; ignore caller's 0.3
+        ]
+        descriptor.applyThinkingEnabled(&body, modelID)
+        if !toolSpecs.isEmpty {
+            body["tools"] = toolSpecs
+            body["tool_choice"] = "auto"
+        }
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: descriptor.chatURL)!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transportRef.data(for: req)
+        try checkHTTPShared(response, data: responseData, provider: descriptor.id)
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw AIError.malformedResponse(descriptor.id)
+        }
+        return try Self.parseOpenModelsToolTurn(json, style: descriptor.reasoningStyle)
+    }
+
+    /// Build the open-models `messages` array. Mirrors `encodeOpenAIMessages` but, on an
+    /// assistant turn that has tool calls AND a captured reasoning trace, re-emits the
+    /// reasoning fields verbatim on the SAME assistant object that carries `tool_calls`
+    /// (vendors require reasoning replay within one tool-call task; presence matters,
+    /// JSON field order does not).
+    static func encodeOpenModelsMessages(
+        _ messages: [AIChatMessage], systemPrompt: String?
+    ) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        if let sys = systemPrompt, !sys.isEmpty {
+            out.append(["role": "system", "content": sys])
+        }
+        for msg in messages {
+            if !msg.toolResults.isEmpty {
+                for result in msg.toolResults {
+                    out.append([
+                        "role": "tool",
+                        "tool_call_id": result.id,
+                        "content": result.resultJSON,
+                    ])
+                }
+                continue
+            }
+            if msg.role == .assistant, !msg.toolCalls.isEmpty {
+                let calls: [[String: Any]] = msg.toolCalls.map { call in
+                    ["id": call.id,
+                     "type": "function",
+                     "function": ["name": call.name, "arguments": call.argsJSON]]
+                }
+                var entry: [String: Any] = ["role": "assistant", "tool_calls": calls]
+                if let text = msg.text, !text.isEmpty { entry["content"] = text }
+                else { entry["content"] = NSNull() }
+                if let r = msg.reasoning, !r.isEmpty {
+                    switch r.style {
+                    case .reasoningContent:
+                        if let t = r.text { entry["reasoning_content"] = t }
+                    case .reasoningDetails:
+                        if let t = r.text { entry["reasoning_content"] = t }
+                        if let d = r.detailsJSON,
+                           let arr = try? JSONSerialization.jsonObject(with: Data(d.utf8)) {
+                            entry["reasoning_details"] = arr
+                        }
+                    case .signedBlock, .none:
+                        break
+                    }
+                }
+                out.append(entry)
+                continue
+            }
+            out.append([
+                "role": msg.role.rawValue,
+                "content": msg.text ?? "",
+            ])
+        }
+        return out
+    }
+
+    /// Parse an open-models `chat/completions` response into a `ToolUseTurn`, capturing
+    /// the vendor's reasoning verbatim per `style`: `reasoning_content` (GLM/Kimi) or
+    /// `reasoning_content` + the re-serialized `reasoning_details` array (MiniMax).
+    static func parseOpenModelsToolTurn(_ json: [String: Any], style: ReasoningStyle) throws -> ToolUseTurn {
+        guard let choices = json["choices"] as? [[String: Any]],
+              let choice = choices.first
+        else { throw AIError.malformedResponse("openmodels") }
+        let message = choice["message"] as? [String: Any] ?? [:]
+        let text = message["content"] as? String
+        var calls: [ToolCall] = []
+        if let rawCalls = message["tool_calls"] as? [[String: Any]] {
+            for raw in rawCalls {
+                guard let id = raw["id"] as? String,
+                      let fn = raw["function"] as? [String: Any],
+                      let name = fn["name"] as? String
+                else { continue }
+                let args = fn["arguments"] as? String ?? "{}"
+                calls.append(ToolCall(id: id, name: name, argsJSON: args))
+            }
+        }
+        let finishReason = choice["finish_reason"] as? String
+        let finished = calls.isEmpty && finishReason != "tool_calls"
+
+        var reasoning: ReasoningTrace?
+        let rc = message["reasoning_content"] as? String
+        switch style {
+        case .reasoningContent:
+            if let rc, !rc.isEmpty { reasoning = ReasoningTrace(style: .reasoningContent, text: rc) }
+        case .reasoningDetails:
+            let detailsJSON: String? = (message["reasoning_details"] as? [Any]).flatMap { arr in
+                (try? JSONSerialization.data(withJSONObject: arr)).flatMap { String(data: $0, encoding: .utf8) }
+            }
+            if (rc?.isEmpty == false) || (detailsJSON?.isEmpty == false) {
+                reasoning = ReasoningTrace(style: .reasoningDetails, text: rc, detailsJSON: detailsJSON)
+            }
+        case .signedBlock, .none:
+            break
+        }
+        return ToolUseTurn(text: text, toolCalls: calls, finished: finished, reasoning: reasoning)
     }
 
     // MARK: OpenAI tool-use (chat/completions)

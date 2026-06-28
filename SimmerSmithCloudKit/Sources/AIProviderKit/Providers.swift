@@ -452,6 +452,11 @@ public struct BYOKeyProvider: AIProvider {
     var transportRef: HTTPTransport { transport }
     var resolvedOpenAIModel: String { openAIModel }
     var resolvedAnthropicModel: String { anthropicModel }
+    /// The selected open-models model id, or the vendor's descriptor default when unset.
+    var resolvedOpenModelsModel: String {
+        guard case .openModels(let vendor) = model else { return openModelsModel }
+        return openModelsModel.isEmpty ? ProviderRegistry.descriptor(for: vendor).defaultModel : openModelsModel
+    }
     func resolvedKey(for provider: String) -> String? { keyStore.key(for: provider) }
     func checkHTTPShared(_ response: URLResponse, data: Data, provider: String) throws {
         try checkHTTP(response, data: data, provider: provider)

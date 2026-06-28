@@ -124,3 +124,125 @@ func catalogOpenVendor() {
     #expect(AIModelCatalog.defaultModel(for: "openai") == "gpt-4o")
     #expect(AIModelCatalog.defaultModel(for: "anthropic") == "claude-opus-4-5")
 }
+
+// MARK: - T5 tool loop: reasoning capture (A), replay (B), thinking/temperature (C)
+
+private func toolCallJSON(_ id: String, _ name: String) -> [String: Any] {
+    ["id": id, "type": "function", "function": ["name": name, "arguments": "{}"]]
+}
+
+@Test("A: parseOpenModelsToolTurn captures reasoning_content (GLM/Kimi) + tool calls")
+func parseReasoningContent() throws {
+    let json: [String: Any] = [
+        "choices": [[
+            "message": [
+                "role": "assistant", "content": NSNull(),
+                "reasoning_content": "step by step",
+                "tool_calls": [toolCallJSON("c1", "weeks_get_current")],
+            ],
+            "finish_reason": "tool_calls",
+        ]],
+    ]
+    let turn = try BYOKeyProvider.parseOpenModelsToolTurn(json, style: .reasoningContent)
+    #expect(turn.reasoning?.style == .reasoningContent)
+    #expect(turn.reasoning?.text == "step by step")
+    #expect(turn.toolCalls.first?.name == "weeks_get_current")
+    #expect(turn.finished == false)
+}
+
+@Test("A: parseOpenModelsToolTurn captures reasoning_content + reasoning_details (MiniMax)")
+func parseReasoningDetails() throws {
+    let details: [[String: Any]] = [["type": "reasoning.text", "text": "think A"], ["type": "reasoning.text", "text": "think B"]]
+    let json: [String: Any] = [
+        "choices": [[
+            "message": [
+                "role": "assistant", "content": "",
+                "reasoning_content": "rc",
+                "reasoning_details": details,
+                "tool_calls": [toolCallJSON("c1", "t")],
+            ],
+            "finish_reason": "tool_calls",
+        ]],
+    ]
+    let turn = try BYOKeyProvider.parseOpenModelsToolTurn(json, style: .reasoningDetails)
+    #expect(turn.reasoning?.style == .reasoningDetails)
+    #expect(turn.reasoning?.text == "rc")
+    let dj = try #require(turn.reasoning?.detailsJSON)
+    let parsed = try JSONSerialization.jsonObject(with: Data(dj.utf8)) as? [[String: Any]]
+    #expect(parsed?.count == 2)
+    #expect(parsed?.first?["text"] as? String == "think A")
+}
+
+@Test("A: absent reasoning leaves the turn identical to a plain parse")
+func parseNoReasoning() throws {
+    let json: [String: Any] = [
+        "choices": [["message": ["role": "assistant", "content": "hi"], "finish_reason": "stop"]],
+    ]
+    let turn = try BYOKeyProvider.parseOpenModelsToolTurn(json, style: .reasoningContent)
+    #expect(turn.reasoning == nil)
+    #expect(turn.text == "hi")
+    #expect(turn.finished == true)
+}
+
+@Test("B: encodeOpenModelsMessages replays reasoning on the same assistant object as tool_calls")
+func encodeReplay() throws {
+    let detailsArr: [[String: Any]] = [["text": "d1"]]
+    let detailsStr = String(data: try JSONSerialization.data(withJSONObject: detailsArr), encoding: .utf8)!
+    let msg = AIChatMessage(
+        role: .assistant, text: "let me check",
+        toolCalls: [ToolCall(id: "c1", name: "t", argsJSON: "{}")],
+        reasoning: ReasoningTrace(style: .reasoningDetails, text: "rc", detailsJSON: detailsStr)
+    )
+    let assistant = try #require(BYOKeyProvider.encodeOpenModelsMessages([msg], systemPrompt: nil).first)
+    #expect(assistant["role"] as? String == "assistant")
+    #expect(assistant["tool_calls"] != nil)
+    #expect(assistant["reasoning_content"] as? String == "rc")
+    #expect((assistant["reasoning_details"] as? [[String: Any]])?.first?["text"] as? String == "d1")
+    #expect(assistant["content"] as? String == "let me check")
+}
+
+@Test("B: reasoning round-trips capture->history->replay (reasoning_content byte-exact, details structural)")
+func reasoningRoundTrip() throws {
+    let details: [[String: Any]] = [["type": "reasoning.text", "text": "X"]]
+    let json: [String: Any] = [
+        "choices": [["message": [
+            "role": "assistant", "content": NSNull(),
+            "reasoning_content": "RC-verbatim",
+            "reasoning_details": details,
+            "tool_calls": [toolCallJSON("c1", "t")],
+        ], "finish_reason": "tool_calls"]],
+    ]
+    let turn = try BYOKeyProvider.parseOpenModelsToolTurn(json, style: .reasoningDetails)
+    let hist = AIChatMessage(role: .assistant, text: turn.text, toolCalls: turn.toolCalls, reasoning: turn.reasoning)
+    let assistant = try #require(BYOKeyProvider.encodeOpenModelsMessages([hist], systemPrompt: nil).first)
+    #expect(assistant["reasoning_content"] as? String == "RC-verbatim")
+    let rd = assistant["reasoning_details"] as? [[String: Any]]
+    #expect(rd?.first?["text"] as? String == "X")
+    #expect(rd?.first?["type"] as? String == "reasoning.text")
+}
+
+@Test("C: Kimi tool-loop uses temperature 1.0 (dropping the protocol's 0.3) and keep:all")
+func kimiToolLoopTemperatureViaProtocol() async throws {
+    let transport = MockHTTPTransport(responseData: omChatSuccess(content: "done"))
+    let provider = openModelsProvider(.kimi, keychainID: "moonshot", transport: transport)
+    // Drive through the AssistantToolChat protocol method, which hardcodes temperature 0.3.
+    _ = try await (provider as AssistantToolChat).chatWithTools(messages: [.text(.user, "hi")], tools: [], systemPrompt: nil)
+    let body = try omBody(transport)
+    #expect((body["temperature"] as? Double) == 1.0)
+    #expect((body["thinking"] as? [String: Any])?["keep"] as? String == "all")
+}
+
+@Test("C: GLM tool-loop enables Preserved Thinking; MiniMax sets reasoning_split + adaptive")
+func glmMinimaxToolLoopThinking() async throws {
+    let glmT = MockHTTPTransport(responseData: omChatSuccess(content: "done"))
+    let glm = openModelsProvider(.glm, keychainID: "zai", transport: glmT)
+    _ = try await glm.chatWithTools(messages: [.text(.user, "hi")], tools: [], systemPrompt: nil, temperature: 0.3)
+    #expect(((try omBody(glmT))["thinking"] as? [String: Any])?["clear_thinking"] as? Bool == false)
+
+    let mmT = MockHTTPTransport(responseData: omChatSuccess(content: "done"))
+    let mm = openModelsProvider(.minimax, keychainID: "minimax", transport: mmT)
+    _ = try await mm.chatWithTools(messages: [.text(.user, "hi")], tools: [], systemPrompt: nil, temperature: 0.3)
+    let mmBody = try omBody(mmT)
+    #expect(mmBody["reasoning_split"] as? Bool == true)
+    #expect((mmBody["thinking"] as? [String: Any])?["type"] as? String == "adaptive")
+}
