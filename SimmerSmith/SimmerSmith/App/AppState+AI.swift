@@ -243,6 +243,42 @@ extension AppState {
     }
     #endif
 
+    /// The Keychain id for the currently-selected provider draft (+ the chosen vendor
+    /// for "openmodels"). Drives the Settings key-status row, key field, and Test/Clear.
+    var selectedAIKeychainID: String? {
+        let p = aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !p.isEmpty else { return nil }
+        switch p {
+        case "openai", "anthropic": return p
+        case "openmodels":
+            #if canImport(CloudKit)
+            guard let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else { return nil }
+            return ProviderRegistry.descriptor(for: v).keychainKeyID
+            #else
+            return nil
+            #endif
+        default: return p
+        }
+    }
+
+    /// A friendly label for the selected provider (+ vendor for "openmodels"), used in
+    /// the key-status copy and the API-key field instead of the raw "openmodels".
+    var selectedAIDisplayLabel: String {
+        let p = aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch p {
+        case "openai": return "OpenAI"
+        case "anthropic": return "Anthropic"
+        case "openmodels":
+            #if canImport(CloudKit)
+            if let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+                return v.displayName
+            }
+            #endif
+            return "Open model"
+        default: return aiDirectProviderDraft.capitalized
+        }
+    }
+
     // MARK: - Image-provider key (Gemini image key, separate from text key)
 
     /// True when a Gemini image key is saved in the Keychain.

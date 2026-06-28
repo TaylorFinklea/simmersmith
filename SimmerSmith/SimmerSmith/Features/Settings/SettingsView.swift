@@ -67,13 +67,18 @@ struct SettingsView: View {
                     Text("None").tag("")
                     Text("OpenAI").tag("openai")
                     Text("Anthropic").tag("anthropic")
+                    Text("Open models").tag("openmodels")
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
                     // SP-C — model selection is a key-aware dropdown: the provider's
-                    // live /v1/models (curated) with a static fallback, plus a
-                    // "Custom…" escape hatch. Replaces the old free-text field.
-                    AIModelPickerRow(provider: appState.aiDirectProviderDraft)
+                    // live /v1/models (curated) with a static fallback. "Open models"
+                    // spans all three OSS vendors in one vendor-sectioned dropdown.
+                    if appState.aiDirectProviderDraft == "openmodels" {
+                        OpenModelsPickerRow()
+                    } else {
+                        AIModelPickerRow(provider: appState.aiDirectProviderDraft)
+                    }
 
                     // Key status (read from Keychain — never from Fly).
                     HStack(spacing: 6) {
@@ -86,7 +91,7 @@ struct SettingsView: View {
                     }
 
                     SecureField(
-                        "New \(appState.aiDirectProviderDraft.capitalized) API key",
+                        "New \(appState.selectedAIDisplayLabel) API key",
                         text: $appState.aiDirectAPIKeyDraft
                     )
                     .textInputAutocapitalization(.never)
@@ -614,13 +619,13 @@ struct SettingsView: View {
 
     /// SP-C AI-1: Key status reads from Keychain (not Fly secretFlags).
     private var ckApiKeyStatusText: String {
-        let provider = appState.aiDirectProviderDraft
-        guard !provider.isEmpty else {
+        guard !appState.aiDirectProviderDraft.isEmpty else {
             return "Select a provider to manage its API key."
         }
+        let label = appState.selectedAIDisplayLabel
         return appState.aiDirectAPIKeyConfigured
-            ? "\(provider.capitalized) API key saved in this device's Keychain."
-            : "No \(provider.capitalized) API key saved yet. Enter your key above and tap Save."
+            ? "\(label) API key saved in this device's Keychain."
+            : "No \(label) API key saved yet. Enter your key above and tap Save."
     }
 
     private func runTestKey() async {

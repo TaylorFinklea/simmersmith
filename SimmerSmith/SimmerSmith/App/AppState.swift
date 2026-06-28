@@ -344,8 +344,11 @@ final class AppState {
     }
 
     var aiDirectAPIKeyConfigured: Bool {
-        if !aiDirectProviderDraft.isEmpty {
-            return providerAPIKeyConfigured(providerID: aiDirectProviderDraft)
+        if !aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // selectedAIKeychainID resolves "openmodels" to the chosen vendor's key
+            // (zai/moonshot/minimax); nil → not yet resolvable → not configured.
+            guard let kc = selectedAIKeychainID else { return false }
+            return providerAPIKeyConfigured(providerID: kc)
         }
         return ["openai", "anthropic"].contains { providerAPIKeyConfigured(providerID: $0) }
     }
