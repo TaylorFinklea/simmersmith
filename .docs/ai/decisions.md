@@ -1027,3 +1027,16 @@ deliberate, tracked exception; the data plane itself is fully green.
   TextField already gets keyboard dictation natively). The PARSE layer (on-device FoundationModels / cloud) and
   the resolve/review/apply pipeline are unchanged — only transcription moved to the system keyboard.
 - Net: zero app-level audio/speech APIs → the entire AVAudioEngine crash surface is gone; far simpler.
+
+## 2026-06-29 - Voice parsing: on-device Foundation Models feature-flagged OFF; use the Settings model (build 140)
+
+- Build 138/139 on-device parse (FoundationModels `@Generable`) hallucinated a full week from a one-meal
+  input. Root cause was the schema description ("A FULL WEEKLY MEAL PLAN…") telling a small model to complete a
+  week; fixed in 139 (extract-only prompts + dedup). But on-device quality is unproven and the FOSS cloud models
+  are the near-term target.
+- **Decision (user):** park on-device behind `OnDeviceParseService.isEnabled` (default **false**). Voice parsing
+  always routes to `CloudParseService` → `AIService.generate` = whatever model is configured in **Settings**
+  (GLM / Kimi / MiniMax / OpenAI / Anthropic). Dial in parse quality with the FOSS models first; revisit
+  Foundation Models later by flipping the flag (restores on-device-first + cloud-fallback). No-key CTA unchanged.
+- The on-device code (OnDeviceParseService, GenerableWeeklyPlan, VoicePlanningAvailability) stays compiled but
+  dormant behind the flag — no deletion, ready to re-enable.

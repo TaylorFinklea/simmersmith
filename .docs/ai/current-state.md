@@ -3,7 +3,15 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
-## Current (2026-06-29) — Voice week-planning SHIPPED build 138; awaiting on-device gate
+## Current (2026-06-29) — Voice week-planning SHIPPED build 140; on-device flagged OFF, uses Settings model
+
+**Build 140:** on-device FoundationModels parse feature-flagged OFF (`OnDeviceParseService.isEnabled=false`) —
+voice parsing routes to the configured Settings cloud model (CloudParseService → AIService.generate). 139 fixed
+the "invented a full week" hallucination (schema said "A FULL WEEKLY MEAL PLAN" → extract-only prompts + day/slot
+dedup, 13 tests). 138 moved transcription to the system keyboard (custom AVAudioEngine crashed). On-device code
+stays dormant behind the flag for a later FoundationModels revisit. Device test (hdeck) updated for cloud-only.
+
+## (superseded) Voice week-planning build 138 — system keyboard dictation
 
 Talk-out-your-week built per `phases/voice-week-planning-spec.md` (T0-T10). Week-tab mic → **a TEXT BOX**
 (system keyboard on-device dictation OR typing — no app audio/speech) → on-device FoundationModels `@Generable`
