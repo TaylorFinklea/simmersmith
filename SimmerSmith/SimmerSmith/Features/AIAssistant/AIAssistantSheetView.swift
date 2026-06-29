@@ -5,7 +5,6 @@ struct AIAssistantSheetView: View {
     @Environment(AIAssistantCoordinator.self) private var coordinator
     @Environment(AppState.self) private var appState
     @FocusState private var composerFocused: Bool
-    @State private var composerDictating = false
 
     var body: some View {
         @Bindable var coord = coordinator
@@ -232,10 +231,6 @@ struct AIAssistantSheetView: View {
                     .padding(SMSpacing.md)
                     .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
                     .focused($composerFocused)
-                    .disabled(composerDictating)
-
-                // SP-C — dictate into the composer (pure speech-to-text).
-                ComposerMicButton(text: $coord.composerText, isDictating: $composerDictating)
 
                 Button {
                     if coordinator.isSending {
