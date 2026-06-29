@@ -136,5 +136,63 @@ public struct HouseholdShareFlow {
             container.add(operation)
         }
     }
+
+    // MARK: Zone-wide sharing (production: UICloudSharingController + system accept)
+    //
+    // Distinct from the hierarchical createAndPublishShare/acceptAndRead above (which the
+    // CloudKit debug round-trip still uses): a ZONE-WIDE share shares the WHOLE household
+    // zone — every record type — so a participant sees the entire household, not just the
+    // HouseholdProfile root. For a zone-wide share `metadata.hierarchicalRootRecordID` is
+    // nil, so the zone is recovered from the share record's own zoneID instead.
+
+    /// Create — or return the already-existing — zone-wide CKShare for the household zone.
+    /// Idempotent: a zone can hold only one zone-wide share. `publicPermission` stays
+    /// `.none` (named-participant model: the owner adds exactly one partner via the system
+    /// share sheet). Hand the returned share to `UICloudSharingController` to present.
+    public func makeOrFetchZoneWideShare(householdID: String, title: String) async throws -> CKShare {
+        let db = container.privateCloudDatabase
+        let zone = try await HouseholdZoneProvisioner(containerIdentifier: containerID)
+            .ensureHouseholdZone(householdID: householdID)
+        if let existing = try await fetchZoneWideShare(zoneID: zone.zoneID, db: db) {
+            return existing
+        }
+        let share = CKShare(recordZoneID: zone.zoneID)
+        share[CKShare.SystemFieldKey.title] = title as CKRecordValue
+        // publicPermission left .none — the owner picks the one partner via the share sheet.
+        _ = try await db.modifyRecords(saving: [share], deleting: [])
+        return share
+    }
+
+    private func fetchZoneWideShare(zoneID: CKRecordZone.ID, db: CKDatabase) async throws -> CKShare? {
+        let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
+        do {
+            return try await db.record(for: shareID) as? CKShare
+        } catch let error as CKError where error.code == .unknownItem {
+            return nil
+        }
+    }
+
+    /// Accept a ZONE-WIDE share and resolve the shared zone ID for the participant session.
+    /// Recovers the zone from the share record's own zoneID (hierarchicalRootRecordID is nil
+    /// for a zone-wide share); falls back to enumerating the shared DB's zones after accept.
+    public func acceptZoneWideShare(_ metadata: CKShare.Metadata) async throws -> CKRecordZone.ID {
+        try await acceptShare(metadata)
+        let zoneID = metadata.share.recordID.zoneID
+        if zoneID.zoneName != CKRecordZone.ID.defaultZoneName {
+            return zoneID
+        }
+        // Fallback: the accept may have just created the zone in the shared DB.
+        let zones = try await container.sharedCloudDatabase.allRecordZones()
+        if let first = zones.first(where: { $0.zoneID.zoneName != CKRecordZone.ID.defaultZoneName }) {
+            return first.zoneID
+        }
+        throw ShareError.noSharedRoot
+    }
+
+    /// Fetch share metadata for a URL (exposed for the warm/cold accept paths that start
+    /// from a URL rather than system-delivered metadata).
+    public func fetchMetadata(url: URL) async throws -> CKShare.Metadata {
+        try await fetchShareMetadata(url: url)
+    }
 }
 #endif
