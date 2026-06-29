@@ -3,11 +3,14 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
-## Current (2026-06-29) — Voice week-planning SHIPPED build 137; awaiting on-device gate
+## Current (2026-06-29) — Voice week-planning SHIPPED build 138; awaiting on-device gate
 
-Talk-out-your-week built per `phases/voice-week-planning-spec.md` (T0-T10). Week-tab mic (or composer mic) →
-on-device SFSpeech transcribe → on-device FoundationModels `@Generable` parse (cloud fallback on ineligible HW /
-error) → best-match-else-free-text resolve → review screen → existing `saveWeekMeals`. ~80% on-device. Canonical
+Talk-out-your-week built per `phases/voice-week-planning-spec.md` (T0-T10). Week-tab mic → **a TEXT BOX**
+(system keyboard on-device dictation OR typing — no app audio/speech) → on-device FoundationModels `@Generable`
+parse (cloud fallback on ineligible HW / error) → best-match-else-free-text resolve → review screen → existing
+`saveWeekMeals`. **Build 138 pivot:** the custom DictationService (AVAudioEngine+SFSpeech) crashed
+(`_dispatch_assert_queue_fail`, 2nd mic tap) + blank sheet → deleted; replaced by the system keyboard. Composer
+mic reverted (keyboard already dictates there). Custom transcription deferred to iOS 27 third-party dictation. Canonical
 plain `ParsedWeeklyPlan` + resolver + availability in SimmerSmithKit (host-tested, **12 tests** incl. the UTC
 mealDate off-by-one landmine); app-target `@Generable GenerableWeeklyPlan` adapter; FoundationModels + Speech API
 **SDK-header-verified**. Bypasses the commit-on-call assistant tool-loop (one-shot `generate` + direct

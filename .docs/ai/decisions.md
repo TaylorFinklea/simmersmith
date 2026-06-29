@@ -1012,3 +1012,18 @@ deliberate, tracked exception; the data plane itself is fully green.
   itself is a deferred v1.1 enhancement; v1 ships SFSpeech transcription (works on every iOS 26 device).
 - Spec: `phases/voice-week-planning-spec.md`; report: `phases/voice-week-planning-report.md`. Build 137 on
   TestFlight; on-device human gate published to harness-deck. NOT pushed.
+
+## 2026-06-29 - Voice transcription = system keyboard dictation (custom audio engine removed; build 138)
+
+- The build-137 custom `DictationService` (AVAudioEngine + SFSpeechRecognizer + AVAudioSession) **crashed**
+  on-device with `_dispatch_assert_queue_fail` ("Block was expected to execute on queue") on the 2nd mic tap
+  (re-entrant audio-session setup off the expected queue) and showed a blank listening sheet on first launch.
+- **Decision (user):** don't run our own Parakeet/Whisper/SFSpeech transcription. The feature is just a **text
+  box** that uses the **system keyboard's on-device dictation** (the keyboard mic) OR typing. This is what
+  open-feelings does. Custom/third-party transcription is **deferred to iOS 27** to see if Apple opens up
+  third-party dictation methods.
+- Implementation: deleted `DictationService`; `VoicePlanningCoordinator` now takes `plan(text:)` (no audio);
+  `VoicePlanningEntry` is a `TextEditor` sheet → Review. The composer mic button was reverted (the assistant's
+  TextField already gets keyboard dictation natively). The PARSE layer (on-device FoundationModels / cloud) and
+  the resolve/review/apply pipeline are unchanged — only transcription moved to the system keyboard.
+- Net: zero app-level audio/speech APIs → the entire AVAudioEngine crash surface is gone; far simpler.
