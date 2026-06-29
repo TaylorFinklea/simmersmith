@@ -44,8 +44,17 @@ targets:
         INFOPLIST_FILE: SimmerSmith/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
-        CURRENT_PROJECT_VERSION: 134
+        CURRENT_PROJECT_VERSION: 135
         MARKETING_VERSION: 1.0.0
+      configs:
+        # aps-environment must match the build's distribution: Debug (Xcode run) → the APNs
+        # development gateway; Release (TestFlight/App Store) → production. The entitlements
+        # file references $(SM_APS_ENVIRONMENT). Without production APNs a TestFlight build's
+        # CloudKit silent pushes don't arrive, so shared-zone edits sync only on foreground.
+        Debug:
+          SM_APS_ENVIRONMENT: development
+        Release:
+          SM_APS_ENVIRONMENT: production
   SimmerSmithTests:
     type: bundle.unit-test
     platform: iOS
