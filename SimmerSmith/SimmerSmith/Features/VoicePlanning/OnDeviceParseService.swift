@@ -10,6 +10,11 @@ import FoundationModels
 /// Throws to signal the coordinator to fall back to cloud — the degradation policy lives there.
 enum OnDeviceParseService {
 
+    /// Feature flag — on-device Foundation Models parsing is OFF for now. Voice parsing uses the
+    /// configured cloud model (Settings) until the FOSS-model parse quality is nailed down;
+    /// Foundation Models is a later revisit. Flip to `true` to re-enable the on-device path.
+    static let isEnabled = false
+
     enum ParseError: LocalizedError {
         case unavailable
         case modelError(String)

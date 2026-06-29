@@ -47,9 +47,11 @@ final class VoicePlanningCoordinator {
     /// Return to the text box (e.g. after an error) to edit + retry.
     func backToEntry() { phase = .entry }
 
-    // On-device when eligible, falling back to cloud on ineligibility OR any on-device error.
+    // On-device parsing is feature-flagged OFF for now (OnDeviceParseService.isEnabled): voice
+    // parsing uses the configured cloud model from Settings. When the flag is on, prefer
+    // on-device on eligible hardware and fall back to cloud on ineligibility OR any error.
     private func parse(transcript: String, appState: AppState) async throws -> ParsedWeeklyPlan {
-        if OnDeviceParseService.availability() == .available {
+        if OnDeviceParseService.isEnabled, OnDeviceParseService.availability() == .available {
             do { return try await OnDeviceParseService.parse(transcript: transcript) }
             catch { /* degrade to cloud below */ }
         }
