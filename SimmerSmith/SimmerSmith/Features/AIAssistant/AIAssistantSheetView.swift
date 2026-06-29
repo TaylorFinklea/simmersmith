@@ -232,6 +232,9 @@ struct AIAssistantSheetView: View {
                     .background(SMColor.surfaceCard, in: RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
                     .focused($composerFocused)
 
+                // SP-C — dictate into the composer (pure speech-to-text).
+                ComposerMicButton(text: $coord.composerText)
+
                 Button {
                     if coordinator.isSending {
                         // Tapping while streaming cancels the turn. The

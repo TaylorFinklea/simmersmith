@@ -256,6 +256,14 @@ struct WeekView: View {
                 }
                 .accessibilityLabel("View week activity")
             }
+            // SP-C — talk out the week; fills meals into days via the review screen.
+            if let week = displayedWeek {
+                ToolbarItem(placement: .topBarTrailing) {
+                    VoicePlanningButton(weekId: week.weekId, weekStart: week.weekStart)
+                        .labelStyle(.iconOnly)
+                        .tint(SMColor.accent)
+                }
+            }
             // Build 70 — Week has no top-bar sparkle (per spec); per-
             // day inline sparkles cover AI calls. Configurable
             // primary moved to the FAB.
