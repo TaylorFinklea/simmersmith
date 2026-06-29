@@ -983,3 +983,32 @@ deliberate, tracked exception; the data plane itself is fully green.
   household. Fly auth/identity untouched. Out of scope v1: N members, leave/un-adopt, settings sharing,
   owner-also-participant.
 - Spec: `phases/household-sharing-spec.md`. Code-complete, NOT pushed; two-device gate published to harness-deck.
+
+## 2026-06-29 - Voice week-planning: ~80% on-device split + review-before-apply, bypassing the assistant tool-loop
+
+- **NLP/AI split (user's core question) = ~80% on-device / ~20% cloud, in 4 layers**: transcribe (on-device
+  SFSpeech) → parse (on-device FoundationModels `@Generable`; cloud fallback) → resolve recipe-match (on-device,
+  pure) → apply (on-device). The cloud only ever sees short dish strings, never the raw monologue. Guiding
+  principle (from the tesela ref): *voice is a capture channel, not an intent engine.*
+- **Two ParsedWeeklyPlan types on purpose**: the canonical plain `ParsedWeeklyPlan` + resolver + availability live
+  in **SimmerSmithKit** so the date math + matching are **host-testable via `swift test`** (the critique's UTC
+  off-by-one landmine deserved a runnable test, not a compile check); the app-target `@Generable
+  GenerableWeeklyPlan` is a thin model-output adapter that maps into it. One tested resolve path.
+- **No OS-version gate** — deployment target is iOS 26, so Speech + FoundationModels are always present; the
+  on-device-vs-cloud choice is a pure RUNTIME `SystemLanguageModel.availability` branch. SFSpeech is the
+  runtime-robustness transcription fallback, not a version fallback.
+- **Bypass the assistant tool-loop for review-before-apply**: `sendAssistantMessage`/`AssistantEngine.run`/
+  `weeks_update_meals` COMMIT on call (→ CloudKit). That conflicts with the user-locked review screen, so voice
+  uses a one-shot structured `AIService.generate` (no write tool) for cloud parse and only calls `saveWeekMeals`
+  AFTER the user confirms. `weeks_update_meals` is the commit seam only.
+- **Intents map to existing app conventions** (T0 spike): non-recipe meals are just `MealUpdateRequest(recipeId:
+  nil, recipeName:)` — eatOut→"Eating Out" (matches WeekView's manual path), leftovers→"<dish> Leftovers",
+  skip→omit the row. No new model field.
+- **Ineligible-HW-without-key product decision**: always show the "Plan by voice" entry; if neither on-device
+  parse nor a cloud key exists, tapping shows a "set up an AI provider" prompt — never a hidden button or silent
+  dead-end. Dictation + manual review still work without parse.
+- API grounded in the **actual iOS 26 SDK headers** (`SpeechAnalyzer`/`SpeechTranscriber`, `SystemLanguageModel`,
+  `respond(to:generating:)` String overload, `GenerationError`) — not session writeups. SpeechTranscriber engine
+  itself is a deferred v1.1 enhancement; v1 ships SFSpeech transcription (works on every iOS 26 device).
+- Spec: `phases/voice-week-planning-spec.md`; report: `phases/voice-week-planning-report.md`. Build 137 on
+  TestFlight; on-device human gate published to harness-deck. NOT pushed.

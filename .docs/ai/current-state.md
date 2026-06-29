@@ -3,6 +3,21 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
+## Current (2026-06-29) — Voice week-planning SHIPPED build 137; awaiting on-device gate
+
+Talk-out-your-week built per `phases/voice-week-planning-spec.md` (T0-T10). Week-tab mic (or composer mic) →
+on-device SFSpeech transcribe → on-device FoundationModels `@Generable` parse (cloud fallback on ineligible HW /
+error) → best-match-else-free-text resolve → review screen → existing `saveWeekMeals`. ~80% on-device. Canonical
+plain `ParsedWeeklyPlan` + resolver + availability in SimmerSmithKit (host-tested, **12 tests** incl. the UTC
+mealDate off-by-one landmine); app-target `@Generable GenerableWeeklyPlan` adapter; FoundationModels + Speech API
+**SDK-header-verified**. Bypasses the commit-on-call assistant tool-loop (one-shot `generate` + direct
+`saveWeekMeals`) to honor review-before-apply. Commits `c7a0393` (feature) + `22ec61d` (8-finding adversarial-review
+fixes: approved-flag, out-of-week dates, dictation race, JSON robustness) + build bump. **Build 137 on TestFlight.**
+
+**BLOCKER — on-device human gate:** harness-deck `simmersmith/voice-week-planning-device-test` (awaiting-review,
+8-step checklist + approval). On-device transcribe→`@Generable`-parse has no Apple sample. Needs iPhone 15 Pro+/
+iOS 26 + AI on (airplane mode proves on-device); ineligible HW → cloud (needs BYO key). Decisions → decisions.md.
+
 ## Current (2026-06-29) — Household sharing v1 (two-account CKShare) CODE-COMPLETE; awaiting two-device gate
 
 Real two-account sharing built per `phases/household-sharing-spec.md` (T1-T7): owner shares the household
