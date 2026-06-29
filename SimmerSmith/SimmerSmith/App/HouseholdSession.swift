@@ -7,6 +7,17 @@ import SimmerSmithKit
 import CloudKitProvisioning
 import HouseholdSync
 
+/// Whether this session OWNS the household zone (its own private DB) or PARTICIPATES in
+/// someone else's shared zone (the shared DB). Default `.owner` preserves every existing
+/// call site. A participant carries the owner's zone ID, recovered from CKShare metadata
+/// (never constructed — the owner-name differs across accounts). Equatable only; the value
+/// is MainActor-confined (HouseholdSession is @MainActor) so Sendable isn't required.
+enum HouseholdSessionRole: Equatable {
+    case owner
+    case participant(sharedZoneID: CKRecordZone.ID)
+    var isOwner: Bool { if case .owner = self { return true } else { return false } }
+}
+
 /// SP-C: the single app-lifetime owner of the household CloudKit planes.
 ///
 /// One instance is created at launch (Task 5 wires it into AppState) and lives for
@@ -25,6 +36,8 @@ final class HouseholdSession {
     let engine: HouseholdSyncEngine
     let catalog: PublicCatalogReader
     let zoneID: CKRecordZone.ID
+    /// Owner (private DB, own zone) vs participant (shared DB, owner's zone).
+    let role: HouseholdSessionRole
     private let householdID: String
 
     // MARK: — Per-user PRIVATE plane (NSPCKC)
@@ -70,18 +83,26 @@ final class HouseholdSession {
 
     // MARK: — Init
 
-    init(householdID: String) {
+    init(householdID: String, role: HouseholdSessionRole = .owner) {
         let containerID = "iCloud.app.simmersmith.cloud"
         let container = CKContainer(identifier: containerID)
-        let database = container.privateCloudDatabase
-        // TODO(SP-C participant): shared-DB join via CKShare — the participant path
-        // would use container.sharedCloudDatabase and a different zoneID.
+        // Owner reads/writes its OWN private DB; a participant reaches the owner's zone
+        // through the SHARED DB. (SP-C participant path — replaces the old TODO.)
+        let database = role.isOwner ? container.privateCloudDatabase : container.sharedCloudDatabase
 
-        // Derive the deterministic zone name for this household (mirrors
-        // HouseholdZoneProvisioner.zoneName(householdID:)).
-        let zoneName = HouseholdZoneProvisioner.zoneName(householdID: householdID)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        // Owner: the deterministic zone in the user's private DB (mirrors
+        // HouseholdZoneProvisioner.zoneName). Participant: the OWNER's zone, recovered
+        // from CKShare metadata (its ownerName is the owner's record name, not ours).
+        let zoneID: CKRecordZone.ID
+        switch role {
+        case .owner:
+            let zoneName = HouseholdZoneProvisioner.zoneName(householdID: householdID)
+            zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        case .participant(let sharedZoneID):
+            zoneID = sharedZoneID
+        }
         self.zoneID = zoneID
+        self.role = role
         self.householdID = householdID
 
         // Stable Application Support URL for the sync-engine state token so that
@@ -92,7 +113,10 @@ final class HouseholdSession {
         let syncDir = appSupport.appendingPathComponent("HouseholdSync", isDirectory: true)
         // Create the directory if missing (first launch).
         try? FileManager.default.createDirectory(at: syncDir, withIntermediateDirectories: true)
-        let stateURL = syncDir.appendingPathComponent("engine-state.json")
+        // Per-scope state token: the owner (private) and a participant (shared) engine must
+        // NEVER share a serialization blob, or the two scopes corrupt each other's token.
+        let stateFileName = role.isOwner ? "engine-state.json" : "engine-state-shared.json"
+        let stateURL = syncDir.appendingPathComponent(stateFileName)
         self.stateURL = stateURL
 
         // Build the local store + engine with automaticSync enabled for production.
@@ -104,7 +128,8 @@ final class HouseholdSession {
             zoneID: zoneID,
             store: store,
             stateURL: stateURL,
-            automaticSync: true
+            automaticSync: true,
+            ownsZone: role.isOwner
         )
         self.store = store
         self.engine = engine
@@ -134,9 +159,13 @@ final class HouseholdSession {
         }
 
         do {
-            // 1. Ensure the zone exists (idempotent — safe to call every launch).
-            let provisioner = HouseholdZoneProvisioner()
-            try await provisioner.ensureHouseholdZone(householdID: householdID)
+            // 1. Ensure the zone exists (idempotent) — OWNER ONLY. A participant does NOT
+            //    own the zone (it lives in the owner's account, reached via the shared DB),
+            //    so it must never provision/create it.
+            if role.isOwner {
+                let provisioner = HouseholdZoneProvisioner()
+                try await provisioner.ensureHouseholdZone(householdID: householdID)
+            }
 
             // 2. Wire the full merger stack (mirrors runEventGroceryMergeCheck line 611–614
             //    and runMigrationCheck lines 942–945 in CloudKitDebugView).

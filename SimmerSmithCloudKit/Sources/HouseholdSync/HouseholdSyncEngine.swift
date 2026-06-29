@@ -18,6 +18,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     public let zoneID: CKRecordZone.ID
     public let store: HouseholdLocalStore
     private let stateURL: URL
+    /// Owner engines own their zone (create it lazily, recreate on loss). A PARTICIPANT
+    /// engine (shared DB) does NOT own the zone — it must never enqueue `.saveZone` nor
+    /// recreate a zone it can't create, and a zone deletion means the share was revoked.
+    private let ownsZone: Bool
     private let log = Logger(subsystem: "app.simmersmith.cloud", category: "HouseholdSync")
 
     private var syncEngine: CKSyncEngine!
@@ -49,12 +53,14 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         zoneID: CKRecordZone.ID,
         store: HouseholdLocalStore,
         stateURL: URL,
-        automaticSync: Bool = false
+        automaticSync: Bool = false,
+        ownsZone: Bool = true
     ) {
         self.database = database
         self.zoneID = zoneID
         self.store = store
         self.stateURL = stateURL
+        self.ownsZone = ownsZone
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -72,7 +78,11 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     public func save(_ record: CKRecord) {
         store.setRecord(record)
         if !zoneEnsured {
-            syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+            // OWNER ONLY: lazily create the zone on first save. A participant writes into
+            // the owner's already-existing shared zone and must never enqueue zone creation.
+            if ownsZone {
+                syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+            }
             zoneEnsured = true
         }
         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
@@ -155,6 +165,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             let pendingSaves = pendingSaveIDs()
             for modification in changes.modifications {
                 let remote = modification.record
+                // The zone-wide CKShare record lives in the shared zone and loops back
+                // through fetched changes on the owner engine — never ingest it as data.
+                if Self.isShareRecord(remote) { continue }
                 let hasPendingEdit = pendingSaves.contains(remote.recordID)
                 // Field-merge ONLY on a genuine concurrent edit — i.e. we hold an UNSYNCED local
                 // edit for this record. Without a pending edit the remote is authoritative (a
@@ -191,6 +204,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // Replace local copies with the server-authoritative records (updated
             // change tags) so the next edit bases on the right version.
             for saved in sent.savedRecords {
+                if Self.isShareRecord(saved) { continue }
                 store.setRecord(saved)
                 note("saved \(saved.recordID.recordName)=\(saved["value"] as? String ?? "?")")
             }
@@ -203,16 +217,33 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         case .accountChange(let change):
             handleAccountChange(change)
 
+        case .fetchedDatabaseChanges(let changes):
+            // A PARTICIPANT whose shared zone is deleted/revoked (owner removed them or
+            // deleted the share) must purge its local mirror. OWNER-SAFE: gated on
+            // !ownsZone so an owner's own zone-deletion (e.g. factory reset) never wipes
+            // the owner mirror through this path — owners keep today's no-op behavior.
+            if !ownsZone, changes.deletions.contains(where: { $0.zoneID == zoneID }) {
+                store.removeAll()
+                onStoreChanged?()
+                note("participant shared zone revoked \(zoneID.zoneName)")
+            }
+
         // Lifecycle / no-op for Phase 2a.
         case .willFetchChanges, .didFetchChanges,
              .willSendChanges, .didSendChanges,
-             .fetchedDatabaseChanges, .sentDatabaseChanges,
+             .sentDatabaseChanges,
              .willFetchRecordZoneChanges, .didFetchRecordZoneChanges:
             break
 
         @unknown default:
             break
         }
+    }
+
+    /// A CKShare record (the zone-wide share itself) surfaces through the owner engine's
+    /// fetched changes — it must NEVER be ingested as household data.
+    static func isShareRecord(_ record: CKRecord) -> Bool {
+        record.recordType == "cloudkit.share" || record.recordID.recordName == CKRecordNameZoneWideShare
     }
 
     private func pendingSaveIDs() -> Set<CKRecord.ID> {
@@ -247,9 +278,13 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
             }
         case .zoneNotFound, .userDeletedZone:
-            // Re-create the zone and re-enqueue the save.
-            syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
-            syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            // Re-create the zone and re-enqueue the save — OWNER ONLY. A participant cannot
+            // create the owner's zone; for it this means the share is gone, so do NOT try
+            // (the .fetchedDatabaseChanges revocation path purges + recovers instead).
+            if ownsZone {
+                syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+                syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            }
         case .unknownItem:
             // The record vanished server-side; clear it locally.
             store.removeRecord(recordID)
