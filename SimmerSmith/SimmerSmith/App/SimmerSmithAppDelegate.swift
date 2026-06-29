@@ -23,6 +23,22 @@ final class SimmerSmithAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    #if canImport(CloudKit)
+    /// Route every scene through `ShareSceneDelegate` so CKShare acceptance is delivered
+    /// (the SwiftUI `WindowGroup` lifecycle doesn't surface `userDidAcceptCloudKitShareWith`
+    /// on the app delegate). The delegate only captures the metadata — it never touches the
+    /// window, so SwiftUI keeps owning the UI.
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = ShareSceneDelegate.self
+        return config
+    }
+    #endif
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data

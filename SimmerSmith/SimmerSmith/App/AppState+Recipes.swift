@@ -47,6 +47,21 @@ extension AppState {
         let task = Task<Void, Never> { [weak self] in
             guard let self else { return }
 
+            // PARTICIPANT-FIRST (accept-before-mint, sharing spec §6): if the user just
+            // accepted a share (PendingShareInbox) or has a saved participant marker, this
+            // device ADOPTS an owner's household — boot as participant and NEVER fall through
+            // to owner discovery/mint (which would orphan-mint a solo zone on a cold accept).
+            if let metadata = PendingShareInbox.shared.take() {
+                await self.bootParticipantSession(accepting: metadata)
+                self.householdSessionSetupTask = nil
+                return
+            }
+            if let marker = self.loadParticipantMarker() {
+                await self.bootParticipantSession(reusing: marker)
+                self.householdSessionSetupTask = nil
+                return
+            }
+
             // 1. Resolve the household id: discover first, mint only if none exists.
             guard let householdID = await self.resolveHouseholdID() else {
                 // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
@@ -68,93 +83,7 @@ extension AppState {
             // present in the local store.
             await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
 
-            let recipeRepo = RecipeRepository(session: session)
-            let metadataRepo = MetadataRepository(session: session)
-            // SP-C slice 3: week + grocery repos.
-            let weekRepo = WeekRepository(session: session)
-            let groceryRepo = GroceryRepository(session: session)
-            // SP-C slice 4: event + guest repos.
-            let guestRepo = GuestRepository(session: session)
-            let eventRepo = EventRepository(session: session, guests: guestRepo)
-            // SP-C slice 5: per-user PRIVATE-plane repos (profile + preferences). These
-            // ride NSPCKC (auto-sync) off `session.privateStore`, NOT the household engine.
-            let profileRepo = ProfileRepository(session: session)
-            let preferenceRepo = PreferenceRepository(session: session)
-            // SP-C slice 5: household-zone pantry + alias repos.
-            let pantryRepo = PantryRepository(session: session)
-            let aliasRepo = AliasRepository(session: session)
-            // SP-C AI-1: AIService — the single seam for all AI calls. Keychain key
-            // store; reads provider/model config from private-plane store directly.
-            let aiSvc = AIService(session: session)
-            // SP-C AI-5: assistant conversation storage over the per-user private plane.
-            let assistantRepo = AssistantRepository(session: session)
-
-            householdSession = session
-            recipeRepository = recipeRepo
-            metadataRepository = metadataRepo
-            weekRepository = weekRepo
-            groceryRepository = groceryRepo
-            guestRepository = guestRepo
-            eventRepository = eventRepo
-            profileRepository = profileRepo
-            preferenceRepository = preferenceRepo
-            pantryRepository = pantryRepo
-            aliasRepository = aliasRepo
-            aiService = aiSvc
-            assistantRepository = assistantRepo
-
-            // Initial kick — the repos auto-reload on session.storeRevision, but need a
-            // first read after construction.
-            recipeRepo.startObserving()
-            metadataRepo.startObserving()
-            weekRepo.startObserving()
-            guestRepo.startObserving()
-            eventRepo.startObserving()
-            pantryRepo.startObserving()
-            aliasRepo.startObserving()
-            recipeRepo.reload()
-            metadataRepo.reloadMetadata()
-            weekRepo.reload()
-            guestRepo.reload()
-            eventRepo.reload()
-            pantryRepo.reload()
-            aliasRepo.reload()
-            // Private-plane repos fetch-on-demand (no storeRevision observer — NSPCKC has
-            // no equivalent change signal here); a first read after construction.
-            profileRepo.reload()
-            preferenceRepo.reload()
-
-            // Mirror the repo's projections onto AppState's @Observable stored vars so the
-            // existing views (which bind to `recipes` / `recipeMetadata`) update without change.
-            observeRecipeRepository()
-            observeMetadataRepository()
-            observeWeekRepository()
-            observeEventRepository()
-            observePantryRepository()
-            observeAliasRepository()
-            // Private-plane repos publish their own projection (no storeRevision); observe it.
-            observeProfileRepository()
-            observePreferenceRepository()
-            mirrorRecipesFromRepository()
-            mirrorMetadataFromRepository()
-            mirrorWeekFromRepository()
-            // SP-C cutover completion: the CloudKit store OWNS the current week. Create
-            // today's week on-device if none covers today (carrying over any in-memory
-            // Fly/cached meals), so the Week tab + assistant always operate on a real
-            // CloudKit week (no Fly current-week dependency).
-            await ensureCurrentCloudKitWeek()
-            mirrorEventsFromRepository()
-            mirrorGuestsFromRepository()
-            mirrorPantryFromRepository()
-            mirrorAliasesFromRepository()
-            // Mirror the private-plane repos so DietaryGoalView pre-fills + the Settings
-            // pickers (imageProvider/unitSystem/userRegion) reflect the CloudKit data.
-            mirrorProfileFromRepository()
-            mirrorPreferencesFromRepository()
-            // SP-C AI-1: hydrate AI provider/model drafts from the private plane.
-            syncAIDraftsFromRepo()
-            // SP-C: hydrate the user's assistant suggestion-chip overrides.
-            loadAssistantPromptOverrides()
+            await wireHouseholdRepositories(session: session)
 
             // SP-C identity slice (spec §1.3): signal RootView that the household is
             // resolved and the app is ready to show MainTabView.
@@ -166,6 +95,86 @@ extension AppState {
         }
         householdSessionSetupTask = task
         await task.value
+    }
+
+    /// Build + wire all repositories for a booted session (OWNER or PARTICIPANT) and flip
+    /// the launch phase to .ready. Extracted from `ensureHouseholdSession` so the owner-boot
+    /// and the participant-adopt paths wire identically. Owner-only steps (current-week
+    /// creation) are gated on the session role so a participant adopts the owner's weeks.
+    func wireHouseholdRepositories(session: HouseholdSession) async {
+        let recipeRepo = RecipeRepository(session: session)
+        let metadataRepo = MetadataRepository(session: session)
+        let weekRepo = WeekRepository(session: session)
+        let groceryRepo = GroceryRepository(session: session)
+        let guestRepo = GuestRepository(session: session)
+        let eventRepo = EventRepository(session: session, guests: guestRepo)
+        let profileRepo = ProfileRepository(session: session)
+        let preferenceRepo = PreferenceRepository(session: session)
+        let pantryRepo = PantryRepository(session: session)
+        let aliasRepo = AliasRepository(session: session)
+        let aiSvc = AIService(session: session)
+        let assistantRepo = AssistantRepository(session: session)
+
+        householdSession = session
+        recipeRepository = recipeRepo
+        metadataRepository = metadataRepo
+        weekRepository = weekRepo
+        groceryRepository = groceryRepo
+        guestRepository = guestRepo
+        eventRepository = eventRepo
+        profileRepository = profileRepo
+        preferenceRepository = preferenceRepo
+        pantryRepository = pantryRepo
+        aliasRepository = aliasRepo
+        aiService = aiSvc
+        assistantRepository = assistantRepo
+
+        // Initial kick — the repos auto-reload on session.storeRevision, but need a first
+        // read after construction.
+        recipeRepo.startObserving()
+        metadataRepo.startObserving()
+        weekRepo.startObserving()
+        guestRepo.startObserving()
+        eventRepo.startObserving()
+        pantryRepo.startObserving()
+        aliasRepo.startObserving()
+        recipeRepo.reload()
+        metadataRepo.reloadMetadata()
+        weekRepo.reload()
+        guestRepo.reload()
+        eventRepo.reload()
+        pantryRepo.reload()
+        aliasRepo.reload()
+        profileRepo.reload()
+        preferenceRepo.reload()
+
+        observeRecipeRepository()
+        observeMetadataRepository()
+        observeWeekRepository()
+        observeEventRepository()
+        observePantryRepository()
+        observeAliasRepository()
+        observeProfileRepository()
+        observePreferenceRepository()
+        mirrorRecipesFromRepository()
+        mirrorMetadataFromRepository()
+        mirrorWeekFromRepository()
+        // The OWNER owns the current week (create today's if none covers it, carrying over
+        // in-memory meals). A PARTICIPANT adopts the owner's weeks — it must NOT auto-create
+        // (that would race the first shared fetch and could fork a duplicate week).
+        if session.role.isOwner {
+            await ensureCurrentCloudKitWeek()
+        }
+        mirrorEventsFromRepository()
+        mirrorGuestsFromRepository()
+        mirrorPantryFromRepository()
+        mirrorAliasesFromRepository()
+        mirrorProfileFromRepository()
+        mirrorPreferencesFromRepository()
+        syncAIDraftsFromRepo()
+        loadAssistantPromptOverrides()
+
+        householdLaunchPhase = .ready
     }
 
     /// SP-C identity slice (spec §1.2): resolve the CloudKit household id with NO Fly

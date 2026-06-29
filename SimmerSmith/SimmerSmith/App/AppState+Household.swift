@@ -64,21 +64,15 @@ extension AppState {
     /// Claim an invitation. After success, refresh the full app state so
     /// the joiner's UI reflects the merged household (their content +
     /// the inviter's content, all under the new shared household_id).
+    /// HARD-GATED (household-sharing v1). The old Fly server-side merge fused two households
+    /// by re-pointing the joiner's rows and deleting their solo household — exactly what the
+    /// CloudKit ADOPT model forbids, and it never actually shared the live CloudKit data.
+    /// Real two-account sharing now happens by accepting a zone-wide CKShare link (see
+    /// `bootParticipantSession`). This is a deliberate no-op so a stray code-join can never
+    /// merge or delete a household. The Settings caller has been removed.
     func joinHousehold(code: String) async -> Bool {
-        guard hasSavedConnection else { return false }
-        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !trimmed.isEmpty else { return false }
-        do {
-            currentHousehold = try await apiClient.joinHousehold(code: trimmed)
-            // The joiner's data is now under a new household_id —
-            // re-pull recipes, weeks, profile, etc. so the UI reflects
-            // the merged state.
-            await refreshAll()
-            return true
-        } catch {
-            lastErrorMessage = error.localizedDescription
-            return false
-        }
+        lastErrorMessage = "Joining by code is no longer used — accept the share link your household owner sends from Settings instead."
+        return false
     }
 
     // MARK: - Reset

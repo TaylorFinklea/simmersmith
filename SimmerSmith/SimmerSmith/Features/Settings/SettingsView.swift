@@ -1333,10 +1333,7 @@ private func preferencePill(for choiceMode: String) -> some View {
 
 private struct HouseholdSection: View {
     @Environment(AppState.self) private var appState
-    @State private var showInviteSheet = false
-    @State private var inviteCode: String = ""
-    @State private var inviteExpiresAt: Date?
-    @State private var showJoinSheet = false
+    @State private var ownerShare: AppState.OwnerSharePackage?
     @State private var renameDraft: String = ""
     @State private var didLoadRenameDraft = false
 
@@ -1367,54 +1364,30 @@ private struct HouseholdSection: View {
                     }
                 }
 
-                if household.isOwner {
+                // SP-C sharing v1: share the whole CloudKit household with one partner via a
+                // zone-wide CKShare + the native share sheet (replaces the Fly invite/code).
+                if appState.canShareHousehold {
                     Button {
                         Task {
-                            if let code = await appState.createHouseholdInvitation() {
-                                inviteCode = code
-                                let expiry = appState.currentHousehold?
-                                    .activeInvitations
-                                    .first(where: { $0.code == code })?
-                                    .expiresAt
-                                inviteExpiresAt = expiry
-                                showInviteSheet = true
-                            }
+                            ownerShare = await appState.prepareOwnerShare(
+                                title: household.name.isEmpty ? "SimmerSmith household" : household.name)
                         }
                     } label: {
-                        Label("Invite a member", systemImage: "person.badge.plus")
+                        Label("Share with your partner", systemImage: "person.badge.plus")
                     }
-
-                    if !household.activeInvitations.isEmpty {
-                        ForEach(household.activeInvitations) { invitation in
-                            HStack {
-                                Text(invitation.code)
-                                    .font(.system(.subheadline, design: .monospaced))
-                                Spacer()
-                                Button(role: .destructive) {
-                                    Task {
-                                        await appState.revokeHouseholdInvitation(code: invitation.code)
-                                    }
-                                } label: {
-                                    Text("Revoke")
-                                        .font(SMFont.caption)
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.red)
-                            }
-                        }
-                    }
-                }
-
-                if household.isSolo {
-                    Button {
-                        showJoinSheet = true
-                    } label: {
-                        Label("Join a household", systemImage: "person.2.fill")
-                    }
+                    Text("Sends an invite link. Your partner taps it to see and edit this household. They keep their own personal recipes separately.")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
                 }
             } else {
                 Text("Loading household…")
                     .foregroundStyle(SMColor.textTertiary)
+            }
+
+            // Participant status: this device has adopted someone else's household.
+            if appState.isParticipant {
+                Label("You're in a shared household", systemImage: "person.2.fill")
+                    .foregroundStyle(SMColor.textSecondary)
             }
         } header: {
             SmithSectionHeader("household")
@@ -1433,13 +1406,9 @@ private struct HouseholdSection: View {
                 renameDraft = value
             }
         }
-        .sheet(isPresented: $showInviteSheet) {
-            InvitationSheet(code: inviteCode, expiresAt: inviteExpiresAt)
-        }
-        .sheet(isPresented: $showJoinSheet) {
-            JoinHouseholdSheet { code in
-                await appState.joinHousehold(code: code)
-            }
+        .sheet(item: $ownerShare) { package in
+            CloudSharingControllerView(share: package.share, container: package.container)
+                .ignoresSafeArea()
         }
     }
 

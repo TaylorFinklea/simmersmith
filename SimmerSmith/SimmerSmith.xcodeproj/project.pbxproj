@@ -65,6 +65,7 @@
 		53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */; };
 		53F76F4988F3B6BAB01DAB4B /* DebugGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0746BC20391CB8C28F0A4149 /* DebugGate.swift */; };
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
+		56361EF23CCD75F017B8AC57 /* AppState+Sharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */; };
 		59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
@@ -144,9 +145,11 @@
 		C68EBAAC1A18E1E274BD09B3 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ED1C25DB773F9DBF319A2F /* AppState.swift */; };
 		C7292ED82D21A1FE61CB34F7 /* TopBarSparkleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD56BA601E455FD7458AD43 /* TopBarSparkleButton.swift */; };
 		C7B1ED4CA5FD1D8EE5EC238F /* WrappingHStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */; };
+		C8B651FFEEFFF63F9949AEF9 /* PendingShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E317E5C2A1E1149294F18F7 /* PendingShareInbox.swift */; };
 		C90B01FDC95A67D89BCF39D0 /* StoreChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */; };
 		C9EA34D9C2ECB8D439EE011C /* GroceryReminderMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948ABB7833B8C8B3E7ACAC20 /* GroceryReminderMapping.swift */; };
 		CB15A6E13F707BD7201DB2B5 /* SimmerSmithAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3537D9BBBEB3EF263877815A /* SimmerSmithAppDelegate.swift */; };
+		CC0BA04D3AED7F501C9193B0 /* ShareSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D603B9AEBF7630A4E82C1FCC /* ShareSceneDelegate.swift */; };
 		CE023FB5F5FA60C88D456E04 /* AppState+Aliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */; };
 		CFE7B0CFDDC854D99448FF99 /* PhotoCompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE77361E7724F4B7835C0AE /* PhotoCompression.swift */; };
 		D12795B0EA94A8B2B7D60BC5 /* AppState+Seasonal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */; };
@@ -176,6 +179,7 @@
 		F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDDF7EF8A400097345D93F0 /* Theme.swift */; };
 		F5FF1BF67031E17F18887227 /* MemoryComposeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14EE7553DFC9652AB1EED953 /* MemoryComposeSheet.swift */; };
 		F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01056E5288DEF5FEC88D885F /* NotificationManager.swift */; };
+		F9E9DB18C199398DCBFBAA9E /* CloudSharingControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */; };
 		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
 		FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
@@ -253,6 +257,7 @@
 		4C7E9387233EA853A62275E6 /* SaveLeftoversToFreezerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveLeftoversToFreezerSheet.swift; sourceTree = "<group>"; };
 		4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderListPickerSheet.swift; sourceTree = "<group>"; };
 		4DD4B0B2B48797EDA3DA4907 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
+		4E317E5C2A1E1149294F18F7 /* PendingShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingShareInbox.swift; sourceTree = "<group>"; };
 		4E8E58D8B9A530AEDFB06F7B /* EventMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMigrationLoader.swift; sourceTree = "<group>"; };
 		4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrappingHStack.swift; sourceTree = "<group>"; };
 		5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstitutionSheetView.swift; sourceTree = "<group>"; };
@@ -288,6 +293,7 @@
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7AF03C5E2665BCEA0F29367E /* DayCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayCard.swift; sourceTree = "<group>"; };
 		7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientScannerView.swift; sourceTree = "<group>"; };
+		7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSharingControllerView.swift; sourceTree = "<group>"; };
 		7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Seasonal.swift"; sourceTree = "<group>"; };
 		7F6AC90F65369FDFDE3B64F6 /* SMCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCard.swift; sourceTree = "<group>"; };
 		7FABD368F46E53789760BDBD /* MetadataRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataRepository.swift; sourceTree = "<group>"; };
@@ -350,6 +356,7 @@
 		D29236A03618DED431FDD59D /* AppState+AssistantPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+AssistantPrompts.swift"; sourceTree = "<group>"; };
 		D518A1171D63ABFD56E8F391 /* AIAssistantCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantCoordinator.swift; sourceTree = "<group>"; };
 		D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPantrySupplementSheet.swift; sourceTree = "<group>"; };
+		D603B9AEBF7630A4E82C1FCC /* ShareSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSceneDelegate.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreChip.swift; sourceTree = "<group>"; };
 		DAA8CAD86110366F8DB2710D /* PreferenceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceRepository.swift; sourceTree = "<group>"; };
@@ -366,6 +373,7 @@
 		E8C02CE699881BC076A54A6A /* GroceryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryRepository.swift; sourceTree = "<group>"; };
 		E8ED641FC0046AD669A36898 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Assistant.swift"; sourceTree = "<group>"; };
+		EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Sharing.swift"; sourceTree = "<group>"; };
 		EF45A785CDE3A5D0755B138F /* AliasRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliasRepository.swift; sourceTree = "<group>"; };
 		F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackComposerView.swift; sourceTree = "<group>"; };
 		F222A33C201808AF925C11C1 /* EventEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEditSheet.swift; sourceTree = "<group>"; };
@@ -528,6 +536,7 @@
 				614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */,
 				C652054355BDBBF8BDE59B41 /* AppState+Reminders.swift */,
 				7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */,
+				EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */,
 				8D7938EAEC1EF2C60BB8F146 /* AppState+Subscription.swift */,
 				93F63F17E10C86615058DC2D /* AppState+TopBar.swift */,
 				E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */,
@@ -536,7 +545,9 @@
 				0746BC20391CB8C28F0A4149 /* DebugGate.swift */,
 				D0A21CBB6DD653833E92CBE3 /* HouseholdSession.swift */,
 				42FB8215B29EE1469EE3AA1E /* MainTabView.swift */,
+				4E317E5C2A1E1149294F18F7 /* PendingShareInbox.swift */,
 				FF982BE7185D4506E4BAC7C6 /* RootView.swift */,
+				D603B9AEBF7630A4E82C1FCC /* ShareSceneDelegate.swift */,
 				A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */,
 				3537D9BBBEB3EF263877815A /* SimmerSmithAppDelegate.swift */,
 				E0DE206A0D3BDED10E390103 /* TopBarSettings.swift */,
@@ -669,6 +680,7 @@
 				4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */,
 				C248B30B7556BFE5C10D1466 /* AssistantPromptsView.swift */,
 				6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */,
+				7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */,
 				826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */,
 				BC21B409CD23A4D526A595F7 /* HouseholdAliasesView.swift */,
 				ABA391135FC54F682B62E86F /* InvitationSheet.swift */,
@@ -979,6 +991,7 @@
 				60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */,
 				87050B2E557B6BE57C6F599B /* AppState+Reminders.swift in Sources */,
 				D12795B0EA94A8B2B7D60BC5 /* AppState+Seasonal.swift in Sources */,
+				56361EF23CCD75F017B8AC57 /* AppState+Sharing.swift in Sources */,
 				8DA0108F72F095B5F1DEE379 /* AppState+Subscription.swift in Sources */,
 				4706C35EAD6EE2D739E87D76 /* AppState+TopBar.swift in Sources */,
 				DF7731457AC9E508DD586A96 /* AppState+Vision.swift in Sources */,
@@ -993,6 +1006,7 @@
 				27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */,
 				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				E2F4671C3E4F1338A7AF13C0 /* CloudKitDebugView.swift in Sources */,
+				F9E9DB18C199398DCBFBAA9E /* CloudSharingControllerView.swift in Sources */,
 				8D9400CBD87CC53CAF3A2BC9 /* ComingSoonView.swift in Sources */,
 				4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */,
 				B8EB31CE2056E70EA6A9EAF3 /* CompactRecipeCard.swift in Sources */,
@@ -1056,6 +1070,7 @@
 				8B837F5F2F487DDF48A8A8A8 /* PantryRepository.swift in Sources */,
 				3F2C3AB7CC137C62A19C7C86 /* PantryView.swift in Sources */,
 				FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */,
+				C8B651FFEEFFF63F9949AEF9 /* PendingShareInbox.swift in Sources */,
 				CFE7B0CFDDC854D99448FF99 /* PhotoCompression.swift in Sources */,
 				2354476C225CC94770264296 /* PlanShoppingSheet.swift in Sources */,
 				73D0964674C5FD26F883B157 /* PreferenceRepository.swift in Sources */,
@@ -1091,6 +1106,7 @@
 				0CB8866878DFDABDE9F4846F /* SMCard.swift in Sources */,
 				39BE1B2E6408402B99902541 /* SaveLeftoversToFreezerSheet.swift in Sources */,
 				6AEB5EF39BEA651E4F33E98B /* SettingsView.swift in Sources */,
+				CC0BA04D3AED7F501C9193B0 /* ShareSceneDelegate.swift in Sources */,
 				B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */,
 				CB15A6E13F707BD7201DB2B5 /* SimmerSmithAppDelegate.swift in Sources */,
 				2E1B9FFB5BEA40BB24E62408 /* SmithToolbar.swift in Sources */,
@@ -1154,7 +1170,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 133;
+				CURRENT_PROJECT_VERSION = 134;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1270,7 +1286,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 133;
+				CURRENT_PROJECT_VERSION = 134;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

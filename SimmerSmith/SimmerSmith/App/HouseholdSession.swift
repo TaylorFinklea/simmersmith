@@ -38,7 +38,8 @@ final class HouseholdSession {
     let zoneID: CKRecordZone.ID
     /// Owner (private DB, own zone) vs participant (shared DB, owner's zone).
     let role: HouseholdSessionRole
-    private let householdID: String
+    /// The household id (owner zone derivation; exposed for owner-side share creation).
+    let householdID: String
 
     // MARK: — Per-user PRIVATE plane (NSPCKC)
     //
@@ -199,6 +200,13 @@ final class HouseholdSession {
     /// on-disk token. Idempotent — no-op if the file is already gone.
     func clearState() {
         try? FileManager.default.removeItem(at: stateURL)
+        engine.onStoreChanged = nil
+    }
+
+    /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
+    /// used when swapping an owner session out for a participant (adopt): the parked owner
+    /// zone + its sync token must survive for a future un-adopt. ARC then releases the session.
+    func detach() {
         engine.onStoreChanged = nil
     }
 }

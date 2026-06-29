@@ -1,0 +1,133 @@
+#if canImport(CloudKit)
+import Foundation
+import CloudKit
+import CloudKitProvisioning
+
+// SP-C household sharing v1 — the participant (adopt) side. The owner-side share creation
+// lives in Settings (UICloudSharingController over HouseholdShareFlow.makeOrFetchZoneWideShare).
+// Here a SECOND iCloud account accepts a zone-wide CKShare and ADOPTS the owner's household:
+// it boots a participant HouseholdSession on the shared database (a second CKSyncEngine), with
+// NO merge of its own solo data. See .docs/ai/phases/household-sharing-spec.md.
+extension AppState {
+
+    // MARK: - Participant marker (durable adopt-across-launches)
+
+    struct ParticipantMarker {
+        let zoneName: String
+        let ownerName: String
+        var zoneID: CKRecordZone.ID { CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName) }
+    }
+
+    private static let markerZoneNameKey = "sharing.participant.zoneName.v1"
+    private static let markerOwnerNameKey = "sharing.participant.ownerName.v1"
+
+    /// The saved participant household, if this device has adopted one. Checked BEFORE owner
+    /// discovery in `ensureHouseholdSession` so a participant re-boots as participant on relaunch.
+    func loadParticipantMarker() -> ParticipantMarker? {
+        let d = UserDefaults.standard
+        guard let zoneName = d.string(forKey: Self.markerZoneNameKey), !zoneName.isEmpty,
+              let ownerName = d.string(forKey: Self.markerOwnerNameKey), !ownerName.isEmpty
+        else { return nil }
+        return ParticipantMarker(zoneName: zoneName, ownerName: ownerName)
+    }
+
+    func saveParticipantMarker(_ marker: ParticipantMarker) {
+        let d = UserDefaults.standard
+        d.set(marker.zoneName, forKey: Self.markerZoneNameKey)
+        d.set(marker.ownerName, forKey: Self.markerOwnerNameKey)
+    }
+
+    func clearParticipantMarker() {
+        let d = UserDefaults.standard
+        d.removeObject(forKey: Self.markerZoneNameKey)
+        d.removeObject(forKey: Self.markerOwnerNameKey)
+    }
+
+    var isParticipant: Bool { loadParticipantMarker() != nil }
+
+    /// True when this device owns its household (a booted owner session) and can share it.
+    var canShareHousehold: Bool { (householdSession?.role.isOwner ?? false) && !isParticipant }
+
+    // MARK: - Owner: prepare the zone-wide share for UICloudSharingController
+
+    /// A prepared zone-wide share + its container, for `UICloudSharingController`.
+    struct OwnerSharePackage: Identifiable {
+        let id = UUID()
+        let share: CKShare
+        let container: CKContainer
+    }
+
+    /// Create (or fetch) the household's zone-wide CKShare so the owner can hand it to the
+    /// system share sheet. Returns nil if there's no owner session yet.
+    func prepareOwnerShare(title: String) async -> OwnerSharePackage? {
+        guard let session = householdSession, session.role.isOwner else { return nil }
+        do {
+            let flow = HouseholdShareFlow()
+            let share = try await flow.makeOrFetchZoneWideShare(householdID: session.householdID, title: title)
+            return OwnerSharePackage(share: share, container: flow.container)
+        } catch {
+            lastErrorMessage = "Couldn't prepare the share: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    // MARK: - Accept a share / boot the participant session
+
+    /// Warm-tap entry: drain a just-accepted share from the inbox and adopt it (swapping out
+    /// an already-booted owner session). Called by the scene delegate when the app is running.
+    func processPendingShare() async {
+        guard let metadata = PendingShareInbox.shared.take() else { return }
+        await bootParticipantSession(accepting: metadata)
+    }
+
+    /// Accept a zone-wide CKShare and adopt the owner's household.
+    func bootParticipantSession(accepting metadata: CKShare.Metadata) async {
+        // The owner tapping their own link is benign — do nothing (the owner path boots
+        // normally on the next ensureHouseholdSession).
+        if metadata.participantRole == .owner { return }
+        guard metadata.containerIdentifier == "iCloud.app.simmersmith.cloud" else { return }
+
+        do {
+            let flow = HouseholdShareFlow()
+            let zoneID = try await flow.acceptZoneWideShare(metadata)
+            await adoptSharedZone(zoneID)
+            saveParticipantMarker(ParticipantMarker(zoneName: zoneID.zoneName, ownerName: zoneID.ownerName))
+        } catch {
+            // Re-deposit so a foreground retry re-attempts the accept rather than falling
+            // through to owner discovery (which would orphan-mint a solo zone). A permanently
+            // bad share just keeps surfacing this message — never corrupts data. Leave the
+            // launch phase unchanged (a cold accept stays .resolving → RootView keeps loading
+            // and the scenePhase==.active retry re-fires; a warm accept keeps the owner ready).
+            PendingShareInbox.shared.deposit(metadata)
+            lastErrorMessage = "Couldn't join the shared household — will retry. (\(error.localizedDescription))"
+        }
+    }
+
+    /// Re-boot an already-adopted participant household from the saved marker (relaunch).
+    func bootParticipantSession(reusing marker: ParticipantMarker) async {
+        await adoptSharedZone(marker.zoneID)
+    }
+
+    /// Boot a participant `HouseholdSession` on the owner's shared zone, fetch, and wire repos.
+    private func adoptSharedZone(_ zoneID: CKRecordZone.ID) async {
+        // Warm swap: detach an already-booted owner engine (KEEP its state token so the
+        // parked solo zone survives a future un-adopt), then replace the session.
+        householdSession?.detach()
+
+        let session = HouseholdSession(householdID: zoneID.zoneName, role: .participant(sharedZoneID: zoneID))
+        // start() already runs one fetchChanges(); its raced .offline is non-terminal here.
+        await session.start()
+        await participantInitialFetch(session: session)
+        await wireHouseholdRepositories(session: session)
+    }
+
+    /// The make-or-break post-accept fetch: the accepting device usually receives no push
+    /// for its own acceptance, and `accept()` can return before the server finishes creating
+    /// the zone — so fetch once, then again after a short backoff to close the race.
+    private func participantInitialFetch(session: HouseholdSession) async {
+        do { try await session.engine.fetchChanges() } catch { /* transient; automaticallySync follows */ }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        try? await session.engine.fetchChanges()
+    }
+}
+#endif
