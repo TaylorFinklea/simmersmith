@@ -14,11 +14,16 @@ ordering (wireHouseholdRepositories extracted, shared); Fly invite/join retired 
 **App builds; 321 package tests pass.** Committed local-only (T1+T2 `20b245d`, primitives `1532205`, T3-T7 `d323a1d`).
 2 adversarial reviews folded in (the cold-launch orphan-mint hole; owner-only write-gating rejected; etc.).
 
+**Shipped: TestFlight build 135** (`b…` after the docs commit) — full sharing v1 + open-models + config-aware
+APNs (Debug→development, Release→production; entitlements use `$(SM_APS_ENVIRONMENT)`). Ops preconditions are
+DONE/moot: schema needed nothing (no new record types; household types already in Production — that's why
+TestFlight works); APNs production landed in 135 (App Store validation confirmed it resolved).
+
 **BLOCKER — two-device human gate (Savanne joins):** published to harness-deck (`simmersmith/household-sharing-device-test`,
-awaiting-review). NOT verifiable by me — CKShare+CKSyncEngine has no Apple sample + needs two real iCloud accounts.
-**Ops preconditions FIRST (user):** deploy CloudKit schema to Production; flip aps-environment→production; (tracked)
-catalog `_icloud` read-only. Then cut a TestFlight build for both devices. MUST-VERIFY-ON-DEVICE: scene-delegate
-accept fires; post-accept fetch populates; no orphan-mint on cold accept; bidirectional sync. Also still: push `main`.
+awaiting-review, with the per-step checklist + an approval block for the result). NOT verifiable by me —
+CKShare+CKSyncEngine has no Apple sample + needs two real iCloud accounts. Install build 135 on BOTH devices,
+run the 7 steps. MUST-VERIFY-ON-DEVICE: scene-delegate accept fires; post-accept fetch populates; no orphan-mint
+on cold accept; bidirectional sync; revocation purge. Also still pending: **push `main`** (local-only).
 
 ## Current (2026-06-28) — Open-model AI providers (GLM-5.2/Kimi-K2.6/MiniMax-M3) shipped; build 134 on TestFlight
 
