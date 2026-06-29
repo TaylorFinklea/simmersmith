@@ -103,6 +103,19 @@ func relativeDays() {
     #expect(out[1].dayName == "Thursday")
 }
 
+@Test("relative day outside the planned week is dropped, not mis-mapped to the wrong week")
+func relativeDayOutsideWeek() {
+    // now = Friday 2026-06-26, three days BEFORE the Mon 6/29 week.
+    let now = utcDay(2026, 6, 26)
+    let plan = ParsedWeeklyPlan(entries: [
+        entry("today", "dinner", "stir fry", "recipe"),  // outside the week → dropped
+        entry("Monday", "dinner", "tacos", "recipe"),     // named weekday → kept
+    ])
+    let out = VoicePlanResolver.resolve(plan, recipes: [], weekStart: monday, now: now)
+    #expect(out.count == 1)
+    #expect(out[0].dayName == "Monday")
+}
+
 @Test("garbage day/slot are dropped, not mis-placed")
 func dropsGarbage() {
     let plan = ParsedWeeklyPlan(entries: [

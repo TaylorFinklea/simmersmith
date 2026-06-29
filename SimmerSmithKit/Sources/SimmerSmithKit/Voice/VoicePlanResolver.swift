@@ -31,7 +31,7 @@ public enum VoicePlanResolver {
     ) -> [MealUpdateRequest] {
         var out: [MealUpdateRequest] = []
         for entry in plan.entries {
-            guard let offset = weekdayOffset(forDay: entry.day, now: now), (0...6).contains(offset) else { continue }
+            guard let offset = weekdayOffset(forDay: entry.day, weekStart: weekStart, now: now), (0...6).contains(offset) else { continue }
             let slot = normalizeSlot(entry.slot)
             guard !slot.isEmpty else { continue }
 
@@ -74,19 +74,21 @@ public enum VoicePlanResolver {
     // MARK: - Day resolution
 
     /// 0-based offset from the week's Monday (0=Mon … 6=Sun) for a spoken day reference.
-    /// Named weekdays map directly; "today"/"tonight"/"tomorrow" map via `now`'s weekday so
-    /// they always land inside the active week. Unknown → nil (entry dropped, surfaced in review).
-    public static func weekdayOffset(forDay raw: String, now: Date = Date()) -> Int? {
+    /// Named weekdays map directly. "today"/"tonight"/"tomorrow" resolve to the ACTUAL UTC day
+    /// delta from `weekStart` — so if `now` is outside the planned week they return nil (the
+    /// entry is dropped, surfaced in review) rather than mis-landing on the same weekday a week
+    /// off. Unknown → nil.
+    public static func weekdayOffset(forDay raw: String, weekStart: Date, now: Date = Date()) -> Int? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             .replacingOccurrences(of: "this ", with: "")
             .replacingOccurrences(of: "next ", with: "")
         if let i = weekdayOrder.firstIndex(of: s) { return i }
         switch s {
         case "today", "tonight":
-            return weekdayOrder.firstIndex(of: utcWeekdayName(now))
+            return dayDelta(weekStart: weekStart, to: now)
         case "tomorrow":
             let next = utcCalendar.date(byAdding: .day, value: 1, to: now) ?? now
-            return weekdayOrder.firstIndex(of: utcWeekdayName(next))
+            return dayDelta(weekStart: weekStart, to: next)
         default:
             // A contained weekday token, e.g. "tuesday lunch" leaking into the day field.
             if let hit = weekdayOrder.first(where: { s.contains($0) }) {
@@ -96,14 +98,13 @@ public enum VoicePlanResolver {
         }
     }
 
-    /// Lowercased weekday name in UTC — matches how the week's days are labeled/stored
-    /// (UTC midnight), keeping "today"/"tomorrow" consistent with the named-weekday path.
-    private static func utcWeekdayName(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "EEEE"
-        return f.string(from: date).lowercased()
+    /// Whole-day UTC delta from `weekStart` (UTC midnight) to `date`'s UTC day; nil if outside
+    /// 0…6 (i.e. `date` is not within the planned week).
+    private static func dayDelta(weekStart: Date, to date: Date) -> Int? {
+        let dayStart = utcCalendar.startOfDay(for: date)
+        guard let days = utcCalendar.dateComponents([.day], from: weekStart, to: dayStart).day,
+              (0...6).contains(days) else { return nil }
+        return days
     }
 
     static func normalizeSlot(_ raw: String) -> String {

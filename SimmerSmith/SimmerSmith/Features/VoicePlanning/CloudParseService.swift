@@ -10,11 +10,6 @@ import AIProviderKit
 /// before the review screen). Nothing persists here.
 enum CloudParseService {
 
-    enum CloudParseError: LocalizedError {
-        case invalidJSON
-        var errorDescription: String? { "The AI returned an unreadable plan. Try again." }
-    }
-
     static func parse(transcript: String, using aiSvc: AIService) async throws -> ParsedWeeklyPlan {
         let request = AIRequest(
             feature: .companionDraft,
@@ -23,18 +18,10 @@ enum CloudParseService {
             wantsStructuredJSON: true
         )
         let response = try await aiSvc.generate(request)
-        guard let json = extractJSONObject(from: response.text) else {
-            throw CloudParseError.invalidJSON
-        }
+        // Reuse the shipping extractor (strips <think> tags + code fences, then braces) — a
+        // reasoning-enabled open model can leak think tags despite the prompt.
+        let json = BYOKeyProvider.extractJSONObject(response.text)
         return try SimmerSmithJSONCoding.makeDecoder().decode(ParsedWeeklyPlan.self, from: Data(json.utf8))
-    }
-
-    /// Outermost JSON object from possibly fenced/prose-wrapped model text.
-    static func extractJSONObject(from text: String) -> String? {
-        guard let start = text.firstIndex(of: "{"),
-              let end = text.lastIndex(of: "}"),
-              start < end else { return nil }
-        return String(text[start...end])
     }
 
     // snake_case keys → SimmerSmithJSONCoding's convertFromSnakeCase maps raw_dish → rawDish, etc.

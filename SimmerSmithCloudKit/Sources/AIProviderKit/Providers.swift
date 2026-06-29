@@ -311,7 +311,7 @@ public struct BYOKeyProvider: AIProvider {
     /// Extract the outermost JSON object from a possibly prose/fenced/`<think>`-prefixed
     /// reply (used by the no-prefill / no-response_format / open-models fallbacks): strip
     /// a leading think block, strip a code fence, then take from the first "{" to last "}".
-    static func extractJSONObject(_ raw: String) -> String {
+    public static func extractJSONObject(_ raw: String) -> String {
         let unfenced = stripCodeFence(stripThinkTags(raw))
         guard let first = unfenced.firstIndex(of: "{"),
               let last = unfenced.lastIndex(of: "}"),

@@ -30,6 +30,11 @@ final class DictationService: NSObject {
     /// commit what we have and restart). The current partial is appended live for display.
     private var committed = ""
     private var currentPartial = ""
+    /// Bumped on every teardown/restart. Each recognition callback captures the value live at
+    /// its start; a stale callback (from a cancelled task whose MainActor hop is already queued)
+    /// bails instead of re-populating the transcript. `task?.cancel()` does NOT cancel an
+    /// already-enqueued `Task { @MainActor }`.
+    private var generation = 0
 
     private static let restartIntervalSeconds: UInt64 = 50
 
@@ -109,9 +114,10 @@ final class DictationService: NSObject {
         audioEngine.prepare()
         try audioEngine.start()
 
+        let gen = generation
         task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, gen == self.generation else { return }
                 if let result {
                     self.currentPartial = result.bestTranscription.formattedString
                     self.transcript = Self.join(self.committed, self.currentPartial)
@@ -134,6 +140,7 @@ final class DictationService: NSObject {
     }
 
     private func teardownRecognition() {
+        generation &+= 1   // invalidate in-flight callbacks from the task we're tearing down
         request?.endAudio()
         task?.cancel()
         request = nil

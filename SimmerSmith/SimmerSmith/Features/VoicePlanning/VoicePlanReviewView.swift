@@ -123,8 +123,18 @@ struct VoicePlanReviewView: View {
     private func apply() async {
         applying = true
         defer { applying = false }
+        // Proposed rows carry approved=false; Apply confirms them — flip to true so voice-planned
+        // meals match the manually-added path (e.g. WeekView's "Eating Out" writes approved=true).
+        let confirmed = rows.map { row in
+            MealUpdateRequest(
+                mealId: row.meal.mealId, dayName: row.meal.dayName, mealDate: row.meal.mealDate,
+                slot: row.meal.slot, recipeId: row.meal.recipeId, recipeName: row.meal.recipeName,
+                servings: row.meal.servings, scaleMultiplier: row.meal.scaleMultiplier,
+                notes: row.meal.notes, approved: true
+            )
+        }
         do {
-            _ = try await appState.saveWeekMeals(weekID: weekId, meals: rows.map(\.meal))
+            _ = try await appState.saveWeekMeals(weekID: weekId, meals: confirmed)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

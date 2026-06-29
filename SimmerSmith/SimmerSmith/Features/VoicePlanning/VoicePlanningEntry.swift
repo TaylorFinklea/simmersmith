@@ -5,6 +5,9 @@ import SwiftUI
 /// flow). Self-contained so the composer edit is a single insertion.
 struct ComposerMicButton: View {
     @Binding var text: String
+    /// Drives the composer to disable its TextField while dictating, so edits can't race the
+    /// live transcript merge (and get discarded on the next onChange).
+    @Binding var isDictating: Bool
     @State private var dictation = DictationService()
     @State private var baseText = ""
 
@@ -13,10 +16,12 @@ struct ComposerMicButton: View {
             Task {
                 if dictation.isListening {
                     _ = dictation.stop()
+                    isDictating = false
                 } else {
                     baseText = text
                     guard await dictation.requestAuthorization() else { return }
                     try? dictation.start()
+                    isDictating = dictation.isListening
                 }
             }
         } label: {
