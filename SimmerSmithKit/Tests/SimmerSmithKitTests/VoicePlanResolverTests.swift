@@ -116,6 +116,20 @@ func relativeDayOutsideWeek() {
     #expect(out[0].dayName == "Monday")
 }
 
+@Test("duplicate day+slot collapses to one meal (later mention wins)")
+func dedupDaySlot() {
+    let plan = ParsedWeeklyPlan(entries: [
+        entry("Tuesday", "lunch", "tuna", "recipe"),
+        entry("Tuesday", "lunch", "salad", "recipe"),   // same slot → overrides
+        entry("Tuesday", "dinner", "soup", "recipe"),    // different slot → kept
+    ])
+    let out = VoicePlanResolver.resolve(plan, recipes: [], weekStart: monday)
+    let tueLunch = out.filter { $0.dayName == "Tuesday" && $0.slot == "lunch" }
+    #expect(tueLunch.count == 1)
+    #expect(tueLunch.first?.recipeName == "Salad")
+    #expect(out.count == 2)  // one Tuesday lunch + one Tuesday dinner
+}
+
 @Test("garbage day/slot are dropped, not mis-placed")
 func dropsGarbage() {
     let plan = ParsedWeeklyPlan(entries: [

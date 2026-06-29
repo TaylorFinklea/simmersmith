@@ -12,7 +12,7 @@ import FoundationModels
 
 #if canImport(FoundationModels)
 
-@Generable(description: "One meal assigned to a specific day and slot")
+@Generable(description: "A single meal the user EXPLICITLY mentioned, for one day and slot")
 struct GenerableMealEntry: Equatable {
     /// "Monday"…"Sunday", or relative "today"/"tomorrow"/"tonight".
     let day: String
@@ -24,7 +24,7 @@ struct GenerableMealEntry: Equatable {
     let intent: String
 }
 
-@Generable(description: "A full weekly meal plan parsed from a spoken request")
+@Generable(description: "ONLY the meals the user explicitly stated — one entry per mentioned meal, and nothing the user did not say. An empty list if no meal was mentioned. Never fill in other days or meals.")
 struct GenerableWeeklyPlan: Equatable {
     let entries: [GenerableMealEntry]
 

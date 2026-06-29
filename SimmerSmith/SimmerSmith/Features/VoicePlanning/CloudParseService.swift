@@ -26,16 +26,18 @@ enum CloudParseService {
 
     // snake_case keys → SimmerSmithJSONCoding's convertFromSnakeCase maps raw_dish → rawDish, etc.
     private static let systemPrompt = """
-    You convert a spoken weekly meal-planning request into JSON. Output ONLY a JSON object of \
-    this exact shape — no prose, no markdown fences:
+    You EXTRACT meals from the user's text into JSON — you do NOT plan or complete a week. \
+    Output ONLY a JSON object of this exact shape, no prose, no markdown fences:
     {"entries":[{"day":"Monday","slot":"dinner","raw_dish":"tacos","intent":"recipe"}]}
     Rules:
-    - One entry per meal the user assigns to a day.
+    - Output exactly one entry per meal the user EXPLICITLY states. Never add days, meals, or \
+    slots they did not say. If they mention none, return {"entries":[]}.
     - day: "Monday"…"Sunday", or "today"/"tomorrow"/"tonight" exactly as said.
     - slot: "breakfast" | "lunch" | "dinner".
     - raw_dish: the dish exactly as spoken.
-    - intent: "eatOut" for ordering out / restaurants / takeout / pizza delivery, "leftovers" \
-    for leftovers, "skip" to leave a meal unplanned, otherwise "recipe".
-    - Do not invent meals the user did not mention.
+    - intent: "eatOut" for ordering out / restaurants / takeout / pizza, "leftovers" for \
+    leftovers, "skip" to skip a meal, otherwise "recipe".
+    Example — input "Tuna for lunch on Tuesday" → \
+    {"entries":[{"day":"Tuesday","slot":"lunch","raw_dish":"tuna","intent":"recipe"}]}
     """
 }

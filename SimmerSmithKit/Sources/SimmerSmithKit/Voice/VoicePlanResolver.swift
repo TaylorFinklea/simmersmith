@@ -68,7 +68,16 @@ public enum VoicePlanResolver {
                 recipeId: recipeId, recipeName: recipeName, approved: false
             ))
         }
-        return out
+        // Dedup: at most one meal per day+slot (a later mention overrides an earlier one) —
+        // guards against a model emitting two entries for the same slot (e.g. two Tuesday lunches).
+        var byKey: [String: MealUpdateRequest] = [:]
+        var order: [String] = []
+        for m in out {
+            let key = "\(m.dayName)|\(m.slot)"
+            if byKey[key] == nil { order.append(key) }
+            byKey[key] = m
+        }
+        return order.compactMap { byKey[$0] }
     }
 
     // MARK: - Day resolution

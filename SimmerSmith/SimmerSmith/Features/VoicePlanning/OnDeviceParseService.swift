@@ -62,11 +62,14 @@ enum OnDeviceParseService {
     }
 
     private static let instructions = """
-    Extract a weekly meal plan from the user's spoken request. Output one entry per meal the \
-    user assigns to a day. Use the day exactly as said ("Monday"…"Sunday", or \
-    "today"/"tomorrow"/"tonight") and the slot ("breakfast", "lunch", or "dinner"). Put the \
+    You EXTRACT meals from the user's text — you do NOT plan or complete a week. Output exactly \
+    one entry per meal the user EXPLICITLY states, and nothing else: never add days, meals, or \
+    slots they did not say. If they mention one meal, output exactly one entry; if they mention \
+    none, output an empty list. Use the day exactly as said ("Monday"…"Sunday", or \
+    "today"/"tomorrow"/"tonight"), the slot ("breakfast", "lunch", or "dinner"), and put the \
     dish exactly as spoken into rawDish. Set intent to "eatOut" for ordering out / restaurants \
-    / takeout / pizza delivery, "leftovers" for leftovers, "skip" to leave a meal unplanned, \
-    otherwise "recipe". Do not invent meals the user did not mention.
+    / takeout / pizza, "leftovers" for leftovers, "skip" to skip a meal, otherwise "recipe".
+    For example, "Tuna for lunch on Tuesday" gives EXACTLY one entry: day "Tuesday", slot \
+    "lunch", rawDish "tuna", intent "recipe" — and nothing else.
     """
 }
