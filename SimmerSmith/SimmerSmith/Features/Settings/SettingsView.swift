@@ -1339,6 +1339,9 @@ private struct HouseholdSection: View {
 
     var body: some View {
         Section {
+            // Fly household display (name / members / rename) — only when a Fly snapshot
+            // exists. In CloudKit-only mode this is nil; the sharing controls below DO NOT
+            // depend on it (they key off the CloudKit session) so they still render.
             if let household = appState.currentHousehold {
                 if household.isOwner {
                     TextField("Household name", text: $renameDraft, prompt: Text("e.g. The Smiths"))
@@ -1363,31 +1366,33 @@ private struct HouseholdSection: View {
                             .foregroundStyle(SMColor.textSecondary)
                     }
                 }
-
-                // SP-C sharing v1: share the whole CloudKit household with one partner via a
-                // zone-wide CKShare + the native share sheet (replaces the Fly invite/code).
-                if appState.canShareHousehold {
-                    Button {
-                        Task {
-                            ownerShare = await appState.prepareOwnerShare(
-                                title: household.name.isEmpty ? "SimmerSmith household" : household.name)
-                        }
-                    } label: {
-                        Label("Share with your partner", systemImage: "person.badge.plus")
-                    }
-                    Text("Sends an invite link. Your partner taps it to see and edit this household. They keep their own personal recipes separately.")
-                        .font(SMFont.caption)
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-            } else {
-                Text("Loading household…")
-                    .foregroundStyle(SMColor.textTertiary)
             }
 
-            // Participant status: this device has adopted someone else's household.
-            if appState.isParticipant {
+            // SP-C sharing v1 — keyed on the CloudKit SESSION, not the Fly snapshot (which is
+            // nil in CloudKit-only mode). The owner shares the whole household zone with one
+            // partner via a zone-wide CKShare + the native share sheet.
+            if appState.canShareHousehold {
+                Button {
+                    let name = appState.currentHousehold?.name ?? ""
+                    Task {
+                        ownerShare = await appState.prepareOwnerShare(
+                            title: name.isEmpty ? "SimmerSmith household" : name)
+                    }
+                } label: {
+                    Label("Share with your partner", systemImage: "person.badge.plus")
+                }
+                Text("Sends an invite link. Your partner taps it to see and edit this household. They keep their own personal recipes separately.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textSecondary)
+            } else if appState.isParticipant {
                 Label("You're in a shared household", systemImage: "person.2.fill")
                     .foregroundStyle(SMColor.textSecondary)
+            }
+
+            // Only show a loading hint when neither plane has anything to show yet.
+            if appState.currentHousehold == nil && !appState.canShareHousehold && !appState.isParticipant {
+                Text("Loading household…")
+                    .foregroundStyle(SMColor.textTertiary)
             }
         } header: {
             SmithSectionHeader("household")
