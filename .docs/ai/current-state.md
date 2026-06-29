@@ -3,6 +3,23 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
+## Current (2026-06-29) — Household sharing v1 (two-account CKShare) CODE-COMPLETE; awaiting two-device gate
+
+Real two-account sharing built per `phases/household-sharing-spec.md` (T1-T7): owner shares the household
+zone with ONE partner via a zone-wide CKShare; participant ADOPTS (no merge), both edit. Role on
+HouseholdSession (owner private DB / participant shared DB, per-scope state); engine ownsZone + share-record
+filter + owner-safe revocation; zone-wide share create/accept primitives; scene-delegate accept (warm+cold,
+CKSharingSupported) + PendingShareInbox; participant boot + post-accept double-fetch; accept-before-mint launch
+ordering (wireHouseholdRepositories extracted, shared); Fly invite/join retired + joinHousehold hard-gated.
+**App builds; 321 package tests pass.** Committed local-only (T1+T2 `20b245d`, primitives `1532205`, T3-T7 `d323a1d`).
+2 adversarial reviews folded in (the cold-launch orphan-mint hole; owner-only write-gating rejected; etc.).
+
+**BLOCKER — two-device human gate (Savanne joins):** published to harness-deck (`simmersmith/household-sharing-device-test`,
+awaiting-review). NOT verifiable by me — CKShare+CKSyncEngine has no Apple sample + needs two real iCloud accounts.
+**Ops preconditions FIRST (user):** deploy CloudKit schema to Production; flip aps-environment→production; (tracked)
+catalog `_icloud` read-only. Then cut a TestFlight build for both devices. MUST-VERIFY-ON-DEVICE: scene-delegate
+accept fires; post-accept fetch populates; no orphan-mint on cold accept; bidirectional sync. Also still: push `main`.
+
 ## Current (2026-06-28) — Open-model AI providers (GLM-5.2/Kimi-K2.6/MiniMax-M3) shipped; build 134 on TestFlight
 
 New BYO-key "Open models" provider: GLM-5.2 (Z.ai), Kimi-K2.6 (Moonshot), MiniMax-M3 (MiniMax), direct

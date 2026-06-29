@@ -953,3 +953,33 @@ deliberate, tracked exception; the data plane itself is fully green.
   mode; MiniMax image input. MUST-VERIFY-IN-CODE (live key, on-device gate): GLM clear_thinking:false replay
   contract; MiniMax /models existence + response_format honoring; Kimi 400 "reasoning_content is missing" string.
 - Spec: `phases/oss-ai-providers-spec.md`. Shipped TestFlight build 134 (NOT pushed to origin).
+
+## 2026-06-29 - Household sharing v1: zone-wide CKShare + adopt (no merge)
+
+- **Adopt, not merge.** A joining partner ADOPTS the owner's household (sees + edits it); their own solo
+  household zone stays PARKED in their private DB, never merged. CloudKit can't cheaply move records between
+  two accounts' zones, and a non-atomic multi-table merge is the risk the old Fly path took — so v1 writes
+  NO merge code. (Merge-into-shared is a deliberate later feature.)
+- **Two CKSyncEngine instances, one per database scope** (Apple's documented model — one engine per scope).
+  Owner runs the existing private-DB engine; a participant runs a SECOND engine on `sharedCloudDatabase` +
+  the owner's zone. Realized as a `Role` (owner|participant(sharedZoneID)) on `HouseholdSession`, default
+  `.owner` so every existing call site is unchanged. The engine was already DB-generic, so it barely moved.
+- **Zone-wide CKShare**, not hierarchical (`CKShare(recordZoneID:)`, not `rootRecord:`) — a hierarchical share
+  only shares the profile record, leaving the participant an empty household. NEW zone-wide methods were added
+  alongside the hierarchical helpers (CloudKitDebugView still uses those). Named-participant model
+  (`publicPermission = .none`, UICloudSharingController) for exactly one partner.
+- **Per-scope sync-state** (`engine-state.json` vs `engine-state-shared.json`) and the
+  CKShare record is filtered out of owner ingestion (`isShareRecord`). Zone-revocation purge is gated `!ownsZone`
+  so an owner's own zone-deletion never wipes the owner mirror.
+- **Accept-before-mint** (the critique's one real correctness hole): `ensureHouseholdSession` checks a pending
+  share (PendingShareInbox) AND a durable participant marker BEFORE owner discovery, so a cold accept never
+  orphan-mints a solo owner zone. Accept entry is the iOS-26 scene-delegate path (the deprecated app-delegate
+  callback doesn't fire for SwiftUI WindowGroup); `CKSharingSupported=YES` required.
+- **Post-accept fetch is best-practice INFERENCE, not Apple-documented** — the accepting device usually gets no
+  push for its own acceptance and `accept()` can return before the zone is created, so we double-fetch with a
+  1.5s backoff. This + the scene-delegate accept + zone-wide-share↔engine coexistence are MUST-VERIFY-ON-DEVICE
+  (no Apple CKSyncEngine+sharing sample exists) — hence the mandatory two-real-device gate.
+- **Fly invite/join retired**; `AppState.joinHousehold` hard-gated to a no-op so no path can merge/delete a
+  household. Fly auth/identity untouched. Out of scope v1: N members, leave/un-adopt, settings sharing,
+  owner-also-participant.
+- Spec: `phases/household-sharing-spec.md`. Code-complete, NOT pushed; two-device gate published to harness-deck.
