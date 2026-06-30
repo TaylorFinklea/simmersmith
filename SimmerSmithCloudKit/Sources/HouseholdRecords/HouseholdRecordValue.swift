@@ -5,7 +5,7 @@ import Foundation
 // inert LWW pass-through, so a single field-bag value (not 12 bespoke structs) carries them.
 // Typed domain structs arrive when the app wires these to its models (Phase 7).
 
-public enum ScalarValue: Equatable {
+public enum ScalarValue: Equatable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -43,7 +43,7 @@ extension ScalarValue: Codable {
     }
 }
 
-public struct HouseholdRecordValue: Equatable, Codable {
+public struct HouseholdRecordValue: Equatable, Codable, Sendable {
     public let type: HouseholdRecordType
     public let recordName: String
     /// Scalar field name → value. Omitted fields are absent (optional columns stay absent).

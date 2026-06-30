@@ -31,7 +31,9 @@ extension AppState {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
 
-    static func backupsDirectory() throws -> URL {
+    // nonisolated: pure FileManager work, called from both the synchronous manual path and the
+    // detached auto-snapshot task.
+    nonisolated static func backupsDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = base.appendingPathComponent("SimmerSmithBackups", isDirectory: true)
@@ -58,16 +60,25 @@ extension AppState {
         )
     }
 
+    /// Encode + atomically write a snapshot, then prune to the newest `keepLast`. Pure file I/O,
+    /// nonisolated so it can run off the main actor (the auto path runs this in a detached task;
+    /// the manual path calls it synchronously, same thread, no actor hop).
+    @discardableResult
+    nonisolated static func writeBackupFile(_ backup: HouseholdBackup, keepLast: Int) throws -> URL {
+        let dir = try backupsDirectory()
+        let url = dir.appendingPathComponent(BackupFilePolicy.filename(for: backup.capturedAt))
+        try BackupCodec.encode(backup).write(to: url, options: .atomic)
+        pruneBackups(in: dir, keepLast: keepLast)
+        return url
+    }
+
     /// Write a snapshot to the on-device backups directory, then prune to the newest `keepLast`.
     /// Best-effort: an auto snapshot logs + swallows errors; a manual one surfaces them.
     @discardableResult
     func writeSnapshot(manual: Bool, keepLast: Int = 14) -> URL? {
         guard let backup = snapshotHousehold() else { return nil }
         do {
-            let dir = try Self.backupsDirectory()
-            let url = dir.appendingPathComponent(BackupFilePolicy.filename(for: backup.capturedAt))
-            try BackupCodec.encode(backup).write(to: url, options: .atomic)
-            pruneBackups(in: dir, keepLast: keepLast)
+            let url = try Self.writeBackupFile(backup, keepLast: keepLast)
             print("[Backup] wrote \(url.lastPathComponent) (\(backup.records.count) records, manual=\(manual))")
             return url
         } catch {
@@ -77,17 +88,26 @@ extension AppState {
         }
     }
 
-    private static let lastAutoSnapshotDayKey = "backup.lastAutoSnapshotDay.v1"
+    nonisolated private static let lastAutoSnapshotDayKey = "backup.lastAutoSnapshotDay.v1"
 
     /// Take an automatic snapshot at most once per calendar day (called on launch after the
     /// household loads). The rolling 14-deep history is the real protection: even if a build
     /// damages data, a prior day's snapshot — captured while the data was intact — is restorable.
+    /// The snapshot read (touches session.store) stays on the main actor; the encode + write +
+    /// prune is fire-and-forget background I/O, detached so it doesn't inherit @MainActor.
     func maybeAutoSnapshot() {
         guard householdSession != nil else { return }
         let today = Self.dayKey(Date())
         guard UserDefaults.standard.string(forKey: Self.lastAutoSnapshotDayKey) != today else { return }
-        if writeSnapshot(manual: false) != nil {
-            UserDefaults.standard.set(today, forKey: Self.lastAutoSnapshotDayKey)
+        guard let backup = snapshotHousehold() else { return }
+        Task.detached(priority: .utility) {
+            do {
+                let url = try Self.writeBackupFile(backup, keepLast: 14)
+                print("[Backup] wrote \(url.lastPathComponent) (\(backup.records.count) records, manual=false)")
+                UserDefaults.standard.set(today, forKey: Self.lastAutoSnapshotDayKey)
+            } catch {
+                print("[Backup] write failed: \(error)")
+            }
         }
     }
 
@@ -98,7 +118,7 @@ extension AppState {
         return f.string(from: date)
     }
 
-    private func pruneBackups(in dir: URL, keepLast: Int) {
+    nonisolated private static func pruneBackups(in dir: URL, keepLast: Int) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         for name in BackupFilePolicy.toPrune(names, keepLast: keepLast) {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))

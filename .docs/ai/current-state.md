@@ -15,6 +15,9 @@ newer). Auto rolling (14, once/day on launch) + manual + ShareLink export + `.fi
 **43 HouseholdRecords tests pass** (round-trip + retention). 10-finding adversarial review fixed (3 critical, all
 restore: merger-clobber, participant-shared-zone warning, drain-completeness). Build 145 on TestFlight. **BLOCKER —
 recover device gate** (back up → delete meal → recover → returns): harness-deck `simmersmith/backup-restore-device-test`.
+**Deferred adversarial-review findings resolved (2026-06-30, Sonnet 5):** I2 → bead `pro` (HouseholdRecordCodec.decode
+now logs a `[Backup] decode:` warn on a present-but-wrong-type field instead of silently dropping it); I5 → bead `54w`
+(auto-snapshot encode/write moved to a detached `.utility` task off the main actor; `HouseholdBackup` made `Sendable`).
 
 ## Current (2026-06-29) — Sharing accept WORKS; participant fetch retry (144); also voice 141 cloud-only
 

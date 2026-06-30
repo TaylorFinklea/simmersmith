@@ -70,7 +70,7 @@ public enum RecordNamePolicy: Equatable {
 /// WeekChangeEvent landed in Phase 4-remainder as plain LWW manifest records (their cross-record
 /// repair — slot-swap, week-collapse, sort-order, audit-prune — runs as an adapter over the
 /// engine, not in the codec). FeedbackEntry remains deferred (independent; no repair machinery).
-public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable {
+public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Sendable {
     case householdSetting
     case householdTermAlias
     case recipe

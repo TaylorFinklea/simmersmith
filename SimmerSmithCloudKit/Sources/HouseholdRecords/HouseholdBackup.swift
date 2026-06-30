@@ -5,7 +5,7 @@ import Foundation
 // same primitive the codec uses for CKRecords), plus metadata. Restoring re-encodes these
 // values to CKRecords and upserts them (additive recover — see AppState+Backup).
 
-public struct HouseholdBackup: Codable, Equatable {
+public struct HouseholdBackup: Codable, Equatable, Sendable {
     /// Bumped if the on-disk shape changes incompatibly. Restore rejects a newer MAJOR.
     public static let currentSchemaVersion = 1
 
