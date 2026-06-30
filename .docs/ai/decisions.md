@@ -1055,3 +1055,18 @@ deliberate, tracked exception; the data plane itself is fully green.
   ("generate a fresh week"); WeekView edits all build `week.meals.map{…}` (full set) first.
 - Also fixed: blank sheet on first open — `.sheet(isPresented:)` raced the coordinator binding; switched to
   `.sheet(item:)` (coordinator made Identifiable) so it presents atomically.
+
+## 2026-06-29 - Sharing: share/invite works (142); accept fixed for the cold-launch race (143)
+
+- **142:** `UICloudSharingController` was the root of a SwiftUI `.sheet` → it rendered then self-dismissed
+  (it must be presented modally, not embedded). Fixed: `CloudSharingPresenter.present` shows it directly from
+  the top view controller. Owner side then correctly listed the partner as "Invited" — share + invite confirmed.
+- **143 (accept side):** partner tapped the link, app opened, nothing happened; owner still showed "Invited".
+  Root cause: COLD-LAUNCH RACE — `ShareSceneDelegate.scene(willConnectTo:)` deposits the metadata in an async
+  `Task`, while `ensureHouseholdSession` drains `PendingShareInbox` in its own task. Drain-before-deposit →
+  metadata missed → boots as OWNER → `householdLaunchPhase = .ready` → the foreground retry (gated on `!= .ready`)
+  never re-fires → metadata orphaned. Fixes: (1) call `processPendingShare()` right after `ensureHouseholdSession`
+  in the launch task (a late deposit is drained and `adoptSharedZone` warm-swaps owner→participant); (2) drain on
+  EVERY foreground (`scenePhase .active`), even when `.ready`; (3) `containerIdentifier` is a non-optional String
+  — guard compares directly + is non-silent; (4) `print("[Sharing] …")` at every boundary so a TestFlight run is
+  diagnosable via the device console. The two-real-device gate is still the proof.
