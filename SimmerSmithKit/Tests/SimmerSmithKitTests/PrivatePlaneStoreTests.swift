@@ -6,6 +6,18 @@ import Testing
 // SP-A Phase 1 — invariant tests for the per-user PRIVATE plane store. Run against an
 // in-memory store (cloudKitDatabase: .none) so they're headless + fast; the on-device
 // CloudKit round-trip is verified separately via the DEBUG CloudKit-checks panel.
+//
+// ModelContainer(for:configurations:) over a CloudKit-capable Schema hard-traps (SIGTRAP) in
+// the un-entitled `swift test` binary, even with cloudKitDatabase: .none — there's no
+// entitlement to construct against. These tests therefore skip under plain `swift test` and
+// only run under a host that sets SIMMERSMITH_PRIVATE_PLANE_ENTITLED_HOST, e.g. an
+// `xcodebuild test` run hosted in the entitled SimmerSmith app target.
+private let isPrivatePlaneEntitledHost =
+    ProcessInfo.processInfo.environment["SIMMERSMITH_PRIVATE_PLANE_ENTITLED_HOST"] != nil
+private let requiresPrivatePlaneEntitledHost: ConditionTrait = .enabled(
+    if: isPrivatePlaneEntitledHost,
+    "requires an entitled host (SIMMERSMITH_PRIVATE_PLANE_ENTITLED_HOST); un-entitled `swift test` traps building a CloudKit-capable ModelContainer"
+)
 
 @MainActor
 private func makeStore() throws -> PrivatePlaneStore {
@@ -13,7 +25,7 @@ private func makeStore() throws -> PrivatePlaneStore {
     return PrivatePlaneStore(context: container.mainContext)
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func profileSettingUpsertIsSingletonPerKey() throws {
     let store = try makeStore()
     try store.upsertProfileSetting(key: "unit_system", value: "us")
@@ -27,7 +39,7 @@ func profileSettingUpsertIsSingletonPerKey() throws {
     #expect(rows.first?.value == "metric")
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func dietaryGoalIsSingleton() throws {
     let store = try makeStore()
     try store.upsertDietaryGoal(goalType: "lose", dailyCalories: 2000, proteinG: 150,
@@ -42,7 +54,7 @@ func dietaryGoalIsSingleton() throws {
     #expect(goals.first?.dailyCalories == 2200)
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func preferenceSignalDeterministicKeyDedupes() throws {
     let store = try makeStore()
     try store.upsertPreferenceSignal(signalType: "cuisine", name: "Thai", normalizedName: "thai", score: 0.8, active: true)
@@ -57,7 +69,7 @@ func preferenceSignalDeterministicKeyDedupes() throws {
     #expect(rows.first?.active == false)
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func ingredientPreferenceUpsertByID() throws {
     let store = try makeStore()
     try store.upsertIngredientPreference(preferenceID: "pref-1", baseIngredientID: "ing-1",
@@ -73,7 +85,7 @@ func ingredientPreferenceUpsertByID() throws {
     #expect(rows.first?.rank == 2)
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func assistantTranscriptOrdersByCreatedAt() throws {
     let store = try makeStore()
     let base = Date(timeIntervalSince1970: 1_700_000_000)
@@ -87,7 +99,7 @@ func assistantTranscriptOrdersByCreatedAt() throws {
     #expect(ordered == ["first", "second"])
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func deletingThreadCascadesToMessages() throws {
     let store = try makeStore()
     let base = Date(timeIntervalSince1970: 1_700_000_000)
@@ -103,7 +115,7 @@ func deletingThreadCascadesToMessages() throws {
     #expect(allMessages.isEmpty)
 }
 
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func migrationScopeClaimsOnce() throws {
     let store = try makeStore()
     #expect(try store.claimMigrationScope("households") == true)
@@ -114,7 +126,7 @@ func migrationScopeClaimsOnce() throws {
 // SP-C factory reset (spec §2/§4): `clearPrivatePlane` deletes every private-plane @Model
 // type. Verified against the in-memory store (CloudKit sync off); the on-device propagation
 // is verified separately. Seeds a row across every type, wipes, asserts every fetch empty.
-@Test @MainActor
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func clearPrivatePlaneDeletesEveryType() throws {
     let store = try makeStore()
     let base = Date(timeIntervalSince1970: 1_700_000_000)

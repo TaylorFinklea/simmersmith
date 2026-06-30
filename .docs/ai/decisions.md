@@ -1092,3 +1092,18 @@ deliberate, tracked exception; the data plane itself is fully green.
 - 43 HouseholdRecords tests pass (serialization round-trip + retention policy). Device gate: the recover round-trip
   (back up → delete a meal → recover → it returns) — harness-deck `simmersmith/backup-restore-device-test`.
   Spec: `phases/backup-restore-spec.md`. NOT pushed.
+
+## 2026-06-30 - PrivatePlaneStoreTests: skip-under-`swift test`, not `.disabled`
+
+- Root cause confirmed: `ModelContainer(for:configurations:)` over a CloudKit-capable `Schema` hard-traps
+  (SIGTRAP) in the un-entitled SPM `swift test` binary — even with `cloudKitDatabase: .none` — because the
+  trap is about the binary's missing entitlement, not network/account state. `FileManager.ubiquityIdentityToken`
+  was rejected as a gate for this reason: a dev Mac signed into iCloud would still trap.
+- Chose a Swift Testing `ConditionTrait` (`.enabled(if:)`) keyed on an env var
+  (`SIMMERSMITH_PRIVATE_PLANE_ENTITLED_HOST`) over moving the tests into the entitled `SimmerSmithTests` app
+  target — same coverage, zero cross-target plumbing, and `swift test` now reports the 8 tests as explicitly
+  skipped (with reason) instead of trapping the whole process and falsely printing "Test Suite ... passed".
+  No host currently sets the var; running them for real still requires an entitled host (e.g. `xcodebuild test`
+  against the app target) — that path is documented in the test file's header comment but not yet wired up.
+- `SimmerSmithKit/Tests/SimmerSmithKitTests/PrivatePlaneStoreTests.swift`. `swift test --package-path
+  SimmerSmithKit` now exits 0, no `signal code 5`, 117 tests pass / 8 skipped.

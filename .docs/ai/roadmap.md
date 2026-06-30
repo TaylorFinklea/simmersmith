@@ -764,7 +764,7 @@ APNs permission prompt fires automatically once after first sign-in.
 
 - [ ] Design the AI preference interview conversation flow. **Tier hint**: needs Opus to scope.
 - [ ] Design the freemium gate architecture. **Tier hint**: needs Opus to scope.
-- [ ] **PrivatePlaneStore (SwiftData/CloudKit) tests crash under macOS `swift test` (signal 5) — pre-existing, masked.**
+- [x] **PrivatePlaneStore (SwiftData/CloudKit) tests crash under macOS `swift test` (signal 5) — pre-existing, masked.**
   - **Scope**: The `SimmerSmithKitTests/PrivatePlaneStoreTests` (every test using `makeSimmerSmithPrivatePlaneContainer`) hard-crash (SIGTRAP) under `swift test` on macOS — CloudKit-capable `@Model` types in an entitled/"privileged" test binary. The `xctest` wrapper prints "Test Suite passed" even on the crash, so `swift test | tail` reports green — this masked the crash for the whole CloudKit-cutover effort. Confirmed pre-existing (crashes on `origin/main`); non-SwiftData Kit tests + all SimmerSmithCloudKit tests pass.
   - **Fix options**: run these tests under an entitled iOS test host (xcodebuild test via the app's test target) instead of `swift test`; OR guard them with a `.disabled`/availability trait when the entitlement isn't present so the suite stops crashing + stops masking. Either way, stop trusting `swift test --package-path SimmerSmithKit | tail` as a green signal.
   - **Verify**: `swift test --package-path SimmerSmithKit` exits 0 with the PrivatePlaneStore tests either passing (entitled host) or explicitly skipped — no `signal code 5`.
