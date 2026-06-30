@@ -77,22 +77,37 @@ extension AppState {
     /// an already-booted owner session). Called by the scene delegate when the app is running.
     func processPendingShare() async {
         guard let metadata = PendingShareInbox.shared.take() else { return }
+        print("[Sharing] processPendingShare: draining metadata, role=\(metadata.participantRole.rawValue) container=\(metadata.containerIdentifier)")
         await bootParticipantSession(accepting: metadata)
     }
 
     /// Accept a zone-wide CKShare and adopt the owner's household.
     func bootParticipantSession(accepting metadata: CKShare.Metadata) async {
+        print("[Sharing] bootParticipantSession: role=\(metadata.participantRole.rawValue) container=\(metadata.containerIdentifier)")
         // The owner tapping their own link is benign — do nothing (the owner path boots
         // normally on the next ensureHouseholdSession).
-        if metadata.participantRole == .owner { return }
-        guard metadata.containerIdentifier == "iCloud.app.simmersmith.cloud" else { return }
+        if metadata.participantRole == .owner {
+            print("[Sharing] skip: participantRole == .owner (owner tapped own link)")
+            return
+        }
+        // Defensive: only accept shares for our container. Non-silent so a mismatch is visible.
+        if metadata.containerIdentifier != "iCloud.app.simmersmith.cloud" {
+            print("[Sharing] reject: container mismatch \(metadata.containerIdentifier)")
+            lastErrorMessage = "This share is for a different app (\(metadata.containerIdentifier))."
+            return
+        }
 
         do {
+            print("[Sharing] accepting zone-wide share…")
             let flow = HouseholdShareFlow()
             let zoneID = try await flow.acceptZoneWideShare(metadata)
+            print("[Sharing] accepted; adopting zone \(zoneID.zoneName) owner=\(zoneID.ownerName)")
             await adoptSharedZone(zoneID)
             saveParticipantMarker(ParticipantMarker(zoneName: zoneID.zoneName, ownerName: zoneID.ownerName))
+            print("[Sharing] adopted + marker saved — participant booted")
+            lastErrorMessage = nil
         } catch {
+            print("[Sharing] accept FAILED: \(error)")
             // Re-deposit so a foreground retry re-attempts the accept rather than falling
             // through to owner discovery (which would orphan-mint a solo zone). A permanently
             // bad share just keeps surfacing this message — never corrupts data. Leave the

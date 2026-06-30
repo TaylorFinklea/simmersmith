@@ -19,6 +19,7 @@ final class ShareSceneDelegate: NSObject, UIWindowSceneDelegate {
         options connectionOptions: UIScene.ConnectionOptions
     ) {
         if let metadata = connectionOptions.cloudKitShareMetadata {
+            print("[Sharing] scene(willConnectTo:) COLD launch with share metadata — depositing")
             Task { @MainActor in PendingShareInbox.shared.deposit(metadata) }
         }
     }
@@ -29,9 +30,11 @@ final class ShareSceneDelegate: NSObject, UIWindowSceneDelegate {
         _ windowScene: UIWindowScene,
         userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
     ) {
+        print("[Sharing] windowScene(userDidAcceptCloudKitShareWith:) WARM accept — depositing + processing")
         Task { @MainActor in
             PendingShareInbox.shared.deposit(cloudKitShareMetadata)
             let appState = (UIApplication.shared.delegate as? SimmerSmithAppDelegate)?.appState
+            if appState == nil { print("[Sharing] WARM: appDelegate.appState is NIL — cannot process") }
             await appState?.processPendingShare()
         }
     }

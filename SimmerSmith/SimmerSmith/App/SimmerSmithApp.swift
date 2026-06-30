@@ -48,6 +48,11 @@ struct SimmerSmithApp: App {
                     // which unblocks RootView to show MainTabView.
                     #if canImport(CloudKit)
                     await appState.ensureHouseholdSession()
+                    // Safety net for the cold-launch accept race: the scene delegate deposits the
+                    // share metadata asynchronously, so ensureHouseholdSession's inbox drain can run
+                    // first and miss it (booting as owner, which then blocks the foreground retry).
+                    // Re-drain after setup — if a share landed late, this swaps owner→participant.
+                    await appState.processPendingShare()
                     #endif
                 }
         }
@@ -72,6 +77,12 @@ struct SimmerSmithApp: App {
             #if canImport(CloudKit)
             if newPhase == .active && appState.householdLaunchPhase != .ready {
                 Task { await appState.ensureHouseholdSession() }
+            }
+            // Drain a pending accepted share on every foreground — even when already .ready —
+            // so a share accepted while the app was backgrounded (or missed by the cold-launch
+            // race) gets adopted. No-op when the inbox is empty.
+            if newPhase == .active {
+                Task { await appState.processPendingShare() }
             }
             #endif
         }
