@@ -134,6 +134,6 @@ harmless; cleanup available on request) · CloudKit Prod schema deploy for weeks
 **Deferred follow-ons:** CKShare-participant (Savanne joins) · SP-D (retire Fly + the dead Fly fallback
 branches). AI v2 refinements: token-streaming the assistant, full 49-tool set, web-search/exports tools,
 full-macro nutrition (needs the catalog to publish macros). PrivatePlaneStore `swift test` crash
-(signal 5) — **FIXED 2026-06-30** (bead ww9, `7ec7e49`): the 8 tests now skip via a `.enabled(if:)`
+(signal 5) — **FIXED 2026-06-30** (bead ww9, `d7e3737`): the 8 tests now skip via a `.enabled(if:)`
 ConditionTrait under un-entitled `swift test` (env `SIMMERSMITH_PRIVATE_PLANE_ENTITLED_HOST` to run on an
 entitled host); `swift test --package-path SimmerSmithKit` is a trustworthy green signal again (was masking).

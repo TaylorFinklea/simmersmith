@@ -153,6 +153,37 @@ private let zoneID = CKRecordZone.ID(zoneName: "test-zone", ownerName: CKCurrent
     #expect(HouseholdRecordCodec.decode(record, as: .ingredientVariation) == value)
 }
 
+@Test func decode_dropsPresentWrongTypeFieldButKeepsSiblings() {
+    // "name" is a .string field — store it as an Int CKRecordValue to simulate CloudKit
+    // drift/corruption (a present field/key with the wrong type, never a normal write path).
+    let record = CKRecord(recordType: HouseholdRecordType.recipe.recordTypeName,
+                           recordID: CKRecord.ID(recordName: "recipe-bad", zoneID: zoneID))
+    record["name"] = 42 as CKRecordValue
+    record["cuisine"] = "thai" as CKRecordValue
+    record["favorite"] = 1 as CKRecordValue
+
+    let decoded = HouseholdRecordCodec.decode(record, as: .recipe)
+
+    #expect(decoded.scalars["name"] == nil)                  // wrong-typed field dropped, not crashed
+    #expect(decoded.scalars["cuisine"] == .string("thai"))   // correctly-typed sibling still decodes
+    #expect(decoded.scalars["favorite"] == .bool(true))      // correctly-typed sibling still decodes
+}
+
+@Test func decode_dropsPresentWrongTypeCrossDBStringRef() {
+    // "recipeTemplateID" is a .crossDBString ref (plain String key) — store it as an Int to
+    // simulate drift/corruption.
+    let record = CKRecord(recordType: HouseholdRecordType.recipe.recordTypeName,
+                           recordID: CKRecord.ID(recordName: "recipe-bad-ref", zoneID: zoneID))
+    record["recipeTemplateID"] = 7 as CKRecordValue
+    record["baseRecipe"] = CKRecord.Reference(
+        recordID: CKRecord.ID(recordName: "recipe-0", zoneID: zoneID), action: .none)
+
+    let decoded = HouseholdRecordCodec.decode(record, as: .recipe)
+
+    #expect(decoded.refs["recipeTemplateID"] == nil)   // wrong-typed ref dropped, not crashed
+    #expect(decoded.refs["baseRecipe"] == "recipe-0")  // correctly-typed sibling ref still decodes
+}
+
 // MARK: CKDSL generation
 
 @Test func ckdslEmitsBoolAsInt64AndCrossDBAsString() {

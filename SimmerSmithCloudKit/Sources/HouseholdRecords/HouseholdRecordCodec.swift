@@ -56,23 +56,36 @@ public enum HouseholdRecordCodec {
         for field in type.fields {
             guard let raw = record[field.name] else { continue }
             switch field.type {
-            case .string: if let v = raw as? String { scalars[field.name] = .string(v) }
-            case .int:    if let v = raw as? Int { scalars[field.name] = .int(v) }
-            case .double: if let v = raw as? Double { scalars[field.name] = .double(v) }
-            case .date:   if let v = raw as? Date { scalars[field.name] = .date(v) }
+            case .string:
+                if let v = raw as? String { scalars[field.name] = .string(v) }
+                else { print("[Backup] decode: field '\(field.name)' present but wrong type (expected \(field.type)) in \(type.rawValue) record — dropping") }
+            case .int:
+                if let v = raw as? Int { scalars[field.name] = .int(v) }
+                else { print("[Backup] decode: field '\(field.name)' present but wrong type (expected \(field.type)) in \(type.rawValue) record — dropping") }
+            case .double:
+                if let v = raw as? Double { scalars[field.name] = .double(v) }
+                else { print("[Backup] decode: field '\(field.name)' present but wrong type (expected \(field.type)) in \(type.rawValue) record — dropping") }
+            case .date:
+                if let v = raw as? Date { scalars[field.name] = .date(v) }
+                else { print("[Backup] decode: field '\(field.name)' present but wrong type (expected \(field.type)) in \(type.rawValue) record — dropping") }
             case .bool:
                 if let v = raw as? Int { scalars[field.name] = .bool(v != 0) }
                 else if let d = raw as? Double { scalars[field.name] = .bool(d != 0) }   // defensive coercion
+                else { print("[Backup] decode: field '\(field.name)' present but wrong type (expected \(field.type)) in \(type.rawValue) record — dropping") }
             }
         }
         var refs: [String: String] = [:]
         for ref in type.refs {
+            guard let raw = record[ref.name] else { continue }
             switch ref.kind {
             case .crossDBString:
-                if let v = record[ref.name] as? String { refs[ref.name] = v }
+                if let v = raw as? String { refs[ref.name] = v }
+                else { print("[Backup] decode: ref '\(ref.name)' present but wrong type (expected String) in \(type.rawValue) record — dropping") }
             case .setNullInZone, .cascadeParent:
-                if let reference = record[ref.name] as? CKRecord.Reference {
+                if let reference = raw as? CKRecord.Reference {
                     refs[ref.name] = reference.recordID.recordName
+                } else {
+                    print("[Backup] decode: ref '\(ref.name)' present but wrong type (expected CKRecord.Reference) in \(type.rawValue) record — dropping")
                 }
             }
         }
