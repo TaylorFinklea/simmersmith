@@ -447,6 +447,17 @@ extension AppState {
         } catch {
             print("[Sharing] refreshHouseholdFromCloud fetch error: \(error)")
         }
+        reloadAndMirrorHousehold()
+        let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
+        let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
+        print("[Sharing] refreshHouseholdFromCloud: weeks=\(weeks) meals=\(meals) role=\(session.role.isOwner ? "owner" : "participant")")
+        syncPhase = .synced(.now)
+    }
+
+    /// Reload every repo from the LOCAL store + re-mirror to the published @Observable snapshots.
+    /// No network fetch — callers that already mutated the local store (e.g. a restore) use this so
+    /// a fetch can't pull stale server state back over the just-written records.
+    func reloadAndMirrorHousehold() {
         recipeRepository?.reload()
         metadataRepository?.reloadMetadata()
         weekRepository?.reload()
@@ -458,10 +469,6 @@ extension AppState {
         mirrorEventsFromRepository()
         mirrorPantryFromRepository()
         mirrorGuestsFromRepository()
-        let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
-        let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
-        print("[Sharing] refreshHouseholdFromCloud: weeks=\(weeks) meals=\(meals) role=\(session.role.isOwner ? "owner" : "participant")")
-        syncPhase = .synced(.now)
     }
 
     private static func utcDayKey(_ date: Date) -> String {

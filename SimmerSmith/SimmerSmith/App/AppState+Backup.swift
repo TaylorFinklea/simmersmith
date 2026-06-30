@@ -155,8 +155,11 @@ extension AppState {
             print("[Backup] restore still draining after 30 passes — background sync will finish")
         }
         print("[Backup] restored \(backup.records.count) records from \(backup.capturedAt)")
-        // Re-fetch + reload repos + re-mirror so the UI reflects the recovered data.
-        await refreshHouseholdFromCloud()
+        // Reload from the LOCAL store (which now holds the recovered records) + re-mirror — NO
+        // network fetch, which could pull the just-deleted server state back over the re-adds
+        // before the push settles. The push syncs to CloudKit in the background.
+        reloadAndMirrorHousehold()
+        syncPhase = .synced(.now)
     }
 
     /// Decode + restore a backup file (used by the in-app list and the Files importer).

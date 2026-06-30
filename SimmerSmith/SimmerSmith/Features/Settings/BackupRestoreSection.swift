@@ -1,6 +1,20 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// A backup's JSON wrapped for SwiftUI `.fileExporter` (reliable "Save to Files" — sharing an
+/// Application-Support file URL directly via ShareLink doesn't reliably reach the Files app).
+struct BackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
 /// SP-C backup/restore — the "Backups" Settings section. Lists on-device snapshots (auto-rolling
 /// + manual), restores one (recover = additive, never destructive), and exports/imports to Files.
 struct BackupRestoreSection: View {
@@ -11,6 +25,9 @@ struct BackupRestoreSection: View {
     @State private var working = false
     @State private var status: String?
     @State private var importing = false
+    @State private var exporting = false
+    @State private var exportDoc: BackupDocument?
+    @State private var exportName = "backup"
 
     var body: some View {
         Section {
@@ -45,10 +62,19 @@ struct BackupRestoreSection: View {
                         .buttonStyle(.plain)
                         .disabled(working)
 
-                        ShareLink(item: file.url) {
+                        Button {
+                            if let data = try? Data(contentsOf: file.url) {
+                                exportDoc = BackupDocument(data: data)
+                                exportName = file.url.deletingPathExtension().lastPathComponent
+                                exporting = true
+                            } else {
+                                status = "Couldn't read that backup to export."
+                            }
+                        } label: {
                             Image(systemName: "square.and.arrow.up")
                                 .foregroundStyle(SMColor.accent)
                         }
+                        .buttonStyle(.plain)
                     }
                     .swipeActions {
                         Button(role: .destructive) {
@@ -84,6 +110,12 @@ struct BackupRestoreSection: View {
             Text(appState.isParticipant
                  ? "This recovers the SHARED household, so it affects everyone in it. It re-adds anything missing and overwrites changed items back to this backup — it won't delete newer changes."
                  : "Re-adds anything missing and overwrites changed items back to this backup. It won't delete newer changes.")
+        }
+        .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json, defaultFilename: exportName) { result in
+            switch result {
+            case .success: status = "Exported to Files."
+            case .failure(let error): status = "Export failed: \(error.localizedDescription)"
+            }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             switch result {
