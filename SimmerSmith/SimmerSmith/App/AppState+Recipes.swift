@@ -4,6 +4,7 @@ import SimmerSmithKit
 import CloudKit
 import CloudKitProvisioning
 import HouseholdSync
+import HouseholdRecords
 import AIProviderKit
 #endif
 
@@ -433,6 +434,34 @@ extension AppState {
         if let week = currentWeek {
             checkedGroceryItemIDs = Set(week.groceryItems.filter(\.isChecked).map(\.groceryItemId))
         }
+    }
+
+    /// Manual pull from CloudKit (the Settings "Refresh Now" button) — fetch the household zone,
+    /// reload the repos, and re-mirror. Works for owner AND participant; the legacy `refreshAll`
+    /// only hits Fly (a no-op in CloudKit-only mode), so a participant otherwise had no way to pull.
+    func refreshHouseholdFromCloud() async {
+        guard let session = householdSession else { return }
+        syncPhase = .loading
+        do {
+            try await session.engine.fetchChanges()
+        } catch {
+            print("[Sharing] refreshHouseholdFromCloud fetch error: \(error)")
+        }
+        recipeRepository?.reload()
+        metadataRepository?.reloadMetadata()
+        weekRepository?.reload()
+        eventRepository?.reload()
+        pantryRepository?.reload()
+        guestRepository?.reload()
+        mirrorRecipesFromRepository()
+        mirrorWeekFromRepository()
+        mirrorEventsFromRepository()
+        mirrorPantryFromRepository()
+        mirrorGuestsFromRepository()
+        let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
+        let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
+        print("[Sharing] refreshHouseholdFromCloud: weeks=\(weeks) meals=\(meals) role=\(session.role.isOwner ? "owner" : "participant")")
+        syncPhase = .synced(.now)
     }
 
     private static func utcDayKey(_ date: Date) -> String {

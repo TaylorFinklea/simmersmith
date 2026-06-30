@@ -2,6 +2,8 @@
 import Foundation
 import CloudKit
 import CloudKitProvisioning
+import HouseholdSync
+import HouseholdRecords
 
 // SP-C household sharing v1 — the participant (adopt) side. The owner-side share creation
 // lives in Settings (UICloudSharingController over HouseholdShareFlow.makeOrFetchZoneWideShare).
@@ -140,9 +142,20 @@ extension AppState {
     /// for its own acceptance, and `accept()` can return before the server finishes creating
     /// the zone — so fetch once, then again after a short backoff to close the race.
     private func participantInitialFetch(session: HouseholdSession) async {
-        do { try await session.engine.fetchChanges() } catch { /* transient; automaticallySync follows */ }
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        try? await session.engine.fetchChanges()
+        // A freshly-accepted shared zone can take several fetch cycles to fully propagate to
+        // this device — the accept can return before the server finishes, and the device gets
+        // no push for its own acceptance. Retry until the owner's weeks land (or attempts run
+        // out), logging record counts so a TestFlight run reveals whether data is arriving.
+        for attempt in 1...6 {
+            do { try await session.engine.fetchChanges() }
+            catch { print("[Sharing] participant fetch \(attempt) error: \(error)") }
+            let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
+            let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
+            let recipes = session.store.records(ofType: HouseholdRecordType.recipe.recordTypeName).count
+            print("[Sharing] participant fetch \(attempt): weeks=\(weeks) meals=\(meals) recipes=\(recipes)")
+            if weeks > 0 { break }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
     }
 }
 #endif

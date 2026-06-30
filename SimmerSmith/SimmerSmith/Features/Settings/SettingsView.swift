@@ -45,7 +45,10 @@ struct SettingsView: View {
                 }
 
                 Button("Refresh Now") {
-                    Task { await appState.refreshAll() }
+                    Task {
+                        await appState.refreshHouseholdFromCloud()   // CloudKit pull (owner + participant)
+                        await appState.refreshAll()                  // legacy Fly path (no-op in CloudKit-only)
+                    }
                 }
             } header: {
                 SmithSectionHeader("sync")
