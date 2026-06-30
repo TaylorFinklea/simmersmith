@@ -3,6 +3,24 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
+## Current (2026-06-30) — Backup & Restore SHIPPED build 145; awaiting recover device gate
+
+In-app backup safety net (spec `phases/backup-restore-spec.md`). Settings → **Backups**: generic store-level
+snapshot of the whole household (all 19 record types via `HouseholdRecordCodec`→`HouseholdRecordValue`→JSON, exact
+IDs; images excluded). **Restore = RECOVER** (additive upsert — re-adds deleted, overwrites changed, never deletes
+newer). Auto rolling (14, once/day on launch) + manual + ShareLink export + `.fileImporter`. New: `HouseholdBackup`/
+`BackupCodec`/`BackupFilePolicy` (HouseholdRecords, now Codable+Sendable-ish), `AppState+Backup`, `BackupRestoreSection`.
+**43 HouseholdRecords tests pass** (round-trip + retention). 10-finding adversarial review fixed (3 critical, all
+restore: merger-clobber, participant-shared-zone warning, drain-completeness). Build 145 on TestFlight. **BLOCKER —
+recover device gate** (back up → delete meal → recover → returns): harness-deck `simmersmith/backup-restore-device-test`.
+
+## Current (2026-06-29) — Sharing accept WORKS; participant fetch retry (144); also voice 141 cloud-only
+
+Sharing two-device gate progressing on-device: share+invite work (142, owner shows partner "Invited"); accept
+works (143 fixed the cold-launch race — partner lands in the shared household); participant week was empty →
+144 retries the post-accept fetch (6x until weeks land) + gives "Refresh Now" a CloudKit pull + `[Sharing]` count
+logs. AWAITING: does Savanne's week fill on 144 (or the counts). Builds 143/144 have `[Sharing]` console diagnostics.
+
 ## Current (2026-06-29) — Voice week-planning SHIPPED build 141; cloud-only parse, merges into week
 
 **Build 141 (data-loss fix):** voice Apply now MERGES into the week (`VoicePlanResolver.merge(voice:into:)`,

@@ -1070,3 +1070,25 @@ deliberate, tracked exception; the data plane itself is fully green.
   EVERY foreground (`scenePhase .active`), even when `.ready`; (3) `containerIdentifier` is a non-optional String
   — guard compares directly + is non-silent; (4) `print("[Sharing] …")` at every boundary so a TestFlight run is
   diagnosable via the device console. The two-real-device gate is still the proof.
+
+## 2026-06-30 - Backup & restore: generic store-level snapshot + additive recover (build 145)
+
+- **Safety net** after the voice data-loss incident. Architecture: a GENERIC store-level snapshot — every
+  household-zone record via `HouseholdRecordCodec.decode` → `HouseholdRecordValue` → JSON (HouseholdRecords is
+  now Codable + has `HouseholdBackup`/`BackupCodec`/`BackupFilePolicy`). Covers all 19 record types with exact
+  IDs (chosen over a domain-level meals+recipes JSON: complete + faithful + one codepath). Images excluded
+  (CKAsset, regenerable).
+- **Restore = RECOVER (additive):** fetchChanges, then upsert each backup record (`apply` onto the existing
+  store record to preserve the change tag, else fresh encode), sendUntilDrained, reload+mirror. Records present
+  now but absent from the backup are LEFT ALONE — restore can only bring data back, never destroy.
+- **Auto rolling snapshots:** once/day on launch (post-interactive), keep newest 14 in Application Support;
+  manual "Back up now"; ShareLink export + `.fileImporter` restore. UI: `BackupRestoreSection` in Settings.
+- **Adversarial review (10 findings, 3 critical — all on restore) fixed:** (C1) skip overwriting field-merger
+  types (grocery check-state / event quantities) so an old backup can't clobber a member's live edit — preserving
+  the change tag had bypassed the merger; (C2) participant-restore confirm warns it rewrites the SHARED household;
+  (C3) raise sendUntilDrained to 30 passes + log if still draining (records are local + queued; bg sync finishes).
+  Deferred: I5 (auto-snapshot runs post-interactive, not blocking launch), I2 (silent type-mismatch only on
+  CloudKit corruption), M1 (scoped-resource already safe).
+- 43 HouseholdRecords tests pass (serialization round-trip + retention policy). Device gate: the recover round-trip
+  (back up → delete a meal → recover → it returns) — harness-deck `simmersmith/backup-restore-device-test`.
+  Spec: `phases/backup-restore-spec.md`. NOT pushed.
