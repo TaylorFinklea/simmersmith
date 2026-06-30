@@ -16,6 +16,7 @@ struct BackupRestoreSection: View {
         Section {
             Button {
                 if appState.writeSnapshot(manual: true) != nil { status = "Backed up." }
+                else { status = appState.lastErrorMessage ?? "Couldn't create the backup." }
                 reload()
             } label: {
                 Label("Back up now", systemImage: "arrow.down.doc")
@@ -80,7 +81,9 @@ struct BackupRestoreSection: View {
             Button("Recover") { if let file = pendingRestore { restore(from: file.url, label: "backup") } }
             Button("Cancel", role: .cancel) { pendingRestore = nil }
         } message: {
-            Text("Re-adds anything missing and overwrites changed items back to this backup. It won't delete newer changes.")
+            Text(appState.isParticipant
+                 ? "This recovers the SHARED household, so it affects everyone in it. It re-adds anything missing and overwrites changed items back to this backup — it won't delete newer changes."
+                 : "Re-adds anything missing and overwrites changed items back to this backup. It won't delete newer changes.")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             switch result {

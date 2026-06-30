@@ -131,9 +131,15 @@ extension AppState {
         syncPhase = .loading
         // Reconcile first so the upsert merges against current server state.
         try await session.engine.fetchChanges()
+        let merger = session.engine.merger
         for value in backup.records {
             let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
             if let existing = session.store.record(for: id) {
+                // Collaborative merged types (grocery check-state, event quantities): NEVER
+                // overwrite a live record — restoring an old value would clobber a household
+                // member's newer edit (the field-merger normally guards this; preserving the
+                // change tag bypasses it). A DELETED one is still re-added in the else branch.
+                if merger?.handles(value.type.recordTypeName) == true { continue }
                 // Overwrite the live record IN PLACE — preserves its change tag so the save
                 // doesn't conflict with the server copy.
                 HouseholdRecordCodec.apply(value, onto: existing, zoneID: session.zoneID)
@@ -143,7 +149,11 @@ extension AppState {
                 session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
             }
         }
-        try await session.engine.sendUntilDrained()
+        try await session.engine.sendUntilDrained(maxPasses: 30)
+        if session.engine.hasPendingRecordChanges {
+            // Records are saved locally + queued; background sync will finish the push.
+            print("[Backup] restore still draining after 30 passes — background sync will finish")
+        }
         print("[Backup] restored \(backup.records.count) records from \(backup.capturedAt)")
         // Re-fetch + reload repos + re-mirror so the UI reflects the recovered data.
         await refreshHouseholdFromCloud()

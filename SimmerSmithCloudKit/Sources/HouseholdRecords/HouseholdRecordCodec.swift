@@ -25,7 +25,12 @@ public enum HouseholdRecordCodec {
     public static func apply(_ value: HouseholdRecordValue, onto record: CKRecord, zoneID: CKRecordZone.ID) {
         let fieldTypes = Dictionary(uniqueKeysWithValues: value.type.fields.map { ($0.name, $0.type) })
         for (name, scalar) in value.scalars {
-            guard fieldTypes[name] != nil else { continue }   // ignore unknown fields
+            guard fieldTypes[name] != nil else {
+                // A field present in the backup but absent from the current manifest (drift after
+                // a field rename/removal) is dropped — log so it's detectable, not silent.
+                print("[Backup] apply: dropping field '\(name)' not in current \(value.type.rawValue) manifest")
+                continue
+            }
             record[name] = ckValue(for: scalar)
         }
 
@@ -55,7 +60,9 @@ public enum HouseholdRecordCodec {
             case .int:    if let v = raw as? Int { scalars[field.name] = .int(v) }
             case .double: if let v = raw as? Double { scalars[field.name] = .double(v) }
             case .date:   if let v = raw as? Date { scalars[field.name] = .date(v) }
-            case .bool:   if let v = raw as? Int { scalars[field.name] = .bool(v != 0) }
+            case .bool:
+                if let v = raw as? Int { scalars[field.name] = .bool(v != 0) }
+                else if let d = raw as? Double { scalars[field.name] = .bool(d != 0) }   // defensive coercion
             }
         }
         var refs: [String: String] = [:]
