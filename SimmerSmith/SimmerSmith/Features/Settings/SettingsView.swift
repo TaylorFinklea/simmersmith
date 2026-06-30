@@ -1333,7 +1333,6 @@ private func preferencePill(for choiceMode: String) -> some View {
 
 private struct HouseholdSection: View {
     @Environment(AppState.self) private var appState
-    @State private var ownerShare: AppState.OwnerSharePackage?
     @State private var renameDraft: String = ""
     @State private var didLoadRenameDraft = false
 
@@ -1375,8 +1374,12 @@ private struct HouseholdSection: View {
                 Button {
                     let name = appState.currentHousehold?.name ?? ""
                     Task {
-                        ownerShare = await appState.prepareOwnerShare(
-                            title: name.isEmpty ? "SimmerSmith household" : name)
+                        if let package = await appState.prepareOwnerShare(
+                            title: name.isEmpty ? "SimmerSmith household" : name) {
+                            // Present the native share sheet directly from the top VC (embedding
+                            // it in a SwiftUI .sheet made it flash + self-dismiss).
+                            CloudSharingPresenter.present(share: package.share, container: package.container)
+                        }
                     }
                 } label: {
                     Label("Share with your partner", systemImage: "person.badge.plus")
@@ -1410,10 +1413,6 @@ private struct HouseholdSection: View {
             if value != renameDraft {
                 renameDraft = value
             }
-        }
-        .sheet(item: $ownerShare) { package in
-            CloudSharingControllerView(share: package.share, container: package.container)
-                .ignoresSafeArea()
         }
     }
 
