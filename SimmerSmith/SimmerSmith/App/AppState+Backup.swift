@@ -132,7 +132,16 @@ extension AppState {
         // Reconcile first so the upsert merges against current server state.
         try await session.engine.fetchChanges()
         for value in backup.records {
-            session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
+            if let existing = session.store.record(for: id) {
+                // Overwrite the live record IN PLACE — preserves its change tag so the save
+                // doesn't conflict with the server copy.
+                HouseholdRecordCodec.apply(value, onto: existing, zoneID: session.zoneID)
+                session.engine.save(existing)
+            } else {
+                // Re-create a deleted record from scratch.
+                session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            }
         }
         try await session.engine.sendUntilDrained()
         print("[Backup] restored \(backup.records.count) records from \(backup.capturedAt)")

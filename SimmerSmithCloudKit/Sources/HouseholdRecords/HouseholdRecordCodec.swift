@@ -14,7 +14,15 @@ public enum HouseholdRecordCodec {
     public static func encode(_ value: HouseholdRecordValue, zoneID: CKRecordZone.ID) -> CKRecord {
         let recordID = CKRecord.ID(recordName: value.recordName, zoneID: zoneID)
         let record = CKRecord(recordType: value.type.recordTypeName, recordID: recordID)
+        apply(value, onto: record, zoneID: zoneID)
+        return record
+    }
 
+    /// Apply a value's scalars + refs onto an EXISTING CKRecord, preserving its server change
+    /// tag. Restore/upsert use this so overwriting a record that's still on the server doesn't
+    /// trigger a change-tag conflict (a freshly-encoded record would). Mirrors the repos'
+    /// upsert-into-existing path.
+    public static func apply(_ value: HouseholdRecordValue, onto record: CKRecord, zoneID: CKRecordZone.ID) {
         let fieldTypes = Dictionary(uniqueKeysWithValues: value.type.fields.map { ($0.name, $0.type) })
         for (name, scalar) in value.scalars {
             guard fieldTypes[name] != nil else { continue }   // ignore unknown fields
@@ -35,7 +43,6 @@ public enum HouseholdRecordCodec {
                     recordID: CKRecord.ID(recordName: target, zoneID: zoneID), action: .deleteSelf)
             }
         }
-        return record
     }
 
     /// Decode a fetched CKRecord back into a value using the manifest for type info.
