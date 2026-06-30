@@ -3,6 +3,8 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
+> **Backlog/ready-queue → beads (`bd ready`) as of 2026-06-30 (pilot).** New actionable work is filed in beads, not roadmap Now or this file. `.beads/` is git-excluded (stealth, local-only); decisions/phases/loop-state stay prose. See AGENTS.md → "Task tracking — beads pilot".
+
 ## Current (2026-06-30) — Backup & Restore SHIPPED build 145; awaiting recover device gate
 
 In-app backup safety net (spec `phases/backup-restore-spec.md`). Settings → **Backups**: generic store-level
