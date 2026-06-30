@@ -142,6 +142,26 @@ func dropsGarbage() {
     #expect(out[0].dayName == "Monday" && out[0].slot == "dinner")
 }
 
+@Test("merge keeps existing meals + overwrites only the voiced slots (data-loss guard)")
+func mergePreservesExisting() {
+    let existing = [
+        MealUpdateRequest(mealId: "m1", dayName: "Monday", mealDate: monday, slot: "dinner", recipeName: "Stew", approved: true),
+        MealUpdateRequest(mealId: "m2", dayName: "Wednesday", mealDate: utcDay(2026, 7, 1), slot: "lunch", recipeName: "Wrap", approved: true),
+    ]
+    let voice = [
+        // overwrites Monday dinner (same slot) and adds Friday dinner (new slot)
+        MealUpdateRequest(dayName: "Monday", mealDate: monday, slot: "dinner", recipeName: "Tacos", approved: true),
+        MealUpdateRequest(dayName: "Friday", mealDate: utcDay(2026, 7, 3), slot: "dinner", recipeName: "Pizza", approved: true),
+    ]
+    let merged = VoicePlanResolver.merge(voice: voice, into: existing)
+    #expect(merged.count == 3)   // Mon dinner (updated) + Wed lunch (kept) + Fri dinner (added)
+    let mon = merged.first { $0.dayName == "Monday" && $0.slot == "dinner" }
+    #expect(mon?.recipeName == "Tacos")
+    #expect(mon?.mealId == "m1")   // preserved existing id → updates in place, no duplicate
+    #expect(merged.contains { $0.dayName == "Wednesday" && $0.recipeName == "Wrap" })   // untouched, kept
+    #expect(merged.contains { $0.dayName == "Friday" && $0.recipeName == "Pizza" })
+}
+
 @Test("contract: resolved meals round-trip through the snake_case coder (weeks_update_meals payload)")
 func contractRoundTrip() throws {
     let recipes = [try recipe("r1", "Honey Garlic Salmon")]

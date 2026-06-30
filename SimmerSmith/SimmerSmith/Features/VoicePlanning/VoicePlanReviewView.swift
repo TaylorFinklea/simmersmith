@@ -133,11 +133,28 @@ struct VoicePlanReviewView: View {
                 notes: row.meal.notes, approved: true
             )
         }
+        // MERGE into the week's existing meals: saveWeekMeals is a full REPLACE (deletes any meal
+        // not in the array), so applying only the voice meals would wipe the rest of the week.
+        let merged = VoicePlanResolver.merge(voice: confirmed, into: existingMeals)
         do {
-            _ = try await appState.saveWeekMeals(weekID: weekId, meals: confirmed)
+            _ = try await appState.saveWeekMeals(weekID: weekId, meals: merged)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The week's current meals (so Apply preserves everything voice didn't touch).
+    private var existingMeals: [MealUpdateRequest] {
+        let snap: WeekSnapshot? = appState.currentWeek?.weekId == weekId
+            ? appState.currentWeek
+            : (appState.browsedWeek?.weekId == weekId ? appState.browsedWeek : nil)
+        return (snap?.meals ?? []).map { m in
+            MealUpdateRequest(
+                mealId: m.mealId, dayName: m.dayName, mealDate: m.mealDate, slot: m.slot,
+                recipeId: m.recipeId, recipeName: m.recipeName, servings: m.servings,
+                scaleMultiplier: m.scaleMultiplier, notes: m.notes, approved: m.approved
+            )
         }
     }
 }

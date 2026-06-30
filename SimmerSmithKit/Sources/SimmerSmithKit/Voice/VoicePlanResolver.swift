@@ -80,6 +80,33 @@ public enum VoicePlanResolver {
         return order.compactMap { byKey[$0] }
     }
 
+    /// MERGE the reviewed voice meals INTO the week's existing meals, keyed by day+slot. This is
+    /// load-bearing: `saveWeekMeals` is a full REPLACE (it deletes any existing meal not in the
+    /// array), so applying only the voice meals would wipe the rest of the planned week. A voice
+    /// meal overwrites the slot it targets — preserving the existing meal's `mealId` so it updates
+    /// in place rather than duplicating — and every untouched existing meal is kept.
+    public static func merge(voice: [MealUpdateRequest], into existing: [MealUpdateRequest]) -> [MealUpdateRequest] {
+        func key(_ m: MealUpdateRequest) -> String { "\(m.dayName)|\(m.slot)" }
+        var bySlot: [String: MealUpdateRequest] = [:]
+        var order: [String] = []
+        for m in existing {
+            let k = key(m)
+            if bySlot[k] == nil { order.append(k) }
+            bySlot[k] = m
+        }
+        for v in voice {
+            let k = key(v)
+            let existingId = bySlot[k]?.mealId   // keep the slot's record id so it updates in place
+            if bySlot[k] == nil { order.append(k) }
+            bySlot[k] = MealUpdateRequest(
+                mealId: existingId, dayName: v.dayName, mealDate: v.mealDate, slot: v.slot,
+                recipeId: v.recipeId, recipeName: v.recipeName, servings: v.servings,
+                scaleMultiplier: v.scaleMultiplier, notes: v.notes, approved: v.approved
+            )
+        }
+        return order.compactMap { bySlot[$0] }
+    }
+
     // MARK: - Day resolution
 
     /// 0-based offset from the week's Monday (0=Mon … 6=Sun) for a spoken day reference.

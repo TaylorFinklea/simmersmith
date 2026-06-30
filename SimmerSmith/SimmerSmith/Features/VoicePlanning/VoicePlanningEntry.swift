@@ -10,19 +10,17 @@ struct VoicePlanningButton: View {
 
     @Environment(AppState.self) private var appState
     @State private var coordinator: VoicePlanningCoordinator?
-    @State private var showing = false
 
     var body: some View {
         Button {
             coordinator = VoicePlanningCoordinator(appState: appState, weekId: weekId, weekStart: weekStart)
-            showing = true
         } label: {
             Label("Plan by voice", systemImage: "mic.fill")
         }
-        .sheet(isPresented: $showing, onDismiss: { coordinator = nil }) {
-            if let coordinator {
-                VoicePlanSheet(coordinator: coordinator)
-            }
+        // item-based so the sheet presents ATOMICALLY with its coordinator (presenting on a
+        // separate bool raced the coordinator binding → a blank sheet on first open).
+        .sheet(item: $coordinator) { coord in
+            VoicePlanSheet(coordinator: coord)
         }
     }
 }

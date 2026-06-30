@@ -8,7 +8,8 @@ import SimmerSmithKit
 /// Nothing is written here; the review screen commits via saveWeekMeals.
 @MainActor
 @Observable
-final class VoicePlanningCoordinator {
+final class VoicePlanningCoordinator: Identifiable {
+    nonisolated let id = UUID()
     enum Phase: Equatable { case entry, planning, review, error }
 
     private(set) var phase: Phase = .entry
