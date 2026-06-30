@@ -3,13 +3,15 @@
 > Loop-state: Branch / Plan checkboxes / Blockers / Open questions only. ≤20 lines.
 > Legacy session history belongs in git log, decisions.md, and phases/*.
 
-## Current (2026-06-29) — Voice week-planning SHIPPED build 140; on-device flagged OFF, uses Settings model
+## Current (2026-06-29) — Voice week-planning SHIPPED build 141; cloud-only parse, merges into week
 
-**Build 140:** on-device FoundationModels parse feature-flagged OFF (`OnDeviceParseService.isEnabled=false`) —
-voice parsing routes to the configured Settings cloud model (CloudParseService → AIService.generate). 139 fixed
-the "invented a full week" hallucination (schema said "A FULL WEEKLY MEAL PLAN" → extract-only prompts + day/slot
-dedup, 13 tests). 138 moved transcription to the system keyboard (custom AVAudioEngine crashed). On-device code
-stays dormant behind the flag for a later FoundationModels revisit. Device test (hdeck) updated for cloud-only.
+**Build 141 (data-loss fix):** voice Apply now MERGES into the week (`VoicePlanResolver.merge(voice:into:)`,
+host-tested) — `saveWeekMeals` is a full REPLACE, so applying only the voice meals had been DELETING the rest of
+the planned week (unrecoverable; CloudKit has no trash). Also fixed a blank first-open sheet (`.sheet(item:)`).
+**140:** on-device FoundationModels parse feature-flagged OFF (`OnDeviceParseService.isEnabled=false`) → parsing
+uses the configured Settings cloud model. 139 fixed the "invented a full week" hallucination (extract-only prompts
++ dedup). 138 moved transcription to the system keyboard (custom AVAudioEngine crashed). 14 package tests pass.
+On-device code dormant behind the flag for a later revisit.
 
 ## (superseded) Voice week-planning build 138 — system keyboard dictation
 

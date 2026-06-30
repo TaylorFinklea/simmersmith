@@ -1040,3 +1040,18 @@ deliberate, tracked exception; the data plane itself is fully green.
   Foundation Models later by flipping the flag (restores on-device-first + cloud-fallback). No-key CTA unchanged.
 - The on-device code (OnDeviceParseService, GenerableWeeklyPlan, VoicePlanningAvailability) stays compiled but
   dormant behind the flag — no deletion, ready to re-enable.
+
+## 2026-06-29 - Voice apply MERGES into the week (fix: was wiping planned meals; build 141)
+
+- **Data-loss bug:** `WeekRepository.saveWeekMeals(weekID:meals:)` is a full REPLACE — it deletes every existing
+  `.weekMeal` whose id is not in the passed array (`existingNames.subtracting(newNames)`). The voice review
+  applied ONLY the voice-proposed meals, so Apply **deleted the rest of the user's planned week**. (CloudKit has
+  no trash; the deleted meals were unrecoverable.)
+- **Fix:** `VoicePlanResolver.merge(voice:into:)` (SimmerSmithKit, host-tested) folds the reviewed meals into the
+  week's existing meals keyed by `day|slot` — a voice meal overwrites its slot **preserving the existing slot's
+  `mealId`** (updates in place, no duplicate), every untouched meal is kept. The review reads existing meals from
+  `appState.currentWeek`/`browsedWeek` and saves the merged FULL set. Voice = add/update, never replace-the-week.
+- Audited all `saveWeekMeals` callers: only voice passed a partial set. WeekGen's replace is intentional
+  ("generate a fresh week"); WeekView edits all build `week.meals.map{…}` (full set) first.
+- Also fixed: blank sheet on first open — `.sheet(isPresented:)` raced the coordinator binding; switched to
+  `.sheet(item:)` (coordinator made Identifiable) so it presents atomically.
