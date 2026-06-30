@@ -551,6 +551,12 @@ struct SettingsView: View {
                 SmithSectionHeader("data")
             }
 
+            #if canImport(CloudKit)
+            if appState.householdSession != nil {
+                BackupRestoreSection()
+            }
+            #endif
+
             Section {
                 Button(role: .destructive) {
                     appState.resetConnection()

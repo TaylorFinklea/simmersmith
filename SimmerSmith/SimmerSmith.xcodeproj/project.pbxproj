@@ -71,6 +71,7 @@
 		56361EF23CCD75F017B8AC57 /* AppState+Sharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */; };
 		59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
+		5AFC3A325108BEC137426ABD /* BackupRestoreSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
 		5B9EB409A8060594D5DA86FA /* PantryProfileMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 510372691B220D76A81C3229 /* PantryProfileMigrationLoader.swift */; };
 		5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DB39B05047967856041B5 /* AssistantToolCallCard.swift */; };
@@ -248,6 +249,7 @@
 		2D7CDAF7CC440F6E5157D784 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		2F09E404CAA8E6D26BEE5B2B /* SmithToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithToolbar.swift; sourceTree = "<group>"; };
 		305DB39B05047967856041B5 /* AssistantToolCallCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantToolCallCard.swift; sourceTree = "<group>"; };
+		30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupRestoreSection.swift; sourceTree = "<group>"; };
 		3537D9BBBEB3EF263877815A /* SimmerSmithAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithAppDelegate.swift; sourceTree = "<group>"; };
 		35A9360C40FEFBCA8D1D5206 /* AssistantRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantRepository.swift; sourceTree = "<group>"; };
 		35EEF81A482382B24772C218 /* LocalNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationService.swift; sourceTree = "<group>"; };
@@ -708,6 +710,7 @@
 			children = (
 				4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */,
 				C248B30B7556BFE5C10D1466 /* AssistantPromptsView.swift */,
+				30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */,
 				6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */,
 				7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */,
 				826C2E87AD9AE2A06B5321AD /* DietaryGoalView.swift */,
@@ -1033,6 +1036,7 @@
 				5C9D8DBC955EE65549249FC8 /* AssistantToolCallCard.swift in Sources */,
 				923DCC4EB280B0A742A67720 /* AssistantView.swift in Sources */,
 				7A1708334327AE594FDE7313 /* BackgroundSyncService.swift in Sources */,
+				5AFC3A325108BEC137426ABD /* BackupRestoreSection.swift in Sources */,
 				27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */,
 				7E7C680A29F9FC54582B22D7 /* BrandToolbarBadge.swift in Sources */,
 				E2F4671C3E4F1338A7AF13C0 /* CloudKitDebugView.swift in Sources */,

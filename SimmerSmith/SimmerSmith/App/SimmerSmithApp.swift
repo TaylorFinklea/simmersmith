@@ -53,6 +53,9 @@ struct SimmerSmithApp: App {
                     // first and miss it (booting as owner, which then blocks the foreground retry).
                     // Re-drain after setup — if a share landed late, this swaps owner→participant.
                     await appState.processPendingShare()
+                    // Rolling safety-net snapshot (once/day) — captures the household while the
+                    // data is intact so a future build can't strand it.
+                    appState.maybeAutoSnapshot()
                     #endif
                 }
         }

@@ -77,6 +77,27 @@ extension AppState {
         }
     }
 
+    private static let lastAutoSnapshotDayKey = "backup.lastAutoSnapshotDay.v1"
+
+    /// Take an automatic snapshot at most once per calendar day (called on launch after the
+    /// household loads). The rolling 14-deep history is the real protection: even if a build
+    /// damages data, a prior day's snapshot — captured while the data was intact — is restorable.
+    func maybeAutoSnapshot() {
+        guard householdSession != nil else { return }
+        let today = Self.dayKey(Date())
+        guard UserDefaults.standard.string(forKey: Self.lastAutoSnapshotDayKey) != today else { return }
+        if writeSnapshot(manual: false) != nil {
+            UserDefaults.standard.set(today, forKey: Self.lastAutoSnapshotDayKey)
+        }
+    }
+
+    private static func dayKey(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd"
+        return f.string(from: date)
+    }
+
     private func pruneBackups(in dir: URL, keepLast: Int) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         for name in BackupFilePolicy.toPrune(names, keepLast: keepLast) {
