@@ -5,6 +5,17 @@
 
 > **Backlog/ready-queue → beads (`bd ready`) as of 2026-06-30 (pilot).** New actionable work is filed in beads, not roadmap Now or this file. `.beads/` is git-excluded (stealth, local-only); decisions/phases/loop-state stay prose. See AGENTS.md → "Task tracking — beads pilot".
 
+## Plan — 3sf token streaming (ACTIVE, spec `phases/oss-assistant-streaming-spec.md`)
+
+- [x] Phase 1 — AssistantEngine streaming seam: `ToolUseStreamEvent` + `streamWithTools`
+  (default-impl wraps `chatWithTools`, backward-compatible) + `drive` forwards live `assistant.delta`,
+  `didStreamDelta`-gated `finish`. Package-only, 334 pkg tests pass (3 new streaming tests). Sonnet 5.
+  Verify: `swift test --package-path SimmerSmithCloudKit`.
+- [ ] Phase 2 — per-vendor SSE streaming in `BYOKeyProvider` (OpenAI / Anthropic / open-models);
+  unit-test each SSE parser; device-gate the live proof (needs keys).
+- [ ] Phase 3 — app wiring (`AppState+Assistant` forwards incremental deltas into the unchanged
+  `applyAssistantStreamEvent`) + on-device verify (tokens visibly stream).
+
 ## Current (2026-06-30) — Backup & Restore SHIPPED build 145; awaiting recover device gate
 
 In-app backup safety net (spec `phases/backup-restore-spec.md`). Settings → **Backups**: generic store-level

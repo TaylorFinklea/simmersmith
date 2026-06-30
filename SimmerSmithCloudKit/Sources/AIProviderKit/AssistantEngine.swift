@@ -83,6 +83,14 @@ public typealias AssistantToolRunner = @Sendable (_ call: ToolCall) async -> Too
 
 // MARK: - Provider contract
 
+/// One event from `AssistantToolChat.streamWithTools`: an incremental text chunk
+/// forwarded live as `assistant.delta`, or the fully-assembled terminal turn (ALWAYS
+/// the LAST event of a turn's stream) that the engine runs its tool-loop logic on.
+public enum ToolUseStreamEvent: Sendable, Equatable {
+    case textDelta(String)
+    case turn(ToolUseTurn)
+}
+
 /// The single provider capability the loop needs: a non-streaming tool-use turn. The
 /// real implementation is `BYOKeyProvider.chatWithTools` (AI-5 T1); tests inject a
 /// scripted double so the loop can be verified without a network call.
@@ -92,6 +100,38 @@ public protocol AssistantToolChat: Sendable {
         tools: [ToolSpec],
         systemPrompt: String?
     ) async throws -> ToolUseTurn
+
+    /// Streaming variant of `chatWithTools`. The default implementation below wraps
+    /// `chatWithTools` (one `.turn`, no deltas) so every existing conformer keeps
+    /// working unchanged; Phase 2 overrides this per vendor for real SSE streaming.
+    func streamWithTools(
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error>
+}
+
+extension AssistantToolChat {
+    public func streamWithTools(
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let turn = try await chatWithTools(
+                        messages: messages, tools: tools, systemPrompt: systemPrompt
+                    )
+                    continuation.yield(.turn(turn))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
 
 extension BYOKeyProvider: AssistantToolChat {
@@ -126,13 +166,14 @@ public enum AssistantEngine {
     /// Run the assistant tool-calling loop and emit the UI's stream events.
     ///
     /// Loop (port of `_run_provider_tool_loop`): build messages (history + the new user
-    /// turn) → `chatWithTools` → if the turn requested tools, emit a running
-    /// `assistant.tool_call` per call, run the runner, emit `assistant.tool_result`
-    /// (+ `week.updated` if the result carried a changed week), append the assistant
-    /// turn + the tool results to the running messages, and loop; if the turn finished
-    /// (no tools / terminal), emit the final text as one `assistant.delta` and an
-    /// `assistant.completed`, then stop. Capped at `maxToolIterations`; on the cap a
-    /// graceful `assistant.completed` with `iterationLimitText` is emitted.
+    /// turn) → `streamWithTools` (forwarding any `.textDelta`s live as `assistant.delta`)
+    /// → if the turn requested tools, emit a running `assistant.tool_call` per call, run
+    /// the runner, emit `assistant.tool_result` (+ `week.updated` if the result carried a
+    /// changed week), append the assistant turn + the tool results to the running
+    /// messages, and loop; if the turn finished (no tools / terminal), emit the final
+    /// `assistant.completed` (plus a closing `assistant.delta` only when nothing was
+    /// streamed live), then stop. Capped at `maxToolIterations`; on the cap a graceful
+    /// `assistant.completed` with `iterationLimitText` is emitted.
     ///
     /// Cancellation: the stream honors Swift `Task` cancellation. When the consuming
     /// task is cancelled (e.g. the assistant sheet is dismissed) the loop stops and the
@@ -214,14 +255,46 @@ public enum AssistantEngine {
         messages.append(.text(.user, userText))
 
         var accumulatedText = ""
+        // True once ANY iteration streamed a live textDelta — gates whether `finish`
+        // emits its own final delta (default/non-streaming path) or relies on the
+        // deltas already emitted live.
+        var didStreamDelta = false
 
         for _ in 0..<maxToolIterations {
             try Task.checkCancellation()
 
-            let turn = try await provider.chatWithTools(
+            // Consume this iteration's stream: forward textDeltas live, capture the
+            // terminal turn (always the last event per the streamWithTools contract).
+            var turn: ToolUseTurn?
+            var turnDidStream = false
+            for try await event in provider.streamWithTools(
                 messages: messages, tools: tools, systemPrompt: systemPrompt
-            )
-            if let text = turn.text, !text.isEmpty {
+            ) {
+                switch event {
+                case .textDelta(let s):
+                    accumulatedText += s
+                    emit(deltaEvent(messageId: messageId, delta: s))
+                    turnDidStream = true
+                    didStreamDelta = true
+                case .turn(let t):
+                    turn = t
+                }
+            }
+            // Converts an early stream exit caused by outer cancellation into a thrown
+            // CancellationError, caught by `run`'s outer catch (no further event).
+            try Task.checkCancellation()
+            guard let turn else {
+                // Contract violation guard: a well-behaved stream always ends with
+                // `.turn`. Finish gracefully instead of crashing.
+                finish(
+                    text: accumulatedText, messageId: messageId, threadId: threadId,
+                    didStreamDelta: didStreamDelta, emit: emit
+                )
+                return
+            }
+            // Default/non-streaming path: no delta was streamed for this turn, so its
+            // text hasn't been appended yet — append it now, as today.
+            if !turnDidStream, let text = turn.text, !text.isEmpty {
                 accumulatedText += (accumulatedText.isEmpty ? "" : "\n") + text
             }
 
@@ -229,7 +302,7 @@ public enum AssistantEngine {
             if turn.toolCalls.isEmpty {
                 finish(
                     text: accumulatedText, messageId: messageId, threadId: threadId,
-                    emit: emit
+                    didStreamDelta: didStreamDelta, emit: emit
                 )
                 return
             }
@@ -281,7 +354,7 @@ public enum AssistantEngine {
             if turn.finished {
                 finish(
                     text: accumulatedText, messageId: messageId, threadId: threadId,
-                    emit: emit
+                    didStreamDelta: didStreamDelta, emit: emit
                 )
                 return
             }
@@ -290,19 +363,25 @@ public enum AssistantEngine {
         // Cap reached without a terminal turn — graceful completed (port of the
         // `for…else` warning + fallback text).
         let text = accumulatedText.isEmpty ? iterationLimitText : accumulatedText
-        finish(text: text, messageId: messageId, threadId: threadId, emit: emit)
+        finish(
+            text: text, messageId: messageId, threadId: threadId,
+            didStreamDelta: didStreamDelta, emit: emit
+        )
     }
 
-    /// Emit the final text as a single `assistant.delta` then `assistant.completed`.
-    /// v1 is non-streaming: the whole reply rides in one delta (the UI already supports
-    /// incremental deltas, so token streaming is a drop-in refinement later).
+    /// Emit the final text. If a textDelta was streamed live during this drive, the
+    /// text is already on screen — emit ONLY `assistant.completed`. Otherwise (the
+    /// default/non-streaming path), emit the one final `assistant.delta` then
+    /// `assistant.completed` — EXACTLY today's behavior.
     private static func finish(
-        text: String, messageId: String, threadId: String,
+        text: String, messageId: String, threadId: String, didStreamDelta: Bool,
         emit: (AssistantStreamEvent) -> Void
     ) {
         let finalText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = finalText.isEmpty ? "Done." : finalText
-        emit(deltaEvent(messageId: messageId, delta: body))
+        if !didStreamDelta {
+            emit(deltaEvent(messageId: messageId, delta: body))
+        }
         emit(completedEvent(messageId: messageId, threadId: threadId, content: body))
     }
 

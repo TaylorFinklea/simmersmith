@@ -389,3 +389,148 @@ func systemPromptDefaultTitle() {
     let prompt = AssistantSystemPrompt.build(threadTitle: "   ")
     #expect(prompt.contains("Thread: Weekly Planning"))
 }
+
+// MARK: - Phase 1 (simmersmith-3sf): engine streaming seam
+
+/// A scripted STREAMING provider: each `streamWithTools` call dequeues the next
+/// scripted `ToolUseStreamEvent` sequence and replays it as a stream. `chatWithTools`
+/// is required by the protocol but unused — this double overrides `streamWithTools`
+/// directly instead of relying on the default chatWithTools-wrapping implementation.
+private final class MockStreamingToolChat: AssistantToolChat, @unchecked Sendable {
+    private var scripts: [[ToolUseStreamEvent]]
+    private(set) var callCount = 0
+    private(set) var lastMessages: [AIChatMessage] = []
+    /// Called right after the FIRST event of the NEXT `streamWithTools` call is
+    /// yielded, then the stream sleeps ~1s before continuing — lets a test cancel
+    /// deterministically mid-stream.
+    var pauseAfterFirstEvent: (@Sendable () -> Void)?
+
+    init(scripts: [[ToolUseStreamEvent]]) { self.scripts = scripts }
+
+    func chatWithTools(
+        messages: [AIChatMessage], tools: [ToolSpec], systemPrompt: String?
+    ) async throws -> ToolUseTurn {
+        ToolUseTurn(text: "unused", toolCalls: [], finished: true)
+    }
+
+    func streamWithTools(
+        messages: [AIChatMessage], tools: [ToolSpec], systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        lastMessages = messages
+        callCount += 1
+        let events = scripts.isEmpty ? [] : scripts.removeFirst()
+        let pause = pauseAfterFirstEvent
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                defer { continuation.finish() }
+                for (i, event) in events.enumerated() {
+                    try Task.checkCancellation()
+                    continuation.yield(event)
+                    if i == 0, let pause {
+                        pause()
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private func terminalTurn(text: String) -> ToolUseTurn {
+    ToolUseTurn(text: text, toolCalls: [], finished: true)
+}
+
+@Test("Streamed deltas are forwarded live, in order, with no duplicate final delta")
+func streamedDeltasForwardLiveNoDuplicate() async throws {
+    let provider = MockStreamingToolChat(scripts: [
+        [.textDelta("Hel"), .textDelta("lo"), .turn(terminalTurn(text: "Hello"))],
+    ])
+    let runner: AssistantToolRunner = { _ in ToolRunResult(resultJSON: "{}") }
+
+    let events = try await collect(AssistantEngine.run(
+        systemPrompt: "sys", history: [], userText: "hi",
+        tools: [], messageId: "m1", threadId: "t1",
+        provider: provider, runner: runner
+    ))
+
+    #expect(names(events) == [
+        "assistant.message.created", "assistant.delta", "assistant.delta", "assistant.completed",
+    ])
+    #expect(payload(events[1])["delta"] as? String == "Hel")
+    #expect(payload(events[2])["delta"] as? String == "lo")
+    #expect(payload(events[3])["content_markdown"] as? String == "Hello")
+    // Only the two streamed deltas — no extra final delta duplicating the text.
+    #expect(names(events).filter { $0 == "assistant.delta" }.count == 2)
+}
+
+@Test("Streamed deltas on a tool-requesting turn forward live and the tool loop still runs")
+func streamedDeltasDuringToolLoop() async throws {
+    let provider = MockStreamingToolChat(scripts: [
+        // Iteration 1: streams some lead-in text, then requests a tool.
+        [.textDelta("Checking"), .textDelta(" your recipes..."),
+         .turn(ToolUseTurn(text: "Checking your recipes...", toolCalls: [toolCall("recipes_list")], finished: false))],
+        // Iteration 2: final turn, also streamed.
+        [.textDelta("You have "), .textDelta("3 recipes."),
+         .turn(terminalTurn(text: "You have 3 recipes."))],
+    ])
+    let runner: AssistantToolRunner = { _ in
+        ToolRunResult(resultJSON: #"{"recipes":["Tacos","Soup","Salad"]}"#)
+    }
+
+    let events = try await collect(AssistantEngine.run(
+        systemPrompt: "sys", history: [], userText: "what recipes do I have?",
+        tools: [], messageId: "m1", threadId: "t1",
+        provider: provider, runner: runner
+    ))
+
+    #expect(names(events) == [
+        "assistant.message.created",
+        "assistant.delta", "assistant.delta",
+        "assistant.tool_call", "assistant.tool_result",
+        "assistant.delta", "assistant.delta",
+        "assistant.completed",
+    ])
+    #expect(payload(events[1])["delta"] as? String == "Checking")
+    #expect(payload(events[2])["delta"] as? String == " your recipes...")
+    #expect(payload(events[3])["status"] as? String == "running")
+    #expect(payload(events[4])["status"] as? String == "completed")
+    #expect(payload(events[5])["delta"] as? String == "You have ")
+    #expect(payload(events[6])["delta"] as? String == "3 recipes.")
+    // Two provider streamWithTools calls: the tool turn + the final turn.
+    #expect(provider.callCount == 2)
+}
+
+@Test("Cancelling mid-stream finishes cleanly with no completed/error event")
+func cancellationMidStreamFinishesCleanly() async throws {
+    let pauseSignal = AsyncStream<Void>.makeStream()
+    let provider = MockStreamingToolChat(scripts: [
+        [.textDelta("Hel"), .textDelta("lo"), .turn(terminalTurn(text: "Hello"))],
+    ])
+    provider.pauseAfterFirstEvent = { pauseSignal.continuation.yield() }
+    let runner: AssistantToolRunner = { _ in ToolRunResult(resultJSON: "{}") }
+
+    let stream = AssistantEngine.run(
+        systemPrompt: "sys", history: [], userText: "hi",
+        tools: [], messageId: "m1", threadId: "t1",
+        provider: provider, runner: runner
+    )
+
+    let consumer = Task { () -> [AssistantStreamEvent] in
+        var out: [AssistantStreamEvent] = []
+        for try await event in stream { out.append(event) }
+        return out
+    }
+
+    // Wait until the first delta has been yielded (the producer paused after it),
+    // then cancel — mid-stream, before the terminal `.turn` ever arrives.
+    var it = pauseSignal.stream.makeAsyncIterator()
+    _ = await it.next()
+    consumer.cancel()
+
+    let events = try await consumer.value
+    // Whatever arrived (e.g. message.created, maybe a partial delta), it never
+    // reached completed — cancellation emits NOTHING further (no completed, no error).
+    #expect(!names(events).contains("assistant.completed"))
+    #expect(!names(events).contains("assistant.error"))
+}
