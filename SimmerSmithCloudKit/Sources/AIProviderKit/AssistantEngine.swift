@@ -468,8 +468,13 @@ public enum AssistantEngine {
         switch error {
         case .noKeyConfigured:
             return "No AI key is configured. Add your provider key in Settings to use the assistant."
-        case .httpError, .malformedResponse:
-            return "The assistant AI provider is temporarily unavailable. Please try again."
+        case .httpError:
+            // Surface the real status + (already-redacted) provider message via AIError's
+            // own LocalizedError description — a 400/401/429 must be actionable, not masked
+            // as a transient outage. The body was redacted at the throw site.
+            return error.errorDescription ?? "The assistant AI provider returned an error. Please try again."
+        case .malformedResponse:
+            return "The assistant AI provider returned an unreadable response. Please try again."
         case .notWiredYet, .webSearchUnsupported:
             return "The assistant isn't available for this provider yet."
         case .noProviderAvailable:

@@ -60,3 +60,57 @@ func colonSpacing() {
     #expect(collect(["data:x", ""]) == [SSEEvent(event: nil, data: "x")])
     #expect(collect(["data: x", ""]) == [SSEEvent(event: nil, data: "x")])
 }
+
+// MARK: - SSELineSplitter (byte → line, preserving blank lines)
+
+/// Split a whole byte string via `SSELineSplitter`, then flush. Mirrors how
+/// `URLSessionTransport.lines(for:)` drives it over `URLSession.bytes`.
+private func splitLines(_ s: String) -> [String] {
+    var splitter = SSELineSplitter()
+    var out: [String] = []
+    for byte in Array(s.utf8) {
+        if let line = splitter.push(byte) { out.append(line) }
+    }
+    if let last = splitter.finish() { out.append(last) }
+    return out
+}
+
+@Test("SSELineSplitter PRESERVES blank lines (the SSE dispatch separators)")
+func splitterPreservesBlankLines() {
+    // This is the on-device bug's regression guard: `AsyncLineSequence` (bytes.lines)
+    // drops these empty strings, so SSE events never dispatch. The splitter must keep them.
+    #expect(splitLines("data: a\n\ndata: b\n\n") == ["data: a", "", "data: b", ""])
+}
+
+@Test("SSELineSplitter strips a trailing CR from CRLF terminators")
+func splitterHandlesCRLF() {
+    #expect(splitLines("a\r\nb\r\n\r\n") == ["a", "b", ""])
+}
+
+@Test("SSELineSplitter flushes a trailing line with no closing newline")
+func splitterFlushesTrailing() {
+    #expect(splitLines("data: last") == ["data: last"])
+    var splitter = SSELineSplitter()
+    #expect(splitter.push(UInt8(ascii: "x")) == nil)
+    #expect(splitter.finish() == "x")
+    #expect(splitter.finish() == nil)
+}
+
+@Test("bytes → SSELineSplitter → SSEParser dispatches events (the real-transport path)")
+func splitterFeedsParser() {
+    // End-to-end proof of the production framing: raw SSE bytes through the splitter
+    // then the parser yield the discrete events — the exact path the mock-transport
+    // fixtures never exercised (they replay pre-split lines that already keep blanks).
+    let raw = "event: content_block_delta\ndata: {\"t\":\"Hel\"}\n\ndata: {\"t\":\"lo\"}\n\ndata: [DONE]\n\n"
+    var parser = SSEParser()
+    var events: [SSEEvent] = []
+    for line in splitLines(raw) {
+        if let evt = parser.push(line) { events.append(evt) }
+    }
+    if let evt = parser.finish() { events.append(evt) }
+    #expect(events == [
+        SSEEvent(event: "content_block_delta", data: "{\"t\":\"Hel\"}"),
+        SSEEvent(event: nil, data: "{\"t\":\"lo\"}"),
+        SSEEvent(event: nil, data: "[DONE]"),
+    ])
+}

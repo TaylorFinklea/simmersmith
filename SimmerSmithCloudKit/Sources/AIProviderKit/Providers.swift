@@ -58,10 +58,13 @@ public struct URLSessionTransport: HTTPTransport {
         try await session.data(for: request)
     }
 
-    /// Real streaming override: `session.bytes(for:)` + `.lines`, forwarding each line
-    /// as it arrives. A non-200 status drains the body, redacts it (mirroring
-    /// `checkHTTP`), and throws `AIError.httpError` before any line is yielded. The
-    /// reading task is cancelled when the consumer stops iterating (`onTermination`).
+    /// Real streaming override: `session.bytes(for:)`, splitting the raw byte stream into
+    /// lines via `SSELineSplitter` (NOT `bytes.lines`) so the SSE blank-line separators are
+    /// PRESERVED — `AsyncLineSequence` drops empty lines, which silently breaks SSE framing
+    /// (no event ever dispatches; every payload collapses into one invalid-JSON blob). A
+    /// non-200 status drains the body, redacts it (mirroring `checkHTTP`), and throws
+    /// `AIError.httpError` before any line is yielded. The reading task is cancelled when
+    /// the consumer stops iterating (`onTermination`).
     public func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -74,9 +77,15 @@ public struct URLSessionTransport: HTTPTransport {
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
                 do {
-                    for try await line in bytes.lines {
+                    var splitter = SSELineSplitter()
+                    for try await byte in bytes {
                         try Task.checkCancellation()
-                        continuation.yield(line)
+                        if let line = splitter.push(byte) {
+                            continuation.yield(line)
+                        }
+                    }
+                    if let trailing = splitter.finish() {
+                        continuation.yield(trailing)
                     }
                     continuation.finish()
                 } catch {

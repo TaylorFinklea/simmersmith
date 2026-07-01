@@ -1132,3 +1132,27 @@ deliberate, tracked exception; the data plane itself is fully green.
 - Anthropic-only: OpenAI/open-models stream a single `content` field, so their parse paths never `"\n"`-join.
 - `SimmerSmithCloudKit/Sources/AIProviderKit/BYOKeyProviderTools.swift` + `BYOKeyProviderStreamingTests.swift`
   (1 new regression test). 353 CK tests pass; app builds. Device gate (live streaming proof) still HUMAN.
+
+## 2026-07-01 - Streaming device test FAILED: AsyncLineSequence drops SSE blank lines (root cause) + error over-redaction
+
+- **Device gate result (live keys):** Anthropic "did not stream"; OpenAI showed "temporarily unavailable"
+  (key passed the Settings Test-Key button). Root-caused via a 4-lens audit workflow + empirical Swift check.
+- **ROOT CAUSE (critical):** `URLSessionTransport.lines(for:)` split the response with `URLSession.bytes.lines`
+  (`AsyncLineSequence`), which SILENTLY DROPS empty lines. SSE dispatches an event on the BLANK line, so
+  `SSEParser` (dispatch-on-blank) never fired mid-stream on device → zero `.textDelta`s ("did not stream"),
+  and at flush every `data:` payload had collapsed into one field = invalid JSON → empty turn. Verified
+  empirically: feeding `data:{}\n\ndata:{}\n\n` through `.lines` yields the data lines with **all blank lines
+  removed**. Fixtures never caught it because BOTH `MockLinesTransport` and the default `HTTPTransport.lines`
+  (`split(omittingEmptySubsequences:false)`) preserve blanks — only the production `.lines` path drops them.
+- **Fix:** new `SSELineSplitter` (byte→line, LF split, strip trailing CR, PRESERVE empty lines); the transport
+  feeds `session.bytes` through it instead of `.lines`. New regression tests incl. a bytes→splitter→parser
+  integration test that exercises the real framing path. Landmine recorded so no one reintroduces `.lines`.
+- **Secondary (why OpenAI ERRORED not just went blank):** `streamWithToolsOpenAI` can only throw on a genuine
+  non-200, so OpenAI returned a real HTTP error — but `AssistantEngine.describe()` flattened `.httpError` (which
+  carries status + a redacted body) into the generic "temporarily unavailable", hiding it. The Settings Test-Key
+  button only calls `listModels()` (GET /v1/models), so it passes even when chat/completions fails (quota/model/
+  org-verification). **Fix:** `describe()` now delegates `.httpError` to the already-rich `AIError.errorDescription`
+  (401→"rejected the API key", 429→"rate-limiting", else→"HTTP N + provider message"; body pre-redacted, truncated)
+  so the next device test names the real OpenAI cause instead of masking it.
+- `Providers.swift` + `SSEReader.swift` + `AssistantEngine.swift` (+ tests). 357 CK tests pass. Live streaming
+  re-test pending on a fresh build.

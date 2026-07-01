@@ -86,3 +86,42 @@ public struct SSEParser {
         return SSEEvent(event: event, data: dataLines.joined(separator: "\n"))
     }
 }
+
+/// Byte-level companion to `SSEParser`: splits a raw byte stream into text lines on
+/// LF (`\n`), stripping a trailing CR (`\r`), and — critically — PRESERVING empty lines.
+///
+/// SSE dispatches an event on the BLANK line, so the blank separators MUST reach
+/// `SSEParser`. Foundation's `AsyncSequence.lines` (`AsyncLineSequence`) silently DROPS
+/// empty lines, so driving `SSEParser` from a live `URLSession.bytes.lines` stream never
+/// dispatches any event (every `data:` payload collapses into one field, invalid JSON at
+/// flush) — the on-device streaming bug. `URLSessionTransport.lines(for:)` feeds bytes
+/// through this splitter instead. Pure + synchronous → fixture-testable; the async byte
+/// reading stays in the transport.
+public struct SSELineSplitter {
+    private var buffer: [UInt8] = []
+
+    public init() { }
+
+    /// Feed one byte. Returns a completed line (WITHOUT the terminator, a trailing `\r`
+    /// stripped) when an LF is seen — including an empty string for a blank line — else nil.
+    public mutating func push(_ byte: UInt8) -> String? {
+        guard byte == 0x0A else {           // not LF → accumulate
+            buffer.append(byte)
+            return nil
+        }
+        if buffer.last == 0x0D { buffer.removeLast() }  // strip a trailing CR ("\r\n")
+        let line = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return line
+    }
+
+    /// Flush a trailing line that had no closing LF (e.g. a stream cut mid-line). nil when
+    /// nothing is buffered.
+    public mutating func finish() -> String? {
+        guard !buffer.isEmpty else { return nil }
+        if buffer.last == 0x0D { buffer.removeLast() }
+        let line = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return line
+    }
+}

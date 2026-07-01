@@ -344,8 +344,10 @@ func providerErrorMapped() async throws {
     // message.created seeded, then a single error — never a completed.
     #expect(names(events) == ["assistant.message.created", "assistant.error"])
     let detail = payload(events[1])["detail"] as? String
-    #expect(detail == "The assistant AI provider is temporarily unavailable. Please try again.")
-    // The raw 401-style body must NOT leak into the surfaced detail.
+    // The engine now surfaces the actionable status (via AIError.errorDescription) rather
+    // than a generic "temporarily unavailable" that masked the real cause.
+    #expect(detail == "Openai is rate-limiting requests (429). Try again in a moment.")
+    // The raw provider body must NOT leak into the surfaced detail.
     #expect(detail?.contains("rate limited") == false)
 }
 
