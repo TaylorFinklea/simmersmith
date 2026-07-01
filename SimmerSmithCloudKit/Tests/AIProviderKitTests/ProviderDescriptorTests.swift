@@ -69,8 +69,27 @@ func thinkingParams() {
     #expect((mmOn["thinking"] as? [String: Any])?["type"] as? String == "adaptive")
     #expect(mmOn["reasoning_split"] as? Bool == true)
 
-    // All three disable cleanly.
-    for v in OpenModelVendor.allCases {
+    // The three direct vendors disable thinking cleanly.
+    for v in [OpenModelVendor.glm, .kimi, .minimax] {
         #expect((disabled(v)["thinking"] as? [String: Any])?["type"] as? String == "disabled")
     }
+    // OpenRouter injects NO thinking param either way — it normalizes reasoning itself,
+    // so enabled/disabled are both no-ops (an unset body).
+    #expect(enabled(.openRouter).isEmpty)
+    #expect(disabled(.openRouter).isEmpty)
+}
+
+@Test("OpenRouter descriptor: one key, OpenAI-compatible URL, curated slugs, no live models list")
+func openRouterDescriptor() {
+    let or = ProviderRegistry.descriptor(for: .openRouter)
+    #expect(or.keychainKeyID == "openrouter")
+    #expect(or.chatURL == "https://openrouter.ai/api/v1/chat/completions")
+    #expect(or.modelsURL == nil)              // nil → Test-Key uses a real chat probe
+    #expect(or.reasoningStyle == .none)       // OpenRouter normalizes reasoning itself
+    #expect(or.defaultModel == "z-ai/glm-4.6")
+    #expect(or.fallbackModels.contains("z-ai/glm-4.6"))
+    #expect(or.fallbackModels.contains("minimax/minimax-m3"))
+    // The vendor round-trips through the keychain-id mapping like the direct vendors.
+    #expect(ProviderRegistry.vendor(forKeychainID: "openrouter") == .openRouter)
+    #expect(OpenModelVendor(rawValue: "openrouter") == .openRouter)
 }

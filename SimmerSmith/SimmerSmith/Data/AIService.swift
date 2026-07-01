@@ -263,11 +263,12 @@ final class AIService {
         case "openmodels":
             let vendorRaw = ((try? store.profileSetting(key: Self.keyOpenModelsVendor))?.value ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            // An empty vendor means "accept the displayed default" (GLM) — resolve it
-            // rather than throwing, so the default-GLM path is never an unrecoverable config.
+            // An empty vendor means "accept the displayed default" (OpenRouter, the only
+            // user-visible open-models vendor) — resolve it rather than throwing, so the
+            // default path is never an unrecoverable config. Matches resolvedOpenVendor.
             let vendor: OpenModelVendor
             if vendorRaw.isEmpty {
-                vendor = .glm
+                vendor = .openRouter
             } else if let v = OpenModelVendor(rawValue: vendorRaw) {
                 vendor = v
             } else {

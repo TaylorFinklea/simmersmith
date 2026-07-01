@@ -1,93 +1,80 @@
 import SwiftUI
 import AIProviderKit
 
-// SP-C — the Settings → AI "Model" dropdown for the single "Open models" provider
-// entry. Unlike AIModelPickerRow (one provider), this spans all three open vendors
-// (GLM/Z.ai, Kimi/Moonshot, MiniMax) in one Picker, sectioned by vendor. Selecting a
-// row sets BOTH the vendor and the model draft — the chosen model determines which
-// vendor key + base URL the app uses. Per-vendor options come from
-// `ckAIModelOptions[<keychainID>]` (live /models curated, or the static fallback);
-// only the selected vendor's live list is fetched (the others show their fallback).
+// SP-C / OpenRouter — the Settings → AI "Model" dropdown for the open-models provider
+// entry (labeled "OpenRouter"). OpenRouter is an OpenAI-compatible META-provider modeled
+// as `OpenModelVendor.openRouter`; the direct GLM/Kimi/MiniMax vendors stay in the code
+// (ProviderRegistry) but are hidden from this picker. Options are a curated slug list
+// (the descriptor's `fallbackModels`) plus a trailing "Custom…" row that reveals a
+// free-text field for any OpenRouter slug. Selecting a row pins the vendor to OpenRouter
+// and sets the model draft.
 struct OpenModelsPickerRow: View {
     @Environment(AppState.self) private var appState
 
-    private var vendorRaw: String {
-        appState.aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    /// The single vendor this picker offers. GLM/Kimi/MiniMax are hidden (replaced).
+    private static let vendor: OpenModelVendor = .openRouter
+
+    /// True while the user picked "Custom…" and is typing a slug the catalog doesn't list.
+    @State private var isEditingCustom = false
+
+    /// Sentinel tag for the "Custom…" row — namespaced so it can't collide with a slug.
+    private static let customTag = "__simmersmith_custom_openrouter_model__"
+
+    private var model: String {
+        appState.aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var selectedVendor: OpenModelVendor? { OpenModelVendor(rawValue: vendorRaw) }
-    private var model: String { appState.aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// Composite Picker tag "vendor:model" so one selection carries both.
-    private static func tag(_ v: OpenModelVendor, _ model: String) -> String { "\(v.rawValue):\(model)" }
+    private var keychainID: String { ProviderRegistry.descriptor(for: Self.vendor).keychainKeyID }
 
-    /// The keychain id whose live model list should be fetched (the selected vendor's).
-    private var selectedKeychainID: String? {
-        selectedVendor.map { ProviderRegistry.descriptor(for: $0).keychainKeyID }
-    }
-
-    private func options(for v: OpenModelVendor) -> [String] {
-        let kc = ProviderRegistry.descriptor(for: v).keychainKeyID
-        return AIModelCatalog.displayOptions(
-            provider: kc,
-            available: appState.ckAIModelOptions[kc] ?? [],
-            saved: (selectedVendor == v) ? model : ""
+    /// Curated slug options (descriptor fallback) plus the saved value; live fetch is
+    /// off for OpenRouter (`modelsURL` is nil) so this is the curated list + Custom…
+    private var options: [String] {
+        AIModelCatalog.displayOptions(
+            provider: keychainID,
+            available: appState.ckAIModelOptions[keychainID] ?? [],
+            saved: model
         )
+    }
+
+    /// Set both the pinned vendor and the model draft in one shot.
+    private func setModel(_ value: String) {
+        appState.aiOpenModelsVendorDraft = Self.vendor.rawValue
+        appState.aiOpenModelsModelDraft = value
     }
 
     private var selection: Binding<String> {
         Binding(
             get: {
-                // Default to GLM's default model when nothing is selected yet.
-                let v = selectedVendor ?? .glm
-                let m = (selectedVendor == nil || model.isEmpty)
-                    ? ProviderRegistry.descriptor(for: v).defaultModel
-                    : model
-                return Self.tag(v, m)
+                if isEditingCustom { return Self.customTag }
+                return model.isEmpty ? ProviderRegistry.descriptor(for: Self.vendor).defaultModel : model
             },
-            set: { composite in
-                let parts = composite.split(separator: ":", maxSplits: 1).map(String.init)
-                guard parts.count == 2, let v = OpenModelVendor(rawValue: parts[0]) else { return }
-                appState.aiOpenModelsVendorDraft = v.rawValue
-                appState.aiOpenModelsModelDraft = parts[1]
+            set: { newValue in
+                if newValue == Self.customTag {
+                    isEditingCustom = true
+                } else {
+                    isEditingCustom = false
+                    setModel(newValue)
+                }
             }
         )
     }
 
-    /// Refetch the selected vendor's live models when the vendor or its key changes.
-    private var fetchKey: String {
-        let kc = selectedKeychainID ?? ""
-        return "\(kc)|\(appState.providerAPIKeyConfigured(providerID: kc))"
+    private var customFieldBinding: Binding<String> {
+        Binding(get: { appState.aiOpenModelsModelDraft }, set: { setModel($0) })
     }
 
     var body: some View {
         Picker("Model", selection: selection) {
-            ForEach(OpenModelVendor.allCases, id: \.self) { v in
-                Section(v.displayName) {
-                    ForEach(options(for: v), id: \.self) { m in
-                        Text(m).tag(Self.tag(v, m))
-                    }
-                }
+            ForEach(options, id: \.self) { m in
+                Text(m).tag(m)
             }
-        }
-        .task(id: fetchKey) {
-            if let kc = selectedKeychainID, !kc.isEmpty {
-                await appState.refreshCKAIModels(for: kc)
-            }
+            Text("Custom…").tag(Self.customTag)
         }
 
-        if let kc = selectedKeychainID {
-            if appState.isFetchingAIModels[kc] ?? false {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading available models…")
-                        .font(.footnote)
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-            } else if let err = appState.ckAIModelFetchError[kc] {
-                Text("Showing default models — \(err)")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
+        if isEditingCustom {
+            TextField("OpenRouter model slug (e.g. z-ai/glm-4.6)", text: customFieldBinding)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
         }
     }
 }

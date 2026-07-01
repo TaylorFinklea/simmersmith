@@ -248,12 +248,12 @@ extension AppState {
         }
     }
 
-    /// Resolve an open-models vendor draft, defaulting an EMPTY draft to GLM (the
-    /// displayed default) so "accept the default" keys/persists a resolvable config.
-    /// A non-empty but invalid value stays unresolved (nil).
+    /// Resolve an open-models vendor draft, defaulting an EMPTY draft to OpenRouter (the
+    /// only user-visible open-models vendor) so "accept the default" keys/persists a
+    /// resolvable config. A non-empty but invalid value stays unresolved (nil).
     func resolvedOpenVendor(_ raw: String) -> OpenModelVendor? {
         let r = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return r.isEmpty ? .glm : OpenModelVendor(rawValue: r)
+        return r.isEmpty ? .openRouter : OpenModelVendor(rawValue: r)
     }
 
     /// Friendly label for a Keychain provider id — vendor displayName for the open
@@ -300,19 +300,22 @@ extension AppState {
         }
     }
 
-    /// Commit the displayed GLM default when the provider switches to "openmodels"
+    /// Commit the displayed OpenRouter default when the provider switches to "openmodels"
     /// without the user having tapped the model dropdown — otherwise the drafts stay
     /// empty, the key save no-ops, and resolveConfiguration can't resolve the vendor.
-    /// Idempotent: only fills empty drafts.
+    /// OpenRouter is the only user-visible open-models vendor now, so a legacy direct-vendor
+    /// draft (glm/kimi/minimax) — which the picker no longer offers — is migrated to
+    /// OpenRouter (resetting the model to its default). Idempotent for an OpenRouter draft.
     func seedOpenModelsDefaultsIfNeeded() {
         #if canImport(CloudKit)
         guard aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "openmodels" else { return }
-        if aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            aiOpenModelsVendorDraft = OpenModelVendor.glm.rawValue
+        let current = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        if current != .openRouter {
+            aiOpenModelsVendorDraft = OpenModelVendor.openRouter.rawValue
+            aiOpenModelsModelDraft = ""   // drop any legacy direct-vendor model id
         }
         if aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let v = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.lowercased()) ?? .glm
-            aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: v).defaultModel
+            aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: .openRouter).defaultModel
         }
         #endif
     }

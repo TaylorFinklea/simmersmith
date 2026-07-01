@@ -70,18 +70,21 @@ struct SettingsView: View {
                     Text("None").tag("")
                     Text("OpenAI").tag("openai")
                     Text("Anthropic").tag("anthropic")
-                    Text("Open models").tag("openmodels")
+                    // OpenRouter is the open-models entry (one key, many open models by
+                    // slug). Internal tag stays "openmodels" so all persistence/service
+                    // plumbing is unchanged; the selected vendor is pinned to OpenRouter.
+                    Text("OpenRouter").tag("openmodels")
                 }
                 .onChange(of: appState.aiDirectProviderDraft) { _, newValue in
-                    // Commit the displayed GLM default so a default-accept user keys + saves
-                    // a resolvable config without having to open the model dropdown first.
+                    // Commit the displayed OpenRouter default so a default-accept user keys +
+                    // saves a resolvable config without having to open the model dropdown first.
                     if newValue == "openmodels" { appState.seedOpenModelsDefaultsIfNeeded() }
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
                     // SP-C — model selection is a key-aware dropdown: the provider's
-                    // live /v1/models (curated) with a static fallback. "Open models"
-                    // spans all three OSS vendors in one vendor-sectioned dropdown.
+                    // live /v1/models (curated) with a static fallback. "OpenRouter"
+                    // (the open-models entry) shows a curated slug list + Custom….
                     if appState.aiDirectProviderDraft == "openmodels" {
                         OpenModelsPickerRow()
                     } else {

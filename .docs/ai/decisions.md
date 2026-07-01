@@ -1156,3 +1156,32 @@ deliberate, tracked exception; the data plane itself is fully green.
   so the next device test names the real OpenAI cause instead of masking it.
 - `Providers.swift` + `SSEReader.swift` + `AssistantEngine.swift` (+ tests). 357 CK tests pass. Live streaming
   re-test pending on a fresh build.
+
+## 2026-07-01 - OpenRouter replaces direct GLM/Kimi/MiniMax as the open-models provider
+
+- **User decision (device test):** managing direct per-vendor keys (GLM/Z.ai, Kimi/Moonshot, MiniMax)
+  is a pain; the models are cheap on OpenRouter. Use OpenRouter (one key, OpenAI-compatible, many open
+  models by slug) as THE open-models path; keep direct-vendor support in code to re-enable later.
+- **Architecture:** OpenRouter is modeled as a new `OpenModelVendor.openRouter` case — NOT the separate
+  dormant `CloudModel.openRouter(String)` stub. This reuses the ENTIRE descriptor-driven open-models path
+  (chatWithToolsOpenModels, streamWithToolsOpenModels, listModels, AIModelCatalog, key storage) with zero
+  new provider code — the descriptor is the only kit addition. The app keeps the internal provider tag
+  "openmodels" (so resolveConfiguration / persistence / keychain plumbing is untouched); only the picker
+  label ("OpenRouter"), the visible vendor (pinned to `.openRouter`, GLM/Kimi/MiniMax hidden), and the
+  vendor defaults changed.
+- **Descriptor choices:** keychainKeyID "openrouter"; chatURL openrouter.ai/api/v1/chat/completions;
+  `modelsURL: nil` (so Test-Key does a REAL authenticated chat probe — better validation than /models, and
+  it catches quota/model errors); `reasoningStyle: .none` + no-op thinking params (OpenRouter normalizes
+  reasoning across providers itself — sending vendor-specific `thinking`/`reasoning_split` would be wrong).
+  Curated `fallbackModels` (verified live against the OpenRouter /models API 2026-07-01): glm-4.6/glm-5,
+  kimi-k2.6/kimi-k2-thinking, minimax-m3, deepseek-v3.2, qwen3-235b-a22b-2507, llama-4-maverick; default
+  z-ai/glm-4.6. UI: curated dropdown + a "Custom…" free-text slug field (user's chosen UX).
+- **Reasoning replay is DEFERRED for OpenRouter** (`.none`): the tool loop threads messages + tool results
+  without replaying reasoning. Works for the vast majority of models; if a specific model needs its
+  reasoning fed back (OpenRouter's `reasoning_details` passthrough), that's a later refinement.
+- **Migration:** a legacy persisted direct-vendor draft (glm/kimi/minimax) is migrated to OpenRouter on
+  provider (re)selection (resetting the model), and empty-vendor resolution defaults to `.openRouter`
+  everywhere (resolvedOpenVendor, resolveConfiguration) — consistent with the picker.
+- Files: AIProvider.swift (enum), ProviderDescriptor.swift (descriptor) + tests; app: SettingsView.swift,
+  OpenModelsPickerRow.swift, AppState+AI.swift, AIService.swift. 358 CK tests pass; app builds. Device gate
+  (live OpenRouter key) pending a shipped build.

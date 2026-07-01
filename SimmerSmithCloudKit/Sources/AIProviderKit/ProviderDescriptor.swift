@@ -134,6 +134,36 @@ public enum ProviderRegistry {
                     body["thinking"] = ["type": "disabled"]
                 }
             )
+        case .openRouter:
+            // OpenRouter — OpenAI-compatible META-provider (one key, open models by slug).
+            // It NORMALIZES reasoning across providers itself, so we send NO vendor-specific
+            // `thinking` param (no-op) and DON'T capture/replay reasoning (reasoningStyle
+            // .none) — a robust v1 pass-through. `modelsURL` is nil so the Test-Key button
+            // validates via a real chat probe (also catching quota/model issues) and the
+            // model dropdown shows the curated `fallbackModels` + a Custom… slot. Slugs
+            // verified live against openrouter.ai/api/v1/models (2026-07-01).
+            return ProviderDescriptor(
+                vendor: .openRouter,
+                keychainKeyID: "openrouter",
+                chatURL: "https://openrouter.ai/api/v1/chat/completions",
+                modelsURL: nil,
+                defaultModel: "z-ai/glm-4.6",
+                fallbackModels: [
+                    "z-ai/glm-4.6",
+                    "z-ai/glm-5",
+                    "moonshotai/kimi-k2.6",
+                    "moonshotai/kimi-k2-thinking",
+                    "minimax/minimax-m3",
+                    "deepseek/deepseek-v3.2",
+                    "qwen/qwen3-235b-a22b-2507",
+                    "meta-llama/llama-4-maverick",
+                ],
+                reasoningStyle: .none,
+                toolLoopTemperature: 0.3,
+                oneShotTemperature: 0.7,
+                applyThinkingEnabled: { _, _ in },
+                applyThinkingDisabled: { _, _ in }
+            )
         }
     }
 
