@@ -284,6 +284,68 @@ func anthropicStreamContentOnly() async throws {
     ])
 }
 
+@Test("Two Anthropic text blocks stream a single \"\\n\" separator between them, matching parseAnthropicToolTurn's join")
+func anthropicStreamMultipleTextBlocks() async throws {
+    // A single Anthropic message can carry >1 text content block. The non-streaming
+    // parseAnthropicToolTurn joins them with "\n"; the live stream must emit that same
+    // separator ONCE at the block boundary (not per-delta, not omitted) so the streamed
+    // content_markdown equals the assembled turn's text.
+    var lines: [String] = []
+    lines += anthropicEvent("message_start", ["type": "message_start"])
+    // Text block 0, streamed across two deltas.
+    lines += anthropicEvent("content_block_start", [
+        "type": "content_block_start", "index": 0,
+        "content_block": ["type": "text", "text": ""],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "text_delta", "text": "Hel"],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "text_delta", "text": "lo"],
+    ])
+    lines += anthropicEvent("content_block_stop", ["type": "content_block_stop", "index": 0])
+    // Text block 1, also streamed across two deltas.
+    lines += anthropicEvent("content_block_start", [
+        "type": "content_block_start", "index": 1,
+        "content_block": ["type": "text", "text": ""],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 1,
+        "delta": ["type": "text_delta", "text": "Wor"],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 1,
+        "delta": ["type": "text_delta", "text": "ld"],
+    ])
+    lines += anthropicEvent("content_block_stop", ["type": "content_block_stop", "index": 1])
+    lines += anthropicEvent("message_delta", [
+        "type": "message_delta", "delta": ["stop_reason": "end_turn"],
+    ])
+    lines += anthropicEvent("message_stop", ["type": "message_stop"])
+
+    let transport = MockLinesTransport(lines: lines)
+    let keyStore = MockKeyStore()
+    keyStore.setKey("ant-test", for: "anthropic")
+    let provider = BYOKeyProvider(model: .anthropic, keyStore: keyStore, transport: transport)
+
+    let events = try await collectStream(provider.streamWithTools(
+        messages: [.text(.user, "hi")], tools: [], systemPrompt: nil
+    ))
+
+    // The "\n" fires exactly once (at the 0→1 boundary), never per-delta, and the
+    // terminal turn's text matches parseAnthropicToolTurn's "\n"-join.
+    #expect(events == [
+        .textDelta("Hel"),
+        .textDelta("lo"),
+        .textDelta("\n"),
+        .textDelta("Wor"),
+        .textDelta("ld"),
+        .turn(ToolUseTurn(text: "Hello\nWorld", toolCalls: [], finished: true)),
+    ])
+}
+
 @Test("An Anthropic tool call streamed incrementally assembles id/name + concatenated input-json fragments")
 func anthropicStreamToolCallIncremental() async throws {
     let fullArgs = #"{"location":"x"}"#

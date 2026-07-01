@@ -780,6 +780,12 @@ extension BYOKeyProvider {
                     var pendingCalls: [Int: PendingAnthropicToolCall] = [:]
                     var callOrder: [Int] = []
                     var stopReason: String?
+                    // The block index whose text was most recently streamed live. When the
+                    // stream crosses into a DIFFERENT non-empty text block we emit a "\n"
+                    // delta first, so the live-streamed content matches assembleTurn /
+                    // parseAnthropicToolTurn's "\n"-join between text blocks (else two
+                    // blocks run together as "AB" instead of "A\nB").
+                    var lastStreamedTextIndex: Int?
 
                     func handle(_ event: SSEEvent) {
                         guard let chunkData = event.data.data(using: .utf8),
@@ -811,7 +817,13 @@ extension BYOKeyProvider {
                             case "text_delta":
                                 if let text = delta["text"] as? String {
                                     textBlocks[index, default: ""] += text
-                                    if !text.isEmpty { continuation.yield(.textDelta(text)) }
+                                    if !text.isEmpty {
+                                        if let last = lastStreamedTextIndex, last != index {
+                                            continuation.yield(.textDelta("\n"))
+                                        }
+                                        lastStreamedTextIndex = index
+                                        continuation.yield(.textDelta(text))
+                                    }
                                 }
                             case "input_json_delta":
                                 if let fragment = delta["partial_json"] as? String {

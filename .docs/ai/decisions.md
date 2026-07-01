@@ -1107,3 +1107,28 @@ deliberate, tracked exception; the data plane itself is fully green.
   against the app target) — that path is documented in the test file's header comment but not yet wired up.
 - `SimmerSmithKit/Tests/SimmerSmithKitTests/PrivatePlaneStoreTests.swift`. `swift test --package-path
   SimmerSmithKit` now exits 0, no `signal code 5`, 117 tests pass / 8 skipped.
+
+## 2026-07-01 - Assistant streaming Phase 3: fix within-message multi-block separator, keep deferring multi-turn
+
+- Phase 3 verification (5-lens adversarial audit workflow) found the app wiring already forwards
+  incremental deltas correctly (one shared `messageId` → `applyAssistantDelta` appends onto the seeded row;
+  `URLSession.bytes.lines` streams; `@Observable` MainActor mutation re-renders per delta) — NO wiring change
+  was needed. The audit's value was catching one Phase-2b correctness gap the 352 passing tests missed.
+- **The gap:** an Anthropic message with ≥2 non-empty text content blocks (e.g. `[text, tool_use, text]`)
+  streamed each `text_delta` verbatim, so `accumulatedText` = `"AB"`, while `parseAnthropicToolTurn` /
+  `assembleTurn` join text blocks with `"\n"` = `"A\nB"`. Because `turnDidStream=true`, the engine uses
+  `accumulatedText` and DISCARDS the correctly-joined `turn.text` → persisted/displayed content_markdown ran
+  the two blocks together. **Fix:** `streamWithToolsAnthropic` now tracks `lastStreamedTextIndex` and yields a
+  single `"\n"` delta when the live stream crosses into a different non-empty text block — matching the
+  `"\n"`-join exactly (fires once at the boundary, never per-delta, never before an empty block).
+- **Why NOT also "fix" the multi-TURN separator:** the spec's "Phase 1 separator nuance" note deliberately
+  accepts that streamed text across >1 tool-loop ITERATION concatenates verbatim while the non-streamed
+  fallback `"\n"`-joins turns — and calls the streamed form "more faithful (exactly what the model emitted)."
+  That's a different case: separate model emissions across iterations, where no separator is the truthful
+  rendering. The within-MESSAGE multi-block case is materially different — Anthropic's blocks are one emission
+  the API consumer is expected to separate, and running them together drops whitespace mid-answer. So we align
+  the streaming path to the non-streaming contract for multi-block, and leave the spec-acknowledged multi-turn
+  divergence alone (revisit only if a real multi-text-turn case looks wrong on device).
+- Anthropic-only: OpenAI/open-models stream a single `content` field, so their parse paths never `"\n"`-join.
+- `SimmerSmithCloudKit/Sources/AIProviderKit/BYOKeyProviderTools.swift` + `BYOKeyProviderStreamingTests.swift`
+  (1 new regression test). 353 CK tests pass; app builds. Device gate (live streaming proof) still HUMAN.
