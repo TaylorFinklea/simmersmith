@@ -137,15 +137,74 @@ tests still pass + the new SSEReader tests pass.
 Commit ONLY the new `SSEReader.swift` + `SSEReaderTests.swift` — do NOT stage the pre-existing
 `SimmerSmith.xcodeproj/project.pbxproj` (an unrelated uncommitted change).
 
-### Phase 2 — Per-vendor SSE streaming (provider impls; live-key device gate)
+### Phase 2a — OpenAI `streamWithTools` SSE override + streaming transport seam — loop target (Sonnet 5)
 
-Override `streamWithTools` on `BYOKeyProvider` to do real SSE token streaming per vendor:
-OpenAI Chat Completions `stream:true`, Anthropic Messages stream
-(`content_block_delta`/`input_json_delta`), open-models (GLM/Kimi/MiniMax) SSE. Accumulate
-tool-call argument deltas into `ToolCall`s; forward visible-text deltas as `.textDelta`; emit the
-final `.turn(...)` with the assembled `ToolUseTurn` (preserving the reasoning-capture contract for
-open-models). Unit-test each vendor's SSE parser with recorded fixtures. Real proof = device + live
-keys (file a device-verify bead, like the other AI features).
+Give `BYOKeyProvider` a real streaming OpenAI turn: override `streamWithTools` (the Phase-1
+`AssistantToolChat` method) to POST `chat/completions` with `stream: true`, read the SSE via the
+Phase-2.0 `SSEParser`, forward visible text as `.textDelta` live, and emit a final `.turn(...)` whose
+`ToolUseTurn` is EQUIVALENT to what the non-streaming `parseOpenAIToolTurn` produces. Fully
+fixture-testable (no live keys); real end-to-end proof is a device gate (Phase 3).
+
+**Part 1 — streaming transport seam (spec-derived; implement exactly):**
+Add to `HTTPTransport` (Providers.swift):
+```swift
+func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse)
+```
+with a DEFAULT protocol-extension implementation that wraps the existing `data(for:)` — fetch the
+whole body, split into lines (on "\n", dropping a trailing "\r" from "\r\n"), yield them, finish —
+so every existing `HTTPTransport` conformer (incl. the tests' `MockHTTPTransport`) keeps compiling
+unchanged. `URLSessionTransport` OVERRIDES it with real streaming: `session.bytes(for:)` then iterate
+`bytes.lines`, forwarding each line; on a non-200 status throw `AIError.httpError` (redact the body
+via `SecretSanitizer`, mirroring `checkHTTP`). Honor `Task` cancellation (onTermination cancels the
+reading task). Add a module-internal `linesRef` accessor mirroring `transportRef` if the tool-use
+code (a sibling file) needs it.
+
+**Part 2 — OpenAI `streamWithTools` override (spec-derived contract; MIRROR the codebase for the
+request body + turn assembly — read `chatWithToolsOpenAI` (~L321) and `parseOpenAIToolTurn` (~L410)):**
+- Build the SAME request body as `chatWithToolsOpenAI` (messages via `encodeOpenAIMessages`, the same
+  `tools`/`tool_choice`, temperature 0.3, maxTokens) but add `"stream": true`.
+- POST via `transport.lines(for:)`, feed each line to one `SSEParser`. For each dispatched `SSEEvent`:
+  - `data == "[DONE]"` → end: assemble + emit the final `.turn`, finish.
+  - else JSON-parse the chunk; read `choices[0].delta`:
+    - `delta.content` (String, may be "") → append to `accumulatedText`; emit `.textDelta(content)`
+      ONLY when non-empty.
+    - `delta.tool_calls` (array) → accumulate BY `index` (Int): set `id` and `function.name` when
+      present (first fragment), and APPEND each `function.arguments` String fragment.
+    - `choices[0].finish_reason` (String, on the terminal chunk) → record it.
+  - If the stream ends without an explicit `[DONE]`, still assemble + emit `.turn` (some proxies omit it).
+- Assemble the terminal `ToolUseTurn` to MATCH `parseOpenAIToolTurn`: `text` = `accumulatedText` (nil
+  if empty), `toolCalls` = the accumulated calls in `index` order as `ToolCall(id, name, argsJSON)`
+  (skip a call missing id/name — mirror the non-streaming skip), `finished = calls.isEmpty &&
+  finishReason != "tool_calls"`. (`reasoning` stays nil for OpenAI, as in the non-streaming path.)
+- Errors: an HTTP/parse error finishes the stream `throwing:` the `AIError` (AssistantEngine maps it
+  to `assistant.error`). Honor `Task` cancellation.
+
+**Tests** (new fixtures; mirror the existing `MockHTTPTransport` + AIProviderKitTests idiom):
+Add a streaming mock (script `lines(for:)` to yield fixture SSE lines). Assert, driving the override
+directly:
+1. Content-only: chunks `{"choices":[{"delta":{"content":"Hel"}}]}` / `{"choices":[{"delta":{"content":"lo"}}]}`
+   / `{"choices":[{"delta":{},"finish_reason":"stop"}]}` / `[DONE]` → emits `.textDelta("Hel")`,
+   `.textDelta("lo")`, then `.turn(ToolUseTurn(text:"Hello", toolCalls:[], finished:true))`.
+2. Tool call streamed incrementally: index 0 first chunk carries `id`+`function.name`, later chunks
+   append `function.arguments` fragments (e.g. `{"lo` then `cation":"x"}`), terminal chunk
+   `finish_reason:"tool_calls"` → `.turn` with `toolCalls == [ToolCall(id, name, argsJSON:"{\"location\":\"x\"}")]`
+   and `finished == false`, and NO stray `.textDelta` (no content in this stream).
+3. (Recommended) two tool calls at index 0 and 1 assemble independently.
+
+**Verify:** `swift test --package-path SimmerSmithCloudKit` — exit 0, no `signal code 5`, all existing
+tests + the new streaming tests pass.
+
+**Scope guard:** touch only `Providers.swift` (transport seam) + `BYOKeyProviderTools.swift` (the
+override) + a new/extended test file. Do NOT change AssistantEngine, the non-streaming
+`chatWithTools*`, or existing tests. Do NOT stage the pre-existing `project.pbxproj`.
+
+### Phase 2b / 2c — Anthropic + open-models streamWithTools overrides (later)
+
+Same shape as 2a, per vendor: Anthropic Messages stream (`content_block_start` / `content_block_delta`
+with `text_delta`/`input_json_delta` / `content_block_stop` / `message_delta` stop_reason); open-models
+(GLM/Kimi/MiniMax) OpenAI-compatible SSE — but PRESERVE the reasoning-capture contract (the accumulated
+`reasoning` must ride on the final `ToolUseTurn`, load-bearing for the open-models replay). Each
+fixture-tested. Real proof = device + live keys.
 
 ### Phase 3 — App wiring + verification
 

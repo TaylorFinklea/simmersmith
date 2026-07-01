@@ -12,7 +12,8 @@
   `didStreamDelta`-gated `finish`. Package-only, 334 pkg tests pass (3 new streaming tests). Sonnet 5.
   Verify: `swift test --package-path SimmerSmithCloudKit`.
 - [x] Phase 2.0 — shared SSE event reader (`SSEEvent` + synchronous `SSEParser`) in AIProviderKit, fixture-tested. DONE: new `SSEReader.swift` + `SSEReaderTests.swift` (7 cases); 341 CK tests pass. Verify: swift test --package-path SimmerSmithCloudKit ✓
-- Later (Lead adds each to the Plan one at a time as it becomes the loop target; detailed in the spec): Phase 2a OpenAI / 2b Anthropic / 2c open-models `streamWithTools` SSE overrides (each fixture-tested, Verify: swift test; 2a owns line-framing incl. a trailing `\r` from `\r\n` — feed `SSEParser` plain lines), then Phase 3 app wiring + on-device gate (HUMAN — not looped).
+- [x] Phase 2a — OpenAI `streamWithTools` SSE override + streaming transport seam (`HTTPTransport.lines(for:)`). DONE (Sonnet 5): tool-call deltas accumulated by index → `ToolUseTurn` matching `parseOpenAIToolTurn`; live `.textDelta`s; non-OpenAI vendors keep the Phase-1 default (single-witness-per-type). 348 CK tests pass (7 new). Verify: swift test --package-path SimmerSmithCloudKit ✓
+- Later (add to the Plan one at a time; detailed in the spec): Phase 2b Anthropic / 2c open-models `streamWithTools` SSE overrides (each fixture-tested, Verify: swift test), then Phase 3 app wiring + on-device gate (HUMAN — not looped).
 
 ## Current (2026-06-30) — Backup & Restore SHIPPED build 145; awaiting recover device gate
 

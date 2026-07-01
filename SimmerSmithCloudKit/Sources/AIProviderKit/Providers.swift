@@ -10,6 +10,30 @@ import Foundation
 /// testable — inject a `MockHTTPTransport` in tests, no real API calls needed.
 public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
+    /// Phase 2a streaming seam: the response body as a line stream (e.g. for SSE). The
+    /// default extension below wraps `data(for:)` so every existing conformer (incl.
+    /// the tests' `MockHTTPTransport`) keeps compiling + working unchanged;
+    /// `URLSessionTransport` overrides it with real streaming.
+    func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse)
+}
+
+extension HTTPTransport {
+    /// Default `lines(for:)`: fetch the whole body via `data(for:)`, split it into
+    /// lines (on "\n", dropping a trailing "\r" from "\r\n"), and yield them.
+    public func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        let (data, response) = try await data(for: request)
+        let text = String(data: data, encoding: .utf8) ?? ""
+        let rawLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            for line in rawLines {
+                var cleaned = String(line)
+                if cleaned.hasSuffix("\r") { cleaned.removeLast() }
+                continuation.yield(cleaned)
+            }
+            continuation.finish()
+        }
+        return (stream, response)
+    }
 }
 
 /// Default production transport backed by a dedicated `URLSession`.
@@ -32,6 +56,36 @@ public struct URLSessionTransport: HTTPTransport {
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session.data(for: request)
+    }
+
+    /// Real streaming override: `session.bytes(for:)` + `.lines`, forwarding each line
+    /// as it arrives. A non-200 status drains the body, redacts it (mirroring
+    /// `checkHTTP`), and throws `AIError.httpError` before any line is yielded. The
+    /// reading task is cancelled when the consumer stops iterating (`onTermination`).
+    public func lines(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        let (bytes, response) = try await session.bytes(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            var raw = Data()
+            for try await byte in bytes { raw.append(byte) }
+            let rawBody = String(data: raw, encoding: .utf8) ?? "(no body)"
+            let body = SecretSanitizer.redact(rawBody)
+            throw AIError.httpError(provider: request.url?.host ?? "unknown", statusCode: http.statusCode, body: body)
+        }
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (stream, response)
     }
 }
 

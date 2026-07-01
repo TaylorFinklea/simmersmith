@@ -431,6 +431,167 @@ extension BYOKeyProvider {
         return ToolUseTurn(text: text, toolCalls: calls, finished: finished)
     }
 
+    // MARK: OpenAI streaming tool-use (SSE) — Phase 2a
+
+    /// Real streaming override of `AssistantToolChat.streamWithTools`, for OpenAI only.
+    /// `.anthropic` / `.openModels` don't have an SSE override yet (Phase 2b/2c) — this
+    /// replicates the Phase-1 default (one non-streaming `chatWithTools` call, emitted
+    /// as a single `.turn`, no deltas) for those so their behavior is unchanged.
+    public func streamWithTools(
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        guard case .openAI = cloudModel else {
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        let turn = try await chatWithTools(messages: messages, tools: tools, systemPrompt: systemPrompt)
+                        continuation.yield(.turn(turn))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+        return streamWithToolsOpenAI(messages: messages, tools: tools, systemPrompt: systemPrompt)
+    }
+
+    /// Accumulator for one in-flight streamed OpenAI tool call (`delta.tool_calls[index]`):
+    /// `id`/`function.name` set once on the first fragment carrying them, `function.arguments`
+    /// fragments concatenated across chunks.
+    private struct PendingToolCall {
+        var id: String?
+        var name: String?
+        var args: String = ""
+    }
+
+    /// SSE-driven OpenAI `chat/completions` call (`stream: true`). Builds the SAME
+    /// request body as `chatWithToolsOpenAI` (temperature 0.3, tools/tool_choice), POSTs
+    /// via `transport.lines(for:)`, and feeds each line to one `SSEParser`. Text deltas
+    /// are forwarded live; the terminal `ToolUseTurn` is assembled to match
+    /// `parseOpenAIToolTurn` (text nil-if-empty, calls in index order skipping any
+    /// missing id/name, `finished = calls.isEmpty && finishReason != "tool_calls"`).
+    private func streamWithToolsOpenAI(
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let key = resolvedKey(for: "openai"), !key.isEmpty else {
+                        throw AIError.noKeyConfigured(.openAI)
+                    }
+                    let encoded = Self.encodeOpenAIMessages(messages, systemPrompt: systemPrompt)
+                    let toolSpecs: [[String: Any]] = tools.map { spec in
+                        ["type": "function",
+                         "function": [
+                            "name": spec.name,
+                            "description": spec.description,
+                            "parameters": spec.parametersObject,
+                         ]]
+                    }
+                    var body: [String: Any] = [
+                        "model": resolvedOpenAIModel,
+                        "messages": encoded,
+                        "temperature": 0.3,
+                        "stream": true,
+                    ]
+                    if !toolSpecs.isEmpty {
+                        body["tools"] = toolSpecs
+                        body["tool_choice"] = "auto"
+                    }
+                    let data = try JSONSerialization.data(withJSONObject: body)
+                    var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+                    req.httpMethod = "POST"
+                    req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = data
+                    let (lines, _) = try await transportRef.lines(for: req)
+
+                    var parser = SSEParser()
+                    var accumulatedText = ""
+                    var pendingCalls: [Int: PendingToolCall] = [:]
+                    var callOrder: [Int] = []
+                    var finishReason: String?
+
+                    func handle(_ event: SSEEvent) {
+                        guard let chunkData = event.data.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let choice = choices.first
+                        else { return }
+                        if let delta = choice["delta"] as? [String: Any] {
+                            if let content = delta["content"] as? String {
+                                accumulatedText += content
+                                if !content.isEmpty {
+                                    continuation.yield(.textDelta(content))
+                                }
+                            }
+                            if let rawCalls = delta["tool_calls"] as? [[String: Any]] {
+                                for raw in rawCalls {
+                                    guard let index = raw["index"] as? Int else { continue }
+                                    if pendingCalls[index] == nil {
+                                        pendingCalls[index] = PendingToolCall()
+                                        callOrder.append(index)
+                                    }
+                                    if let id = raw["id"] as? String { pendingCalls[index]?.id = id }
+                                    if let fn = raw["function"] as? [String: Any] {
+                                        if let name = fn["name"] as? String { pendingCalls[index]?.name = name }
+                                        if let fragment = fn["arguments"] as? String {
+                                            pendingCalls[index]?.args += fragment
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let fr = choice["finish_reason"] as? String {
+                            finishReason = fr
+                        }
+                    }
+
+                    func assembleTurn() -> ToolUseTurn {
+                        var calls: [ToolCall] = []
+                        for index in callOrder {
+                            guard let entry = pendingCalls[index], let id = entry.id, let name = entry.name
+                            else { continue }
+                            calls.append(ToolCall(id: id, name: name, argsJSON: entry.args))
+                        }
+                        let finished = calls.isEmpty && finishReason != "tool_calls"
+                        return ToolUseTurn(
+                            text: accumulatedText.isEmpty ? nil : accumulatedText,
+                            toolCalls: calls,
+                            finished: finished
+                        )
+                    }
+
+                    var doneSeen = false
+                    for try await line in lines {
+                        try Task.checkCancellation()
+                        guard let event = parser.push(line) else { continue }
+                        if event.data == "[DONE]" {
+                            doneSeen = true
+                            break
+                        }
+                        handle(event)
+                    }
+                    // Some proxies omit the trailing [DONE]; flush + assemble regardless.
+                    if !doneSeen, let trailing = parser.finish(), trailing.data != "[DONE]" {
+                        handle(trailing)
+                    }
+                    continuation.yield(.turn(assembleTurn()))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: Anthropic tool-use (messages)
 
     private func chatWithToolsAnthropic(
