@@ -433,10 +433,10 @@ extension BYOKeyProvider {
 
     // MARK: OpenAI streaming tool-use (SSE) — Phase 2a
 
-    /// Real streaming override of `AssistantToolChat.streamWithTools`. `.openAI` and
-    /// `.anthropic` have SSE overrides (Phase 2a/2b); `.openModels` doesn't yet (Phase
-    /// 2c) — this replicates the Phase-1 default (one non-streaming `chatWithTools`
-    /// call, emitted as a single `.turn`, no deltas) for those so behavior is unchanged.
+    /// Real streaming override of `AssistantToolChat.streamWithTools`. `.openAI`,
+    /// `.anthropic`, and `.openModels` have SSE overrides (Phase 2a/2b/2c); `.gemini`/
+    /// `.openRouter` fall through to the Phase-1 default (one non-streaming
+    /// `chatWithTools` call, emitted as a single `.turn`, no deltas) — unchanged.
     public func streamWithTools(
         messages: [AIChatMessage],
         tools: [ToolSpec],
@@ -447,6 +447,8 @@ extension BYOKeyProvider {
             return streamWithToolsOpenAI(messages: messages, tools: tools, systemPrompt: systemPrompt)
         case .anthropic:
             return streamWithToolsAnthropic(messages: messages, tools: tools, systemPrompt: systemPrompt)
+        case .openModels(let vendor):
+            return streamWithToolsOpenModels(vendor, messages: messages, tools: tools, systemPrompt: systemPrompt)
         default:
             return AsyncThrowingStream { continuation in
                 let task = Task {
@@ -853,6 +855,173 @@ extension BYOKeyProvider {
                         handle(event)
                     }
                     if let trailing = parser.finish() {
+                        handle(trailing)
+                    }
+                    continuation.yield(.turn(assembleTurn()))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    // MARK: Open-models streaming tool-use (SSE) — Phase 2c
+
+    /// SSE-driven open-models `chat/completions` call (`stream: true`). Builds the SAME
+    /// request body as `chatWithToolsOpenModels` (descriptor `toolLoopTemperature`,
+    /// `applyThinkingEnabled`, tools/tool_choice), POSTs via `transportRef.lines(for:)`,
+    /// and drives one `SSEParser` over the OpenAI-compatible unnamed `data:` events
+    /// exactly like `streamWithToolsOpenAI`. ADDITIONALLY accumulates reasoning:
+    /// `delta.reasoning_content` fragments concatenate (GLM/Kimi — CONFIDENT); `delta.
+    /// reasoning_details` array elements are appended verbatim into a details
+    /// accumulator (MiniMax — BEST-EFFORT, the streaming shape is vendor-uncertain and
+    /// only verified on device). The terminal `ToolUseTurn` matches
+    /// `parseOpenModelsToolTurn` (text/toolCalls/finished + reasoning per
+    /// `descriptor.reasoningStyle`).
+    private func streamWithToolsOpenModels(
+        _ vendor: OpenModelVendor,
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let descriptor = ProviderRegistry.descriptor(for: vendor)
+                    guard let key = resolvedKey(for: descriptor.keychainKeyID), !key.isEmpty else {
+                        throw AIError.noKeyConfigured(.openModels(vendor))
+                    }
+                    let modelID = resolvedOpenModelsModel
+                    let encoded = Self.encodeOpenModelsMessages(messages, systemPrompt: systemPrompt)
+                    let toolSpecs: [[String: Any]] = tools.map { spec in
+                        ["type": "function",
+                         "function": [
+                            "name": spec.name,
+                            "description": spec.description,
+                            "parameters": spec.parametersObject,
+                         ]]
+                    }
+                    var body: [String: Any] = [
+                        "model": modelID,
+                        "messages": encoded,
+                        "temperature": descriptor.toolLoopTemperature,
+                        "stream": true,
+                    ]
+                    descriptor.applyThinkingEnabled(&body, modelID)
+                    if !toolSpecs.isEmpty {
+                        body["tools"] = toolSpecs
+                        body["tool_choice"] = "auto"
+                    }
+                    let data = try JSONSerialization.data(withJSONObject: body)
+                    var req = URLRequest(url: URL(string: descriptor.chatURL)!)
+                    req.httpMethod = "POST"
+                    req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = data
+                    let (lines, _) = try await transportRef.lines(for: req)
+
+                    var parser = SSEParser()
+                    var accumulatedText = ""
+                    var pendingCalls: [Int: PendingToolCall] = [:]
+                    var callOrder: [Int] = []
+                    var finishReason: String?
+                    var reasoningText = ""
+                    var reasoningDetails: [Any] = []
+
+                    func handle(_ event: SSEEvent) {
+                        guard let chunkData = event.data.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let choice = choices.first
+                        else { return }
+                        if let delta = choice["delta"] as? [String: Any] {
+                            if let content = delta["content"] as? String {
+                                accumulatedText += content
+                                if !content.isEmpty {
+                                    continuation.yield(.textDelta(content))
+                                }
+                            }
+                            if let rawCalls = delta["tool_calls"] as? [[String: Any]] {
+                                for raw in rawCalls {
+                                    guard let index = raw["index"] as? Int else { continue }
+                                    if pendingCalls[index] == nil {
+                                        pendingCalls[index] = PendingToolCall()
+                                        callOrder.append(index)
+                                    }
+                                    if let id = raw["id"] as? String { pendingCalls[index]?.id = id }
+                                    if let fn = raw["function"] as? [String: Any] {
+                                        if let name = fn["name"] as? String { pendingCalls[index]?.name = name }
+                                        if let fragment = fn["arguments"] as? String {
+                                            pendingCalls[index]?.args += fragment
+                                        }
+                                    }
+                                }
+                            }
+                            // GLM/Kimi: plaintext reasoning_content fragments (confident).
+                            if let reasoningFragment = delta["reasoning_content"] as? String {
+                                reasoningText += reasoningFragment
+                            }
+                            // MiniMax: reasoning_details fragments (best-effort/device-gated —
+                            // appended verbatim; the streaming shape is vendor-uncertain).
+                            if let detailsFragment = delta["reasoning_details"] as? [Any] {
+                                reasoningDetails.append(contentsOf: detailsFragment)
+                            }
+                        }
+                        if let fr = choice["finish_reason"] as? String {
+                            finishReason = fr
+                        }
+                    }
+
+                    func assembleTurn() -> ToolUseTurn {
+                        var calls: [ToolCall] = []
+                        for index in callOrder {
+                            guard let entry = pendingCalls[index], let id = entry.id, let name = entry.name
+                            else { continue }
+                            calls.append(ToolCall(id: id, name: name, argsJSON: entry.args))
+                        }
+                        let finished = calls.isEmpty && finishReason != "tool_calls"
+                        var reasoning: ReasoningTrace?
+                        switch descriptor.reasoningStyle {
+                        case .reasoningContent:
+                            if !reasoningText.isEmpty {
+                                reasoning = ReasoningTrace(style: .reasoningContent, text: reasoningText)
+                            }
+                        case .reasoningDetails:
+                            let detailsJSON: String? = reasoningDetails.isEmpty ? nil : (
+                                try? JSONSerialization.data(withJSONObject: reasoningDetails)
+                            ).flatMap { String(data: $0, encoding: .utf8) }
+                            if !reasoningText.isEmpty || (detailsJSON?.isEmpty == false) {
+                                // Match parseOpenModelsToolTurn: text is nil (not "") when no
+                                // reasoning_content arrived (details-present-only case).
+                                reasoning = ReasoningTrace(style: .reasoningDetails,
+                                                           text: reasoningText.isEmpty ? nil : reasoningText,
+                                                           detailsJSON: detailsJSON)
+                            }
+                        case .signedBlock, .none:
+                            break
+                        }
+                        return ToolUseTurn(
+                            text: accumulatedText.isEmpty ? nil : accumulatedText,
+                            toolCalls: calls,
+                            finished: finished,
+                            reasoning: reasoning
+                        )
+                    }
+
+                    var doneSeen = false
+                    for try await line in lines {
+                        try Task.checkCancellation()
+                        guard let event = parser.push(line) else { continue }
+                        if event.data == "[DONE]" {
+                            doneSeen = true
+                            break
+                        }
+                        handle(event)
+                    }
+                    // Some proxies omit the trailing [DONE]; flush + assemble regardless.
+                    if !doneSeen, let trailing = parser.finish(), trailing.data != "[DONE]" {
                         handle(trailing)
                     }
                     continuation.yield(.turn(assembleTurn()))

@@ -255,13 +255,60 @@ Drive `streamWithToolsAnthropic` with fixture Anthropic SSE (named events + JSON
 non-streaming `chatWithToolsAnthropic` / `parseAnthropicToolTurn`, the OpenAI streaming path, or any other
 test. Do NOT stage the pre-existing `project.pbxproj`.
 
-### Phase 2c — open-models `streamWithTools` SSE override (later)
+### Phase 2c — open-models `streamWithTools` SSE override — loop target (Sonnet 5)
 
-Open-models (GLM/Kimi/MiniMax) are OpenAI-compatible `/chat/completions` SSE — mirror 2a's
-`streamWithToolsOpenModels` closely, BUT PRESERVE the reasoning-capture contract: the accumulated
-`reasoning` (vendor-specific streaming reasoning deltas) must ride on the final `ToolUseTurn`
-(load-bearing for the open-models replay — see the non-streaming open-models tool path). Add the
-`.openModels` case to the dispatch switch. Fixture-tested. Real proof = device + live keys.
+Open-models (GLM/Kimi/MiniMax) are OpenAI-compatible `/chat/completions` SSE — mirror 2a's OpenAI
+streaming closely, PLUS the reasoning-capture contract. Fully fixture-testable for content/tool_calls/
+`reasoning_content`; the MiniMax `reasoning_details` streaming shape is vendor-uncertain → best-effort +
+device-gated (see below). Confidence is explicit so we don't ship a fabricated format.
+
+**Dispatch change:** add `case .openModels(let vendor): return streamWithToolsOpenModels(vendor, ...)`
+to the `streamWithTools` switch. **The 2b `openModelsStreamFallsBackToDefault` test is now WRONG
+(open-models stream) — replace it with a real open-models streaming test (below). This is the sole
+existing-test change; all others untouched.** (The `default:` branch still covers `.gemini`/`.openRouter`,
+which throw `notWiredYet` through the wrapped `chatWithTools` — unchanged, untested here.)
+
+**`streamWithToolsOpenModels(_ vendor:messages:tools:systemPrompt:)` (MIRROR the codebase — read
+`chatWithToolsOpenModels` (~L177), `parseOpenModelsToolTurn` (~L285), and the vendor `descriptor`
+(`ProviderRegistry.descriptor(for:)`: `chatURL`, `keychainKeyID`, `toolLoopTemperature`,
+`applyThinkingEnabled`, `reasoningStyle`)):**
+- Build the SAME body as `chatWithToolsOpenModels` (model = `resolvedOpenModelsModel`, messages via
+  `encodeOpenModelsMessages`, `temperature` = `descriptor.toolLoopTemperature`, `descriptor.applyThinkingEnabled(&body, modelID)`,
+  tools/tool_choice) plus `"stream": true`. Same descriptor `chatURL` + `Bearer` key (`descriptor.keychainKeyID`).
+- POST via `transportRef.lines(for:)`; drive one `SSEParser`. Open-models are OpenAI-compatible, so parse
+  UNNAMED `data:` events exactly like 2a (`choices[0].delta`): `content` → accumulate + live `.textDelta`;
+  `tool_calls[]` → accumulate by index (id/name once, arguments fragments concatenated); `choices[0].finish_reason`.
+  ADDITIONALLY accumulate reasoning:
+  - `delta.reasoning_content` (String fragments) → concatenate into `reasoningText` (the GLM/Kimi/DeepSeek
+    convention; CONFIDENT — fixture-test it).
+  - `delta.reasoning_details` (array) → append elements into a `reasoningDetails: [Any]` accumulator
+    (MiniMax; BEST-EFFORT — the exact streaming shape is vendor-uncertain, verified only on device).
+- Assemble the terminal `ToolUseTurn` to MATCH `parseOpenModelsToolTurn(json, style: descriptor.reasoningStyle)`:
+  text nil-if-empty; toolCalls index-ordered skip missing id/name (`Self.toolCallArguments` semantics);
+  `finished = calls.isEmpty && finishReason != "tool_calls"`; and `reasoning` per `descriptor.reasoningStyle`:
+  `.reasoningContent` → `ReasoningTrace(style:.reasoningContent, text: reasoningText)` if non-empty;
+  `.reasoningDetails` → `ReasoningTrace(style:.reasoningDetails, text: reasoningText, detailsJSON: <the
+  accumulated details array re-serialized via JSONSerialization to a JSON string>)` if text OR details
+  non-empty; `.signedBlock`/`.none` → nil. Handle `[DONE]` + end-without-`[DONE]` like 2a.
+- Errors throw into the stream; honor cancellation. Mirror 2a's structure closely.
+
+**Tests** (extend the streaming test file): (1) an open-models (`.glm`) content-only stream → ordered
+`.textDelta`s + a terminal `.turn`; (2) an open-models tool-call stream (id/name + arg fragments,
+finish_reason "tool_calls") → `.turn` with the assembled ToolCall, finished false; (3) a `.glm` stream
+carrying `delta.reasoning_content` fragments → the terminal `.turn.reasoning` is
+`ReasoningTrace(.reasoningContent, text: "<concatenated>")` (CONFIDENT); (4) REPLACE the 2b
+`openModelsStreamFallsBackToDefault` test — open-models now streams. Build fixtures via a helper that
+JSON-serializes the `data` dicts. Do NOT invent a `reasoning_details` streaming fixture unless the shape
+is clearly known — leave MiniMax `reasoning_details` streaming to the device gate.
+
+**Verify:** `swift test --package-path SimmerSmithCloudKit` — exit 0, no `signal code 5`, all pass.
+
+**Scope guard + honesty:** touch only `BYOKeyProviderTools.swift` + the streaming test file. Do NOT change
+the non-streaming `chatWithToolsOpenModels`/`parseOpenModelsToolTurn`, or the OpenAI/Anthropic streaming
+paths. Do NOT stage `project.pbxproj`. In the code + commit, NOTE that MiniMax `reasoning_details`
+streaming is best-effort + device-gated (the reasoning_content path is the confident one). Real
+end-to-end proof (esp. reasoning replay across a multi-iteration open-models tool loop) is the Phase 3
+device gate with live keys.
 
 ### Phase 3 — App wiring + verification
 

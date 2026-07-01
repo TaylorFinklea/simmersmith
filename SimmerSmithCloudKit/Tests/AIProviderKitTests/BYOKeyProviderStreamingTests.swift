@@ -4,7 +4,8 @@ import Testing
 
 // Phase 2a — headless tests for BYOKeyProvider's real OpenAI `streamWithTools` SSE
 // override (Part 2) + the `HTTPTransport.lines(for:)` streaming seam (Part 1).
-// Phase 2b adds the Anthropic `streamWithTools` SSE override alongside it.
+// Phase 2b adds the Anthropic `streamWithTools` SSE override alongside it. Phase 2c
+// adds the open-models (GLM/Kimi/MiniMax) SSE override + reasoning capture.
 //
 // A `MockLinesTransport` scripts `lines(for:)` to yield fixture SSE lines (no real
 // network calls); `data(for:)` is also implemented so the still-defaulting fallback
@@ -19,8 +20,12 @@ import Testing
 //   • no key configured / a transport error both finish the stream by throwing
 //   • an Anthropic content-only stream and an incrementally-streamed tool call
 //     (named SSE events) match parseAnthropicToolTurn's assembled shape
-//   • open-models providers keep using the Phase-1 default (wraps chatWithTools) —
-//     Anthropic streams for real as of Phase 2b, so the fallback case moved here
+//   • an open-models (.glm) content-only stream, an incrementally-streamed tool call,
+//     and a stream carrying delta.reasoning_content fragments (concatenated into the
+//     terminal turn's ReasoningTrace) match parseOpenModelsToolTurn's assembled shape —
+//     MiniMax reasoning_details streaming is best-effort/device-gated, not fixture-tested
+//     here (only reasoning_content is confident). `.gemini`/`.openRouter` are the only
+//     vendors still on the Phase-1 default (untested here, unchanged).
 
 // MARK: - Local doubles
 
@@ -349,11 +354,22 @@ func openAIStreamTransportError() async {
     }
 }
 
-@Test("An open-models provider's streamWithTools falls back to the Phase-1 default (wraps chatWithTools, one turn, no deltas)")
-func openModelsStreamFallsBackToDefault() async throws {
-    // Anthropic streams for real as of Phase 2b — .openModels still defaults until 2c.
-    let respJSON = #"{"choices":[{"message":{"content":"Here are your recipes."},"finish_reason":"stop"}]}"#
-    let transport = MockLinesTransport(lines: [], dataResponse: respJSON.data(using: .utf8)!)
+// MARK: - Open-models streaming (Phase 2c)
+//
+// Open-models (GLM/Kimi/MiniMax) are OpenAI-compatible chat/completions SSE, so these
+// reuse `chunkLine`/`sseFrame` from the OpenAI section above. `reasoning_content`
+// (GLM/Kimi) is fixture-tested (confident); MiniMax `reasoning_details` streaming is
+// best-effort + device-gated per the spec — no fixture asserts a guessed shape here.
+
+@Test("Content-only open-models SSE stream yields ordered textDeltas then a matching terminal turn")
+func openModelsStreamContentOnly() async throws {
+    let lines = sseFrame([
+        chunkLine(delta: ["content": "Hel"]),
+        chunkLine(delta: ["content": "lo"]),
+        chunkLine(delta: [:], finishReason: "stop"),
+        "data: [DONE]",
+    ])
+    let transport = MockLinesTransport(lines: lines)
     let keyStore = MockKeyStore()
     keyStore.setKey("zai-test", for: "zai")
     let provider = BYOKeyProvider(model: .openModels(.glm), keyStore: keyStore, transport: transport)
@@ -362,7 +378,75 @@ func openModelsStreamFallsBackToDefault() async throws {
         messages: [.text(.user, "hi")], tools: [], systemPrompt: nil
     ))
 
-    #expect(events == [.turn(ToolUseTurn(text: "Here are your recipes.", toolCalls: [], finished: true))])
-    // The non-streaming data(for:) path was used, not lines(for:).
+    #expect(events == [
+        .textDelta("Hel"),
+        .textDelta("lo"),
+        .turn(ToolUseTurn(text: "Hello", toolCalls: [], finished: true)),
+    ])
+    // Real streaming as of Phase 2c: lines(for:) was used, not the non-streaming data(for:).
     #expect(transport.capturedRequest?.url?.absoluteString.contains("z.ai") == true)
+}
+
+@Test("An open-models tool call streamed incrementally assembles id/name + concatenated argument fragments")
+func openModelsStreamToolCallIncremental() async throws {
+    let fullArgs = #"{"location":"x"}"#
+    let splitIndex = fullArgs.index(fullArgs.startIndex, offsetBy: 4)
+    let frag1 = String(fullArgs[..<splitIndex])  // `{"lo`
+    let frag2 = String(fullArgs[splitIndex...])  // `cation":"x"}`
+
+    let lines = sseFrame([
+        chunkLine(delta: ["tool_calls": [
+            ["index": 0, "id": "call_abc", "function": ["name": "get_weather", "arguments": ""]],
+        ]]),
+        chunkLine(delta: ["tool_calls": [
+            ["index": 0, "function": ["arguments": frag1]],
+        ]]),
+        chunkLine(delta: ["tool_calls": [
+            ["index": 0, "function": ["arguments": frag2]],
+        ]]),
+        chunkLine(delta: [:], finishReason: "tool_calls"),
+        "data: [DONE]",
+    ])
+    let transport = MockLinesTransport(lines: lines)
+    let keyStore = MockKeyStore()
+    keyStore.setKey("zai-test", for: "zai")
+    let provider = BYOKeyProvider(model: .openModels(.glm), keyStore: keyStore, transport: transport)
+
+    let events = try await collectStream(provider.streamWithTools(
+        messages: [.text(.user, "weather?")], tools: [], systemPrompt: nil
+    ))
+
+    #expect(events == [
+        .turn(ToolUseTurn(
+            text: nil,
+            toolCalls: [ToolCall(id: "call_abc", name: "get_weather", argsJSON: fullArgs)],
+            finished: false
+        )),
+    ])
+}
+
+@Test("A .glm stream carrying delta.reasoning_content fragments concatenates into the terminal turn's reasoning")
+func openModelsStreamReasoningContent() async throws {
+    let lines = sseFrame([
+        chunkLine(delta: ["reasoning_content": "Think"]),
+        chunkLine(delta: ["reasoning_content": "ing...", "content": "Hi"]),
+        chunkLine(delta: [:], finishReason: "stop"),
+        "data: [DONE]",
+    ])
+    let transport = MockLinesTransport(lines: lines)
+    let keyStore = MockKeyStore()
+    keyStore.setKey("zai-test", for: "zai")
+    let provider = BYOKeyProvider(model: .openModels(.glm), keyStore: keyStore, transport: transport)
+
+    let events = try await collectStream(provider.streamWithTools(
+        messages: [.text(.user, "hi")], tools: [], systemPrompt: nil
+    ))
+
+    #expect(events == [
+        .textDelta("Hi"),
+        .turn(ToolUseTurn(
+            text: "Hi", toolCalls: [], finished: true,
+            reasoning: ReasoningTrace(style: .reasoningContent, text: "Thinking...")
+        )),
+    ])
 }
