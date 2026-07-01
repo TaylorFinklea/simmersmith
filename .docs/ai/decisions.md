@@ -1185,3 +1185,63 @@ deliberate, tracked exception; the data plane itself is fully green.
 - Files: AIProvider.swift (enum), ProviderDescriptor.swift (descriptor) + tests; app: SettingsView.swift,
   OpenModelsPickerRow.swift, AppState+AI.swift, AIService.swift. 358 CK tests pass; app builds. Device gate
   (live OpenRouter key) pending a shipped build.
+
+## 2026-07-01 — Architecture review ADRs (report: `phases/arch-review-2026-07-01-report.md`)
+
+Five decisions from the 80-agent adversarially-verified review; all work filed as beads. User approved all
+2026-07-01 plus: Reminders → port to CloudKit (keep feature) · backup export gets optional passphrase ·
+iOS 26.0 deployment floor is intentional (FoundationModels).
+
+### ADR-1 — SP-D is port-then-retire, two workstreams (epic 990)
+
+Seven features are still Fly-backed and silently broken for migrated households (gated behind
+`hasSavedConnection` = false): vision, seasonal, substitutions, recipe memories, ingredients/nutrition,
+push scheduling, Reminders-grocery sync. **Nothing is deleted until its port lands** (beads 990.1–990.7).
+Then the retirement chain: strip fallback branches (990.8) → retire the migration bridge (990.9, HUMAN
+gate: final pg_dump archived + explicit confirmation; migration-loader receipts do NOT prove completeness
+— loaders `try?`-drop per-item failures) → delete the 2,335-line APIClient (990.10). Terms/privacy re-host
+off `simmersmith.fly.dev` happens BEFORE the server dies (990.11) — PaywallSheet and App Store metadata
+reference those URLs. Python backend deleted last (990.12, archive branch first). Push becomes LOCAL
+notifications (no server); the APNs entitlement stays — CKSyncEngine uses CloudKit pushes.
+
+### ADR-2 — Monetization, CloudKit era: local StoreKit 2 truth; launch free; paywall dark
+
+`Transaction.currentEntitlements` (SubscriptionStore, already serverless-ready) becomes the ONLY isPro
+source; the Fly verify endpoint, App Store webhook, usage counters, and the "server wins" profile.isPro
+invariant die with SP-D. Rationale: BYO-key removed the AI-cost pressure that motivated server-enforced
+caps, and the current state is actively dangerous — a fresh install can complete a REAL purchase whose
+only fulfillment path is the dying backend (bead 7f2 is the launch slice). Launch = free, upgrade UI
+hidden behind a default-off flag. Future keyless-user revenue = credits-gateway tier
+(`AITier.creditsGateway` already anticipates it) on a small non-Fly endpoint — post-launch spec (bead
+bx1). Epic 98v re-scoped accordingly. This also resolves the App-Review tension of shipping a paywall
+next to BYO keys.
+
+### ADR-3 — Observability baseline before launch
+
+Today: 66 `print("[Tag]")` sites vs 2 real Logger files, zero crash reporting, no log export; the Fly-era
+`syncPhase`/`lastErrorMessage` actively suppress CloudKit errors, and `lastSyncError` on all 8 repositories
+is read by no view — a TestFlight "my week vanished" is undiagnosable. Decision: (a) failed-save policy —
+classify transient (re-enqueue w/ backoff) vs permanent (surface), with `quotaExceeded` a named path (bead
+dab); (b) a CloudKit-era SyncStatus surface + banner (qrt); (c) `Logger` adoption with the existing bracket
+tags as categories + OSLogStore-based export in Settings (79y). Fly-era sync state retires with 990.8.
+
+### ADR-4 — Launch gates (blocks App Store submission)
+
+Blocking: paywall fix (7f2) · PrivacyInfo.xcprivacy (he2) · destructive-action confirmations (ary) ·
+Fly-migration sections hidden from new users (8o7) · data-loss guards (enx, 9i6, gju) · sync-failure
+visibility MVP (dab→qrt) · accessibility pass on core flows (1sz — zero a11y API usage today) · App Review
+notes must cover the no-BYO-key reviewer path (manual recipes are the 4.2 mitigation; note on bead vwq).
+Explicitly NOT blocking (deliberate): localization (English-only v1), CloudKit query perf/pagination,
+HouseholdLocalStore memory growth (c86, revisit at scale), CloudKitDebugView modularization.
+
+### ADR-5 — Data-plane hardening: kill the full-REPLACE class; wire the repair layer
+
+The build-141 voice data-loss bug was one instance of a CLASS: any path handing a partial set to a
+full-replace save. The assistant's `weeks_update_meals` (highest-traffic mutation, LLM-driven) still has
+it — merge-by-day|slot becomes the required pattern for every meals-set write (enx). Backup RECOVER gets
+later-wins protection on plain record types so restore can only bring data back (9i6). The
+built-and-tested-but-debug-only repair layer (WeekRepairAdapter, grocery dedupe) wires into production
+sync (gju) — two-device households WILL produce duplicate slots/weeks and nothing self-heals today.
+Engine wiring: merger set at init (not post-boot; window bypasses FieldMergeResolver), zoneEnsured locked,
+adopt-vs-mint ordering audited (c7r); CKRecord copies at actor hand-off (pr9); account-change lifecycle
+handled post-launch-gate (yqm).

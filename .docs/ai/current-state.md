@@ -5,6 +5,16 @@
 
 > **Backlog/ready-queue → beads (`bd ready`) as of 2026-06-30 (pilot).** New actionable work is filed in beads, not roadmap Now or this file. `.beads/` is git-excluded (stealth, local-only); decisions/phases/loop-state stay prose. See AGENTS.md → "Task tracking — beads pilot".
 
+## 2026-07-01 — Architecture review COMPLETE; backlog rebuilt in beads
+
+80-agent adversarially-verified review (Fable Lead) → 5 ADRs in decisions.md + report
+`phases/arch-review-2026-07-01-report.md` + ~31 new beads (P1 data-loss/launch → P4).
+Top of queue: `enx` (assistant full-REPLACE data-loss guard), `9i6` (backup-recover
+reverts newer edits), `7f2` (paywall real-money w/ dead Fly fulfillment), `gju` (repair
+layer unwired). SP-D decomposed under epic 990 (ports 990.1-7 → retire 990.8-12).
+Beads `ike`/`2v5` closed superseded (OpenRouter pivot). Device gates unchanged (3sf
+streaming build, nli voice, 3hn backup-recover, sharing).
+
 ## Plan — 3sf token streaming (ACTIVE, spec `phases/oss-assistant-streaming-spec.md`)
 
 - [x] Phase 1 — AssistantEngine streaming seam: `ToolUseStreamEvent` + `streamWithTools`

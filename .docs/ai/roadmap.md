@@ -4,7 +4,7 @@
 
 ## Vision
 
-SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. iOS is the primary client, FastAPI on Fly.io with Postgres is the backend.
+SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. Apple-native architecture (since 2026-06): CloudKit is the data plane (household zone via CKSyncEngine + cross-account CKShare; NSPersistentCloudKitContainer private plane; iCloud account = identity, no sign-in), and AI runs BYO-key direct from the device (OpenAI / Anthropic / OpenRouter). The legacy FastAPI/Fly.io backend is being retired (SP-D, bead epic 990 — port-then-retire per decisions.md ADR-1 2026-07-01).
 
 **Design direction**: Rich & dark editorial aesthetic with AI as a prominent floating action. Week, Recipes, and Assistant are the three core tabs.
 
@@ -51,8 +51,10 @@ feature slices, each its own spec→plan→build reusing the skeleton slice 1 es
   (receipt-gated), on-device debug check. Spec/plan `phases/cloudkit-cutover-recipes-{spec,plan}.md`;
   ledger `.git/sdd/progress.md`. **PENDING (human):** deploy the new `ManagedListItem` type to Production
   CloudKit (Dashboard); install build 113; on-device verify (RUN ALL + real Recipes flow); then merge.
-- [ ] Slice 2 — Weeks + WeekMeals + Grocery (the field-merge core). Next slice; own spec/plan.
-- [ ] Then Events, Pantry/Profile/Ingredients+catalog, the AI providers track.
+- [x] Slice 2+ — Weeks/WeekMeals/Grocery, Events, Pantry/Profile, AI providers track: ALL BUILT
+  (SP-C completed 2026-06-22 on main; see current-state 2026-06-22 entry). Checkboxes were stale —
+  corrected by the 2026-07-01 arch review. Remaining Fly-backed stragglers (vision, seasonal,
+  substitutions, memories, ingredients, push, Reminders) are the SP-D port beads 990.1–990.7.
 SP-D (Fly retirement) follows once all slices land + migration completeness is confirmed; SP-B (AI
 tiering / on-device AFM) waits for iOS 27 GA.
 
@@ -86,8 +88,7 @@ Older open follow-ups (pre-CloudKit, still valid):
   on-device tier; also provision a CloudKit container under the dev team for the
   real-device Spike 1 confirmation.
 - Ongoing TestFlight dogfood feedback (Taylor + Savanne).
-- Register at developer.kroger.com — `client_id` + `client_secret`.
-- `fly secrets set SIMMERSMITH_KROGER_CLIENT_ID=… SIMMERSMITH_KROGER_CLIENT_SECRET=…`.
+- ~~Kroger registration/secrets~~ — moot: Kroger dropped 2026-06-02 (M37).
 
 ### Next (committed milestones — specced 2026-05-14)
 
@@ -770,10 +771,11 @@ APNs permission prompt fires automatically once after first sign-in.
   - **Verify**: `swift test --package-path SimmerSmithKit` exits 0 with the PrivatePlaneStore tests either passing (entitled host) or explicitly skipped — no `signal code 5`.
   - **tier_floor**: senior · **complexity**: M
 
-## Constraints
+## Constraints (updated 2026-07-01)
 
 - AI is the primary interaction model
 - Do not silently persist AI-generated content
-- Postgres-only (Fly.io)
-- Single-user accounts at launch
-- MCP/agent access is a launch differentiator
+- Apple-only stack: CloudKit data plane; BYO-key AI; no central server (Fly retiring under SP-D)
+- CloudKit schema is additive-only — recordName policy + field tables are irreversible
+- Household = owner + one partner via zone-wide CKShare (MCP dropped; no forced payment)
+- iOS 26.0 deployment floor (intentional — FoundationModels; user-confirmed 2026-07-01)
