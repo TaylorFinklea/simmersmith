@@ -82,6 +82,61 @@ vendor SSE yet, no app change, no live keys. Fully `swift test`-verifiable.
 **Verify:** `swift test --package-path SimmerSmithCloudKit` exits 0, no `signal code 5`, all
 existing AIProviderKit tests + the new streaming tests pass.
 
+### Phase 2.0 — Shared SSE event reader (do FIRST; foundation for 2a/2b/2c) — loop-ready
+
+A pure, synchronous, headless, fixture-testable Server-Sent-Events line parser in AIProviderKit that
+the per-vendor `streamWithTools` overrides (2a/2b/2c) will drive to turn a streaming HTTP body into
+discrete SSE events. NO networking here — it's a synchronous incremental parser fed one line at a
+time, so it unit-tests with plain string fixtures (no async, no generics).
+
+**New file:** `SimmerSmithCloudKit/Sources/AIProviderKit/SSEReader.swift`. Implement exactly:
+
+```swift
+/// One parsed Server-Sent Event. `data` is the event's `data:` field line(s) joined with "\n"
+/// (per the SSE spec); `event` is the `event:` field if the event carried one.
+public struct SSEEvent: Sendable, Equatable {
+    public let event: String?
+    public let data: String
+    public init(event: String?, data: String) { self.event = event; self.data = data }
+}
+
+/// Incremental SSE line parser. Feed lines one at a time (e.g. from `URLSession.AsyncBytes.lines`);
+/// `push` returns a completed event when a BLANK line dispatches the accumulated fields, else nil.
+/// Call `finish()` at end-of-stream to flush a trailing event that had no closing blank line.
+/// Pure + synchronous → trivially testable; the async byte reading lives in the vendor layer (2a+).
+public struct SSEParser {
+    public init() { }
+    /// Framing (SSE spec): `field: value` or `field:value`; a leading single space after the colon
+    /// is stripped. `data:` lines accumulate (multiple join with "\n"); `event:` sets the name; a
+    /// line beginning with `:` is a comment (ignored); a BLANK line dispatches the event IF it
+    /// accumulated any `data` (else resets with nothing emitted). Unknown fields are ignored.
+    public mutating func push(_ line: String) -> SSEEvent?
+    /// Flush a pending event (data accumulated but no trailing blank line seen). nil if nothing pending.
+    public mutating func finish() -> SSEEvent?
+}
+```
+
+The parser does NOT special-case the OpenAI `[DONE]` sentinel — it emits `SSEEvent(event: nil,
+data: "[DONE]")` like any other event; the vendor layer (2a) decides to stop on it.
+
+**Tests** (new `SimmerSmithCloudKit/Tests/AIProviderKitTests/SSEReaderTests.swift`; mirror the
+existing `@Test` idiom). Drive the parser by pushing each fixture line and collecting non-nil
+returns, then `finish()`. Assert:
+1. Two events: push `data: hello` / `` (blank) / `data: world` / `` → `[SSEEvent(nil,"hello"), SSEEvent(nil,"world")]`.
+2. Multi-line data joins with "\n": `data: a` / `data: b` / `` → `[SSEEvent(nil,"a\nb")]`.
+3. `event:` name: `event: delta` / `data: x` / `` → `[SSEEvent("delta","x")]`.
+4. Comment/heartbeat ignored: `: keep-alive` / `` / `data: x` / `` → `[SSEEvent(nil,"x")]`.
+5. `[DONE]` sentinel is a normal event: `data: [DONE]` / `` → `[SSEEvent(nil,"[DONE]")]`.
+6. Trailing event with NO final blank line: push `data: last`, then `finish()` → `SSEEvent(nil,"last")`.
+7. Both `data:x` (no space) and `data: x` (one space) yield "x".
+
+**Verify:** `swift test --package-path SimmerSmithCloudKit` — exit 0, no `signal code 5`, all existing
+tests still pass + the new SSEReader tests pass.
+
+**Scope guard:** NEW files only. Do NOT modify AssistantEngine, the providers, or any existing test.
+Commit ONLY the new `SSEReader.swift` + `SSEReaderTests.swift` — do NOT stage the pre-existing
+`SimmerSmith.xcodeproj/project.pbxproj` (an unrelated uncommitted change).
+
 ### Phase 2 — Per-vendor SSE streaming (provider impls; live-key device gate)
 
 Override `streamWithTools` on `BYOKeyProvider` to do real SSE token streaming per vendor:

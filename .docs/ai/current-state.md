@@ -11,10 +11,8 @@
   (default-impl wraps `chatWithTools`, backward-compatible) + `drive` forwards live `assistant.delta`,
   `didStreamDelta`-gated `finish`. Package-only, 334 pkg tests pass (3 new streaming tests). Sonnet 5.
   Verify: `swift test --package-path SimmerSmithCloudKit`.
-- [ ] Phase 2 — per-vendor SSE streaming in `BYOKeyProvider` (OpenAI / Anthropic / open-models);
-  unit-test each SSE parser; device-gate the live proof (needs keys).
-- [ ] Phase 3 — app wiring (`AppState+Assistant` forwards incremental deltas into the unchanged
-  `applyAssistantStreamEvent`) + on-device verify (tokens visibly stream).
+- [ ] Phase 2.0 — shared SSE event reader (`SSEEvent` + synchronous `SSEParser`) in AIProviderKit, fixture-tested; implement per the spec's "Phase 2.0" section (self-contained). Verify: swift test --package-path SimmerSmithCloudKit
+- Later (Lead adds each to the Plan one at a time as it becomes the loop target; detailed in the spec): Phase 2a OpenAI / 2b Anthropic / 2c open-models `streamWithTools` SSE overrides (each fixture-tested, Verify: swift test), then Phase 3 app wiring + on-device gate (HUMAN — not looped).
 
 ## Current (2026-06-30) — Backup & Restore SHIPPED build 145; awaiting recover device gate
 
