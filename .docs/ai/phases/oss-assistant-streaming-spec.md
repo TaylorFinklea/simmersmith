@@ -198,13 +198,70 @@ tests + the new streaming tests pass.
 override) + a new/extended test file. Do NOT change AssistantEngine, the non-streaming
 `chatWithTools*`, or existing tests. Do NOT stage the pre-existing `project.pbxproj`.
 
-### Phase 2b / 2c — Anthropic + open-models streamWithTools overrides (later)
+### Phase 2b — Anthropic `streamWithTools` SSE override — loop target (Sonnet 5)
 
-Same shape as 2a, per vendor: Anthropic Messages stream (`content_block_start` / `content_block_delta`
-with `text_delta`/`input_json_delta` / `content_block_stop` / `message_delta` stop_reason); open-models
-(GLM/Kimi/MiniMax) OpenAI-compatible SSE — but PRESERVE the reasoning-capture contract (the accumulated
-`reasoning` must ride on the final `ToolUseTurn`, load-bearing for the open-models replay). Each
-fixture-tested. Real proof = device + live keys.
+Give the Anthropic path real streaming, mirroring 2a's shape but for Anthropic's content-block SSE.
+Fully fixture-testable; live proof is the Phase 3 device gate.
+
+**Dispatch change (touches 2a's code — legitimate):** the concrete `streamWithTools` override on
+`BYOKeyProvider` (added in 2a) currently `guard case .openAI` and else-defaults. Change it to a switch:
+`.openAI → streamWithToolsOpenAI`, `.anthropic → streamWithToolsAnthropic`, else → the Phase-1 default
+(one non-streaming `chatWithTools` → `.turn`). **The 2a test "an Anthropic-model provider's
+streamWithTools falls back to the Phase-1 default" is now WRONG (Anthropic streams) — UPDATE it: repoint
+that fallback assertion to an `.openModels` vendor (still defaults until 2c). This is a legitimate,
+required change to a test whose premise 2b intentionally invalidates — NOT a cheat. Every OTHER existing
+test stays untouched.**
+
+**`streamWithToolsAnthropic` (spec-derived contract; MIRROR the codebase — read `chatWithToolsAnthropic`
+(~L611) and `parseAnthropicToolTurn` (~L686) for the request body + the turn shape to MATCH):**
+- Build the SAME request body as `chatWithToolsAnthropic` (model, `max_tokens` — the AssistantToolChat
+  extension passes 1800, `messages` via `encodeAnthropicMessages`, `system`, `tools` = name/description/
+  `input_schema`) plus `"stream": true`. Same headers (x-api-key, anthropic-version 2023-06-01).
+- POST via `transportRef.lines(for:)`; feed each line to one `SSEParser`. Anthropic uses NAMED SSE
+  events, so switch on `SSEEvent.event`:
+  - `content_block_start`: `data.content_block.type` == `"text"` → note a text block at `data.index`;
+    == `"tool_use"` → start a pending tool call at `data.index` with `id` + `name` (input JSON accumulates
+    from deltas, starts "").
+  - `content_block_delta`: `data.delta.type` == `"text_delta"` → append `data.delta.text` to that block's
+    text AND emit `.textDelta(text)` live; == `"input_json_delta"` → append `data.delta.partial_json`
+    (String) to the pending tool call's input-JSON accumulator (by `data.index`).
+  - `message_delta`: record `data.delta.stop_reason`.
+  - `ping` / `message_start` / `content_block_stop` / `message_stop` → ignore (harmless).
+- Assemble the terminal `ToolUseTurn` to MATCH `parseAnthropicToolTurn`: `text` = the text blocks in
+  index order joined with `"\n"` (nil if none/empty); `toolCalls` in index order = `ToolCall(id, name,
+  argsJSON)` skipping any missing id/name, where `argsJSON` = the accumulated `partial_json` RE-PARSED to
+  an object then re-serialized via `Self.jsonString(...)` (so it byte-matches `parseAnthropicToolTurn`'s
+  `jsonString(input)`; fall back to the raw accumulated string if it doesn't parse); `finished =
+  calls.isEmpty && stopReason != "tool_use"`. `reasoning` stays nil (as in the non-streaming path).
+- Errors finish the stream `throwing:` the `AIError`; honor `Task` cancellation (mirror 2a exactly).
+
+**Tests** (extend the Phase-2a streaming test file or add a sibling; mirror its fixture-mock idiom).
+Drive `streamWithToolsAnthropic` with fixture Anthropic SSE (named events + JSON `data`). Assert:
+1. Text-only: `message_start` / `content_block_start`(text) / `content_block_delta`(text_delta "Hel") /
+   `content_block_delta`(text_delta "lo") / `content_block_stop` / `message_delta`(stop_reason "end_turn")
+   / `message_stop` → `.textDelta("Hel")`, `.textDelta("lo")`, then `.turn(text:"Hello", toolCalls:[],
+   finished:true)`.
+2. Tool call streamed incrementally: `content_block_start`(tool_use, id+name) / two `input_json_delta`
+   fragments that concatenate to a valid input JSON / `content_block_stop` / `message_delta`(stop_reason
+   "tool_use") → `.turn` with the assembled `ToolCall(id, name, argsJSON)` (parses to the expected object)
+   and `finished:false`, no stray `.textDelta`.
+3. Update the 2a fallback test to `.openModels` (still defaults) — confirm non-Anthropic/non-OpenAI still
+   emits one `.turn` via the default.
+
+**Verify:** `swift test --package-path SimmerSmithCloudKit` — exit 0, no `signal code 5`, all pass.
+
+**Scope guard:** touch only `BYOKeyProviderTools.swift` (the dispatch switch + `streamWithToolsAnthropic`)
++ the streaming test file (add Anthropic tests, update the one 2a fallback test). Do NOT change the
+non-streaming `chatWithToolsAnthropic` / `parseAnthropicToolTurn`, the OpenAI streaming path, or any other
+test. Do NOT stage the pre-existing `project.pbxproj`.
+
+### Phase 2c — open-models `streamWithTools` SSE override (later)
+
+Open-models (GLM/Kimi/MiniMax) are OpenAI-compatible `/chat/completions` SSE — mirror 2a's
+`streamWithToolsOpenModels` closely, BUT PRESERVE the reasoning-capture contract: the accumulated
+`reasoning` (vendor-specific streaming reasoning deltas) must ride on the final `ToolUseTurn`
+(load-bearing for the open-models replay — see the non-streaming open-models tool path). Add the
+`.openModels` case to the dispatch switch. Fixture-tested. Real proof = device + live keys.
 
 ### Phase 3 — App wiring + verification
 

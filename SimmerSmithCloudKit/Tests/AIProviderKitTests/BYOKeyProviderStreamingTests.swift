@@ -4,10 +4,11 @@ import Testing
 
 // Phase 2a — headless tests for BYOKeyProvider's real OpenAI `streamWithTools` SSE
 // override (Part 2) + the `HTTPTransport.lines(for:)` streaming seam (Part 1).
+// Phase 2b adds the Anthropic `streamWithTools` SSE override alongside it.
 //
 // A `MockLinesTransport` scripts `lines(for:)` to yield fixture SSE lines (no real
-// network calls); `data(for:)` is also implemented so the non-OpenAI fallback path
-// (which still calls `chatWithTools` → `data(for:)`) is exercisable too. Verifies:
+// network calls); `data(for:)` is also implemented so the still-defaulting fallback
+// path (which calls `chatWithTools` → `data(for:)`) is exercisable too. Verifies:
 //   • content-only stream → ordered .textDelta then a terminal .turn matching what
 //     parseOpenAIToolTurn would produce for the same logical response
 //   • a tool call streamed incrementally (id/name first, arguments in fragments) →
@@ -16,7 +17,10 @@ import Testing
 //   • the request body carries "stream": true alongside the same shape as the
 //     non-streaming chatWithToolsOpenAI body
 //   • no key configured / a transport error both finish the stream by throwing
-//   • non-OpenAI models keep using the Phase-1 default (wraps chatWithTools)
+//   • an Anthropic content-only stream and an incrementally-streamed tool call
+//     (named SSE events) match parseAnthropicToolTurn's assembled shape
+//   • open-models providers keep using the Phase-1 default (wraps chatWithTools) —
+//     Anthropic streams for real as of Phase 2b, so the fallback case moved here
 
 // MARK: - Local doubles
 
@@ -227,6 +231,97 @@ func openAIStreamTwoToolCalls() async throws {
     ])
 }
 
+// MARK: - Anthropic streaming (Phase 2b)
+
+/// Frame one named Anthropic SSE event: `event: <name>` then `data: <json>` then a
+/// blank line to dispatch. Using JSONSerialization means fragment strings (which may
+/// contain raw quotes) get escaped correctly without hand-written JSON.
+private func anthropicEvent(_ name: String, _ data: [String: Any]) -> [String] {
+    let json = try! JSONSerialization.data(withJSONObject: data)
+    return ["event: \(name)", "data: \(String(data: json, encoding: .utf8)!)", ""]
+}
+
+@Test("Content-only Anthropic SSE stream yields ordered textDeltas then a matching terminal turn")
+func anthropicStreamContentOnly() async throws {
+    var lines: [String] = []
+    lines += anthropicEvent("message_start", ["type": "message_start"])
+    lines += anthropicEvent("content_block_start", [
+        "type": "content_block_start", "index": 0,
+        "content_block": ["type": "text", "text": ""],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "text_delta", "text": "Hel"],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "text_delta", "text": "lo"],
+    ])
+    lines += anthropicEvent("content_block_stop", ["type": "content_block_stop", "index": 0])
+    lines += anthropicEvent("message_delta", [
+        "type": "message_delta", "delta": ["stop_reason": "end_turn"],
+    ])
+    lines += anthropicEvent("message_stop", ["type": "message_stop"])
+
+    let transport = MockLinesTransport(lines: lines)
+    let keyStore = MockKeyStore()
+    keyStore.setKey("ant-test", for: "anthropic")
+    let provider = BYOKeyProvider(model: .anthropic, keyStore: keyStore, transport: transport)
+
+    let events = try await collectStream(provider.streamWithTools(
+        messages: [.text(.user, "hi")], tools: [], systemPrompt: nil
+    ))
+
+    #expect(events == [
+        .textDelta("Hel"),
+        .textDelta("lo"),
+        .turn(ToolUseTurn(text: "Hello", toolCalls: [], finished: true)),
+    ])
+}
+
+@Test("An Anthropic tool call streamed incrementally assembles id/name + concatenated input-json fragments")
+func anthropicStreamToolCallIncremental() async throws {
+    let fullArgs = #"{"location":"x"}"#
+    let splitIndex = fullArgs.index(fullArgs.startIndex, offsetBy: 4)
+    let frag1 = String(fullArgs[..<splitIndex])  // `{"lo`
+    let frag2 = String(fullArgs[splitIndex...])  // `cation":"x"}`
+
+    var lines: [String] = []
+    lines += anthropicEvent("content_block_start", [
+        "type": "content_block_start", "index": 0,
+        "content_block": ["type": "tool_use", "id": "toolu_01", "name": "get_weather", "input": [String: Any]()],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "input_json_delta", "partial_json": frag1],
+    ])
+    lines += anthropicEvent("content_block_delta", [
+        "type": "content_block_delta", "index": 0,
+        "delta": ["type": "input_json_delta", "partial_json": frag2],
+    ])
+    lines += anthropicEvent("content_block_stop", ["type": "content_block_stop", "index": 0])
+    lines += anthropicEvent("message_delta", [
+        "type": "message_delta", "delta": ["stop_reason": "tool_use"],
+    ])
+
+    let transport = MockLinesTransport(lines: lines)
+    let keyStore = MockKeyStore()
+    keyStore.setKey("ant-test", for: "anthropic")
+    let provider = BYOKeyProvider(model: .anthropic, keyStore: keyStore, transport: transport)
+
+    let events = try await collectStream(provider.streamWithTools(
+        messages: [.text(.user, "weather?")], tools: [], systemPrompt: nil
+    ))
+
+    #expect(events == [
+        .turn(ToolUseTurn(
+            text: nil,
+            toolCalls: [ToolCall(id: "toolu_01", name: "get_weather", argsJSON: fullArgs)],
+            finished: false
+        )),
+    ])
+}
+
 // MARK: - Errors + fallback
 
 @Test("OpenAI stream with no key throws noKeyConfigured")
@@ -254,13 +349,14 @@ func openAIStreamTransportError() async {
     }
 }
 
-@Test("Anthropic streamWithTools falls back to the Phase-1 default (wraps chatWithTools, one turn, no deltas)")
-func anthropicStreamFallsBackToDefault() async throws {
-    let respJSON = #"{"content":[{"type":"text","text":"Here are your recipes."}],"stop_reason":"end_turn"}"#
+@Test("An open-models provider's streamWithTools falls back to the Phase-1 default (wraps chatWithTools, one turn, no deltas)")
+func openModelsStreamFallsBackToDefault() async throws {
+    // Anthropic streams for real as of Phase 2b — .openModels still defaults until 2c.
+    let respJSON = #"{"choices":[{"message":{"content":"Here are your recipes."},"finish_reason":"stop"}]}"#
     let transport = MockLinesTransport(lines: [], dataResponse: respJSON.data(using: .utf8)!)
     let keyStore = MockKeyStore()
-    keyStore.setKey("ant-test", for: "anthropic")
-    let provider = BYOKeyProvider(model: .anthropic, keyStore: keyStore, transport: transport)
+    keyStore.setKey("zai-test", for: "zai")
+    let provider = BYOKeyProvider(model: .openModels(.glm), keyStore: keyStore, transport: transport)
 
     let events = try await collectStream(provider.streamWithTools(
         messages: [.text(.user, "hi")], tools: [], systemPrompt: nil
@@ -268,5 +364,5 @@ func anthropicStreamFallsBackToDefault() async throws {
 
     #expect(events == [.turn(ToolUseTurn(text: "Here are your recipes.", toolCalls: [], finished: true))])
     // The non-streaming data(for:) path was used, not lines(for:).
-    #expect(transport.capturedRequest?.url?.absoluteString.contains("anthropic.com") == true)
+    #expect(transport.capturedRequest?.url?.absoluteString.contains("z.ai") == true)
 }

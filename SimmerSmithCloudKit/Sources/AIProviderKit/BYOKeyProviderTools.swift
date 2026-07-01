@@ -433,16 +433,21 @@ extension BYOKeyProvider {
 
     // MARK: OpenAI streaming tool-use (SSE) — Phase 2a
 
-    /// Real streaming override of `AssistantToolChat.streamWithTools`, for OpenAI only.
-    /// `.anthropic` / `.openModels` don't have an SSE override yet (Phase 2b/2c) — this
-    /// replicates the Phase-1 default (one non-streaming `chatWithTools` call, emitted
-    /// as a single `.turn`, no deltas) for those so their behavior is unchanged.
+    /// Real streaming override of `AssistantToolChat.streamWithTools`. `.openAI` and
+    /// `.anthropic` have SSE overrides (Phase 2a/2b); `.openModels` doesn't yet (Phase
+    /// 2c) — this replicates the Phase-1 default (one non-streaming `chatWithTools`
+    /// call, emitted as a single `.turn`, no deltas) for those so behavior is unchanged.
     public func streamWithTools(
         messages: [AIChatMessage],
         tools: [ToolSpec],
         systemPrompt: String?
     ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
-        guard case .openAI = cloudModel else {
+        switch cloudModel {
+        case .openAI:
+            return streamWithToolsOpenAI(messages: messages, tools: tools, systemPrompt: systemPrompt)
+        case .anthropic:
+            return streamWithToolsAnthropic(messages: messages, tools: tools, systemPrompt: systemPrompt)
+        default:
             return AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
@@ -456,7 +461,6 @@ extension BYOKeyProvider {
                 continuation.onTermination = { _ in task.cancel() }
             }
         }
-        return streamWithToolsOpenAI(messages: messages, tools: tools, systemPrompt: systemPrompt)
     }
 
     /// Accumulator for one in-flight streamed OpenAI tool call (`delta.tool_calls[index]`):
@@ -708,6 +712,157 @@ extension BYOKeyProvider {
         let finished = calls.isEmpty && stopReason != "tool_use"
         let text = textChunks.isEmpty ? nil : textChunks.joined(separator: "\n")
         return ToolUseTurn(text: text, toolCalls: calls, finished: finished)
+    }
+
+    // MARK: Anthropic streaming tool-use (SSE) — Phase 2b
+
+    /// Accumulator for one in-flight streamed Anthropic `tool_use` content block:
+    /// `id`/`name` set once from `content_block_start`, `input_json_delta` fragments
+    /// (`partial_json`) concatenated across deltas.
+    private struct PendingAnthropicToolCall {
+        var id: String?
+        var name: String?
+        var argsJSON: String = ""
+    }
+
+    /// SSE-driven Anthropic `messages` call (`stream: true`). Builds the SAME request
+    /// body as `chatWithToolsAnthropic` (max_tokens 1800, tools/system), POSTs via
+    /// `transportRef.lines(for:)`, and feeds each line to one `SSEParser`. Anthropic
+    /// uses NAMED SSE events, so the handler switches on `SSEEvent.event`. The terminal
+    /// `ToolUseTurn` is assembled to match `parseAnthropicToolTurn` (text blocks in
+    /// index order "\n"-joined and nil-if-empty; calls in index order skipping any
+    /// missing id/name, argsJSON re-parsed + re-serialized via `Self.jsonString` to
+    /// byte-match the non-streaming path; `finished = calls.isEmpty && stopReason !=
+    /// "tool_use"`).
+    private func streamWithToolsAnthropic(
+        messages: [AIChatMessage],
+        tools: [ToolSpec],
+        systemPrompt: String?
+    ) -> AsyncThrowingStream<ToolUseStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    guard let key = resolvedKey(for: "anthropic"), !key.isEmpty else {
+                        throw AIError.noKeyConfigured(.anthropic)
+                    }
+                    let encoded = Self.encodeAnthropicMessages(messages)
+                    let toolSpecs: [[String: Any]] = tools.map { spec in
+                        ["name": spec.name,
+                         "description": spec.description,
+                         "input_schema": spec.parametersObject]
+                    }
+                    var body: [String: Any] = [
+                        "model": resolvedAnthropicModel,
+                        "max_tokens": 1800,
+                        "messages": encoded,
+                        "stream": true,
+                    ]
+                    if let sys = systemPrompt, !sys.isEmpty {
+                        body["system"] = sys
+                    }
+                    if !toolSpecs.isEmpty {
+                        body["tools"] = toolSpecs
+                    }
+                    let data = try JSONSerialization.data(withJSONObject: body)
+                    var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+                    req.httpMethod = "POST"
+                    req.setValue(key, forHTTPHeaderField: "x-api-key")
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                    req.httpBody = data
+                    let (lines, _) = try await transportRef.lines(for: req)
+
+                    var parser = SSEParser()
+                    var textBlocks: [Int: String] = [:]
+                    var textOrder: [Int] = []
+                    var pendingCalls: [Int: PendingAnthropicToolCall] = [:]
+                    var callOrder: [Int] = []
+                    var stopReason: String?
+
+                    func handle(_ event: SSEEvent) {
+                        guard let chunkData = event.data.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any]
+                        else { return }
+                        switch event.event {
+                        case "content_block_start":
+                            guard let index = json["index"] as? Int,
+                                  let block = json["content_block"] as? [String: Any]
+                            else { return }
+                            switch block["type"] as? String {
+                            case "text":
+                                textBlocks[index] = ""
+                                textOrder.append(index)
+                            case "tool_use":
+                                var call = PendingAnthropicToolCall()
+                                call.id = block["id"] as? String
+                                call.name = block["name"] as? String
+                                pendingCalls[index] = call
+                                callOrder.append(index)
+                            default:
+                                break
+                            }
+                        case "content_block_delta":
+                            guard let index = json["index"] as? Int,
+                                  let delta = json["delta"] as? [String: Any]
+                            else { return }
+                            switch delta["type"] as? String {
+                            case "text_delta":
+                                if let text = delta["text"] as? String {
+                                    textBlocks[index, default: ""] += text
+                                    if !text.isEmpty { continuation.yield(.textDelta(text)) }
+                                }
+                            case "input_json_delta":
+                                if let fragment = delta["partial_json"] as? String {
+                                    pendingCalls[index]?.argsJSON += fragment
+                                }
+                            default:
+                                break
+                            }
+                        case "message_delta":
+                            if let delta = json["delta"] as? [String: Any] {
+                                stopReason = delta["stop_reason"] as? String
+                            }
+                        default:
+                            break // ping / message_start / content_block_stop / message_stop
+                        }
+                    }
+
+                    func assembleTurn() -> ToolUseTurn {
+                        let textChunks = textOrder.compactMap { textBlocks[$0] }.filter { !$0.isEmpty }
+                        let text = textChunks.isEmpty ? nil : textChunks.joined(separator: "\n")
+                        var calls: [ToolCall] = []
+                        for index in callOrder {
+                            guard let entry = pendingCalls[index], let id = entry.id, let name = entry.name
+                            else { continue }
+                            let argsJSON: String
+                            if let argsData = entry.argsJSON.data(using: .utf8),
+                               let obj = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                                argsJSON = Self.jsonString(obj)
+                            } else {
+                                argsJSON = entry.argsJSON
+                            }
+                            calls.append(ToolCall(id: id, name: name, argsJSON: argsJSON))
+                        }
+                        let finished = calls.isEmpty && stopReason != "tool_use"
+                        return ToolUseTurn(text: text, toolCalls: calls, finished: finished)
+                    }
+
+                    for try await line in lines {
+                        try Task.checkCancellation()
+                        guard let event = parser.push(line) else { continue }
+                        handle(event)
+                    }
+                    if let trailing = parser.finish() {
+                        handle(trailing)
+                    }
+                    continuation.yield(.turn(assembleTurn()))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     // MARK: JSON helpers
