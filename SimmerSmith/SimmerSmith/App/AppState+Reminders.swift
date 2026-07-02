@@ -203,11 +203,19 @@ extension AppState {
     /// `EKEventStoreChanged` notification (debounced upstream).
     func handleReminderStoreChange() async {
         guard
-            hasSavedConnection,
             let weekID = currentWeek?.weekId,
             let calendarID = reminderListIdentifier,
             let calendar = RemindersService.shared.calendar(identifier: calendarID)
         else { return }
+        // simmersmith-990.7: this bridge used to gate on `hasSavedConnection` (the Fly
+        // server-connection flag), which is false for every CloudKit-era user — silently
+        // no-oping the whole pull direction since the pivot. Gate on either seam being live.
+        #if canImport(CloudKit)
+        let cloudKitMode = groceryRepository != nil
+        #else
+        let cloudKitMode = false
+        #endif
+        guard cloudKitMode || hasSavedConnection else { return }
 
         var mapping = GroceryReminderMapping.shared.load(calendarID: calendarID)
         let reminders: [EKReminder]
@@ -227,13 +235,14 @@ extension AppState {
         // without title dedup we re-create the row every sync and
         // each new row syncs out as a new reminder, infinite loop.
         let serverByID = Dictionary(uniqueKeysWithValues: serverItems.map { ($0.groceryItemId, $0) })
-        let serverByTitle: [String: GroceryItem] = Dictionary(
-            serverItems.map { (Self.normalizedReminderTitle($0.ingredientName), $0) },
+        let serverIDsByNormalizedTitle: [String: String] = Dictionary(
+            serverItems.map { (Self.normalizedReminderTitle($0.ingredientName), $0.groceryItemId) },
             uniquingKeysWith: { first, _ in first }
         )
         let reverseMapping: [String: String] = Dictionary(
             uniqueKeysWithValues: mapping.map { ($0.value, $0.key) }
         )
+        let presentReminderIDs = Set(reminders.map(\.calendarItemIdentifier))
 
         // Bail if we don't have a fresh server view of the week —
         // running the add path against an empty list re-creates
@@ -256,6 +265,12 @@ extension AppState {
         for reminder in reminders {
             if Task.isCancelled {
                 print("[AppState+Reminders] pull cancelled — bailing after \(seenServerIDs.count) of \(reminders.count) reminders")
+                #if canImport(CloudKit)
+                if cloudKitMode {
+                    weekRepository?.reload()
+                    mirrorWeekFromRepository()
+                }
+                #endif
                 GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
                 return
             }
@@ -266,42 +281,33 @@ extension AppState {
             // after iCloud syncs the reminder back with a new
             // identifier, after a fresh install rehydrates the
             // mapping cache, and after the user manually re-creates a
-            // reminder with the same title.
-            if reverseMapping[reminderID] == nil {
-                let titleKey = Self.normalizedReminderTitle(reminder.title ?? "")
-                if let existing = serverByTitle[titleKey] {
-                    mapping[existing.groceryItemId] = reminderID
-                    seenServerIDs.insert(existing.groceryItemId)
-                    if reminder.isCompleted != existing.isChecked {
-                        do {
-                            let updated = reminder.isCompleted
-                                ? try await apiClient.checkGroceryItem(weekID: weekID, itemID: existing.groceryItemId)
-                                : try await apiClient.uncheckGroceryItem(weekID: weekID, itemID: existing.groceryItemId)
-                            replaceGroceryItemInCurrentWeek(updated)
-                            if updated.isChecked { checkedGroceryItemIDs.insert(existing.groceryItemId) }
-                            else { checkedGroceryItemIDs.remove(existing.groceryItemId) }
-                        } catch {
-                            print("[AppState+Reminders] check propagation (title-rebind) failed: \(error)")
-                        }
-                    }
-                    continue
-                }
-            }
-            if let groceryID = reverseMapping[reminderID], let serverItem = serverByID[groceryID] {
+            // reminder with the same title. `GroceryReminderSync.match`
+            // (SimmerSmithKit) owns the exact precedence — see its doc comment.
+            let matchResult = GroceryReminderSync.match(
+                reminderID: reminderID,
+                reminderTitle: reminder.title ?? "",
+                reverseMapping: reverseMapping,
+                serverItemIDs: Set(serverByID.keys),
+                serverItemIDsByNormalizedTitle: serverIDsByNormalizedTitle
+            )
+            switch matchResult {
+            case .titleRebind(let groceryID), .mapped(let groceryID):
+                guard let serverItem = serverByID[groceryID] else { continue }
+                mapping[groceryID] = reminderID
                 seenServerIDs.insert(groceryID)
-                if reminder.isCompleted != serverItem.isChecked {
-                    do {
-                        let updated = reminder.isCompleted
-                            ? try await apiClient.checkGroceryItem(weekID: weekID, itemID: groceryID)
-                            : try await apiClient.uncheckGroceryItem(weekID: weekID, itemID: groceryID)
-                        replaceGroceryItemInCurrentWeek(updated)
-                        if updated.isChecked { checkedGroceryItemIDs.insert(groceryID) }
-                        else { checkedGroceryItemIDs.remove(groceryID) }
-                    } catch {
-                        print("[AppState+Reminders] check propagation failed: \(error)")
-                    }
+                if GroceryReminderSync.reminderCheckStateShouldPropagate(
+                    reminderIsCompleted: reminder.isCompleted,
+                    itemIsChecked: serverItem.isChecked
+                ) {
+                    await propagateReminderCheckState(
+                        weekID: weekID,
+                        itemID: groceryID,
+                        checked: reminder.isCompleted
+                    )
                 }
                 continue
+            case .unmatched:
+                break
             }
             // 2. Genuinely new reminder added directly in Reminders.app
             //    — create a matching server-side user-added grocery
@@ -309,16 +315,13 @@ extension AppState {
             //    we get here the title is truly new.
             let title = (reminder.title ?? "").trimmingCharacters(in: .whitespaces)
             guard !title.isEmpty else { continue }
-            do {
-                let item = try await apiClient.addGroceryItem(
-                    weekID: weekID,
-                    body: .init(name: title, notes: reminder.notes ?? "")
-                )
-                mapping[item.groceryItemId] = reminderID
-                insertGroceryItemInCurrentWeek(item)
-            } catch {
-                print("[AppState+Reminders] addGroceryItem from reminder failed: \(error)")
-            }
+            await addGroceryItemFromReminder(
+                weekID: weekID,
+                title: title,
+                notes: reminder.notes ?? "",
+                reminderID: reminderID,
+                mapping: &mapping
+            )
         }
 
         // 3. Mapped grocery items whose reminders disappeared from
@@ -334,13 +337,11 @@ extension AppState {
         // strictly app→Reminders: swipe in iOS to remove. The skill
         // and Reminders.app stay read-only/check-state for the
         // user's grocery list.
-        let staleMappingIDs: [String] = mapping
-            .filter { !seenServerIDs.contains($0.key) }
-            .compactMap { (groceryID, reminderID) -> String? in
-                let reminderStillPresent = reminders.contains { $0.calendarItemIdentifier == reminderID }
-                guard !reminderStillPresent else { return nil }
-                return groceryID
-            }
+        let staleMappingIDs = GroceryReminderSync.staleMappingIDs(
+            mapping: mapping,
+            seenGroceryItemIDs: seenServerIDs,
+            presentReminderIDs: presentReminderIDs
+        )
         for groceryID in staleMappingIDs {
             mapping.removeValue(forKey: groceryID)
         }
@@ -348,7 +349,79 @@ extension AppState {
             print("[AppState+Reminders] dropped \(staleMappingIDs.count) stale mapping entr\(staleMappingIDs.count == 1 ? "y" : "ies"); next sync will recreate reminders for items still on SimmerSmith.")
         }
 
+        // One reload+mirror for the whole pass rather than per-reminder — the loop above
+        // can process many reminders per pull and each repo write already lands in the
+        // local store synchronously, so a single refresh at the end is enough to pick up
+        // every check-state flip and new item.
+        #if canImport(CloudKit)
+        if cloudKitMode {
+            weekRepository?.reload()
+            mirrorWeekFromRepository()
+        }
+        #endif
         GroceryReminderMapping.shared.save(mapping, calendarID: calendarID)
+    }
+
+    // MARK: - Pull direction helpers (per-reminder mutations)
+
+    /// Propagate a check-state edit detected in Reminders.app back to the grocery item.
+    /// CloudKit: `GroceryRepository.toggleChecked` flips whatever is currently stored —
+    /// safe here because callers only invoke this when `checked` already differs from the
+    /// item's stored state, so a single flip converges to it. Legacy Fly: explicit
+    /// check/uncheck PATCH, mirrored into `currentWeek` immediately since there's no local
+    /// repo to reload from afterward.
+    private func propagateReminderCheckState(weekID: String, itemID: String, checked: Bool) async {
+        #if canImport(CloudKit)
+        if let groceryRepo = groceryRepository {
+            groceryRepo.toggleChecked(weekID: weekID, itemID: itemID)
+            if checked { checkedGroceryItemIDs.insert(itemID) }
+            else { checkedGroceryItemIDs.remove(itemID) }
+            return
+        }
+        #endif
+        guard hasSavedConnection else { return }
+        do {
+            let updated = checked
+                ? try await apiClient.checkGroceryItem(weekID: weekID, itemID: itemID)
+                : try await apiClient.uncheckGroceryItem(weekID: weekID, itemID: itemID)
+            replaceGroceryItemInCurrentWeek(updated)
+            if updated.isChecked { checkedGroceryItemIDs.insert(itemID) }
+            else { checkedGroceryItemIDs.remove(itemID) }
+        } catch {
+            print("[AppState+Reminders] check propagation failed: \(error)")
+        }
+    }
+
+    /// A genuinely new reminder added directly in Reminders.app — create a matching
+    /// server-side (or CloudKit-backed) user-added grocery item and bind the mapping to it.
+    /// CloudKit: `GroceryRepository.addItem` (isUserAdded — regen never touches it). Legacy
+    /// Fly: POST + mirror into `currentWeek` immediately.
+    private func addGroceryItemFromReminder(
+        weekID: String,
+        title: String,
+        notes: String,
+        reminderID: String,
+        mapping: inout [String: String]
+    ) async {
+        #if canImport(CloudKit)
+        if let groceryRepo = groceryRepository {
+            if let newID = groceryRepo.addItem(weekID: weekID, name: title, notes: notes) {
+                mapping[newID] = reminderID
+            }
+            return
+        }
+        #endif
+        guard hasSavedConnection else { return }
+        do {
+            let item = try await apiClient.addGroceryItem(
+                weekID: weekID,
+                body: .init(name: title, notes: notes)
+            )
+            mapping[item.groceryItemId] = reminderID
+            insertGroceryItemInCurrentWeek(item)
+        } catch {
+            print("[AppState+Reminders] addGroceryItem from reminder failed: \(error)")
+        }
     }
 
     // MARK: - Lifecycle
@@ -361,11 +434,8 @@ extension AppState {
 
     /// Title canonicalization for the dedup hash — collapse whitespace,
     /// case-fold, and trim the trailing punctuation Reminders.app
-    /// occasionally appends.
+    /// occasionally appends. Delegates to `GroceryReminderSync` (SimmerSmithKit).
     static func normalizedReminderTitle(_ raw: String) -> String {
-        raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!"))
+        GroceryReminderSync.normalizedTitle(raw)
     }
 }

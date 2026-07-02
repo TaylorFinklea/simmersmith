@@ -179,6 +179,10 @@ final class RemindersService {
     }
 
     // MARK: - Title formatting
+    //
+    // simmersmith-990.7: the formatting logic itself lives in
+    // `GroceryReminderSync` (SimmerSmithKit) now so it host-tests without
+    // EventKit — these are thin call-site adapters, behavior unchanged.
 
     /// Reminder title is just the ingredient name. Build 47 moved
     /// quantity + meal context into the body per dogfood feedback:
@@ -186,7 +190,7 @@ final class RemindersService {
     /// in front of the name is noisy when they just want to see
     /// "fresh dill" at a glance.
     private func remindersTitle(for item: GroceryItem) -> String {
-        item.ingredientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        GroceryReminderSync.title(ingredientName: item.ingredientName)
     }
 
     /// Build the Reminders notes/body. First line is quantity + unit,
@@ -198,74 +202,13 @@ final class RemindersService {
     /// the body with "At <store>" so the user can spot the store at a
     /// glance in the Reminders preview.
     private func remindersBody(for item: GroceryItem) -> String {
-        var lines: [String] = []
-        let store = item.storeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !store.isEmpty {
-            lines.append("At \(store)")
-        }
-        let qty = item.effectiveQuantity
-        let unit = item.effectiveUnit.trimmingCharacters(in: .whitespaces)
-        var qtyLine = ""
-        if let qty {
-            qtyLine = formatQuantity(qty)
-            if !unit.isEmpty { qtyLine += " " + unit }
-        } else if !item.quantityText.isEmpty {
-            qtyLine = item.quantityText
-        } else if !unit.isEmpty {
-            qtyLine = unit
-        }
-        if !qtyLine.isEmpty { lines.append(qtyLine) }
-        let meals = parseSourceMeals(item.sourceMeals)
-        if !meals.isEmpty {
-            lines.append("For: \(meals.joined(separator: "; "))")
-        }
-        if let override = item.notesOverride, !override.isEmpty {
-            lines.append(override)
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    /// `source_meals` arrives as semicolon-separated entries shaped
-    /// like "Tuesday / Dinner / Recipe Name". Convert each into the
-    /// shopping-friendly "Tuesday Dinner — Recipe Name" so the
-    /// Reminders preview reads naturally.
-    private func parseSourceMeals(_ raw: String) -> [String] {
-        raw.split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .map { entry in
-                let parts = entry
-                    .split(separator: "/")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                switch parts.count {
-                case 0: return entry
-                case 1: return parts[0]
-                case 2: return "\(parts[0]) \(parts[1])"
-                default:
-                    let day = parts[0]
-                    let slot = parts[1].capitalized
-                    let recipe = parts[2...].joined(separator: " ")
-                    return "\(day) \(slot) — \(recipe)"
-                }
-            }
-    }
-
-    private func formatQuantity(_ value: Double) -> String {
-        if value.rounded() == value { return String(Int(value)) }
-        // Common kitchen fractions read better than decimals on a
-        // shopping list.
-        let rounded3 = (value * 1000).rounded() / 1000
-        let fractionMap: [(value: Double, label: String)] = [
-            (0.125, "1/8"), (0.25, "1/4"), (0.333, "1/3"), (0.375, "3/8"),
-            (0.5, "1/2"), (0.625, "5/8"), (0.667, "2/3"), (0.75, "3/4"),
-            (0.875, "7/8")
-        ]
-        let whole = floor(rounded3)
-        let frac = rounded3 - whole
-        if let match = fractionMap.first(where: { abs($0.value - frac) < 0.01 }) {
-            return whole > 0 ? "\(Int(whole)) \(match.label)" : match.label
-        }
-        return String(format: "%g", value)
+        GroceryReminderSync.body(
+            quantity: item.effectiveQuantity,
+            unit: item.effectiveUnit,
+            quantityText: item.quantityText,
+            storeLabel: item.storeLabel,
+            sourceMeals: item.sourceMeals,
+            notesOverride: item.notesOverride
+        )
     }
 }
