@@ -274,11 +274,15 @@ extension AppState {
     // MARK: - DATA: dedupe (leak closure — was appState.apiClient.dedupeGrocery direct call)
 
     /// Route the dedupe operation through AppState so views never call apiClient directly.
-    /// CloudKit: delegates to GroceryRepository.dedupe (the EventMergeAdapter/ConflictRepair port).
+    /// CloudKit: delegates to GroceryRepository.dedupe (the EventMergeAdapter/ConflictRepair port)
+    /// for an immediate, user-visible result, then nudges the household's debounced
+    /// RepairScheduler so the broader repair layer (slot/sort-order/week-collapse) also gets a
+    /// pass soon after — the manual button becomes a "fix everything" action, not just grocery.
     func dedupeGrocery(weekID: String) async throws {
         #if canImport(CloudKit)
         if let groceryRepo = groceryRepository {
             _ = groceryRepo.dedupe(weekID: weekID)
+            householdSession?.repairScheduler.signal()
             weekRepository?.reload()
             mirrorWeekFromRepository()
             return

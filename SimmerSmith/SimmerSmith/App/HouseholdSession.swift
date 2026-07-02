@@ -40,6 +40,11 @@ final class HouseholdSession {
     let role: HouseholdSessionRole
     /// The household id (owner zone derivation; exposed for owner-side share creation).
     let householdID: String
+    /// SP-A Phase 4/5 follow-up (simmersmith-gju) — debounced cross-record repair layer
+    /// (WeekRepairAdapter + EventMergeAdapter.dedupeWeekGrocery), previously only reachable
+    /// from the DEBUG screen. Signaled on every post-fetch/post-send change below, and
+    /// callable directly by a manual "fix it" action (e.g. the grocery Dedupe button).
+    let repairScheduler: RepairScheduler
 
     // MARK: — Per-user PRIVATE plane (NSPCKC)
     //
@@ -134,6 +139,9 @@ final class HouseholdSession {
         )
         self.store = store
         self.engine = engine
+        self.repairScheduler = RepairScheduler.householdRepairs(
+            engine: engine, zoneID: zoneID, ownsZone: role.isOwner
+        )
 
         // PUBLIC catalog reader (Phase 6 — read path only, no writes).
         // Construction mirrors CloudKitDebugView.runPublicCatalogCheck (line 1092).
@@ -176,9 +184,16 @@ final class HouseholdSession {
                 EventSyncMerger(),
             ])
 
-            // 3. Wire the change signal so @Observable consumers refresh.
+            // 3. Wire the change signal so @Observable consumers refresh, AND kick the
+            //    debounced repair scheduler (both the owner's post-fetch/post-send events and
+            //    the participant's boot-time fetches route through this same signal — see
+            //    AppState+Sharing.adoptSharedZone, which calls session.start() then fetches
+            //    again before repos are wired).
             engine.onStoreChanged = { [weak self] in
-                Task { @MainActor in self?.storeRevision += 1 }
+                Task { @MainActor in
+                    self?.storeRevision += 1
+                    self?.repairScheduler.signal()
+                }
             }
 
             // 4. Initial fetch to populate the local store from the server.
