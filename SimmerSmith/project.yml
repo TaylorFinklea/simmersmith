@@ -17,12 +17,15 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: SimmerSmith
+        excludes:
+          - PrivacyInfo.xcprivacy
+      - path: SimmerSmith/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: SimmerSmithKit
       - package: SimmerSmithCloudKit
         product: CloudKitProvisioning
-      - package: SimmerSmithCloudKit
-        product: CoexistenceSpike
+
       - package: SimmerSmithCloudKit
         product: HouseholdSync
       - package: SimmerSmithCloudKit

@@ -1,0 +1,62 @@
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ios:
+    name: Swift packages and iOS build
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select newest installed Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          selected="$(python3 - <<'PY'
+          import glob
+          import os
+          import re
+          import sys
+
+          candidates = glob.glob('/Applications/Xcode_26*.app') or glob.glob('/Applications/Xcode*.app')
+          if not candidates:
+              print('No Xcode installation found under /Applications', file=sys.stderr)
+              raise SystemExit(1)
+
+          def version_key(path: str) -> tuple[int, ...]:
+              return tuple(int(part) for part in re.findall(r'\d+', os.path.basename(path)))
+
+          print(sorted(candidates, key=version_key)[-1])
+          PY
+          )"
+          sudo xcode-select -s "$selected/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Test SimmerSmithCloudKit
+        timeout-minutes: 15
+        run: swift test --package-path SimmerSmithCloudKit
+
+      - name: Test SimmerSmithKit
+        timeout-minutes: 15
+        run: swift test --package-path SimmerSmithKit
+
+      - name: Install xcodegen
+        timeout-minutes: 10
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: SimmerSmith
+        run: xcodegen generate
+
+      - name: Build iOS app
+        timeout-minutes: 30
+        working-directory: SimmerSmith
+        run: xcodebuild build -project SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO

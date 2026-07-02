@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "GroceryMerge", targets: ["GroceryMerge"]),
         .library(name: "AIProviderKit", targets: ["AIProviderKit"]),
         .library(name: "CloudKitProvisioning", targets: ["CloudKitProvisioning"]),
-        .library(name: "CoexistenceSpike", targets: ["CoexistenceSpike"]),
+
         .library(name: "HouseholdSync", targets: ["HouseholdSync"]),
         .library(name: "HouseholdRecords", targets: ["HouseholdRecords"]),
     ],
@@ -20,9 +20,7 @@ let package = Package(
         .target(name: "GroceryMerge"),
         .target(name: "AIProviderKit"),
         .target(name: "CloudKitProvisioning"),
-        // Phase 0.5 spike — runs on device; Swift 5 mode to keep Core Data /
-        // CloudKit value types out of strict-concurrency churn for a throwaway.
-        .target(name: "CoexistenceSpike", swiftSettings: [.swiftLanguageMode(.v5)]),
+
         // Phase 2 household-zone CKSyncEngine driver. Swift 5 mode: CKSyncEngine's
         // delegate + CKRecord value types predate strict-concurrency annotation.
         // Depends on GroceryMerge for the Phase-4 field-merge resolver + codec, and on

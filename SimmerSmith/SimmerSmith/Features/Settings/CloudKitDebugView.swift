@@ -6,7 +6,6 @@ import SwiftUI
 import SwiftData
 import CloudKit
 import CloudKitProvisioning
-import CoexistenceSpike
 import HouseholdSync
 import HouseholdRecords
 import GroceryMerge
@@ -40,9 +39,7 @@ struct CloudKitDebugView: View {
                 Button("Phase 0 — HouseholdProfile round-trip") {
                     run { "round-trip name = \(try await HouseholdZoneProvisioner().verifyRoundTrip())" }
                 }
-                Button("Phase 0.5 — coexistence spike") {
-                    runString { await CoexistenceSpike().run() }
-                }
+
                 Button("Phase 1 — private plane CRUD") {
                     runString { await runPrivatePlaneCheck() }
                 }
@@ -158,7 +155,7 @@ struct CloudKitDebugView: View {
                     do { return "✅ round-trip = \(try await HouseholdZoneProvisioner().verifyRoundTrip())" }
                     catch { return "❌ \(error)" }
                 }),
-                ("Phase 0.5 — coexistence", { await CoexistenceSpike().run() }),
+
                 ("Phase 1 — private plane", { await runPrivatePlaneCheck() }),
                 ("Phase 2 — household sync", { await runHouseholdSyncCheck() }),
                 ("Phase 2b — typed records", { await runHouseholdRecordsCheck() }),
