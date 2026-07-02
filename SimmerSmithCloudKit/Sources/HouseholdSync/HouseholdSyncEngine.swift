@@ -281,18 +281,23 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // wasn't adopted yet). Rebase onto the server record (which carries the current
             // tag) and re-enqueue so the retry matches. Sticky types field-merge here too —
             // a plain copy-local-over-server would clobber the other device's tombstone /
-            // override / check-state; plain types keep local-wins LWW.
+            // override / check-state; plain types use record-level `updatedAt` LWW instead of
+            // blanket local-wins (simmersmith-6ce: blanket local-wins was a field-level lost
+            // update whenever the local retry was actually the stale side).
             if let serverRecord = failure.error.serverRecord {
                 if let merger, merger.handles(serverRecord.recordType) {
                     let result = merger.resolve(local: failure.record, remote: serverRecord)
                     store.setRecord(result.record)
+                    syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 } else if let local = store.record(for: recordID) {
-                    for key in local.allKeys() { serverRecord[key] = local[key] }
-                    store.setRecord(serverRecord)
+                    let decision = Self.rebaseNonMergerRecord(local: local, server: serverRecord)
+                    store.setRecord(decision.record)
+                    if decision.reEnqueue {
+                        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                    }
                 } else {
                     store.setRecord(serverRecord)
                 }
-                syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
             }
         case .zoneNotFound, .userDeletedZone:
             // Re-create the zone and re-enqueue the save — OWNER ONLY. A participant cannot
@@ -308,6 +313,29 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         default:
             log.error("household save failed for \(recordID.recordName, privacy: .public): \(failure.error, privacy: .public)")
         }
+    }
+
+    /// Pure record-level LWW rebase for non-merger types at the `serverRecordChanged` seam
+    /// (simmersmith-6ce). Every manifest record type carries an `updatedAt` date; compare it
+    /// on `local` (our attempted, now-rejected save) vs. `server` (the current server record,
+    /// which carries the fresh change tag) to decide who legitimately wins:
+    /// - Both present, local strictly newer → LOCAL wins: rebase local's fields onto `server`
+    ///   (adopting its tag) and ask for a re-save.
+    /// - Both present, server newer-or-equal (ties go to the server, since it's already the
+    ///   record of truth) → SERVER wins: keep `server` as-is and do NOT re-save our stale copy.
+    /// - Either `updatedAt` missing → fall back to the historical blanket local-wins behavior
+    ///   (copy local's keys onto `server`, re-save) since recency can't be judged.
+    static func rebaseNonMergerRecord(local: CKRecord, server: CKRecord) -> (record: CKRecord, reEnqueue: Bool) {
+        guard let localDate = local["updatedAt"] as? Date,
+              let serverDate = server["updatedAt"] as? Date else {
+            for key in local.allKeys() { server[key] = local[key] }
+            return (server, true)
+        }
+        if localDate > serverDate {
+            for key in local.allKeys() { server[key] = local[key] }
+            return (server, true)
+        }
+        return (server, false)
     }
 
     private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
