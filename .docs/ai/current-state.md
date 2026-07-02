@@ -38,7 +38,10 @@ catch). Build green; **RUNTIME tap-through = iCloud device gate** (rides next Te
 **Lane D-2 `962` DONE (`9487101`)** — Create-with-AI + Manage-sides drafts rerouted off dead Fly onto
 the ported AIService suggestion path (new `generateSideRecipeDraft`); zero live apiClient in Week gen
 paths; RecipeAITests pass; adversarial verify SHIP (LOW latent → bead `5eq`). **Lane D COMPLETE.**
-Next: data-safety Lane A (`r8q`→`c7r`→`6ce`→`dab`, sequential; r8q pre-grounded) + Lane B `9zf` / Lane C `eky`.
+**Lane A-1 `r8q` DONE (`0bee2a7`)** — cold-launch token reset (`clearPersistedState` in `HouseholdSession.init`
+before engine construction; store persistence deferred to e0a); CK 423 pass incl. 2 new; SHIP. RUNTIME
+cold-launch integrity check (relaunch → full week + full backup) = device gate (runbook Gate 1).
+Next: Lane A-2 `c7r` (merger-at-init/zoneEnsured race) → `6ce` → `dab` (sequential), then Lane B `9zf` / Lane C `eky`.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
