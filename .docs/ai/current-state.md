@@ -30,24 +30,18 @@ non-negotiables; r8q and e0a carry LEAD notes — read them before implementing)
 **Destination = `phases/launch-runbook.md`** (epic 0lm): Gates 0–4 to App Store submission;
 launch does NOT wait for Fly deletion. Post-launch structural track = epic z69.
 
-**arch-v2 progress (Opus, 2026-07-02):** Lane D-1 `7pr` DONE (`9984ec2`) — every assistant entry
-point (Smith tab, sparkle buttons, Ask/Refine-With-Assistant) now opens the real coordinator
-sheet with the composer prefilled (no tab switch); dead ComingSoon + AssistantLaunchContext/
-consume path deleted; RecipeEditor & Cooking dismiss-before-present race fixed (adversarial verify
-catch). Build green; **RUNTIME tap-through = iCloud device gate** (rides next TestFlight). Bead closed.
-**Lane D-2 `962` DONE (`9487101`)** — Create-with-AI + Manage-sides drafts rerouted off dead Fly onto
-the ported AIService suggestion path (new `generateSideRecipeDraft`); zero live apiClient in Week gen
-paths; RecipeAITests pass; adversarial verify SHIP (LOW latent → bead `5eq`). **Lane D COMPLETE.**
-**Lane A-1 `r8q` DONE (`0bee2a7`)** — cold-launch token reset (`clearPersistedState` in `HouseholdSession.init`
-before engine construction; store persistence deferred to e0a); CK 423 pass incl. 2 new; SHIP. RUNTIME
-cold-launch integrity check (relaunch → full week + full backup) = device gate (runbook Gate 1).
-**Lane A-2 `c7r` DONE (`1197bdb`)** — merger wired at engine `init` (no nil-merger LWW window), `onStoreChanged`
-pre-`start()`, `zoneEnsured` locked; CK 425 pass incl. 2 new; SHIP. Audit surfaced a dual-boot session-identity
-race → bead `0gf` (P2).
-**Lane A-3 `6ce` DONE (`4a17515`)** — `serverRecordChanged` non-merger rebase now record-level `updatedAt` LWW
-(server wins tie/newer with no stale re-save; local wins only if strictly newer; missing-`updatedAt` → legacy
-fallback) via pure `rebaseNonMergerRecord` + 6 CK tests; CK 431 pass; SHIP. Next: Lane A-4 `dab` (failed-save
-classify/surface — feeds `qrt`), then Lane B `9zf` / Lane C `eky`.
+**arch-v2 execution (Opus, 2026-07-02) — per `phases/arch-v2-execution-plan.md`. All lanes below:
+Sonnet impl + independent adversarial verify + Opus backstop (swift test 435 / xcodebuild) before commit.**
+- **Lane D COMPLETE** (product-truth): `7pr` (`9984ec2`) every assistant entry point opens the real
+  coordinator sheet (Smith tab was ComingSoon) · `962` (`9487101`) Create-with-AI + Manage-sides → AIService.
+- **Lane A COMPLETE** (data-safety engine spine): `r8q` (`0bee2a7`) cold-launch token reset ·
+  `c7r` (`1197bdb`) merger-at-init + zoneEnsured lock · `6ce` (`4a17515`) serverRecordChanged updatedAt-LWW ·
+  `dab` (`24d0826`) failed-save classify + `onSyncError` seam (feeds `qrt`).
+- Follow-ups filed from verification: `5eq` (962 browsed-week latent) · `0gf` P2 (c7r dual-boot session-identity).
+- **RUNTIME behaviors are device gates** (runbook Gate 1): 7pr tap-through, cold-launch integrity, two-device
+  edit-storm convergence — all ride the next TestFlight (release cut = human).
+- **Next:** Lane B `9zf` (RepairScheduler @MainActor isolation) · Lane C `eky`→`pr9` (route week-meal mutations
+  through the merge fold) · then Gate-2 product-truth re-sweep + Lane D/A device gates.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
