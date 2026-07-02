@@ -43,11 +43,14 @@ Sonnet impl + independent adversarial verify + Opus backstop (swift test 435 / x
 - **Lane B COMPLETE:** `9zf` (`94b4231`) RepairScheduler `@MainActor` isolation — adversarial verify caught an
   SE-0338 hop the Lead design missed (nonisolated async `collapseWeeks` hops off the actor even when awaited from
   a `@MainActor` closure) → `collapseWeeks` also `@MainActor` + Sendable ripple fixed.
-- **Next: Lane C `eky` — L-complexity, needs a design decision + ADR BEFORE touching.** 9 WeekView callers pass
-  full-week arrays from a possibly-stale snapshot to `saveWeekMeals` (diff-and-DELETE); 8 are edits, `removeMeal`
-  deletes by omission, `moveMeal` relocates by slot. Options: (A) upsert-by-mealId + targeted `deleteMeal`
-  [recommended, behavior-preserving] vs (B) slot-keyed fold + CLEAR markers (enx `MealMergeResolver`, but reassigns
-  mealIds by slot). Then `pr9`; then Gate-2 product-truth re-sweep + Lane D/A device gates.
+- **Lane C core `eky` DONE (`a907de6`)** — baseline-aware `saveWeekMeals` delete (required `knownMealIDs`; delete =
+  `existing − desired ∩ known`); pure `WeekMealDeletePolicy` + 4 host tests; all 12 call sites pass their snapshot's
+  id set; Kit 155 + CK 436; SHIP. ADR in decisions.md 2026-07-02 (baseline-aware chosen over upsert-only [breaks
+  rebalance] / slot-fold [reassigns mealIds on move]). Two-device edit-storm convergence = device gate.
+- **Next:** Lane C `pr9` (stop CKRecord in-place aliasing across actor boundaries — copy at the store boundary; NOTE
+  it touches HouseholdLocalStore + repo mutation paths eky just edited — ground against post-eky code). Then Gate-2
+  product-truth re-sweep (`ebu`, `mm1`, recipe-memories/ingredients hide-or-port) + Gate-3 compliance (`5w8` privacy,
+  `9wr` grant [user Dashboard], `pb8` schema) + Lane D/A device gates.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
