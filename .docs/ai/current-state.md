@@ -40,8 +40,14 @@ Sonnet impl + independent adversarial verify + Opus backstop (swift test 435 / x
 - Follow-ups filed from verification: `5eq` (962 browsed-week latent) · `0gf` P2 (c7r dual-boot session-identity).
 - **RUNTIME behaviors are device gates** (runbook Gate 1): 7pr tap-through, cold-launch integrity, two-device
   edit-storm convergence — all ride the next TestFlight (release cut = human).
-- **Next:** Lane B `9zf` (RepairScheduler @MainActor isolation) · Lane C `eky`→`pr9` (route week-meal mutations
-  through the merge fold) · then Gate-2 product-truth re-sweep + Lane D/A device gates.
+- **Lane B COMPLETE:** `9zf` (`94b4231`) RepairScheduler `@MainActor` isolation — adversarial verify caught an
+  SE-0338 hop the Lead design missed (nonisolated async `collapseWeeks` hops off the actor even when awaited from
+  a `@MainActor` closure) → `collapseWeeks` also `@MainActor` + Sendable ripple fixed.
+- **Next: Lane C `eky` — L-complexity, needs a design decision + ADR BEFORE touching.** 9 WeekView callers pass
+  full-week arrays from a possibly-stale snapshot to `saveWeekMeals` (diff-and-DELETE); 8 are edits, `removeMeal`
+  deletes by omission, `moveMeal` relocates by slot. Options: (A) upsert-by-mealId + targeted `deleteMeal`
+  [recommended, behavior-preserving] vs (B) slot-keyed fold + CLEAR markers (enx `MealMergeResolver`, but reassigns
+  mealIds by slot). Then `pr9`; then Gate-2 product-truth re-sweep + Lane D/A device gates.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
