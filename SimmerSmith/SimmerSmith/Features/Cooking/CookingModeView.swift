@@ -363,14 +363,15 @@ struct CookingModeView: View {
 
     private func launchAssistant(recipe: RecipeSummary, step: RecipeStep) async {
         // Build 66 — dismiss the full-screen cooking cover *first* so
-        // the user immediately sees the Smith tab open, then run the
-        // network round-trip to create the assistant thread. The old
+        // the user immediately sees the assistant sheet open, then run
+        // the network round-trip to create the assistant thread. The old
         // order made the button feel broken on slow networks because
-        // the cover only dismissed after the await returned.
+        // the cover only dismissed after the await returned. Bead
+        // simmersmith-7pr: the assistant is a `.sheet`, not a tab switch,
+        // so we no longer touch `selectedTab` here.
         let prefill = "I'm cooking \(recipe.name) and on step \(stepIndex + 1): \"\(step.instruction)\". "
         let recipeID = recipe.recipeId
         let title = recipe.name
-        appState.selectedTab = .assistant
         dismiss()
         do {
             try await appState.beginAssistantLaunch(

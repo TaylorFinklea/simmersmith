@@ -177,6 +177,14 @@ struct RecipeEditorView: View {
                 Section("Assistant") {
                     Button {
                         Task {
+                            // Bead simmersmith-7pr: dismiss THIS editor sheet before
+                            // opening the assistant. The assistant is a root-level
+                            // `.sheet` (AIAssistantOverlay); calling present() while the
+                            // editor sheet is still frontmost is dropped by UIKit
+                            // ("present while a presentation is in progress"), leaving the
+                            // coordinator stuck at isSheetPresented=true with nothing shown.
+                            // Dismiss first (mirrors CookingModeView), then launch.
+                            dismiss()
                             do {
                                 try await appState.beginAssistantLaunch(
                                     initialText: "Help me refine this recipe draft and make it clearer, more balanced, and easier to cook.",
@@ -184,9 +192,9 @@ struct RecipeEditorView: View {
                                     attachedRecipeDraft: draft,
                                     intent: "recipe_refinement"
                                 )
-                                dismiss()
                             } catch {
-                                errorMessage = error.localizedDescription
+                                // The editor is gone; surface the error at app level.
+                                appState.lastErrorMessage = error.localizedDescription
                             }
                         }
                     } label: {

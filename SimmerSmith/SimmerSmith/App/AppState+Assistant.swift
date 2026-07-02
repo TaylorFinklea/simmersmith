@@ -86,6 +86,13 @@ extension AppState {
 
     // MARK: - Launch context
 
+    /// Bead simmersmith-7pr: creates a fresh thread and opens the REAL
+    /// assistant sheet via the coordinator (not the Smith tab's dead
+    /// ComingSoon route). `attachedRecipeID` / `attachedRecipeDraft` /
+    /// `intent` are accepted for call-site compatibility but only the
+    /// composer prefill (`initialText`) reaches the coordinator today —
+    /// the send path never forwarded an attached draft even before this
+    /// change, so this is not a regression.
     func beginAssistantLaunch(
         initialText: String = "",
         title: String = "",
@@ -100,20 +107,11 @@ extension AppState {
             threadKind: threadKind,
             linkedWeekID: linkedWeekID
         )
-        assistantLaunchContext = AssistantLaunchContext(
-            threadID: thread.threadId,
-            initialText: initialText,
-            attachedRecipeID: attachedRecipeID,
-            attachedRecipeDraft: attachedRecipeDraft,
-            intent: intent
-        )
-        selectedTab = .assistant
+        assistantCoordinator.startNewConversation()
+        assistantCoordinator.currentThreadID = thread.threadId
+        assistantCoordinator.composerText = initialText
         _ = try? await fetchAssistantThread(threadID: thread.threadId)
-    }
-
-    func consumeAssistantLaunchContext() -> AssistantLaunchContext? {
-        defer { assistantLaunchContext = nil }
-        return assistantLaunchContext
+        assistantCoordinator.present()
     }
 
     // MARK: - Send message (on-device engine)

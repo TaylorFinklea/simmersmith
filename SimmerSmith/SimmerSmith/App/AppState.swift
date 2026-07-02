@@ -24,14 +24,6 @@ final class AppState {
         case failed(String)
     }
 
-    struct AssistantLaunchContext: Equatable {
-        let threadID: String
-        let initialText: String
-        let attachedRecipeID: String?
-        let attachedRecipeDraft: RecipeDraft?
-        let intent: String
-    }
-
     struct AssistantDeltaEvent: Decodable {
         let messageId: String
         let delta: String
@@ -291,7 +283,6 @@ final class AppState {
     /// (via @Observable) so the SwiftUI graph re-renders without
     /// needing each consumer to subscribe to UserDefaults directly.
     var topBarConfigRevision: UInt32 = 0
-    var assistantLaunchContext: AssistantLaunchContext?
     var assistantSendingThreadIDs: Set<String> = []
     var assistantErrorByThreadID: [String: String] = [:]
 
@@ -606,7 +597,6 @@ final class AppState {
         // Review finding C: reset to the cut-over landing tab, not `.week` (which renders
         // ComingSoonView in CloudKit-only mode).
         selectedTab = AppState.defaultLandingTab
-        assistantLaunchContext = nil
         assistantSendingThreadIDs = []
         assistantErrorByThreadID = [:]
         aiProviderModeDraft = "auto"
