@@ -43,7 +43,11 @@ before engine construction; store persistence deferred to e0a); CK 423 pass incl
 cold-launch integrity check (relaunch → full week + full backup) = device gate (runbook Gate 1).
 **Lane A-2 `c7r` DONE (`1197bdb`)** — merger wired at engine `init` (no nil-merger LWW window), `onStoreChanged`
 pre-`start()`, `zoneEnsured` locked; CK 425 pass incl. 2 new; SHIP. Audit surfaced a dual-boot session-identity
-race → bead `0gf` (P2). Next: Lane A-3 `6ce` (rebase updatedAt-LWW) → `dab` (sequential), then Lane B `9zf` / Lane C `eky`.
+race → bead `0gf` (P2).
+**Lane A-3 `6ce` DONE (`4a17515`)** — `serverRecordChanged` non-merger rebase now record-level `updatedAt` LWW
+(server wins tie/newer with no stale re-save; local wins only if strictly newer; missing-`updatedAt` → legacy
+fallback) via pure `rebaseNonMergerRecord` + 6 CK tests; CK 431 pass; SHIP. Next: Lane A-4 `dab` (failed-save
+classify/surface — feeds `qrt`), then Lane B `9zf` / Lane C `eky`.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
