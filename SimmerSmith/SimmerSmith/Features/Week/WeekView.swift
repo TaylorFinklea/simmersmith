@@ -1201,7 +1201,9 @@ struct WeekView: View {
             )
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1230,7 +1232,9 @@ struct WeekView: View {
                 )
             }
             do {
-                let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+                let updated = try await appState.saveWeekMeals(
+                    weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+                )
                 if !isViewingCurrentWeek { appState.browsedWeek = updated }
             } catch {
                 appState.lastErrorMessage = error.localizedDescription
@@ -1253,7 +1257,9 @@ struct WeekView: View {
                     )
                 }
             do {
-                let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+                let updated = try await appState.saveWeekMeals(
+                    weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+                )
                 if !isViewingCurrentWeek { appState.browsedWeek = updated }
             } catch {
                 appState.lastErrorMessage = error.localizedDescription
@@ -1281,7 +1287,9 @@ struct WeekView: View {
             )
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1309,7 +1317,9 @@ struct WeekView: View {
             )
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1354,7 +1364,9 @@ struct WeekView: View {
         }
 
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1381,7 +1393,9 @@ struct WeekView: View {
             )
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1408,7 +1422,9 @@ struct WeekView: View {
             )
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription
@@ -1443,7 +1459,9 @@ struct WeekView: View {
             ))
         }
         do {
-            let updated = try await appState.saveWeekMeals(weekID: week.weekId, meals: meals)
+            let updated = try await appState.saveWeekMeals(
+                weekID: week.weekId, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
             if !isViewingCurrentWeek { appState.browsedWeek = updated }
         } catch {
             appState.lastErrorMessage = error.localizedDescription

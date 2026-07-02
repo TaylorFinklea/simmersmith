@@ -133,11 +133,15 @@ struct VoicePlanReviewView: View {
                 notes: row.meal.notes, approved: true
             )
         }
-        // MERGE into the week's existing meals: saveWeekMeals is a full REPLACE (deletes any meal
-        // not in the array), so applying only the voice meals would wipe the rest of the week.
+        // MERGE the voice meals into the week's existing ones and send the full desired week, so a
+        // voice-only payload doesn't drop the rest. (saveWeekMeals is baseline-aware since eky — it
+        // won't delete a concurrent add the snapshot never saw — but we still fold so the meals the
+        // model DID know about stay put; `known` below is the exact snapshot we folded into.)
         let merged = VoicePlanResolver.merge(voice: confirmed, into: existingMeals)
         do {
-            _ = try await appState.saveWeekMeals(weekID: weekId, meals: merged)
+            // knownMealIDs: `existingMeals` — the week snapshot voice merged into.
+            let known = Set(existingMeals.compactMap { $0.mealId })
+            _ = try await appState.saveWeekMeals(weekID: weekId, meals: merged, knownMealIDs: known)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

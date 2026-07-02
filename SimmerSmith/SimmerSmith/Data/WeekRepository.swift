@@ -347,8 +347,14 @@ final class WeekRepository {
     /// against the store's current `.weekMeal` children for this week: upserts changed/new meals
     /// (preserving the server change tag when present), explicitly deletes removed meals
     /// (NOT cascade — cascade is only for a whole-week delete). Returns the reloaded snapshot.
+    ///
+    /// `knownMealIDs` is a BASELINE-AWARE DELETE guard (simmersmith-eky): the mealIds present in
+    /// the caller's SOURCE snapshot (the one it built `meals` from). A store meal is only ever a
+    /// deletion candidate if the caller both knew about it (in `knownMealIDs`) and dropped it (not
+    /// in `meals`) — a concurrent write the caller's snapshot never saw is always kept. See
+    /// `WeekMealDeletePolicy`.
     @discardableResult
-    func saveWeekMeals(weekID: String, meals: [MealUpdateRequest]) -> WeekSnapshot? {
+    func saveWeekMeals(weekID: String, meals: [MealUpdateRequest], knownMealIDs: Set<String>) -> WeekSnapshot? {
         let store = session.store
         let zoneID = session.zoneID
 
@@ -383,7 +389,8 @@ final class WeekRepository {
         }
 
         // Delete meals no longer present (individual delete; sides cascade with their parent meal).
-        for name in existingNames.subtracting(newNames) {
+        // Baseline-aware: only delete ids the caller's snapshot knew about AND dropped.
+        for name in WeekMealDeletePolicy.toDelete(existing: existingNames, desired: newNames, known: knownMealIDs) {
             session.engine.deleteCascading(CKRecord.ID(recordName: name, zoneID: zoneID))
         }
 

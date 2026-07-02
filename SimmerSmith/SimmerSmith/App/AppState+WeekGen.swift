@@ -65,7 +65,11 @@ extension AppState {
         // 5. Map the validated plan onto MealUpdateRequest + save via WeekRepository.
         let meals = mealUpdateRequests(from: result, weekStart: week.weekStart)
         guard !meals.isEmpty else { throw WeekGenError.emptyPlan }
-        return try await saveWeekMeals(weekID: weekID, meals: meals)
+        // knownMealIDs: the `week` snapshot fetched above (empty on a fresh week; old ids
+        // known + replaced by the regenerated `meals` on a regen).
+        return try await saveWeekMeals(
+            weekID: weekID, meals: meals, knownMealIDs: Set(week.meals.map { $0.mealId })
+        )
     }
 
     // MARK: - Context gather

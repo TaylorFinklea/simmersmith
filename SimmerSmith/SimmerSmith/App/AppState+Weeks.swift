@@ -229,7 +229,8 @@ extension AppState {
             return
         }
         // saveWeekMeals writes the meals, regenerates grocery, and mirrors currentWeek.
-        if (try? await saveWeekMeals(weekID: created.weekId, meals: carryOver)) != nil,
+        // knownMealIDs: [] — `created` is a freshly created week with no prior meals.
+        if (try? await saveWeekMeals(weekID: created.weekId, meals: carryOver, knownMealIDs: [])) != nil,
            let filled = repo.week(forId: created.weekId) {
             adoptCurrentWeek(filled)
         } else {
@@ -247,10 +248,13 @@ extension AppState {
     #endif
 
     /// Batch-replace a week's meals. CloudKit: write via WeekRepository.
-    func saveWeekMeals(weekID: String, meals: [MealUpdateRequest]) async throws -> WeekSnapshot {
+    ///
+    /// `knownMealIDs` is the baseline-aware delete guard (simmersmith-eky) — the mealIds present
+    /// in the caller's SOURCE snapshot. See `WeekRepository.saveWeekMeals` / `WeekMealDeletePolicy`.
+    func saveWeekMeals(weekID: String, meals: [MealUpdateRequest], knownMealIDs: Set<String>) async throws -> WeekSnapshot {
         #if canImport(CloudKit)
         if let repo = weekRepository {
-            guard let snap = repo.saveWeekMeals(weekID: weekID, meals: meals) else {
+            guard let snap = repo.saveWeekMeals(weekID: weekID, meals: meals, knownMealIDs: knownMealIDs) else {
                 throw NSError(
                     domain: "SimmerSmith.WeekRepository",
                     code: 404,
@@ -532,7 +536,10 @@ extension AppState {
                     )
                 }
             let allMeals = existingMeals + dayMeals
-            return try await saveWeekMeals(weekID: weekID, meals: allMeals)
+            // knownMealIDs: the `week` snapshot fetched above — the source this filtered from.
+            return try await saveWeekMeals(
+                weekID: weekID, meals: allMeals, knownMealIDs: Set(week.meals.map { $0.mealId })
+            )
         }
         #endif
         // No AI service: surface a clear error (no Fly fallback for LLM features).

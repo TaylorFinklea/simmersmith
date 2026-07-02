@@ -1299,3 +1299,18 @@ structural reading — v1's rebase praise was wrong; (2) product-truth (feature-
 sweep) and steady-state/scale lenses are mandatory for any future full review — they produced 3 of the
 4 criticals; (3) resume-after-session-limit works (implements cache) but big fleets should launch just
 after a reset window.
+
+## 2026-07-02 — ADR: eky week-meal save is BASELINE-AWARE delete, not a slot-fold (refines the earlier "repo-boundary fold" note)
+
+**Context.** `WeekRepository.saveWeekMeals` is a full-REPLACE: it deletes every store `.weekMeal` for the week whose id isn't in the passed array. All 9 WeekView UI mutators build that array from `week.meals` (a possibly-stale `displayedWeek` snapshot; the r8q cold-launch empty-store issue makes snapshots MORE stale), so a concurrent partner add the snapshot never saw is silently deleted. The earlier note said "make the enx fold the repo-boundary choke point." On implementation-grounding that proved insufficient:
+- **Upsert-only (never delete absent)** breaks `rebalanceDay` and week-gen regen, which REPLACE a day/week's slots by passing new-mealId meals and relying on delete-by-omission → old day meals linger (a duplicated day).
+- **Slot-keyed fold (MealMergeResolver) at the repo** reassigns mealIds by (day,slot): a `moveMeal` (same meal, new slot) becomes a new-slot upsert + a kept/duplicated source slot unless the caller emits an explicit CLEAR; swaps rebind record identity to slots; and it can't distinguish "removed" from "concurrent add" without CLEAR-marker plumbing in remove/move.
+
+**Decision.** `saveWeekMeals` gains a `knownMealIDs: Set<String>` param = the mealIds the caller's SOURCE snapshot contained. Delete set becomes `existing − desired ∩ knownMealIDs`: a store meal is deleted ONLY IF the caller KNEW it (it was in their snapshot) AND dropped it. A concurrent add (id the caller never saw) is never in `knownMealIDs` → always kept. Correct for every caller, mealIds preserved on move:
+- UI edits/add: known = displayedWeek ids; nothing dropped → no delete; concurrent adds survive.
+- removeMeal: removed id is known + dropped → deleted.
+- moveMeal: the meal keeps its id (upsert relocates in place) → no delete, no dup.
+- rebalanceDay / week-gen regen: old day/week meals are known + replaced by new-id meals → deleted; concurrent adds on untouched days (not in the snapshot) survive.
+- assistant/voice: keep their `MealMergeResolver.fold` (partial→full desired); pass known = the fetched `existing` ids so an explicit CLEAR (fold-removed slot) is deleted while concurrent adds survive.
+
+**Testable core:** a pure `weekMealsToDelete(existing:desired:known:) = existing.subtracting(desired).intersection(known)` (host-tested); per-caller known-set correctness is code-reviewed + covered by the runbook Gate-1 two-device edit-storm device test. **Supersedes** the slot-fold-at-repo direction. Chosen by Opus (bead delegates the pick); user was away when surfaced.

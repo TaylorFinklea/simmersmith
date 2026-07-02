@@ -254,7 +254,9 @@ struct RecipeWeekAssignmentView: View {
                 }
             }
 
-            _ = try await appState.saveWeekMeals(weekID: week.weekId, meals: finalMeals)
+            // knownMealIDs: the `week` snapshot fetched above — the source `finalMeals` started from.
+            let known = Set(week.meals.map { $0.mealId })
+            _ = try await appState.saveWeekMeals(weekID: week.weekId, meals: finalMeals, knownMealIDs: known)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

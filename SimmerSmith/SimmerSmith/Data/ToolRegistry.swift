@@ -206,8 +206,8 @@ final class ToolRegistry {
     }
 
     /// weeks_update_meals — MERGE-only edit of a week's meals (simmersmith-enx: data-loss
-    /// fix). `WeekRepository.saveWeekMeals` is a full REPLACE — any existing `.weekMeal` not
-    /// in the passed set is deleted — so this handler reads the week's CURRENT meals first,
+    /// fix). `WeekRepository.saveWeekMeals` deletes a stored `.weekMeal` only if the caller KNEW
+    /// it and dropped it (baseline-aware since eky) — so this handler reads the week's CURRENT meals first,
     /// folds the model's payload into them via `MealMergeResolver.fold` (upsert by
     /// day+slot; an empty `recipe_name` clears that one slot; every other slot is left
     /// untouched), and only then writes the merged full set. Mirrors the voice path's
@@ -234,7 +234,12 @@ final class ToolRegistry {
         let existing = currentWeek.meals.map { $0.asMealUpdateRequest() }
         let merged = MealMergeResolver.fold(updates: updates, into: existing)
         do {
-            let week = try await appState.saveWeekMeals(weekID: weekID, meals: merged)
+            // knownMealIDs: the `existing` meals fetched above — the current-week snapshot
+            // `merged` was folded into. An explicit CLEAR (fold-removed slot) is known + absent
+            // from `merged` → deleted; a concurrent add this fetch never saw → kept.
+            let week = try await appState.saveWeekMeals(
+                weekID: weekID, meals: merged, knownMealIDs: Set(existing.compactMap { $0.mealId })
+            )
             return success(
                 encodeWeekResult(week),
                 detail: "Updated the meals for the week.",
