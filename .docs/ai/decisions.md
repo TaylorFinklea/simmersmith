@@ -1245,3 +1245,57 @@ sync (gju) — two-device households WILL produce duplicate slots/weeks and noth
 Engine wiring: merger set at init (not post-boot; window bypasses FieldMergeResolver), zoneEnsured locked,
 adopt-vs-mint ordering audited (c7r); CKRecord copies at actor hand-off (pr9); account-change lifecycle
 handled post-launch-gate (yqm).
+
+## 2026-07-02 — From-zero re-review reconciliation (Fable; report: `phases/arch-review-v2-2026-07-02-report.md`)
+
+The 2026-07-01 review's judgment layer was re-derived from zero (user request: prior orchestrator was
+Opus): a fresh independent 114-agent evidence sweep (8 mappers + 8 lenses incl. two v1 never ran —
+steady-state/scale and product-truth — one skeptic per finding, completeness critic, anti-anchoring rule
+barring agents from reading v1's outputs), then Fable personally re-adjudicated every lead-tier judgment,
+verifying the two highest-stakes claims by direct code read. 40 confirmed findings. Verdicts on the
+standing decisions:
+
+**CONFIRMED unchanged:** ADR-1 (port-then-retire — v2's product-truth lens independently verified the
+ported features work and the residue inventory matches the plan) · ADR-2 (local StoreKit 2, dark paywall —
+v2 found zero monetization findings post-fix) · the 990.4 recipe-memories schema and 990.5 ingredients
+specs (v2 independently re-found memories as its own critical, validating the port's priority) · the
+ToolRegistry no-capability-boundary arbitration (v2's skeptic refuted the same framing; the residual
+testability concern is the god-object track, post-launch).
+
+**AMENDED — ADR-5 (data plane), materially.** v1 missed the two deepest data-plane issues, and one v1
+"sound area" was wrong:
+- **Cold-launch store/token split (new, critical):** HouseholdLocalStore is rebuilt empty every launch
+  while the CKSyncEngine token persists, so the store is silently partial after every relaunch — masked
+  for browsing by the SwiftData cache and mostly healed on write by the rebase path, but auto-backups
+  snapshot a PARTIAL household and store-dependent flows (assistant week ops, repair scans,
+  restore-reload) run on incomplete data; retroactively explains the Week-not-found/participant-empty-week
+  bug class. Decision: interim token-reset-on-empty-store (bead r8q, P1), then proper store persistence
+  (e0a) which retires the hack.
+- **Rebase is local-always-wins, not LWW (new, critical):** the serverRecordChanged branch copies every
+  local field onto the server record for all 16 non-merger types — a field-level lost-update on ordinary
+  two-device edits. v1 praised this seam (structure, not semantics — recorded as a review-method lesson).
+  Decision: record-level updatedAt LWW at the rebase seam (6ce); FieldMergeResolver stays for the 3
+  sticky types.
+- The full-REPLACE kill extends to UI callers: the enx fold must become the repo-boundary choke point,
+  not a tool/voice-only guard (eky).
+- Our own day-old gju code carries an isolation race + a swallowed destructive-pass error (9zf) —
+  fleet-written code gets the same lens as legacy; adversarial verify of new code stays mandatory.
+
+**AMENDED — ADR-4 (launch gates), additions:** published privacy policy is factually FALSE for the
+current architecture incl. allergy-data flows (5w8 — content rewrite, beyond 990.11's re-hosting);
+every assistant entry point outside Week dead-ends in ComingSoon (7pr); per-meal Create-with-AI +
+Manage-sides on the default tab call the dead backend (962); PUBLIC catalog CREATE grant still open
+since 2026-06-18 (9wr, user Dashboard op); share-accept parks solo data unwarned (lwi); the orphaned
+onboarding interview gets deleted (mm1 — nothing reads its outputs; CloudKit-era onboarding is product
+work, bead exc). ASC privacy nutrition label must match the BYO-key data flows (user step, in 5w8).
+
+**AMENDED — ADR-3 (observability), elevated:** the critic's framing is adopted as the ADR's test —
+"how would we know any confirmed failure mode is happening to real users?" MetricKit crash/hang
+telemetry joins Logger+OSLogStore export as the baseline (0g5 + 79y); dab/qrt priorities re-validated
+independently by v2.
+
+**Review-method lessons (recorded):** (1) a "sound area" verdict requires semantic verification, not
+structural reading — v1's rebase praise was wrong; (2) product-truth (feature-by-feature functional
+sweep) and steady-state/scale lenses are mandatory for any future full review — they produced 3 of the
+4 criticals; (3) resume-after-session-limit works (implements cache) but big fleets should launch just
+after a reset window.

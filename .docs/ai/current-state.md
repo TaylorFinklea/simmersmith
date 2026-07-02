@@ -15,6 +15,17 @@ layer unwired). SP-D decomposed under epic 990 (ports 990.1-7 → retire 990.8-1
 Beads `ike`/`2v5` closed superseded (OpenRouter pivot). Device gates unchanged (3sf
 streaming build, nli voice, 3hn backup-recover, sharing).
 
+## 2026-07-02 — From-zero re-review (Fable) RECONCILED; SP-D ports SHIPPED
+
+Ports landed (`65700f0..224eb3a`, beads 990.1/2/3/6/7 closed; specs `ea23b25`). Full independent
+re-review (114 agents, product-truth + steady-state lenses NEW) → 40 confirmed; reconciliation ADR
+in decisions.md 2026-07-02 + `phases/arch-review-v2-2026-07-02-report.md`. Standing ADRs 1/2 +
+both SP-D specs CONFIRMED; ADR-3/4/5 AMENDED. New P1 lane (label `arch-v2`): r8q cold-launch
+token reset · 6ce rebase LWW · eky UI merge choke point · 9zf RepairScheduler isolation ·
+7pr Smith-tab/assistant dead ends · 962 Create-with-AI port · 5w8 privacy-policy rewrite ·
+9wr PUBLIC grant revoke (user Dashboard op). Build-147 product test still awaiting device run
+(hdeck `p1-milestone-product-test`).
+
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
 gated migration UI, SecretSanitizer known-value, privacy manifest, CI, dead code).
