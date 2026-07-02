@@ -27,6 +27,22 @@ public struct HouseholdBackup: Codable, Equatable, Sendable {
     }
 }
 
+/// Restore's later-wins guard for record types the field-merger doesn't handle (see
+/// AppState+Backup.restoreHousehold). Restoring an old snapshot must never revert an edit made
+/// since the snapshot was taken, so a plain (non-merger) record's backup value is only applied
+/// when we can't prove the live copy is newer:
+/// - `liveModified == nil` — the local record has never synced, so there's nothing newer to
+///   protect; apply.
+/// - `capturedAt == nil` — a backup with no capture time to compare against (legacy safety net,
+///   though every `HouseholdBackup` written by this app has always carried one); fall back to
+///   the old always-apply behavior.
+/// - otherwise, apply only if the live record's modification date is at or before `capturedAt` —
+///   i.e. skip when the live copy was modified LATER than the backup snapshot.
+public func shouldApplyBackupValue(liveModified: Date?, capturedAt: Date?) -> Bool {
+    guard let liveModified, let capturedAt else { return true }
+    return liveModified <= capturedAt
+}
+
 public enum BackupCodec {
     public enum BackupError: Error, Equatable {
         case unsupportedSchema(Int)   // backup is from a newer, incompatible app

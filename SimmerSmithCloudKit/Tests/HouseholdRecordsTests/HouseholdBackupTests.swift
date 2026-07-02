@@ -70,3 +70,32 @@ func rejectsNewerSchema() throws {
         _ = try BackupCodec.decode(data)
     }
 }
+
+// SP-C simmersmith-9i6 — restoreHousehold's later-wins guard for plain (non-merger) record
+// types: a backup must never revert an edit made to the live record since the snapshot was
+// taken. `shouldApplyBackupValue` is the pure decision extracted from
+// AppState+Backup.restoreHousehold so it's host-testable without a CloudKit session.
+
+private let reference = Date(timeIntervalSince1970: 1_750_200_000)
+
+@Test("applies when the live record has never synced (no modification date)")
+func shouldApplyWhenLiveNeverSynced() {
+    #expect(shouldApplyBackupValue(liveModified: nil, capturedAt: reference))
+    #expect(shouldApplyBackupValue(liveModified: nil, capturedAt: nil))
+}
+
+@Test("applies when the backup carries no capture time (legacy fallback)")
+func shouldApplyWhenCapturedAtMissing() {
+    #expect(shouldApplyBackupValue(liveModified: reference, capturedAt: nil))
+}
+
+@Test("applies when the live record is at or before the backup's capture time")
+func shouldApplyWhenLiveNotNewer() {
+    #expect(shouldApplyBackupValue(liveModified: reference, capturedAt: reference))
+    #expect(shouldApplyBackupValue(liveModified: reference.addingTimeInterval(-60), capturedAt: reference))
+}
+
+@Test("skips when the live record was modified after the backup was captured")
+func skipsWhenLiveIsNewer() {
+    #expect(!shouldApplyBackupValue(liveModified: reference.addingTimeInterval(60), capturedAt: reference))
+}

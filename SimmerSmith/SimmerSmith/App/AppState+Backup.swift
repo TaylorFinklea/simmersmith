@@ -151,6 +151,16 @@ extension AppState {
         syncPhase = .loading
         // Reconcile first so the upsert merges against current server state.
         try await session.engine.fetchChanges()
+        // Drain any LOCAL edit still queued from before this restore started. CKRecord's
+        // `modificationDate` is server-set and only updates once a save round-trips through
+        // CloudKit, so a record with a pending-but-unsent edit still reports its stale
+        // pre-edit modificationDate — which would fool the later-wins guard below into
+        // thinking the backup is newer and overwriting a genuinely newer local edit. Draining
+        // BEFORE the loop (instead of only after, as before) lets a successful send refresh
+        // that record's modificationDate first, so the guard sees the true modification time.
+        // (This can't help while offline — nothing can be pushed — but closes the common
+        // online-but-not-yet-synced window.)
+        try await session.engine.sendUntilDrained(maxPasses: 30)
         let merger = session.engine.merger
         for value in backup.records {
             let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
@@ -160,6 +170,13 @@ extension AppState {
                 // member's newer edit (the field-merger normally guards this; preserving the
                 // change tag bypasses it). A DELETED one is still re-added in the else branch.
                 if merger?.handles(value.type.recordTypeName) == true { continue }
+                // Plain (non-merger) types have no field-level merge guard of their own, so apply
+                // the same later-wins rule directly: skip if the live record was modified more
+                // recently than this backup was captured (an edit since the snapshot would
+                // otherwise be reverted household-wide).
+                guard shouldApplyBackupValue(
+                    liveModified: existing.modificationDate, capturedAt: backup.capturedAt
+                ) else { continue }
                 // Overwrite the live record IN PLACE — preserves its change tag so the save
                 // doesn't conflict with the server copy.
                 HouseholdRecordCodec.apply(value, onto: existing, zoneID: session.zoneID)
