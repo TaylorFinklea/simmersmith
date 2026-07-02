@@ -35,14 +35,17 @@ public final class RepairScheduler: @unchecked Sendable {
     /// wires the real `WeekRepairAdapter`/`EventMergeAdapter` calls for production use; tests
     /// inject fakes to verify the debounce + role-gating behavior headlessly.
     public struct Passes: Sendable {
-        /// Upsert/tombstone-only — safe on both the owner and a participant.
-        public var nonDestructive: @Sendable () async -> Void
-        /// Deletes/re-parents records — OWNER ONLY.
-        public var destructive: @Sendable () async -> Void
+        /// Upsert/tombstone-only — safe on both the owner and a participant. `@MainActor` so it
+        /// serializes with the `@MainActor` repositories (WeekRepository, GroceryRepository, etc.)
+        /// that mutate the SAME `HouseholdLocalStore` — otherwise a debounced repair run can
+        /// interleave a read-modify-write with a repo's, losing an update (simmersmith-9zf).
+        public var nonDestructive: @MainActor @Sendable () async -> Void
+        /// Deletes/re-parents records — OWNER ONLY. `@MainActor` for the same serialization reason.
+        public var destructive: @MainActor @Sendable () async -> Void
 
         public init(
-            nonDestructive: @escaping @Sendable () async -> Void,
-            destructive: @escaping @Sendable () async -> Void
+            nonDestructive: @escaping @MainActor @Sendable () async -> Void,
+            destructive: @escaping @MainActor @Sendable () async -> Void
         ) {
             self.nonDestructive = nonDestructive
             self.destructive = destructive
@@ -102,6 +105,9 @@ public final class RepairScheduler: @unchecked Sendable {
 import CloudKit
 import GroceryMerge
 import HouseholdRecords
+import OSLog
+
+private let repairLogger = Logger(subsystem: "app.simmersmith.cloud", category: "RepairScheduler")
 
 extension RepairScheduler {
     /// Meal-slot vocabulary `WeekRepairAdapter.repairSlots` relocates a slot-collision loser
@@ -150,7 +156,11 @@ extension RepairScheduler {
             destructive: {
                 // collapseWeeks re-parents + deletes loser Weeks FIRST, so pruneAudit (per the
                 // post-collapse week set) never touches a week that's about to disappear.
-                _ = try? await weekAdapter.collapseWeeks()
+                do {
+                    _ = try await weekAdapter.collapseWeeks()
+                } catch {
+                    repairLogger.error("collapseWeeks failed: \(String(describing: error), privacy: .public)")
+                }
                 for weekID in weekIDs() {
                     weekAdapter.pruneAudit(weekID: weekID, keep: auditRetention)
                 }

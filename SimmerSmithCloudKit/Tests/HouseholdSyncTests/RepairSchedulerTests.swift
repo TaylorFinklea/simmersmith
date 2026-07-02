@@ -124,3 +124,28 @@ private final class Counter: @unchecked Sendable {
     #expect(afterSecond == afterFirst)
     #expect(runCount.value == 2)   // both signals actually ran the pass (separate bursts)
 }
+
+// simmersmith-9zf — `Passes.nonDestructive`/`.destructive` must run on the MainActor so they
+// serialize with the `@MainActor` repositories (WeekRepository, GroceryRepository, etc.) that
+// mutate the SAME HouseholdLocalStore in production; otherwise a debounced repair run can race a
+// repo's read-modify-write. `MainActor.assertIsolated()` traps if the closure body somehow runs
+// off the main actor, proving the `Passes` closure types' `@MainActor` annotation actually hops.
+@Test func passesRunOnMainActor() async {
+    let sawMainActor = Counter()
+    let passes = RepairScheduler.Passes(
+        nonDestructive: {
+            MainActor.assertIsolated()
+            sawMainActor.increment()
+        },
+        destructive: {
+            MainActor.assertIsolated()
+            sawMainActor.increment()
+        }
+    )
+    let scheduler = RepairScheduler(ownsZone: true, debounceNanoseconds: 10_000_000, passes: passes)
+
+    scheduler.signal()
+    await scheduler.waitForPendingRun()
+
+    #expect(sawMainActor.value == 2)   // both nonDestructive and destructive ran on the MainActor
+}

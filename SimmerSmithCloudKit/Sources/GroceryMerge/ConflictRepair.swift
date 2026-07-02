@@ -158,7 +158,7 @@ public enum ConflictRepair {
 
     // MARK: - Duplicate week collapse (UNIQUE(household_id, week_start))
 
-    public struct WeekCollapse: Equatable { public let keeper: String; public let losers: [String] }
+    public struct WeekCollapse: Equatable, Sendable { public let keeper: String; public let losers: [String] }
 
     /// Two devices creating the same `week_start` → keeper = lowest recordName; the
     /// caller re-parents losers' subtrees onto the keeper, then deletes losers.

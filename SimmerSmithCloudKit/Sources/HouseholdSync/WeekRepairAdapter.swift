@@ -14,7 +14,7 @@ import HouseholdRecords
 // the manifest CKRecords into the minimal GroceryMerge value type its pure pass consumes — repair
 // only ever touches slot / sortOrder / the week pointer, or deletes whole records, so the lossy
 // projection is safe (full record fidelity stays in the stored CKRecord).
-public struct WeekRepairAdapter {
+public struct WeekRepairAdapter: Sendable {
     public let engine: HouseholdSyncEngine
     public let zoneID: CKRecordZone.ID
 
@@ -85,7 +85,15 @@ public struct WeekRepairAdapter {
     /// with `.deleteSelf` would be cascade-deleted by the SERVER the instant the loser's delete lands
     /// (the server acts on its own view of the references, not our local re-parent) — so this drains
     /// the re-parents first, then plain-deletes the (now childless, both locally and remotely) losers.
+    // simmersmith-9zf: `@MainActor` so this async pass runs ON the main actor when awaited from
+    // RepairScheduler's `@MainActor` destructive closure. Without it — per SE-0338 — a nonisolated
+    // async callee hops OFF the caller's actor, so the store read-modify-writes below (the
+    // `engine.save`/`engine.delete` re-parent + delete steps) would run unserialized with the
+    // `@MainActor` repositories mutating the same `HouseholdLocalStore` (the exact lost-update this
+    // bead closes). The single `await engine.sendUntilDrained()` (a network drain, not a store
+    // mutation) still cooperatively yields — harmless.
     @discardableResult
+    @MainActor
     public func collapseWeeks() async throws -> [ConflictRepair.WeekCollapse] {
         let weeks = engine.store.records(ofType: Self.weekType)
             .map { Week(recordName: $0.recordID.recordName, weekStart: weekStartKey($0)) }
