@@ -1488,6 +1488,38 @@ extension AppState {
         #endif
     }
 
+    /// SP-C AI-2: side-dish draft, composed as a suggestion goal referencing
+    /// the parent meal + side name + optional user hint, then delegated to
+    /// `generateRecipeSuggestionDraft(goal:)`. No dedicated side-draft prompt
+    /// or CloudKit record type — reuses the already-ported suggestion path.
+    func generateSideRecipeDraft(
+        weekID: String,
+        mealID: String,
+        sideID: String,
+        sideName: String,
+        prompt: String = "",
+        servings: Int = 0
+    ) async throws -> RecipeDraft {
+        #if canImport(CloudKit)
+        let mealName = currentWeek?.meals.first(where: { $0.mealId == mealID })?.recipeName
+        var goal = "A side dish named \"\(sideName)\""
+        if let mealName, !mealName.isEmpty {
+            goal += " to serve alongside \(mealName)"
+        }
+        goal += "."
+        let trimmedHint = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedHint.isEmpty {
+            goal += " \(trimmedHint)"
+        }
+        let aiDraft = try await generateRecipeSuggestionDraft(goal: goal)
+        return aiDraft.draft
+        #else
+        return try await apiClient.generateSideRecipeDraft(
+            weekID: weekID, mealID: mealID, sideID: sideID, prompt: prompt, servings: servings
+        )
+        #endif
+    }
+
     func generateRecipeCompanionDrafts(recipeID: String) async throws -> RecipeAIOptions {
         // SP-C AI-2: on-device LLM companion suggestions. Requires a key.
         #if canImport(CloudKit)

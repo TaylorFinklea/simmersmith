@@ -115,7 +115,7 @@ struct AIRecipeCreateSheet: View {
         isGenerating = true
         errorMessage = nil
         do {
-            let aiDraft = try await appState.apiClient.generateRecipeSuggestionDraft(goal: mealName)
+            let aiDraft = try await appState.generateRecipeSuggestionDraft(goal: mealName)
             draft = aiDraft.draft
         } catch {
             errorMessage = error.localizedDescription

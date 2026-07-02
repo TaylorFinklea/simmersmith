@@ -298,10 +298,11 @@ private struct SideEditorSheet: View {
         defer { isGeneratingAI = false }
         errorMessage = nil
         do {
-            let draft = try await appState.apiClient.generateSideRecipeDraft(
+            let draft = try await appState.generateSideRecipeDraft(
                 weekID: weekID,
                 mealID: mealID,
                 sideID: side.sideId,
+                sideName: trimmed,
                 prompt: aiPrompt,
                 servings: 0
             )
