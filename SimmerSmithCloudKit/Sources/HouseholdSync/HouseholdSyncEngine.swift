@@ -25,6 +25,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private let log = Logger(subsystem: "app.simmersmith.cloud", category: "HouseholdSync")
 
     private var syncEngine: CKSyncEngine!
+    private let zoneEnsuredLock = NSLock()
     private var zoneEnsured = false
 
     /// Optional sticky field-merger (Phase 4). When set, records whose type it `handles`
@@ -54,13 +55,21 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         store: HouseholdLocalStore,
         stateURL: URL,
         automaticSync: Bool = false,
-        ownsZone: Bool = true
+        ownsZone: Bool = true,
+        merger: RecordMerger? = nil
     ) {
         self.database = database
         self.zoneID = zoneID
         self.store = store
         self.stateURL = stateURL
         self.ownsZone = ownsZone
+        // simmersmith-c7r: assign BEFORE `self.syncEngine` is constructed below. With
+        // `automaticSync == true`, CKSyncEngine can deliver `handleEvent` on its own
+        // background queue the instant it exists — if `merger` were still nil at that
+        // point (previously set post-construction by `HouseholdSession.start()`), a
+        // remote change could race in and fall through to blanket LWW instead of
+        // `FieldMergeResolver`, corrupting sticky grocery/event fields.
+        self.merger = merger
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -77,13 +86,21 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// zone is created lazily on the first save.
     public func save(_ record: CKRecord) {
         store.setRecord(record)
-        if !zoneEnsured {
+        // simmersmith-c7r: `save()` can be called concurrently from multiple threads (the
+        // class isn't actor-isolated), so the check-and-set of `zoneEnsured` must be atomic
+        // — otherwise two racing first-saves could both observe `false` and double-enqueue
+        // `.saveZone`. Read-and-set under the lock; the enqueue itself stays outside it since
+        // `syncEngine.state` needs no such guard (mirrors the existing `traceLock` pattern).
+        zoneEnsuredLock.lock()
+        let shouldEnsureZone = !zoneEnsured
+        zoneEnsured = true
+        zoneEnsuredLock.unlock()
+        if shouldEnsureZone {
             // OWNER ONLY: lazily create the zone on first save. A participant writes into
             // the owner's already-existing shared zone and must never enqueue zone creation.
             if ownsZone {
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             }
-            zoneEnsured = true
         }
         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
     }

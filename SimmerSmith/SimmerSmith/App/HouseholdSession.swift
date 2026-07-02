@@ -136,6 +136,11 @@ final class HouseholdSession {
         // Build the local store + engine with automaticSync enabled for production.
         // Construction mirrors CloudKitDebugView.runHouseholdSyncCheck (line 324) and
         // runMigrationCheck (line 940–944) exactly — same args, same merger composition.
+        //
+        // simmersmith-c7r: the merger is passed in at construction (not wired later by
+        // `start()`) so it's non-nil the instant `automaticSync: true` lets CKSyncEngine
+        // start delivering background `handleEvent` callbacks — closing the race where an
+        // early remote change fell through to blanket LWW instead of `FieldMergeResolver`.
         let store = HouseholdLocalStore()
         let engine = HouseholdSyncEngine(
             database: database,
@@ -143,7 +148,12 @@ final class HouseholdSession {
             store: store,
             stateURL: stateURL,
             automaticSync: true,
-            ownsZone: role.isOwner
+            ownsZone: role.isOwner,
+            merger: DispatchingMerger([
+                GrocerySyncMerger(),
+                EventGrocerySyncMerger(),
+                EventSyncMerger(),
+            ])
         )
         self.store = store
         self.engine = engine
@@ -154,6 +164,18 @@ final class HouseholdSession {
         // PUBLIC catalog reader (Phase 6 — read path only, no writes).
         // Construction mirrors CloudKitDebugView.runPublicCatalogCheck (line 1092).
         self.catalog = PublicCatalogReader(database: container.publicCloudDatabase)
+
+        // simmersmith-c7r: wired LAST — after every stored property has a value — since
+        // capturing `self` in a closure (even weakly) requires `self` to be fully
+        // initialized first. Closes the same background-delivery race as the merger: the
+        // closure exists before `start()` runs, so an automatic-sync event that fires
+        // before `start()` still has a live signal to call.
+        engine.onStoreChanged = { [weak self] in
+            Task { @MainActor in
+                self?.storeRevision += 1
+                self?.repairScheduler.signal()
+            }
+        }
     }
 
     // MARK: — Boot
@@ -184,27 +206,15 @@ final class HouseholdSession {
                 try await provisioner.ensureHouseholdZone(householdID: householdID)
             }
 
-            // 2. Wire the full merger stack (mirrors runEventGroceryMergeCheck line 611–614
-            //    and runMigrationCheck lines 942–945 in CloudKitDebugView).
-            engine.merger = DispatchingMerger([
-                GrocerySyncMerger(),
-                EventGrocerySyncMerger(),
-                EventSyncMerger(),
-            ])
-
-            // 3. Wire the change signal so @Observable consumers refresh, AND kick the
-            //    debounced repair scheduler (both the owner's post-fetch/post-send events and
-            //    the participant's boot-time fetches route through this same signal — see
+            // 2. simmersmith-c7r: the merger + change-signal wiring that used to happen
+            //    here now happens in `init` (before `automaticSync` can deliver any
+            //    background event) — see the constructor for rationale. Both the owner's
+            //    post-fetch/post-send events and the participant's boot-time fetches still
+            //    route through that same `onStoreChanged` signal (see
             //    AppState+Sharing.adoptSharedZone, which calls session.start() then fetches
             //    again before repos are wired).
-            engine.onStoreChanged = { [weak self] in
-                Task { @MainActor in
-                    self?.storeRevision += 1
-                    self?.repairScheduler.signal()
-                }
-            }
 
-            // 4. Initial fetch to populate the local store from the server.
+            // 3. Initial fetch to populate the local store from the server.
             try await engine.fetchChanges()
 
             syncPhase = .synced(Date())
