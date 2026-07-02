@@ -34,8 +34,11 @@ launch does NOT wait for Fly deletion. Post-launch structural track = epic z69.
 point (Smith tab, sparkle buttons, Ask/Refine-With-Assistant) now opens the real coordinator
 sheet with the composer prefilled (no tab switch); dead ComingSoon + AssistantLaunchContext/
 consume path deleted; RecipeEditor & Cooking dismiss-before-present race fixed (adversarial verify
-catch). Build green; **RUNTIME tap-through = iCloud device gate** (rides next TestFlight). Bead
-closed. Next in Lane D: `962` (Create-with-AI/Manage-sides → AIService), then data-safety Lane A/B/C.
+catch). Build green; **RUNTIME tap-through = iCloud device gate** (rides next TestFlight). Bead closed.
+**Lane D-2 `962` DONE (`9487101`)** — Create-with-AI + Manage-sides drafts rerouted off dead Fly onto
+the ported AIService suggestion path (new `generateSideRecipeDraft`); zero live apiClient in Week gen
+paths; RecipeAITests pass; adversarial verify SHIP (LOW latent → bead `5eq`). **Lane D COMPLETE.**
+Next: data-safety Lane A (`r8q`→`c7r`→`6ce`→`dab`, sequential; r8q pre-grounded) + Lane B `9zf` / Lane C `eky`.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
