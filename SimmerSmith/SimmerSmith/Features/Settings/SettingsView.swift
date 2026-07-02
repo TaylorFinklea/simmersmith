@@ -22,6 +22,13 @@ struct SettingsView: View {
     @State private var showingReminderPicker = false
     @State private var isTestingAIKey = false
     @State private var aiKeyTestResult: String?
+    /// Confirmation-dialog presentation state for the "data" section's
+    /// destructive buttons + Sign Out — mirrors `StartFreshSection`'s
+    /// pattern so every destructive action states its consequence before
+    /// firing instead of executing instantly.
+    @State private var showingClearCacheConfirmation = false
+    @State private var showingResetConnectionConfirmation = false
+    @State private var showingSignOutConfirmation = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -323,65 +330,55 @@ struct SettingsView: View {
                 SmithSectionHeader("nutrition")
             }
 
-            Section {
-                if appState.isTrialPro {
-                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
+            // MonetizationFlags.paywallEnabled == false darkens the paywall: an
+            // entitled user (grandfathered from before the darkening, or a
+            // manual StoreKit sandbox test) still sees their Pro status, but
+            // nobody else sees an upgrade path — the section disappears
+            // entirely rather than showing a dead "Upgrade to Pro" button.
+            if MonetizationFlags.paywallEnabled || appState.isPro {
+                Section {
+                    if appState.isPro {
                         HStack {
                             Label("SimmerSmith Pro", systemImage: "sparkles")
                                 .foregroundStyle(SMColor.aiPurple)
                             Spacer()
-                            Text("Beta promo")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(SMColor.aiPurple)
-                                .padding(.horizontal, SMSpacing.xs)
-                                .padding(.vertical, 2)
-                                .background(SMColor.aiPurple.opacity(0.15), in: Capsule())
-                        }
-                        Text("All Pro features are unlocked during SimmerSmith's beta. No payment required — this will convert to a paid tier before public launch.")
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.textSecondary)
-                    }
-                } else if appState.isPro {
-                    HStack {
-                        Label("SimmerSmith Pro", systemImage: "sparkles")
-                            .foregroundStyle(SMColor.aiPurple)
-                        Spacer()
-                        Text("Active")
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.success)
-                    }
-                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
-                        Link("Manage in App Store", destination: url)
-                            .font(SMFont.caption)
-                            .foregroundStyle(SMColor.primary)
-                    }
-                } else {
-                    let aiUsage = appState.usage(for: "ai_generate")
-                    VStack(alignment: .leading, spacing: SMSpacing.xs) {
-                        HStack {
-                            Label("Free tier", systemImage: "circle.dotted")
-                            Spacer()
-                        }
-                        if let aiUsage {
-                            Text("AI generations: \(aiUsage.used) of \(aiUsage.limit) this month")
+                            Text("Active")
                                 .font(SMFont.caption)
-                                .foregroundStyle(SMColor.textSecondary)
+                                .foregroundStyle(SMColor.success)
                         }
-                    }
-                    Button {
-                        appState.presentPaywall(.manualUpgrade)
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Label("Upgrade to Pro", systemImage: "sparkles")
-                                .font(SMFont.subheadline)
-                            Spacer()
+                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            Link("Manage in App Store", destination: url)
+                                .font(SMFont.caption)
+                                .foregroundStyle(SMColor.primary)
                         }
+                    } else {
+                        let aiUsage = appState.usage(for: "ai_generate")
+                        VStack(alignment: .leading, spacing: SMSpacing.xs) {
+                            HStack {
+                                Label("Free tier", systemImage: "circle.dotted")
+                                Spacer()
+                            }
+                            if let aiUsage {
+                                Text("AI generations: \(aiUsage.used) of \(aiUsage.limit) this month")
+                                    .font(SMFont.caption)
+                                    .foregroundStyle(SMColor.textSecondary)
+                            }
+                        }
+                        Button {
+                            appState.presentPaywall(.manualUpgrade)
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Label("Upgrade to Pro", systemImage: "sparkles")
+                                    .font(SMFont.subheadline)
+                                Spacer()
+                            }
+                        }
+                        .foregroundStyle(SMColor.aiPurple)
                     }
-                    .foregroundStyle(SMColor.aiPurple)
+                } header: {
+                    SmithSectionHeader("subscription")
                 }
-            } header: {
-                SmithSectionHeader("subscription")
             }
 
             Section {
@@ -544,11 +541,35 @@ struct SettingsView: View {
 
             Section {
                 Button("Clear Local Cache", role: .destructive) {
-                    appState.clearLocalCache()
+                    showingClearCacheConfirmation = true
+                }
+                .confirmationDialog(
+                    "Clear Local Cache?",
+                    isPresented: $showingClearCacheConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Clear Cache", role: .destructive) {
+                        appState.clearLocalCache()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This clears data cached on this device only. Nothing on iCloud is touched — your weeks, recipes, and events re-sync automatically.")
                 }
 
                 Button("Reset Connection", role: .destructive) {
-                    appState.resetConnection()
+                    showingResetConnectionConfirmation = true
+                }
+                .confirmationDialog(
+                    "Reset Connection?",
+                    isPresented: $showingResetConnectionConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Reset Connection", role: .destructive) {
+                        appState.resetConnection()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This tears down your sync session and clears local data on this device. Data on iCloud is preserved and will re-sync the next time you sign in.")
                 }
             } header: {
                 SmithSectionHeader("data")
@@ -562,7 +583,7 @@ struct SettingsView: View {
 
             Section {
                 Button(role: .destructive) {
-                    appState.resetConnection()
+                    showingSignOutConfirmation = true
                 } label: {
                     HStack {
                         Spacer()
@@ -571,10 +592,22 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
+                .confirmationDialog(
+                    "Sign Out?",
+                    isPresented: $showingSignOutConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign Out", role: .destructive) {
+                        appState.resetConnection()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This tears down your sync session and clears local data on this device. Data on iCloud is preserved and will re-sync when you sign back in.")
+                }
             }
 
             #if canImport(CloudKit)
-            if appState.householdSession != nil {
+            if appState.householdSession != nil, appState.hasSavedConnection || appState.hasLegacyFlyEvidence {
                 ImportWeeksSection()
                 ImportEventsSection()
                 ImportPantryProfileSection()
@@ -622,6 +655,23 @@ struct SettingsView: View {
                 await appState.refreshGuests()
             }
         }
+        #if canImport(CloudKit)
+        .task {
+            // simmersmith-8o7 fix: probe for legacy-Fly evidence unconditionally,
+            // independent of the Import*/Start Fresh gate below (line ~610). That
+            // gate is `hasSavedConnection || hasLegacyFlyEvidence`, and the ONLY
+            // other call site for `refreshWeekImportState()` lives inside
+            // `ImportWeeksSection.onAppear` — a view that only renders once the
+            // gate is already true. A migrated household whose device never had
+            // `hasSavedConnection == true` locally (new/second device signed into
+            // the same CloudKit account after migration happened elsewhere, a
+            // fresh reinstall, etc.) could never flip the marker, so the recovery
+            // sections stayed hidden forever. Calling it here — unconditionally,
+            // whenever Settings appears — lets the receipt check run regardless
+            // of the gate's current state.
+            appState.refreshWeekImportState()
+        }
+        #endif
         .toolbar {
             ToolbarItem(placement: .principal) {
                 FuWordmark(size: 18)
@@ -726,10 +776,12 @@ private struct AIUsageSection: View {
         } header: {
             SmithSectionHeader("ai usage (this month)")
         } footer: {
-            if appState.profile?.isTrial == true {
-                Text("You're on the free Pro trial — no caps apply right now. Counts are shown for visibility.")
-                    .font(.footnote)
-            } else if appState.profile?.isPro == true {
+            // Reads the local-StoreKit-only `appState.isPro` (not the Fly-fetched
+            // `profile.isPro`/`.isTrial`, which the server can still set stale/true
+            // now that bead simmersmith-7f2 retired the Fly "beta trial" concept and
+            // made entitlement StoreKit-only) so this footer can't contradict the
+            // now-darkened Settings subscription section.
+            if appState.isPro {
                 Text("You're a SimmerSmith Pro subscriber. No caps; counts are tracked for visibility.")
                     .font(.footnote)
             } else {
@@ -759,8 +811,10 @@ private struct AIUsageSection: View {
     }
 
     private func usageText(for row: UsageSummary) -> String {
-        let isUnlimited = appState.profile?.isPro == true || appState.profile?.isTrial == true
-        if isUnlimited {
+        // Same StoreKit-only source as the footer above — avoids a stale
+        // server-reported `profile.isPro`/`.isTrial` showing "unlimited" counts
+        // that contradict the darkened paywall.
+        if appState.isPro {
             return "\(row.used) used"
         }
         return "\(row.used) of \(row.limit)"

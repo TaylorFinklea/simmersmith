@@ -2,6 +2,15 @@ import SwiftUI
 import StoreKit
 import SimmerSmithKit
 
+/// Single kill switch for the paywall. Local StoreKit 2 entitlements are
+/// the only source of truth for `AppState.isPro` now (the Fly-backed
+/// "server wins" + beta-trial concepts are retired), but the paywall UI
+/// itself is darkened until monetization launches. `AppState.presentPaywall`
+/// gates on this so every upgrade entry point is dead in one place.
+enum MonetizationFlags {
+    static let paywallEnabled = false
+}
+
 /// Bottom-sheet paywall. Shown whenever `AppState.pendingPaywall` is
 /// non-nil — typically because a 402 came back from the backend or the
 /// user tapped the "Upgrade to Pro" button in Settings.
@@ -183,29 +192,24 @@ struct PaywallSheet: View {
     }
 
     private func buy(_ product: Product) async {
-        guard let jws = await store.purchase(product) else { return }
-        await verifyWithBackend(jws: jws)
+        guard await store.purchase(product) != nil else { return }
+        // No backend round-trip — SubscriptionStore already applied the
+        // verified transaction (Transaction.updates/currentEntitlements),
+        // so `store.isEntitled` is current by the time purchase() returns.
+        if store.isEntitled {
+            dismiss()
+        }
     }
 
     private func restore() async {
-        guard let jws = await store.restore() else {
+        guard await store.restore() != nil else {
             if !store.isEntitled && store.purchaseErrorMessage == nil {
                 store.purchaseErrorMessage = "No active subscription found on this Apple ID."
             }
             return
         }
-        await verifyWithBackend(jws: jws)
-    }
-
-    private func verifyWithBackend(jws: String) async {
-        do {
-            _ = try await appState.apiClient.verifySubscriptionTransaction(signedJWS: jws)
-            await appState.refreshAll()
-            if appState.isPro {
-                dismiss()
-            }
-        } catch {
-            store.purchaseErrorMessage = "Backend did not accept the purchase: \(error.localizedDescription)"
+        if store.isEntitled {
+            dismiss()
         }
     }
 }

@@ -3,10 +3,10 @@ import Observation
 import StoreKit
 import SimmerSmithKit
 
-/// StoreKit 2 wrapper. Keeps a local source of truth for "is the user Pro
-/// on this device right now?" while the SimmerSmith backend holds the
-/// authoritative answer (synced via `AppState.refreshAll` after
-/// `verifySubscriptionTransaction`).
+/// StoreKit 2 wrapper. The ONLY source of truth for "is the user Pro on
+/// this device right now?" — `AppState.isPro` reads `isEntitled` directly.
+/// There is no backend verification round-trip; `Transaction.updates` /
+/// `Transaction.currentEntitlements` are authoritative.
 @MainActor
 @Observable
 final class SubscriptionStore {
@@ -22,8 +22,8 @@ final class SubscriptionStore {
     /// Loaded products in the order we want to render them (monthly first).
     var products: [Product] = []
 
-    /// Latest signed transaction JWS we've received. The caller ships this
-    /// to the backend via `APIClient.verifySubscriptionTransaction`.
+    /// Latest signed transaction JWS we've received. No longer shipped
+    /// anywhere — kept for diagnostics / a future backend-verification path.
     var lastSignedTransaction: String?
 
     /// A human-readable error message from the most recent purchase

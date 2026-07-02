@@ -668,6 +668,27 @@ extension AppState {
         case failed(String)
     }
 
+    /// UserDefaults key for the sticky "this household has legacy Fly
+    /// evidence" marker. Set once, below, when a weeks-import receipt is
+    /// found — and never cleared — so it keeps gating in the Import*/Start
+    /// Fresh Settings sections even after `hasSavedConnection` reverts to
+    /// false (Reset Connection / Sign Out clear the live Fly token, but a
+    /// migrated household's CloudKit data — and this marker — survive that).
+    static let hasLegacyFlyEvidenceKey = "sm.hasLegacyFlyEvidence"
+
+    /// True once evidence of a legacy Fly-backed household has been
+    /// observed. Read by `SettingsView` (alongside `hasSavedConnection`) to
+    /// decide whether to show the Import*/Start Fresh migration sections —
+    /// new CloudKit-only installs never set this, so those sections stay
+    /// hidden for them (simmersmith-8o7). Reads UserDefaults directly
+    /// rather than caching on `AppState`; safe because SwiftUI re-evaluates
+    /// this at view-build time whenever the host view re-renders for any
+    /// other reason (same reasoning as `topBarPrimary(for:)` in
+    /// AppState+TopBar.swift).
+    var hasLegacyFlyEvidence: Bool {
+        UserDefaults.standard.bool(forKey: Self.hasLegacyFlyEvidenceKey)
+    }
+
     /// Check the receipt gate against the local store and set `weekImportState`
     /// accordingly. Called when the Settings section first appears.
     func refreshWeekImportState() {
@@ -679,7 +700,14 @@ extension AppState {
             recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
             zoneID: session.zoneID
         )
-        weekImportState = session.store.record(for: receiptID) != nil ? .alreadyImported : .idle
+        let hasReceipt = session.store.record(for: receiptID) != nil
+        weekImportState = hasReceipt ? .alreadyImported : .idle
+        if hasReceipt {
+            // Evidence of a legacy Fly-backed household — stamp the marker
+            // once so the migration sections keep showing later even if
+            // hasSavedConnection reverts to false.
+            UserDefaults.standard.set(true, forKey: Self.hasLegacyFlyEvidenceKey)
+        }
     }
 
     /// One-shot weeks + grocery import triggered by the user from Settings.

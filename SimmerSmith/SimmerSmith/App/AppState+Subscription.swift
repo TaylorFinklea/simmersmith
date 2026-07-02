@@ -2,22 +2,13 @@ import Foundation
 import SimmerSmithKit
 
 extension AppState {
-    /// True when the backend's profile response or StoreKit's local
-    /// entitlements say the user is Pro. The backend value wins when we
-    /// have it (it's authoritative); StoreKit is the fallback while we're
-    /// offline or the first API call hasn't completed yet.
+    /// True when local StoreKit 2 entitlements say the user has an active
+    /// Pro subscription. StoreKit is now the ONLY source of truth — the
+    /// Fly-backed "server wins" behavior (and the Fly-only "Pro for
+    /// everyone during beta" trial concept it carried) has been retired
+    /// now that the paywall is local-only (see `MonetizationFlags`).
     var isPro: Bool {
-        if let profile {
-            return profile.isPro
-        }
-        return subscriptionStore.isEntitled
-    }
-
-    /// True when the "Pro for everyone during beta" toggle is driving
-    /// `isPro`, not a real StoreKit transaction. Used to render
-    /// promotional copy in Settings instead of the subscription row.
-    var isTrialPro: Bool {
-        profile?.isTrial ?? false
+        subscriptionStore.isEntitled
     }
 
     /// The current monthly usage summary the server returned. Returns an
@@ -32,21 +23,14 @@ extension AppState {
     }
 
     /// Present the paywall sheet. Safe to call repeatedly — the sheet
-    /// re-renders with the latest reason.
+    /// re-renders with the latest reason. No-ops while the paywall is
+    /// darkened (`MonetizationFlags.paywallEnabled == false`) so every
+    /// upgrade entry point — the Settings upgrade button, usage-limit
+    /// 402s via `handleAPIError`, the Week tab's limit-reached prompt —
+    /// is dead in one place instead of needing to be gated individually.
     func presentPaywall(_ reason: PaywallReason) {
+        guard MonetizationFlags.paywallEnabled else { return }
         pendingPaywall = reason
-    }
-
-    /// Dispatch a single transaction JWS to the backend to upsert the
-    /// `Subscription` row, then refresh profile state so `isPro` and the
-    /// usage summary update immediately.
-    func verifySubscription(jws: String) async {
-        do {
-            _ = try await apiClient.verifySubscriptionTransaction(signedJWS: jws)
-            await refreshAll()
-        } catch {
-            lastErrorMessage = "Pro sync failed: \(error.localizedDescription)"
-        }
     }
 
     /// Map an `SimmerSmithAPIError.usageLimitReached` into a paywall
