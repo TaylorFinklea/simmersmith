@@ -1572,6 +1572,29 @@ extension AppState {
         return parts.joined(separator: " ")
     }
 
+    /// Render the AVOID/PREFERS preference bullets `SubstitutionPrompt` expects, so
+    /// the model doesn't suggest a flagged/avoided ingredient. Mirrors
+    /// `substitution_ai._preference_note`: only ACTIVE preferences count, and a
+    /// preference is either an AVOID (choiceMode avoid/dislike/allergy) or a PREFERS
+    /// (a preferred brand or variation on record) — never both.
+    #if canImport(CloudKit)
+    private func substitutionPreferenceNotes(from preferences: [IngredientPreference]) -> [String] {
+        var bullets: [String] = []
+        for pref in preferences where pref.active {
+            let name = pref.baseIngredientName.isEmpty ? pref.baseIngredientId : pref.baseIngredientName
+            if ["avoid", "dislike", "allergy"].contains(pref.choiceMode) {
+                bullets.append("- AVOID: \(name) (\(pref.choiceMode))")
+            } else {
+                let variation = pref.preferredVariationId ?? ""
+                guard !pref.preferredBrand.isEmpty || !variation.isEmpty else { continue }
+                let brand = pref.preferredBrand.isEmpty ? variation : pref.preferredBrand
+                bullets.append("- PREFERS: \(name) → \(brand)")
+            }
+        }
+        return bullets
+    }
+    #endif
+
     /// Map a `RecipeAIRecipe` wire value onto a `RecipeDraft` with the given source
     /// metadata. All identity fields (recipeId, baseRecipeId) are left nil — callers
     /// set them as needed (variation sets baseRecipeId; refine restores recipeId).
@@ -1634,17 +1657,68 @@ extension AppState {
 
     /// AI ingredient-substitution suggestions for one recipe ingredient.
     /// Façade so `SubstitutionSheetView` no longer reaches into `apiClient` directly.
+    ///
+    /// SP-D substitution port: on-device LLM substitution suggestions via
+    /// `SubstitutionPrompt`. Requires a key.
     func suggestIngredientSubstitutions(
         recipeID: String,
         ingredientID: String,
         hint: String = ""
     ) async throws -> IngredientSubstituteResponse {
-        // AI TRACK: rewire to AIProviderKit before SP-D — requires a model. Stays on Fly.
-        try await apiClient.suggestIngredientSubstitutions(
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        guard let recipe = recipes.first(where: { $0.recipeId == recipeID }) else {
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Recipe not found."]
+            )
+        }
+        guard let target = recipe.ingredients.first(where: { $0.id == ingredientID }) else {
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Ingredient not found."]
+            )
+        }
+        let unit = currentUnitSystem()
+        let allIngredients = recipe.ingredients.map { renderIngredient($0) }
+        let targetLine = renderIngredient(target)
+        let preferenceNotes = substitutionPreferenceNotes(from: ingredientPreferences)
+        let prompt = SubstitutionPrompt.build(
+            recipeName: recipe.name,
+            cuisine: recipe.cuisine,
+            mealType: recipe.mealType,
+            allIngredients: allIngredients,
+            targetIngredientLine: targetLine,
+            hint: hint,
+            preferenceNotes: preferenceNotes,
+            unit: unit
+        )
+        let request = AIRequest(feature: .substitution, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await aiSvc.generate(request)
+        let wire = try SubstitutionAIParser.parse(response.text)
+        let suggestions = wire.map {
+            SubstitutionSuggestion(name: $0.name, reason: $0.reason, quantity: $0.quantity, unit: $0.unit)
+        }
+        return IngredientSubstituteResponse(
+            ingredientId: target.id,
+            originalName: target.ingredientName,
+            suggestions: suggestions
+        )
+        #else
+        return try await apiClient.suggestIngredientSubstitutions(
             recipeID: recipeID,
             ingredientID: ingredientID,
             hint: hint
         )
+        #endif
     }
 
     func saveRecipe(_ draft: RecipeDraft) async throws -> RecipeSummary {

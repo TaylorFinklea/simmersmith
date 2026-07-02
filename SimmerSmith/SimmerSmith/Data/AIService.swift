@@ -85,6 +85,56 @@ final class AIService {
         return try await client.generate(request)
     }
 
+    /// Multimodal variant of `generate()` for the vision features (ingredient
+    /// identification, cook-check): resolves the same BYO-key provider, then calls
+    /// `BYOKeyProvider.generateWithImage` directly instead of routing through
+    /// `AIClient` (image bytes aren't part of the generic `AIRequest`/`AIProvider`
+    /// seam). Throws the same `AIServiceError.noKeyConfigured` /
+    /// `noProviderConfigured` as `generate()`; provider HTTP/parse errors propagate
+    /// as `AIError.*`.
+    func generateVision(_ request: AIRequest, imageData: Data, mimeType: String) async throws -> AIResponse {
+        let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
+        let providerKey = Self.keychainKeyID(for: cloudModel)
+        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
+            throw AIServiceError.noKeyConfigured(providerKey)
+        }
+        let provider = BYOKeyProvider(
+            model: cloudModel,
+            keyStore: keyStore,
+            openAIModel: openAIModel,
+            anthropicModel: anthropicModel,
+            openModelsModel: openModelsModel
+        )
+        return try await provider.generateWithImage(request, imageData: imageData, mimeType: mimeType)
+    }
+
+    // MARK: - Seasonal produce (SP-D port)
+
+    /// One AI call per (region, year, month) combination — mirrors
+    /// `seasonal_ai.py`'s module-level `_CACHE` dict so a user relaunching the app
+    /// mid-month doesn't re-spend their own key on an answer that hasn't changed.
+    /// `static` (not per-instance) so it survives an `AIService` rebuild (a fresh
+    /// instance is created each household-session boot) for the process lifetime;
+    /// safe unguarded because every caller is `@MainActor` (this class's isolation).
+    private static var seasonalCache: [String: [SeasonalAIItem]] = [:]
+
+    /// Fetch (or return the cached) in-season produce list for `region` in
+    /// `year`/`month`. Builds the prompt via `SeasonalPrompt`, calls `generate()`,
+    /// and parses via `SeasonalAIParser`; the caller (AppState+Seasonal) maps the
+    /// wire items onto the domain `InSeasonItem`.
+    func fetchSeasonalProduce(region: String, year: Int, month: Int) async throws -> [SeasonalAIItem] {
+        let cacheKey = "\(region)|\(year)|\(month)"
+        if let cached = Self.seasonalCache[cacheKey] {
+            return cached
+        }
+        let prompt = SeasonalPrompt.build(region: region, year: year, month: month)
+        let request = AIRequest(feature: .seasonal, prompt: prompt, wantsStructuredJSON: true)
+        let response = try await generate(request)
+        let items = try SeasonalAIParser.parse(response.text)
+        Self.seasonalCache[cacheKey] = items
+        return items
+    }
+
     // MARK: - Image generation
 
     /// Keychain provider ID for the Gemini image key. Separate from the text

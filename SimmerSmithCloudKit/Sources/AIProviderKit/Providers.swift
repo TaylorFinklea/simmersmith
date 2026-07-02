@@ -535,6 +535,167 @@ public struct BYOKeyProvider: AIProvider {
         return chunks.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // MARK: - Vision (multimodal image input, SP-D vision port)
+
+    /// One-shot multimodal generate(): the same `AIRequest` seam as `generate(_:)`,
+    /// plus a single image attached as a vendor-specific content block. NOT part of
+    /// the `AIProvider` protocol (which only carries text) — callers that need an
+    /// image (`AIService.generateVision`) call this directly instead of going
+    /// through `AIClient`. Mirrors `app/services/vision_ai.py::_run_vision_provider`:
+    /// OpenAI gets an `image_url` data-URI block, Anthropic gets a base64 `image`
+    /// source block, and the open-models vendors (incl. OpenRouter) get the
+    /// OpenAI-compatible `image_url` form via the same descriptor-driven chat call
+    /// the text path uses.
+    public func generateWithImage(
+        _ request: AIRequest,
+        imageData: Data,
+        mimeType: String
+    ) async throws -> AIResponse {
+        switch model {
+        case .openAI:
+            return try await callOpenAIWithImage(request, imageData: imageData, mimeType: mimeType)
+        case .anthropic:
+            return try await callAnthropicWithImage(request, imageData: imageData, mimeType: mimeType)
+        case .openModels(let vendor):
+            return try await callOpenModelsWithImage(vendor, request, imageData: imageData, mimeType: mimeType)
+        case .gemini, .openRouter:
+            throw AIError.notWiredYet(tier)
+        }
+    }
+
+    private func callOpenAIWithImage(_ request: AIRequest, imageData: Data, mimeType: String) async throws -> AIResponse {
+        guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openAI)
+        }
+        return try await postOpenAIChatWithImage(request, key: key, imageData: imageData, mimeType: mimeType)
+    }
+
+    private func postOpenAIChatWithImage(
+        _ request: AIRequest, key: String, imageData: Data, mimeType: String
+    ) async throws -> AIResponse {
+        var messages: [[String: Any]] = []
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            messages.append(["role": "system", "content": sys])
+        }
+        // vision_ai.py:137-144 — a text block then the image_url data-URI block.
+        let userContent: [[String: Any]] = [
+            ["type": "text", "text": request.prompt],
+            ["type": "image_url", "image_url": ["url": "data:\(mimeType);base64,\(imageData.base64EncodedString())"]],
+        ]
+        messages.append(["role": "user", "content": userContent])
+        let body: [String: Any] = [
+            "model": openAIModel,
+            "messages": messages,
+            "temperature": 0.2,    // vision_ai.py:146 — lower than the text path's 0.7
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: "openai", key: key)
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else { throw AIError.malformedResponse("openai") }
+        let text = request.wantsStructuredJSON ? Self.extractJSONObject(content) : content
+        return AIResponse(text: text, tier: tier)
+    }
+
+    private func callAnthropicWithImage(_ request: AIRequest, imageData: Data, mimeType: String) async throws -> AIResponse {
+        guard let key = keyStore.key(for: "anthropic"), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.anthropic)
+        }
+        return try await postAnthropicMessagesWithImage(request, key: key, imageData: imageData, mimeType: mimeType)
+    }
+
+    private func postAnthropicMessagesWithImage(
+        _ request: AIRequest, key: String, imageData: Data, mimeType: String
+    ) async throws -> AIResponse {
+        // vision_ai.py:186-197 — the image source block precedes the text block.
+        let userContent: [[String: Any]] = [
+            ["type": "image", "source": ["type": "base64", "media_type": mimeType, "data": imageData.base64EncodedString()]],
+            ["type": "text", "text": request.prompt],
+        ]
+        var body: [String: Any] = [
+            "model": anthropicModel,
+            "max_tokens": 1500,    // vision_ai.py:181
+            "messages": [["role": "user", "content": userContent]],
+        ]
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            body["system"] = sys
+        }
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.setValue(key, forHTTPHeaderField: "x-api-key")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: "anthropic", key: key)
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw AIError.malformedResponse("anthropic")
+        }
+        let text = Self.extractAnthropicText(json)
+        guard !text.isEmpty else { throw AIError.malformedResponse("anthropic") }
+        let result = request.wantsStructuredJSON ? Self.extractJSONObject(text) : text
+        return AIResponse(text: result, tier: tier)
+    }
+
+    private func callOpenModelsWithImage(
+        _ vendor: OpenModelVendor, _ request: AIRequest, imageData: Data, mimeType: String
+    ) async throws -> AIResponse {
+        let descriptor = ProviderRegistry.descriptor(for: vendor)
+        guard let key = keyStore.key(for: descriptor.keychainKeyID), !key.isEmpty else {
+            throw AIError.noKeyConfigured(.openModels(vendor))
+        }
+        return try await postOpenModelsChatWithImage(
+            request, descriptor: descriptor, key: key, imageData: imageData, mimeType: mimeType
+        )
+    }
+
+    private func postOpenModelsChatWithImage(
+        _ request: AIRequest, descriptor: ProviderDescriptor, key: String, imageData: Data, mimeType: String
+    ) async throws -> AIResponse {
+        let modelID = openModelsModel.isEmpty ? descriptor.defaultModel : openModelsModel
+        var messages: [[String: Any]] = []
+        if let sys = request.systemPrompt, !sys.isEmpty {
+            messages.append(["role": "system", "content": sys])
+        }
+        // OpenAI-compatible image_url form — OpenRouter + the direct open vendors all
+        // speak this shape for /chat/completions.
+        let userContent: [[String: Any]] = [
+            ["type": "text", "text": request.prompt],
+            ["type": "image_url", "image_url": ["url": "data:\(mimeType);base64,\(imageData.base64EncodedString())"]],
+        ]
+        messages.append(["role": "user", "content": userContent])
+        var body: [String: Any] = [
+            "model": modelID,
+            "messages": messages,
+            "temperature": descriptor.oneShotTemperature,
+        ]
+        descriptor.applyThinkingDisabled(&body, modelID)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: URL(string: descriptor.chatURL)!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (responseData, response) = try await transport.data(for: req)
+        try checkHTTP(response, data: responseData, provider: descriptor.id, key: key)
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else { throw AIError.malformedResponse(descriptor.id) }
+        let text = request.wantsStructuredJSON ? Self.extractJSONObject(content) : content
+        return AIResponse(text: text, tier: tier)
+    }
+
     // MARK: - Shared
 
     private func checkHTTP(_ response: URLResponse, data: Data, provider: String, key: String) throws {

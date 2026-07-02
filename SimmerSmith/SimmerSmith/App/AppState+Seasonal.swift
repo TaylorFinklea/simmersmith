@@ -3,17 +3,17 @@ import SimmerSmithKit
 
 extension AppState {
     /// Fetches the in-season produce snapshot if we don't have one yet,
-    /// or if the cached one is older than 6 hours. Server-side caching
-    /// already keys by (region, year, month), so we don't need to be
-    /// strict here — this is just to avoid spamming the route on every
-    /// Week tab open.
+    /// or if the cached one is older than 6 hours. The AI-side caching
+    /// (SP-D port: `AIService.fetchSeasonalProduce`) already keys by
+    /// (region, year, month), so we don't need to be strict here — this
+    /// is just to avoid spamming the AI on every Week tab open.
     func refreshSeasonalProduceIfStale() async {
         if let fetchedAt = seasonalProduceFetchedAt,
            Date().timeIntervalSince(fetchedAt) < 6 * 60 * 60 {
             return
         }
         do {
-            let items = try await apiClient.fetchSeasonalProduce()
+            let items = try await fetchSeasonalProduceItems()
             seasonalProduce = items
             seasonalProduceFetchedAt = Date()
         } catch {
@@ -21,6 +21,49 @@ extension AppState {
             // or the user hasn't configured a region.
             seasonalProduce = []
         }
+    }
+
+    /// SP-D port: on-device AI call via `SeasonalPrompt`, when a household session
+    /// (and its `AIService`) is live; falls back to Fly otherwise. Region resolves
+    /// from the private-plane `ProfileRepository` first (CloudKit world), then the
+    /// Fly profile snapshot, defaulting to "United States" — mirrors
+    /// `seasonal_ai.seasonal_produce`'s `region or _DEFAULT_REGION`.
+    private func fetchSeasonalProduceItems() async throws -> [InSeasonItem] {
+        #if canImport(CloudKit)
+        guard let aiSvc = aiService else {
+            throw NSError(
+                domain: "SimmerSmith.AIService",
+                code: 503,
+                userInfo: [NSLocalizedDescriptionKey: "AI service not ready — try again after iCloud loads."]
+            )
+        }
+        let region = currentUserRegion()
+        let calendar = Calendar.current
+        let now = Date()
+        let year = calendar.component(.year, from: now)
+        let month = calendar.component(.month, from: now)
+        let wire = try await aiSvc.fetchSeasonalProduce(region: region, year: year, month: month)
+        return wire.map { InSeasonItem(name: $0.name, whyNow: $0.whyNow, peakScore: $0.peakScore) }
+        #else
+        return try await apiClient.fetchSeasonalProduce()
+        #endif
+    }
+
+    /// The user's region setting, defaulting to "United States" (mirrors
+    /// `seasonal_ai._DEFAULT_REGION`).
+    private func currentUserRegion() -> String {
+        let raw: String
+        #if canImport(CloudKit)
+        if let v = profileRepository?.settings["user_region"], !v.isEmpty {
+            raw = v
+        } else {
+            raw = profile?.settings["user_region"] ?? ""
+        }
+        #else
+        raw = profile?.settings["user_region"] ?? ""
+        #endif
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "United States" : trimmed
     }
 
     func forceRefreshSeasonalProduce() async {
