@@ -25,6 +25,8 @@ token reset · 6ce rebase LWW · eky UI merge choke point · 9zf RepairScheduler
 7pr Smith-tab/assistant dead ends · 962 Create-with-AI port · 5w8 privacy-policy rewrite ·
 9wr PUBLIC grant revoke (user Dashboard op). Build-147 product test still awaiting device run
 (hdeck `p1-milestone-product-test`).
+**HANDOFF → Opus: execute per `phases/arch-v2-execution-plan.md`** (lane/collision map + order +
+non-negotiables; r8q and e0a carry LEAD notes — read them before implementing).
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
