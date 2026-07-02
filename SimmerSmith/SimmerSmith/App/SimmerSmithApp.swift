@@ -56,6 +56,11 @@ struct SimmerSmithApp: App {
                     // Rolling safety-net snapshot (once/day) — captures the household while the
                     // data is intact so a future build can't strand it.
                     appState.maybeAutoSnapshot()
+                    // simmersmith-990.6 integration: local-notification bootstrap must run on the
+                    // CloudKit-only path (its old caller, refreshAll(), is gated behind the dead
+                    // Fly hasSavedConnection). After the session wires repositories, prompt-once /
+                    // re-register / reschedule the two on-device reminders.
+                    await appState.ensurePushBootstrap()
                     #endif
                 }
         }
@@ -65,14 +70,21 @@ struct SimmerSmithApp: App {
             // app after editing the Reminders list (e.g. adding "Green
             // curry paste" because they're out), pull those edits into
             // SimmerSmith without waiting for a BGAppRefreshTask.
-            // SP-C review finding E: both calls hit Fly (Grocery/Reminders aren't cut over
-            // to CloudKit yet). Skip them in CloudKit-only mode so no Fly request fires
-            // (no 401s) on foreground.
-            if !appState.isCloudKitOnly && newPhase == .active && appState.reminderListIdentifier != nil {
+            // simmersmith-990.7: the Reminders bridge is CloudKit-first now (the methods
+            // route via GroceryRepository and self-gate), so the old !isCloudKitOnly skip
+            // — added when these calls could only hit Fly — would keep the sync dead for
+            // exactly the users it now serves. Both no-op without a chosen Reminders list.
+            if newPhase == .active && appState.reminderListIdentifier != nil {
                 Task {
                     await appState.handleReminderStoreChange()
                     await appState.syncGroceryToReminders()
                 }
+            }
+            // simmersmith-990.6: keep the two local reminders fresh on every foreground
+            // (content is dynamic — tonight's recipe, next week's status — and the old
+            // Fly scheduler recomputed server-side every 5 minutes; this is the local analog).
+            if newPhase == .active {
+                appState.rescheduleLocalNotifications()
             }
             // SP-C identity slice: if the household wasn't resolved yet (iCloud
             // unavailable or transient error), retry whenever the user foregrounds —
