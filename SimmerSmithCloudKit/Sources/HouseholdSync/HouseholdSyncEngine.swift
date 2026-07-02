@@ -316,5 +316,16 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         guard let data = try? JSONEncoder().encode(serialization) else { return }
         try? data.write(to: url, options: .atomic)
     }
+
+    /// simmersmith-r8q interim fix: delete a persisted sync-engine state file so the NEXT
+    /// engine construction at this URL starts from a nil token, forcing a full zone re-fetch.
+    /// The local store is rebuilt fresh in-memory on every cold launch, but the on-disk state
+    /// token otherwise survives — so a resumed `fetchChanges` returns only deltas against a
+    /// store that never had the base data, silently leaving it partial. Superseded once the
+    /// store itself is persisted (bead e0a); until then, callers should invoke this BEFORE
+    /// constructing the engine that will load from the same URL. Missing file is a no-op.
+    public static func clearPersistedState(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 #endif

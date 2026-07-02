@@ -125,6 +125,14 @@ final class HouseholdSession {
         let stateURL = syncDir.appendingPathComponent(stateFileName)
         self.stateURL = stateURL
 
+        // simmersmith-r8q interim fix: the local store below is ALWAYS rebuilt fresh/empty
+        // on every launch, but the sync-engine state token on disk persists — so a resumed
+        // `fetchChanges` would return only deltas against a store that never had the base
+        // data, silently leaving it partial forever. Discard this session's role-specific
+        // state file so the engine we're about to construct starts from a nil token and
+        // does a full zone re-fetch. Superseded once the store itself is persisted (bead e0a).
+        HouseholdSyncEngine.clearPersistedState(at: stateURL)
+
         // Build the local store + engine with automaticSync enabled for production.
         // Construction mirrors CloudKitDebugView.runHouseholdSyncCheck (line 324) and
         // runMigrationCheck (line 940–944) exactly — same args, same merger composition.
