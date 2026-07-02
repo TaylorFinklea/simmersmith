@@ -3,6 +3,33 @@ import CloudKit
 import Foundation
 import OSLog
 
+/// A save failure the engine gave up retrying automatically (or classified as permanent).
+/// Feeds the future sync-status UI (simmersmith-qrt); this type is only the engine-level seam
+/// — wiring it into `HouseholdSession`/`AppState` is qrt's scope, not this bead's.
+public struct SyncFailure: Sendable {
+    /// Whether a blind retry could plausibly succeed.
+    public enum Kind: Sendable {
+        /// Worth re-enqueuing (network blip, rate limit, server busy) — CKSyncEngine applies
+        /// its own backoff timing on re-enqueue.
+        case transient
+        /// Won't succeed on retry without user/developer intervention (quota, auth, permissions,
+        /// unrecognized codes default here so nothing loops forever unseen).
+        case permanent
+    }
+
+    public let recordName: String
+    public let code: CKError.Code
+    public let kind: Kind
+    public let message: String
+
+    public init(recordName: String, code: CKError.Code, kind: Kind, message: String) {
+        self.recordName = recordName
+        self.code = code
+        self.kind = kind
+        self.message = message
+    }
+}
+
 /// SP-A Phase 2a — the household zone's single `CKSyncEngine` stack.
 ///
 /// Spec §4.2: one household zone = ONE sync stack (two stacks racing the change token
@@ -37,6 +64,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// (`sentRecordZoneChanges`). Set by `HouseholdSession`/`RecipeRepository` to trigger
     /// a cache refresh. Nil in tests — no behavioral change when unset.
     public var onStoreChanged: (@Sendable () -> Void)?
+
+    /// Called when a record save fails with an error the engine classifies as permanent (see
+    /// `SyncFailure.Kind`) — i.e. one it will NOT silently re-enqueue. Called off-main from the
+    /// delegate, mirroring `onStoreChanged`. Nil in tests and until a caller (simmersmith-qrt)
+    /// wires it up — no behavioral change when unset.
+    public var onSyncError: (@Sendable (SyncFailure) -> Void)?
 
     private let traceLock = NSLock()
     private var trace: [String] = []
@@ -311,7 +344,67 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // The record vanished server-side; clear it locally.
             store.removeRecord(recordID)
         default:
+            // simmersmith-dab: every other CKError family used to just log and drop the save —
+            // a household edit failing with e.g. quotaExceeded/notAuthenticated/permissionFailure
+            // never synced and the user was never told. Classify: retryable codes get re-enqueued
+            // (CKSyncEngine applies its own backoff timing on re-enqueue — don't hand-roll one);
+            // everything else — including any code we don't recognize — surfaces via `onSyncError`
+            // instead of looping or vanishing silently.
             log.error("household save failed for \(recordID.recordName, privacy: .public): \(failure.error, privacy: .public)")
+            let code = failure.error.code
+            switch Self.classifyFailure(code) {
+            case .transient:
+                syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            case .permanent:
+                let syncFailure = SyncFailure(
+                    recordName: recordID.recordName,
+                    code: code,
+                    kind: .permanent,
+                    message: Self.userMessage(for: code)
+                )
+                onSyncError?(syncFailure)
+            }
+        }
+    }
+
+    /// PURE classifier (simmersmith-dab) for the `default:` seam above — no side effects, no
+    /// engine state. Anything not explicitly known-transient is treated as permanent, so an
+    /// unrecognized future `CKError.Code` surfaces to the user instead of silently re-enqueuing
+    /// forever.
+    static func classifyFailure(_ code: CKError.Code) -> SyncFailure.Kind {
+        switch code {
+        case .networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited,
+             .zoneBusy, .serverResponseLost:
+            return .transient
+        default:
+            return .permanent
+        }
+    }
+
+    /// A short, user-facing explanation naming the cause. Falls back to a generic message for
+    /// codes without a specific one (still permanent — the caller decides retry policy).
+    static func userMessage(for code: CKError.Code) -> String {
+        switch code {
+        case .quotaExceeded:
+            return "iCloud storage is full — free up space to sync your changes."
+        case .notAuthenticated:
+            return "You're signed out of iCloud — sign in to sync your changes."
+        case .permissionFailure:
+            return "SimmerSmith doesn't have permission to use iCloud for this account."
+        case .limitExceeded:
+            return "This change is too large for iCloud to sync in one request."
+        case .serverRejectedRequest:
+            return "iCloud rejected this change and it can't be retried automatically."
+        case .badContainer, .badDatabase:
+            return "iCloud sync is misconfigured for this app."
+        case .incompatibleVersion:
+            return "Update SimmerSmith to keep syncing with iCloud."
+        case .managedAccountRestricted:
+            return "Your iCloud account's management restrictions are blocking this sync."
+        case .constraintViolation:
+            return "This change conflicts with existing iCloud data and can't sync."
+        default:
+            return "This change couldn't sync to iCloud."
         }
     }
 
@@ -352,14 +445,29 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
     // MARK: State persistence
 
+    /// simmersmith-dab: only log when a state file is PRESENT but unreadable/undecodable
+    /// (corrupt state) — the missing-file case is normal (first launch, and every launch now
+    /// that simmersmith-r8q deletes the state file) and must stay silent.
+    private static let stateLog = Logger(subsystem: "app.simmersmith.cloud", category: "HouseholdSync")
+
     private static func loadState(from url: URL) -> CKSyncEngine.State.Serialization? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+        } catch {
+            stateLog.error("failed to load persisted sync state at \(url.path, privacy: .public): \(error, privacy: .public)")
+            return nil
+        }
     }
 
     private static func saveState(_ serialization: CKSyncEngine.State.Serialization, to url: URL) {
-        guard let data = try? JSONEncoder().encode(serialization) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(serialization)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            stateLog.error("failed to persist sync state to \(url.path, privacy: .public): \(error, privacy: .public)")
+        }
     }
 
     /// simmersmith-r8q interim fix: delete a persisted sync-engine state file so the NEXT
