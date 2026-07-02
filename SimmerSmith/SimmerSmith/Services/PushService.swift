@@ -3,7 +3,20 @@ import UIKit
 import UserNotifications
 import SimmerSmithKit
 
-/// Manages APNs registration and incoming push notification dispatch.
+/// Manages notification authorization + APNs device registration, and routes
+/// incoming remote notifications.
+///
+/// simmersmith-990.6: the Fly APScheduler that used to send "tonight's meal" /
+/// "Saturday plan" pushes to a registered device is retired — those are now
+/// scheduled ON-DEVICE via `LocalNotificationService` (see `AppState+Push.swift`).
+/// This service no longer registers the device token with Fly (`registerPushDevice`
+/// / `unregisterPushDevice` are unused now). It still requests notification
+/// authorization and calls `registerForRemoteNotifications()`: CRITICAL — CloudKit's
+/// `CKSyncEngine` relies on the app being registered for remote (silent) push to
+/// receive its own change notifications. Removing that registration would break
+/// CloudKit sync delivery, not just our own content pushes. Do NOT remove the
+/// `aps-environment` entitlement or `CKSharingSupported` — those are CloudKit's
+/// transport, unrelated to the retired Fly push feature.
 ///
 /// Call `requestAuthorizationAndRegister()` once after sign-in
 /// (handled automatically by `AppState.ensurePushBootstrap()`).
@@ -11,8 +24,6 @@ import SimmerSmithKit
 @MainActor
 final class PushService {
     static let shared = PushService()
-
-    private let lastTokenKey = "simmersmith.push.lastToken"
 
     private init() {}
 
@@ -32,7 +43,7 @@ final class PushService {
     /// Behavior by current authorization status:
     ///   - `.notDetermined` → show the system prompt; if granted, register.
     ///   - `.authorized` / `.provisional` / `.ephemeral` → re-register
-    ///     (idempotent; recovers a lost device token after restore).
+    ///     (idempotent; recovers CloudKit's silent-push registration after restore).
     ///   - `.denied` → no-op. Caller is responsible for surfacing an
     ///     "open iOS Settings" affordance.
     func requestAuthorizationAndRegister() async {
@@ -59,49 +70,34 @@ final class PushService {
     }
 
     /// Called by `SimmerSmithAppDelegate` when iOS hands us a fresh device token.
-    /// Hex-encodes the token, skips re-registration if identical to last saved token,
-    /// and stores the result in `UserDefaults` for next launch de-dup.
+    /// simmersmith-990.6: there is no longer a Fly `/api/push/devices` endpoint to
+    /// register this token against (the "tonight's meal" / "Saturday plan" pushes
+    /// this used to arm are now scheduled locally), and CloudKit's own silent-push
+    /// delivery doesn't need the raw token relayed anywhere by this app — CKSyncEngine
+    /// manages its own subscription server-side once `registerForRemoteNotifications()`
+    /// has been called. This is now a no-op kept only so the app delegate's callback
+    /// (outside this lane) has somewhere to forward to without a signature change.
     func handleDeviceToken(_ data: Data, environment: String, bundleID: String, apiClient: SimmerSmithAPIClient) {
-        let token = data.map { String(format: "%02x", $0) }.joined()
-        let previousToken = UserDefaults.standard.string(forKey: lastTokenKey)
-        guard token != previousToken else { return }
-
-        Task {
-            do {
-                try await apiClient.registerPushDevice(token: token, environment: environment, bundleID: bundleID)
-                // Persist the dedup key only AFTER a successful registration. If
-                // the first attempt fails offline, leaving the key unset lets the
-                // next bootstrap retry (iOS hands back the same token, so an
-                // early set would make the guard above suppress every retry).
-                UserDefaults.standard.set(token, forKey: lastTokenKey)
-            } catch {
-                print("[PushService] registerPushDevice failed: \(error)")
-            }
-        }
+        // Intentionally does nothing — see doc comment above.
     }
 
-    /// Call on sign-out (from `AppState.resetConnection()`, BEFORE the
-    /// connection/settings are cleared so the DELETE still has a server URL
-    /// + bearer token). Best-effort unregisters this device for the
-    /// signing-out user, then drops the dedup key so the next user who signs
-    /// in on this device re-registers even though iOS hands back the same
-    /// (unchanged) APNs token.
+    /// Call on sign-out (from `AppState.resetConnection()`). Cancels any pending
+    /// local "tonight's meal" / "Saturday plan" reminders scheduled for the
+    /// signing-out user's household, so a different user signing in on this shared
+    /// device doesn't briefly see a stale reminder before the next reschedule pass
+    /// (triggered once the new user's week data loads) replaces it.
     func reset(apiClient: SimmerSmithAPIClient) {
-        let token = UserDefaults.standard.string(forKey: lastTokenKey)
-        UserDefaults.standard.removeObject(forKey: lastTokenKey)
-        guard let token else { return }
-        Task {
-            do {
-                try await apiClient.unregisterPushDevice(token: token)
-            } catch {
-                print("[PushService] unregisterPushDevice failed: \(error)")
-            }
-        }
+        LocalNotificationService.cancelTonightsMeal()
+        LocalNotificationService.cancelSaturdayPlan()
     }
 
     // MARK: - Incoming notification dispatch
 
     /// Handle a remote notification payload — reads `deep_link` and routes accordingly.
+    /// simmersmith-990.6: no server sends `deep_link` remote pushes anymore (the Fly
+    /// scheduler is retired), so this is effectively dormant, but kept as a harmless
+    /// passthrough in case CloudKit's own silent pushes ever land here with unrelated
+    /// keys — the `deep_link` guard below simply won't match and no-ops.
     func handleRemoteNotification(userInfo: [AnyHashable: Any], appState: AppState) {
         guard let deepLink = userInfo["deep_link"] as? String else { return }
         if deepLink.hasPrefix("simmersmith://week") {
