@@ -211,7 +211,7 @@ extension BYOKeyProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transportRef.data(for: req)
-        try checkHTTPShared(response, data: responseData, provider: descriptor.id)
+        try checkHTTPShared(response, data: responseData, provider: descriptor.id, key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.malformedResponse(descriptor.id)
         }
@@ -352,7 +352,7 @@ extension BYOKeyProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transportRef.data(for: req)
-        try checkHTTPShared(response, data: responseData, provider: "openai")
+        try checkHTTPShared(response, data: responseData, provider: "openai", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.malformedResponse("openai")
         }
@@ -634,7 +634,7 @@ extension BYOKeyProvider {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.httpBody = data
         let (responseData, response) = try await transportRef.data(for: req)
-        try checkHTTPShared(response, data: responseData, provider: "anthropic")
+        try checkHTTPShared(response, data: responseData, provider: "anthropic", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.malformedResponse("anthropic")
         }

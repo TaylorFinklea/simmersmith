@@ -84,19 +84,22 @@ public struct ImageGenProvider: Sendable {
         req.httpBody = data
 
         let (responseData, response) = try await sendMappingNetworkErrors(req, provider: "openai")
-        try checkImageHTTP(response, data: responseData, provider: "openai")
+        try checkImageHTTP(response, data: responseData, provider: "openai", key: key)
 
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.imageGenFailed(provider: "openai", transient: false,
                                          detail: "Image response was not JSON")
         }
-        return try await extractOpenAIImage(json)
+        return try await extractOpenAIImage(json, key: key)
     }
 
     /// Pull the first base64 image out of an OpenAI images-generations response.
     /// `gpt-image-1` returns `b64_json`; older `dall-e-*` can return a `url` we
-    /// fetch as a fallback. Ports `_extract_openai_image`.
-    private func extractOpenAIImage(_ json: [String: Any]) async throws -> (Data, String) {
+    /// fetch as a fallback. Ports `_extract_openai_image`. The `key` is forwarded
+    /// to the URL-fetch fallback's HTTP check so a CDN error that echoes the
+    /// submitted key (rare, but possible) still gets redacted; it's a no-op for
+    /// the common b64 path.
+    private func extractOpenAIImage(_ json: [String: Any], key: String) async throws -> (Data, String) {
         let items = json["data"] as? [[String: Any]] ?? []
         guard let first = items.first else {
             throw AIError.imageGenFailed(provider: "openai", transient: false,
@@ -112,7 +115,7 @@ public struct ImageGenProvider: Sendable {
         if let url = first["url"] as? String, url.hasPrefix("http"), let u = URL(string: url) {
             let (bytes, response) = try await sendMappingNetworkErrors(
                 URLRequest(url: u), provider: "openai")
-            try checkImageHTTP(response, data: bytes, provider: "openai")
+            try checkImageHTTP(response, data: bytes, provider: "openai", key: key)
             let mime = (response as? HTTPURLResponse)?
                 .value(forHTTPHeaderField: "Content-Type")?
                 .split(separator: ";").first.map(String.init)?
@@ -144,7 +147,7 @@ public struct ImageGenProvider: Sendable {
         req.httpBody = data
 
         let (responseData, response) = try await sendMappingNetworkErrors(req, provider: "gemini")
-        try checkImageHTTP(response, data: responseData, provider: "gemini")
+        try checkImageHTTP(response, data: responseData, provider: "gemini", key: key)
 
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.imageGenFailed(provider: "gemini", transient: false,
@@ -220,12 +223,15 @@ public struct ImageGenProvider: Sendable {
     /// (5xx/429/408) vs permanent (other 4xx). Mirrors `_TRANSIENT_STATUS_CODES`.
     /// The body snippet is sanitized before embedding so API keys that provider
     /// 401 bodies echo ("Incorrect API key provided: sk-proj-…") never reach the
-    /// detail string — see SecretSanitizer (AI-4 review fix F1).
-    private func checkImageHTTP(_ response: URLResponse, data: Data, provider: String) throws {
+    /// detail string — see SecretSanitizer (AI-4 review fix F1). The literal
+    /// `key` is passed as a known secret so formats the shape-pattern layer
+    /// wouldn't recognise (dormant GLM/Kimi/MiniMax, future vendors) still get
+    /// redacted when echoed verbatim in a 401 body.
+    private func checkImageHTTP(_ response: URLResponse, data: Data, provider: String, key: String) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard http.statusCode >= 400 else { return }
         let bodyText = String(data: data, encoding: .utf8) ?? "(no body)"
-        let snippet = SecretSanitizer.redact(String(bodyText.prefix(200)))
+        let snippet = SecretSanitizer.redact(String(bodyText.prefix(200)), knownSecrets: [key])
         let transient = Self.transientStatusCodes.contains(http.statusCode)
         throw AIError.imageGenFailed(
             provider: provider, transient: transient,

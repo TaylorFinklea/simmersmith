@@ -58,6 +58,41 @@ public struct URLSessionTransport: HTTPTransport {
         try await session.data(for: request)
     }
 
+    /// Extract any auth-header secret the request carried, so a non-200 response
+    /// body that echoes the same value (e.g. a vendor returning the submitted key
+    /// verbatim in a 401) can be redacted even when the key's format matches none
+    /// of the known shape patterns (dormant GLM/Kimi/MiniMax, future vendors).
+    ///
+    /// Recognised headers:
+    ///   - `Authorization: Bearer <key>`  (OpenAI, OpenRouter, OpenModels)
+    ///   - `x-api-key: <key>`             (Anthropic)
+    ///   - `x-goog-api-key: <key>`        (Gemini)
+    ///
+    /// Non-Bearer Authorization schemes are skipped. Empty values are skipped.
+    /// Returned in declaration order; duplicates are possible if a caller sets
+    /// the same value under multiple headers (e.g. testing) — `SecretSanitizer`
+    /// tolerates that (the second replace is a no-op).
+    static func authSecrets(from request: URLRequest) -> [String] {
+        var out: [String] = []
+        if let auth = request.value(forHTTPHeaderField: "Authorization") {
+            // "Bearer <key>" — split off the first space and require a Bearer
+            // (case-insensitive) scheme prefix so we don't misinterpret a
+            // custom scheme as a key.
+            if let space = auth.firstIndex(of: " "),
+               auth[auth.startIndex..<space].lowercased() == "bearer" {
+                let token = auth[auth.index(after: space)...].trimmingCharacters(in: .whitespaces)
+                if !token.isEmpty { out.append(token) }
+            }
+        }
+        if let xai = request.value(forHTTPHeaderField: "x-api-key"), !xai.isEmpty {
+            out.append(xai)
+        }
+        if let ggk = request.value(forHTTPHeaderField: "x-goog-api-key"), !ggk.isEmpty {
+            out.append(ggk)
+        }
+        return out
+    }
+
     /// Real streaming override: `session.bytes(for:)`, splitting the raw byte stream into
     /// lines via `SSELineSplitter` (NOT `bytes.lines`) so the SSE blank-line separators are
     /// PRESERVED — `AsyncLineSequence` drops empty lines, which silently breaks SSE framing
@@ -71,7 +106,15 @@ public struct URLSessionTransport: HTTPTransport {
             var raw = Data()
             for try await byte in bytes { raw.append(byte) }
             let rawBody = String(data: raw, encoding: .utf8) ?? "(no body)"
-            let body = SecretSanitizer.redact(rawBody)
+            // Pull the submitted key out of the request's auth headers so a 401 body
+            // that echoes the literal value still gets redacted even when the key's
+            // format doesn't match any shape pattern. The non-streaming `checkHTTP`
+            // chokepoints pass the key directly; this streaming path is a transport
+            // seam and only sees the request, so header extraction is the best we
+            // can do without changing the HTTPTransport protocol. The shape-pattern
+            // fallback (sk-…, AIza…, Bearer …) still runs after for any key that
+            // doesn't appear in a recognised header.
+            let body = SecretSanitizer.redact(rawBody, knownSecrets: Self.authSecrets(from: request))
             throw AIError.httpError(provider: request.url?.host ?? "unknown", statusCode: http.statusCode, body: body)
         }
         let stream = AsyncThrowingStream<String, Error> { continuation in
@@ -216,7 +259,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: descriptor.id)
+        try checkHTTP(response, data: responseData, provider: descriptor.id, key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
@@ -271,7 +314,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "openai")
+        try checkHTTP(response, data: responseData, provider: "openai", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
@@ -340,7 +383,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "anthropic")
+        try checkHTTP(response, data: responseData, provider: "anthropic", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let contentArr = json["content"] as? [[String: Any]],
               let text = contentArr.first?["text"] as? String
@@ -405,7 +448,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "openai")
+        try checkHTTP(response, data: responseData, provider: "openai", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.malformedResponse("openai")
         }
@@ -469,7 +512,7 @@ public struct BYOKeyProvider: AIProvider {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "anthropic")
+        try checkHTTP(response, data: responseData, provider: "anthropic", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw AIError.malformedResponse("anthropic")
         }
@@ -494,13 +537,17 @@ public struct BYOKeyProvider: AIProvider {
 
     // MARK: - Shared
 
-    private func checkHTTP(_ response: URLResponse, data: Data, provider: String) throws {
+    private func checkHTTP(_ response: URLResponse, data: Data, provider: String, key: String) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard http.statusCode == 200 else {
             let rawBody = String(data: data, encoding: .utf8) ?? "(no body)"
             // Sanitize before storing in the error — provider 401 bodies can echo the
-            // submitted key (AI-4 review fix F1, SecretSanitizer).
-            let body = SecretSanitizer.redact(rawBody)
+            // submitted key in any vendor-specific format. The literal key is passed
+            // as a known secret so formats the shape-pattern layer wouldn't recognise
+            // (dormant GLM/Kimi/MiniMax, future vendors) still get redacted; the
+            // shape-pattern fallback (sk-…, AIza…, Bearer …) catches anything else
+            // (AI-4 review fix F1 + the known-secret extension, SecretSanitizer).
+            let body = SecretSanitizer.redact(rawBody, knownSecrets: [key])
             throw AIError.httpError(provider: provider, statusCode: http.statusCode, body: body)
         }
     }
@@ -521,8 +568,8 @@ public struct BYOKeyProvider: AIProvider {
         return openModelsModel.isEmpty ? ProviderRegistry.descriptor(for: vendor).defaultModel : openModelsModel
     }
     func resolvedKey(for provider: String) -> String? { keyStore.key(for: provider) }
-    func checkHTTPShared(_ response: URLResponse, data: Data, provider: String) throws {
-        try checkHTTP(response, data: data, provider: provider)
+    func checkHTTPShared(_ response: URLResponse, data: Data, provider: String, key: String) throws {
+        try checkHTTP(response, data: data, provider: provider, key: key)
     }
 }
 
@@ -556,7 +603,7 @@ extension BYOKeyProvider {
                 var req = URLRequest(url: URL(string: modelsURL)!)
                 req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
                 let (responseData, response) = try await transport.data(for: req)
-                try checkHTTP(response, data: responseData, provider: descriptor.id)
+                try checkHTTP(response, data: responseData, provider: descriptor.id, key: key)
                 guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
                       let data = json["data"] as? [[String: Any]]
                 else { throw AIError.malformedResponse(descriptor.id) }
@@ -591,7 +638,7 @@ extension BYOKeyProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = data
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: descriptor.id)
+        try checkHTTP(response, data: responseData, provider: descriptor.id, key: key)
     }
 
     private func listOpenAIModels() async throws -> [String] {
@@ -601,7 +648,7 @@ extension BYOKeyProvider {
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "openai")
+        try checkHTTP(response, data: responseData, provider: "openai", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let data = json["data"] as? [[String: Any]]
         else { throw AIError.malformedResponse("openai") }
@@ -616,7 +663,7 @@ extension BYOKeyProvider {
         req.setValue(key, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         let (responseData, response) = try await transport.data(for: req)
-        try checkHTTP(response, data: responseData, provider: "anthropic")
+        try checkHTTP(response, data: responseData, provider: "anthropic", key: key)
         guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let data = json["data"] as? [[String: Any]]
         else { throw AIError.malformedResponse("anthropic") }
