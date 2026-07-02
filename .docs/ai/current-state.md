@@ -15,6 +15,13 @@ layer unwired). SP-D decomposed under epic 990 (ports 990.1-7 → retire 990.8-1
 Beads `ike`/`2v5` closed superseded (OpenRouter pivot). Device gates unchanged (3sf
 streaming build, nli voice, 3hn backup-recover, sharing).
 
+**P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
+(merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
+gated migration UI, SecretSanitizer known-value, privacy manifest, CI, dead code).
+Kit 123 + CK 384 tests green; app builds. Build bumped to 147 — **USER: run
+`scripts/release-ios.sh` to cut TestFlight 147** (agent-blocked: release = human call).
+Product test: harness-deck `simmersmith/p1-milestone-product-test` (covers 147 + 3sf gate).
+
 ## Plan — 3sf token streaming (ACTIVE, spec `phases/oss-assistant-streaming-spec.md`)
 
 - [x] Phase 1 — AssistantEngine streaming seam: `ToolUseStreamEvent` + `streamWithTools`
