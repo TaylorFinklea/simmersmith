@@ -205,28 +205,36 @@ final class ToolRegistry {
         }
     }
 
-    /// weeks_update_meals — replace a week's meals. Decodes the `meals` array into
-    /// `[MealUpdateRequest]` and writes via `AppState.saveWeekMeals` → WeekRepository +
-    /// grocery regenerate + mirror. Emits the changed week. Ports
-    /// `weeks.py::weeks_update_meals`.
+    /// weeks_update_meals — MERGE-only edit of a week's meals (simmersmith-enx: data-loss
+    /// fix). `WeekRepository.saveWeekMeals` is a full REPLACE — any existing `.weekMeal` not
+    /// in the passed set is deleted — so this handler reads the week's CURRENT meals first,
+    /// folds the model's payload into them via `MealMergeResolver.fold` (upsert by
+    /// day+slot; an empty `recipe_name` clears that one slot; every other slot is left
+    /// untouched), and only then writes the merged full set. Mirrors the voice path's
+    /// identical fix (`VoicePlanResolver.merge`). Ports `weeks.py::weeks_update_meals`.
     private func weeksUpdateMeals(_ args: [String: Any], _ appState: AppState) async -> ToolRunResult {
         guard let weekID = args["week_id"] as? String, !weekID.isEmpty else {
             return Self.failure("week_id is required.")
         }
-        guard appState.weekRepository != nil else {
+        guard let repo = appState.weekRepository else {
             return Self.failure("Weeks need iCloud — try again after sync finishes.")
         }
         guard let mealsRaw = args["meals"] as? [[String: Any]] else {
             return Self.failure("meals must be a list.")
         }
-        let meals: [MealUpdateRequest]
+        let updates: [MealUpdateRequest]
         do {
-            meals = try Self.decodeMeals(mealsRaw)
+            updates = try Self.decodeMeals(mealsRaw)
         } catch {
             return Self.failure("Could not read the meals payload: \(Self.decodeReason(error)).")
         }
+        guard let currentWeek = repo.week(forId: weekID) else {
+            return Self.failure("Week \(weekID) not found.")
+        }
+        let existing = currentWeek.meals.map { $0.asMealUpdateRequest() }
+        let merged = MealMergeResolver.fold(updates: updates, into: existing)
         do {
-            let week = try await appState.saveWeekMeals(weekID: weekID, meals: meals)
+            let week = try await appState.saveWeekMeals(weekID: weekID, meals: merged)
             return success(
                 encodeWeekResult(week),
                 detail: "Updated the meals for the week.",
@@ -484,9 +492,9 @@ final class ToolRegistry {
         ),
         ToolSpec(
             name: "weeks_update_meals",
-            description: "Replace the meals for a week. Pass the full set of meals (day_name, meal_date, slot, recipe_name, recipe_id, servings, notes). The grocery list regenerates automatically. Prefer this for small edits — keep the meals you want to keep.",
+            description: "MERGE edit for a week's meals — send ONLY the meals you want to add or change, one entry per (day_name, slot). Every other slot in the week is left untouched; do NOT resend the whole week. To clear a single slot (remove its meal), send that slot with an empty recipe_name. The grocery list regenerates automatically.",
             parametersSchemaJSON: """
-            {"type":"object","properties":{"week_id":{"type":"string"},"meals":{"type":"array","items":{"type":"object","properties":{"meal_id":{"type":"string"},"day_name":{"type":"string"},"meal_date":{"type":"string","description":"ISO date YYYY-MM-DD."},"slot":{"type":"string","description":"breakfast | lunch | dinner."},"recipe_id":{"type":"string"},"recipe_name":{"type":"string"},"servings":{"type":"number"},"notes":{"type":"string"}},"required":["day_name","meal_date","slot","recipe_name"]}}},"required":["week_id","meals"]}
+            {"type":"object","properties":{"week_id":{"type":"string"},"meals":{"type":"array","items":{"type":"object","properties":{"meal_id":{"type":"string"},"day_name":{"type":"string"},"meal_date":{"type":"string","description":"ISO date YYYY-MM-DD."},"slot":{"type":"string","description":"breakfast | lunch | dinner."},"recipe_id":{"type":"string"},"recipe_name":{"type":"string","description":"Empty string clears this slot's meal."},"servings":{"type":"number"},"notes":{"type":"string"}},"required":["day_name","meal_date","slot","recipe_name"]},"description":"ONLY the (day,slot) meals to add/change/clear — never the full week."}},"required":["week_id","meals"]}
             """
         ),
         ToolSpec(
