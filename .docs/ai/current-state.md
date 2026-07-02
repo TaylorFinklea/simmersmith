@@ -30,6 +30,13 @@ non-negotiables; r8q and e0a carry LEAD notes — read them before implementing)
 **Destination = `phases/launch-runbook.md`** (epic 0lm): Gates 0–4 to App Store submission;
 launch does NOT wait for Fly deletion. Post-launch structural track = epic z69.
 
+**arch-v2 progress (Opus, 2026-07-02):** Lane D-1 `7pr` DONE (`9984ec2`) — every assistant entry
+point (Smith tab, sparkle buttons, Ask/Refine-With-Assistant) now opens the real coordinator
+sheet with the composer prefilled (no tab switch); dead ComingSoon + AssistantLaunchContext/
+consume path deleted; RecipeEditor & Cooking dismiss-before-present race fixed (adversarial verify
+catch). Build green; **RUNTIME tap-through = iCloud device gate** (rides next TestFlight). Bead
+closed. Next in Lane D: `962` (Create-with-AI/Manage-sides → AIService), then data-safety Lane A/B/C.
+
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
 gated migration UI, SecretSanitizer known-value, privacy manifest, CI, dead code).
