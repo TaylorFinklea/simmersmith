@@ -27,6 +27,8 @@ token reset · 6ce rebase LWW · eky UI merge choke point · 9zf RepairScheduler
 (hdeck `p1-milestone-product-test`).
 **HANDOFF → Opus: execute per `phases/arch-v2-execution-plan.md`** (lane/collision map + order +
 non-negotiables; r8q and e0a carry LEAD notes — read them before implementing).
+**Destination = `phases/launch-runbook.md`** (epic 0lm): Gates 0–4 to App Store submission;
+launch does NOT wait for Fly deletion. Post-launch structural track = epic z69.
 
 **P1 milestone EXECUTED same day (fleet):** 10 beads closed via commits `12b7f2f..7486a18`
 (merge-guard, backup later-wins, RepairScheduler, StoreKit-local+dark paywall, confirms,
