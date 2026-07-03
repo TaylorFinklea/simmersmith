@@ -4,6 +4,24 @@ The lane map for implementing the arch-v2 + remaining P1/P2 beads. The beads are
 THIS document adds what the queue can't express: file-collision lanes, execution order, and the
 non-negotiables. Read `decisions.md` 2026-07-02 for the why; `bd show <id>` for each what.
 
+## STATUS 2026-07-03 — P1 wave executed; succession to Sonnet 5
+
+**Executed by Opus 2026-07-02 (8 beads, each: Sonnet impl → independent adversarial verify →
+Opus backstop → commit):** Lane D `7pr` `9984ec2` + `962` `9487101` · Lane A `r8q` `0bee2a7` +
+`c7r` `1197bdb` + `6ce` `4a17515` + `dab` `24d0826` · Lane B `9zf` `94b4231` · Lane C core `eky`
+`a907de6`. Suites Kit 155 / CK 436 / app builds. Follow-ups filed: `5eq`, `0gf`.
+**Remaining from the P1 wave:** Lane C `pr9` (bead carries a post-eky grounding note — the files
+changed under it) · Lane E `5w8` · Lane F `9wr` (user Dashboard half) · runtime proof = device
+beads `6uj` + `a97` on a fresh build.
+
+**SUCCESSION:** Opus/Fable are rate-limit-unavailable for weeks from 2026-07-03. Sonnet 5 is
+acting Lead (per the `delegation-method` + `lead-succession` bd memories — the 2026-07-01
+promotion already covers all-but-hardest Lead work). Everything left in this plan and the P2
+wave is at or below that ceiling. Every non-negotiable below still applies verbatim — especially
+the independent adversarial verify and the personal backstop (run the suites yourself; never
+trust an implementer's report). Defer to Opus's return only: new CloudKit record-type schema
+sign-off beyond the signed 990.4 spec, and re-architecting anything a verify pass rejects twice.
+
 ## Non-negotiables (delegation-method invariants)
 
 - One writer per file at a time. The lanes below are the collision map — do not parallelize within

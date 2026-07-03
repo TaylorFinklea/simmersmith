@@ -1,6 +1,7 @@
 # Launch runbook — the gates between here and the App Store (Fable, 2026-07-02)
 
-The definition of "ready for prod." Opus maintains this: check gates off as beads close, never
+The definition of "ready for prod." The acting Lead maintains this (Sonnet 5 while Opus/Fable are
+unavailable — see the `lead-succession` bd memory): check gates off as beads close, never
 reorder without recording why in decisions.md. Companion to `arch-v2-execution-plan.md` (the HOW);
 this is the WHEN-ARE-WE-DONE.
 
@@ -19,14 +20,20 @@ paid-for and ignored, through submission.
       recommended.
 
 ## Gate 1 — data safety (arch-v2 P1, Lane A–C of the execution plan)
-- [ ] r8q + c7r + 6ce + dab (engine core, sequential) · 9zf · eky · pr9 landed, suites green.
+- [x] r8q (`0bee2a7`) + c7r (`1197bdb`) + 6ce (`4a17515`) + dab (`24d0826`) engine core · 9zf
+      (`94b4231`) · eky (`a907de6`) landed 2026-07-02, suites green (Kit 155 / CK 436 / app builds).
+- [ ] pr9 CKRecord defensive copies (last Lane C item; bead carries a post-eky grounding note).
 - [ ] Fresh TestFlight build (148+): device regression — two-device edit storm converges (no lost
       fields), backup→recover round-trip, and the NEW cold-launch check: relaunch → full week
       visible immediately → a backup taken right after relaunch contains the FULL household.
+      (Beaded: `6uj` regression bundle + `a97` sharing-gate remainder.)
 - [ ] qrt sync-status surface (a failing save is user-visible before we ship to strangers).
+      dab's `onSyncError` seam landed — qrt is now purely app-side UI.
 
 ## Gate 2 — product truth (no visible feature lies)
-- [ ] 7pr Smith tab/assistant entry points · 962 Create-with-AI + Manage-sides · ebu grocery archive.
+- [x] 7pr Smith tab/assistant entry points (`9984ec2`) · 962 Create-with-AI + Manage-sides
+      (`9487101`) — landed 2026-07-02; tap-through proof rides bead `6uj`.
+- [ ] ebu grocery archive load via CloudKit.
 - [ ] Recipe memories: 990.4.1–.3 landed, OR the section is HIDDEN for launch (visible-but-broken
       is not shippable; hiding is a legitimate scope cut — record it if taken).
 - [ ] Ingredients: 990.5.1–.3 landed, OR the link-picker/manage surfaces hidden (same rule).

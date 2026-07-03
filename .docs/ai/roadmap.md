@@ -14,81 +14,34 @@ Active items. Trim as completed.
 
 ### Now
 
-**CloudKit / Apple-native rearchitecture (direction set 2026-06-15).**
-Move the data plane to CloudKit and the AI plane to the WWDC26 Foundation
-Models framework (on-device AFM 3 / Private Cloud Compute / BYO-key /
-credits), shrinking — not eliminating — the central server. Decisions in
-`decisions.md` (2026-06-15); spec `phases/cloudkit-migration-spikes-spec.md`.
-**Status (2026-06-18): SP-A data plane COMPLETE.** All Phases 0–9 built + verified live on-sim against
-real CloudKit, and now exposed for ON-DEVICE testing via **TestFlight build 109**. Container
-`iCloud.app.simmersmith.cloud` provisioned; dev schema deployed + validated. Built + verified (detail in
-current-state `## Plan — SP-A` + `decisions.md`): household zone + CKSyncEngine sync, cross-account
-CKShare, sticky grocery + event↔week field-merge, CKAsset imagery, Week/WeekMeal repair (slot-swap /
-collapse / audit-prune), the Postgres→CloudKit migration runner + all 12 record-type transforms, PUBLIC
-catalog read, the AI-provider seam, and the migration-status ledger. Each piece was adversarially
-reviewed (Sonnet workflows + the pi fleet) — see `~/.claude/model-scorecard.md`.
+**App Store launch (bead epic `0lm`) — the only active track (2026-07-03).**
+The definition of done is `phases/launch-runbook.md` (Gates 0–4: data safety → product truth →
+compliance → submission). Execution order + lane rules: `phases/arch-v2-execution-plan.md`.
+The actionable queue lives in beads (`bd ready`), NOT here. Loop state: `current-state.md`.
+Acting Lead while Opus/Fable are rate-limit-unavailable: **Sonnet 5** (bd memories
+`delegation-method` + `lead-succession`).
+Status: Gate 1 code landed except `pr9`; Gate 2 started (`7pr`/`962` in); Gates 3–4 open;
+runtime proof = device beads (`6uj`, `a97`, …) on the next TestFlight build (cut = human).
 
-⚠️ **The CloudKit code is wired into the app ONLY behind the DEBUG/TestFlight CloudKit-checks panel** —
-it does NOT yet back the user-facing features (weeks/grocery/recipes/events still use the Fly backend).
-Locked: Apple-only · MCP dropped · no forced payment · in-place migration. Landmine: CloudKit schema is
-additive-only — the recordName-policy + field table is irreversible.
-
-**Pending (user, to finish on-device CloudKit testing of build 109):**
-- CloudKit Dashboard → container → Schema → **"Deploy Schema Changes to Production"** (TestFlight uses
-  the Production CloudKit env; cktool can't deploy to prod). Then the Phase 0–9 checks pass on device.
-- Optional: flip `aps-environment` to `production` (currently `development`) if push should work on TestFlight.
-
-**SP-C — the actual app cutover (STARTED 2026-06-19).** Strategy (decided): build FULL feature parity on
-a CloudKit build, drop Fly from new builds; Savanne stays on the Fly build until she migrates (split
-household during transition). AI → BYO-key + on-device hybrid (separate track). Decomposed into
-feature slices, each its own spec→plan→build reusing the skeleton slice 1 establishes.
-- [~] **Slice 1 — Recipes + reusable skeleton. CODE-COMPLETE 2026-06-19, on-device gate pending.**
-  Branch `sp-c/cloudkit-cutover-recipes` (NOT merged). 7 tasks via subagent-driven dev, all
-  task-reviewed + an opus whole-branch review (ready-to-merge). Built: `HouseholdSession` (owns the 3
-  planes + sync change-signal), per-feature repositories behind the AppState façade, `RecipeRecordMapper`,
-  `ManagedListItem` household type + `MetadataRepository`, AppState wiring (session lifecycle +
-  fetchBaseIngredients façade + guarded AI methods on Fly), first-launch Fly→CloudKit migration
-  (receipt-gated), on-device debug check. Spec/plan `phases/cloudkit-cutover-recipes-{spec,plan}.md`;
-  ledger `.git/sdd/progress.md`. **PENDING (human):** deploy the new `ManagedListItem` type to Production
-  CloudKit (Dashboard); install build 113; on-device verify (RUN ALL + real Recipes flow); then merge.
-- [x] Slice 2+ — Weeks/WeekMeals/Grocery, Events, Pantry/Profile, AI providers track: ALL BUILT
-  (SP-C completed 2026-06-22 on main; see current-state 2026-06-22 entry). Checkboxes were stale —
-  corrected by the 2026-07-01 arch review. Remaining Fly-backed stragglers (vision, seasonal,
-  substitutions, memories, ingredients, push, Reminders) are the SP-D port beads 990.1–990.7.
-SP-D (Fly retirement) follows once all slices land + migration completeness is confirmed; SP-B (AI
-tiering / on-device AFM) waits for iOS 27 GA.
-
-Older open follow-ups (pre-CloudKit, still valid):
-- Smoke-test admin v2 in the browser; continue dogfood triage from Taylor + Savanne.
-- Reconcile M5 freemium status (infra exists despite the old "deferred" marking — see current-state).
+**Completed track history (details in decisions.md ADRs + phases/* reports):**
+- SP-A CloudKit data plane — COMPLETE 2026-06-18 (household zone, CKShare, merge, migration runner).
+- SP-C full app cutover — COMPLETE 2026-06-22 on `main` (CloudKit data + BYO-key AI; no central
+  server). Remaining Fly-backed stragglers = SP-D port beads under epic `990`.
+- Sharing v1 / Backup & Restore / voice planning / open-models→OpenRouter / token streaming —
+  shipped 2026-06-28..30; device gates beaded.
+- Architecture reviews v1+v2 (2026-07-01/02) rebuilt the backlog in beads; arch-v2 P1 data-safety
+  wave landed 2026-07-02.
+- SP-D (Fly retirement) = post-launch tail (launch does NOT wait for it); SP-B (on-device AFM
+  tiering) waits for iOS 27 GA (bead `95h`).
 
 ### Awaiting User / External
-- **CloudKit Phases 0 / 0.5 / 1 — DONE + VERIFIED LIVE on-sim (2026-06-15).** iPad sim
-  signed into Taylor's iCloud, DEBUG CloudKit-checks panel: Phase 0 zone round-trip ✅,
-  Phase 0.5 coexistence ✅ both (→ **verdict: Phase 1 uses NSPersistentCloudKitContainer**),
-  Phase 1 private-plane CRUD ✅ all invariants. Container `iCloud.app.simmersmith.cloud`;
-  entitlements committed `8558410`. Specs: `phases/cloudkit-sp-a-{spec,phase0-schema,phase1-spec}.md`.
-  Foundation: `SimmerSmithCloudKit/` (resolver + AI seam + provisioning) + `SimmerSmithKit/
-  Persistence/PrivatePlane*` (private plane).
-- **⟶ User TODO: validate + deploy the Phase 2b CKDSL** (12 household record types appended to
-  `phases/phase0-schema.ckdb` by 2b). `xcrun cktool validate-schema --team-id K7CBQW6MPG
-  --container-id iCloud.app.simmersmith.cloud --environment development --file
-  .docs/ai/phases/phase0-schema.ckdb` then deploy with the management token. (Dev auto-creates types
-  on first write, so the on-sim 2b check already passed; deploy locks the QUERYABLE/SORTABLE indexes.)
-- **⟶ NEXT manual residual (deferred): two-device + cross-account tests.** Two-device
-  convergence on one iCloud account (Phase 1 verify) + cross-account CKShare (savanne's
-  iCloud on the iPhone-16 sim) both need a 2nd signed-in device — can't automate iCloud
-  sign-in/share-accept. Comes with Phase 2 (household zone + CKShare). Phase 2 build itself
-  is unblocked and proceeds in code.
-- **CloudKit-spike AFM 3 / PCC measurement deferred to iOS 27 GA** (decided
-  2026-06-15) — wait for general availability, not the beta. The AFM 3 (20B) +
-  third-party-PCC half of Spike 2 can't run on this machine's Xcode 26 / iOS 26.
-  No-beta work (Spike 1 + Spike 2 cloud baselines + first-gen-3B floor) proceeds
-  now per `phases/cloudkit-migration-spikes-spec.md`. At GA: re-run Spike 2's
-  on-device tier; also provision a CloudKit container under the dev team for the
-  real-device Spike 1 confirmation.
-- Ongoing TestFlight dogfood feedback (Taylor + Savanne).
-- ~~Kroger registration/secrets~~ — moot: Kroger dropped 2026-06-02 (M37).
+
+All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut TestFlight 148+
+(`scripts/release-ios.sh` — release stays human) · device gates `6uj` (Gate-1 regression), `a97`
+(sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · build-147
+product test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
+(CloudKit Dashboard ops) · ASC privacy nutrition label (rides `5w8`). Ongoing: TestFlight dogfood
+(Taylor + Savanne).
 
 ### Next (committed milestones — specced 2026-05-14)
 

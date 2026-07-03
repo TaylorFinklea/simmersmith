@@ -1314,3 +1314,19 @@ after a reset window.
 - assistant/voice: keep their `MealMergeResolver.fold` (partial→full desired); pass known = the fetched `existing` ids so an explicit CLEAR (fold-removed slot) is deleted while concurrent adds survive.
 
 **Testable core:** a pure `weekMealsToDelete(existing:desired:known:) = existing.subtracting(desired).intersection(known)` (host-tested); per-caller known-set correctness is code-reviewed + covered by the runbook Gate-1 two-device edit-storm device test. **Supersedes** the slot-fold-at-repo direction. Chosen by Opus (bead delegates the pick); user was away when surfaced.
+
+## 2026-07-03 — Succession: Sonnet 5 is acting Lead while Opus/Fable are unavailable (weeks)
+
+**Context.** Anthropic weekly usage limits exhausted 2026-07-03; Opus/Fable (the standing Lead
+tier) are unavailable for weeks. The launch queue (epic 0lm) must keep moving across whatever
+harness/model picks it up.
+
+**Decision.** Sonnet 5 assumes acting Lead — an extension of the 2026-07-01 promotion (Sonnet 5
+already owns all-but-hardest Lead work; `delegation-method` memory). The arch-v2 execution-plan
+non-negotiables apply unchanged: independent adversarial verify per bead; personal backstop (run
+BOTH swift-test suites + app xcodebuild yourself before commit — never trust an implementer's
+report); impl agents get the explicit no-git/bd-authority line. Two things DEFER to Opus's return
+rather than proceed: (a) sign-off on NEW CloudKit record-type schemas beyond the already-signed
+990.4 spec (schema is additive-only/irreversible), (b) re-architecting anything an adversarial
+verify rejects twice (escalation invariant). If Sonnet is also constrained: GPT-5.5 / qwen3.7-max /
+glm-5.2 per the model scorecard (standing-authorized). Mirrored in bd memory `lead-succession`.
