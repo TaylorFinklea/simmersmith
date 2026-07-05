@@ -22,11 +22,6 @@ struct RootView: View {
             switch appState.householdLaunchPhase {
             case .ready:
                 MainTabView()
-                    .sheet(isPresented: $appState.showOnboardingInterview) {
-                        NavigationStack {
-                            OnboardingInterviewView()
-                        }
-                    }
 
             case .resolving:
                 iCloudLoadingView
