@@ -74,11 +74,20 @@ final class SimmerSmithAppDelegate: NSObject, UIApplicationDelegate {
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        if let appState {
-            Task { @MainActor in
+        // Build 110 (simmersmith-pwf): run the main-actor routing work
+        // before signaling iOS. The old call site fired
+        // completionHandler(.noData) synchronously before the detached
+        // Task ran, so iOS tore down the background-fetch budget before
+        // the routing happened. UIApplication delivers this delegate
+        // callback on the main thread, so assumeIsolated hops onto the
+        // main actor synchronously (no detached Task). The deep-link
+        // passthrough fetches no data, so .noData remains honest — now
+        // fired after the work, exactly once.
+        MainActor.assumeIsolated {
+            if let appState {
                 PushService.shared.handleRemoteNotification(userInfo: userInfo, appState: appState)
             }
+            completionHandler(.noData)
         }
-        completionHandler(.noData)
     }
 }

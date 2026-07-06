@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import os
 
 /// M22.1 background sync. Registers a `BGAppRefreshTaskRequest` so iOS
 /// will periodically wake the app and let us pull Reminders deltas
@@ -82,24 +83,70 @@ final class BackgroundSyncService {
         // grocery loop in handleReminderStoreChange exits cleanly via
         // its Task.isCancelled checks instead of getting killed mid-
         // network-call.
-        let work = Task { @MainActor in
-            let syncTask = Task { @MainActor in
-                await appState.handleReminderStoreChange()
-            }
-            let timeoutTask = Task {
-                try? await Task.sleep(for: .seconds(25))
-                syncTask.cancel()
-            }
-            await syncTask.value
-            timeoutTask.cancel()
-            task.setTaskCompleted(success: true)
+        //
+        // Build 110 (simmersmith-pwf): two bugs in the old tree — (1) the
+        // expiration handler called only `work.cancel()`, which never
+        // reached the unstructured `syncTask` sibling (unstructured tasks
+        // don't propagate cancellation); (2) both the work body and the
+        // expiration handler could call `setTaskCompleted`, the documented
+        // double-complete that trips a crash signal in Task Fleet
+        // diagnostics. Fix: a single-fire `CompletionFlag` so the BGTask
+        // completes exactly once, the natural path awaits `syncTask`
+        // before completing, and the expiration handler cancels the
+        // sibling tasks BY HANDLE so cancellation actually reaches the
+        // sync work (Task.isCancelled checks in handleReminderStoreChange).
+        // (A structured TaskGroup was tried first, but the region-based
+        // isolation checker can't model the non-Sendable AppState capture
+        // across the group body — direct handle cancellation reaches the
+        // same exactly-once + cancellation-reach guarantees.)
+        let completion = CompletionFlag()
+
+        let syncTask = Task { @MainActor in
+            await appState.handleReminderStoreChange()
+        }
+        let timeoutTask = Task {
+            try? await Task.sleep(for: .seconds(25))
+            syncTask.cancel()
         }
 
-        // Backstop: if iOS expires us before our 25s timer fires, cancel
-        // the whole tree. The cancel cascades into syncTask.
+        // Natural completion: await the sync (and tear down the timeout)
+        // before completing, then fire the guard exactly once.
+        Task { @MainActor in
+            await syncTask.value
+            timeoutTask.cancel()
+            if completion.fire() {
+                task.setTaskCompleted(success: true)
+            }
+        }
+
+        // Backstop: if iOS expires us, cancel the sibling tasks by handle
+        // and complete failure — but only if natural completion hasn't
+        // already fired the guard.
         task.expirationHandler = {
-            work.cancel()
-            task.setTaskCompleted(success: false)
+            syncTask.cancel()
+            timeoutTask.cancel()
+            if completion.fire() {
+                task.setTaskCompleted(success: false)
+            }
+        }
+    }
+}
+
+/// Exactly-once flag for BGTask completion. The natural-completion and
+/// expiration handlers race; only the first caller of `fire()` wins, the
+/// rest no-op. `OSAllocatedUnfairLock` because the expiration handler can
+/// run off the main actor.
+private final class CompletionFlag: Sendable {
+    private let done = OSAllocatedUnfairLock(initialState: false)
+
+    /// Returns true for the first caller (who should complete the task);
+    /// false for every subsequent caller.
+    @discardableResult
+    func fire() -> Bool {
+        done.withLock { fired in
+            guard !fired else { return false }
+            fired = true
+            return true
         }
     }
 }
