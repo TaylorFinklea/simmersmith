@@ -1344,3 +1344,27 @@ glm-5.2 per the model scorecard (standing-authorized). Mirrored in bd memory `le
 2. **iOS-Xcode beads' `verify_cmd` MUST be path-explicit.** A bare `xcodebuild build` runs from the Arena worktree ROOT, where no `.xcodeproj` exists (it's in the `SimmerSmith/` subdir) → every candidate fails external verify identically. Fixed form (proven 6/6 this run): `xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=<SIM-UDID> CODE_SIGNING_ALLOWED=NO` (UDID, not a spaced `name=` destination, so it survives `bd --set-metadata` + Conductor's shell without quoting). This is the THIRD Arena run here hit by a verify_cmd/CWD issue (7mb: `x2` shorthand; mm1: `swift test x2`; pwf: bare `xcodebuild build`) — set worktree-root-safe verify_cmds at bead creation.
 3. **`nw-glm52` (neuralwatt/glm-5.2 thinking) is unreliable as a structured-output JUDGE** (fine as a candidate model): it emits verdict JSON wrapped in prose + a ```json fence, breaking Conductor's strict parser. gpt-5.5 emits pure JSON; qwen3.7-max emits prose+JSON but parsed OK. The harness-conductor judge pool should either strip prose/fences before JSON parse, or drop nw-glm52 from `[arena_judge]` (keep it as a candidate). Filed as a harness-conductor concern — not fixed here (this repo doesn't own Conductor).
 4. **Judge reliability varies on the SAME bug:** qwen37max ranked C #1 but MISSED C's dead-catch bug; nw-glm52 ranked C #5 and CAUGHT it. The 3-judge panel surfaced the bug via the dissenting judge — argues for keeping the panel, not collapsing to one judge, even though it sometimes yields no-unique-winner.
+
+## 2026-07-07 — Fable day: data-plane ownership + boot serialization (beads pr9, 0gf; also landed 13j/qrt/ebu/7mb)
+
+**pr9 — HouseholdLocalStore owns its CKRecord instances (copy-in AND copy-out).** The Explore
+sweep proposed copy-on-READ only (minimal choke point; write paths "already receive single-owner
+instances"). Overruled: that safety rests on an UNENFORCED invariant (no caller mutates after
+`save()`) — one future post-save mutation silently reopens the race. Store copies both directions
++ the three mergers and `rebaseNonMergerRecord` now genuinely copy the tag-bearing `remote`/`server`
+before mutating (their "copy of remote" comments were reference-copies — CKSyncEngine's own event/
+error instances were being mutated in place). Enabling fact, probe-verified: `CKRecord.copy()`
+preserves `changedKeys()` exactly (and a full NSKeyedArchiver round-trip does too — recorded on
+bead e0a for the store-persistence design). Cost: µs-scale copies; 5k-record cliff-guard test.
+
+**0gf — one SerialTaskQueue for ALL session boots + sessionBootEpoch.** ensure's task-dedup never
+covered the warm share-accept path; fix serializes both entry points (strict FIFO; ensure op
+re-checks `householdSession` after predecessors → accept wins under both arrival orders;
+`bootParticipantSession` must never self-enqueue — self-deadlock). The adversarial verify caught a
+real regression in the queue-only design: a QUEUED boot op could run after sign-out teardown and
+resurrect a session from the never-cleared participant marker (the old guard made second callers
+merely await; the queue gave them their own deferred op). Fix: `sessionBootEpoch` captured at
+request time, bumped first in teardown, re-checked at dequeue + every commit point; stale ops
+detach what they built. Verify-gate lesson: lead-authored designs get the same adversarial gate —
+it caught the lead's bug. Pre-existing mid-wire teardown window (identical under the old guard)
+deliberately NOT pulled into scope → bead v89 (P4).
