@@ -8,6 +8,13 @@ import Foundation
 /// `applyRemoteModification`.
 ///
 /// Thread-safe (NSLock): `CKSyncEngine` calls the delegate off arbitrary tasks.
+///
+/// Ownership contract: the store is the sole owner of its `CKRecord` instances — no
+/// instance ever crosses the store boundary in either direction. Accessors hand back
+/// private copies (mutating a returned record is invisible to the store); mutators store
+/// a private copy of the caller's record (mutating the caller's instance afterward is
+/// invisible to the store). Changes only become visible to the store via `setRecord`/
+/// `applyRemoteModification` (the sync-side analog of `save`).
 public final class HouseholdLocalStore {
     private let lock = NSLock()
     private var records: [CKRecord.ID: CKRecord] = [:]
@@ -16,19 +23,19 @@ public final class HouseholdLocalStore {
 
     public func record(for id: CKRecord.ID) -> CKRecord? {
         lock.lock(); defer { lock.unlock() }
-        return records[id]
+        return records[id].map { $0.copy() as! CKRecord }
     }
 
     public func allRecords() -> [CKRecord] {
         lock.lock(); defer { lock.unlock() }
-        return Array(records.values)
+        return records.values.map { $0.copy() as! CKRecord }
     }
 
     /// All locally-mirrored records of a given CloudKit type (e.g. the week's GroceryItems
     /// for the event-merge / post-batch dedupe sibling set).
     public func records(ofType recordType: String) -> [CKRecord] {
         lock.lock(); defer { lock.unlock() }
-        return records.values.filter { $0.recordType == recordType }
+        return records.values.filter { $0.recordType == recordType }.map { $0.copy() as! CKRecord }
     }
 
     public func count() -> Int {
@@ -39,7 +46,8 @@ public final class HouseholdLocalStore {
     /// Local upsert from app code (a pending save).
     public func setRecord(_ record: CKRecord) {
         lock.lock(); defer { lock.unlock() }
-        records[record.recordID] = record
+        let copy = record.copy() as! CKRecord
+        records[copy.recordID] = copy
     }
 
     public func removeRecord(_ id: CKRecord.ID) {
@@ -77,7 +85,8 @@ public final class HouseholdLocalStore {
     /// event types override this with the field-merge resolver at Phase 4.
     public func applyRemoteModification(_ record: CKRecord) {
         lock.lock(); defer { lock.unlock() }
-        records[record.recordID] = record
+        let copy = record.copy() as! CKRecord
+        records[copy.recordID] = copy
     }
 }
 #endif

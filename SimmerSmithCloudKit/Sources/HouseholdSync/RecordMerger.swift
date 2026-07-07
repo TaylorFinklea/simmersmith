@@ -40,7 +40,7 @@ public struct GrocerySyncMerger: RecordMerger {
         let remoteValue = GroceryCodec.decode(remote)
         let merged = FieldMergeResolver.merge(localValue, remoteValue)
         // Apply merged fields onto a copy of `remote` so the server change tag is preserved.
-        let mergedRecord = remote
+        let mergedRecord = remote.copy() as! CKRecord
         GroceryCodec.encode(merged, into: mergedRecord)
         return MergeResult(record: mergedRecord, needsResave: merged != remoteValue)
     }
@@ -56,7 +56,7 @@ public struct EventGrocerySyncMerger: RecordMerger {
         let localValue = EventGroceryCodec.decode(local)
         let remoteValue = EventGroceryCodec.decode(remote)
         let merged = FieldMergeResolver.merge(localValue, remoteValue)
-        let mergedRecord = remote
+        let mergedRecord = remote.copy() as! CKRecord
         EventGroceryCodec.encode(merged, into: mergedRecord)
         return MergeResult(record: mergedRecord, needsResave: merged != remoteValue)
     }
@@ -75,7 +75,7 @@ public struct EventSyncMerger: RecordMerger {
         let remotePin = (remote["manuallyMerged"] as? Int ?? 0) != 0
         let pin = ((local["manuallyMerged"] as? Int ?? 0) != 0) || remotePin
 
-        let result = remote   // tag bearer
+        let result = remote.copy() as! CKRecord   // tag bearer
         let localNewer = localMod > remoteMod
         if localNewer {
             // Local is the later write: its LWW fields win — copy onto the server-tagged record.

@@ -421,14 +421,16 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     static func rebaseNonMergerRecord(local: CKRecord, server: CKRecord) -> (record: CKRecord, reEnqueue: Bool) {
         guard let localDate = local["updatedAt"] as? Date,
               let serverDate = server["updatedAt"] as? Date else {
-            for key in local.allKeys() { server[key] = local[key] }
-            return (server, true)
+            let rebased = server.copy() as! CKRecord
+            for key in local.allKeys() { rebased[key] = local[key] }
+            return (rebased, true)
         }
         if localDate > serverDate {
-            for key in local.allKeys() { server[key] = local[key] }
-            return (server, true)
+            let rebased = server.copy() as! CKRecord
+            for key in local.allKeys() { rebased[key] = local[key] }
+            return (rebased, true)
         }
-        return (server, false)
+        return (server.copy() as! CKRecord, false)
     }
 
     private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
