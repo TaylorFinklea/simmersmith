@@ -28,8 +28,9 @@ paid-for and ignored, through submission.
       fields), backup→recover round-trip, and the NEW cold-launch check: relaunch → full week
       visible immediately → a backup taken right after relaunch contains the FULL household.
       (Beaded: `6uj` regression bundle + `a97` sharing-gate remainder.)
-- [ ] qrt sync-status surface (a failing save is user-visible before we ship to strangers).
-      dab's `onSyncError` seam landed — qrt is now purely app-side UI.
+- [x] qrt sync-status surface (`4aa4f06`, 2026-07-07) — derivation + center + onSyncError wiring +
+      join progress + Settings row/banner. GATE-1 CODE COMPLETE: tree is cuttable as build 148
+      (13j `ca0cb5f` empty-backup fix must be in the cut — see 6uj note).
 
 ## Gate 2 — product truth (no visible feature lies)
 - [x] 7pr Smith tab/assistant entry points (`9984ec2`) · 962 Create-with-AI + Manage-sides
