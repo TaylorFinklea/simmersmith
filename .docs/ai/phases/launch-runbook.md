@@ -35,7 +35,8 @@ paid-for and ignored, through submission.
 ## Gate 2 — product truth (no visible feature lies)
 - [x] 7pr Smith tab/assistant entry points (`9984ec2`) · 962 Create-with-AI + Manage-sides
       (`9487101`) — landed 2026-07-02; tap-through proof rides bead `6uj`.
-- [ ] ebu grocery archive load via CloudKit.
+- [x] ebu grocery archive load via CloudKit (`44eaf0d`, 2026-07-07) — tombstone read via
+      WeekRepository; restore path unchanged.
 - [ ] Recipe memories: 990.4.1–.3 landed, OR the section is HIDDEN for launch (visible-but-broken
       is not shippable; hiding is a legitimate scope cut — record it if taken).
 - [ ] Ingredients: 990.5.1–.3 landed, OR the link-picker/manage surfaces hidden (same rule).
