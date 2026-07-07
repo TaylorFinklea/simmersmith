@@ -63,21 +63,17 @@ final class RecipeRepository {
     // MARK: - Observe storeRevision
 
     /// Call from the owning view / AppState after init to wire the revision observer.
-    /// Uses Swift Observation's `withObservationTracking` to trigger `reload()` whenever
-    /// `session.storeRevision` changes. Re-arms itself after each change so it stays live.
-    func startObserving() {
-        observeRevision()
-    }
+    /// Uses `ObservationReloader` (simmersmith-7mb) to trigger `reload()` whenever
+    /// `session.storeRevision` changes, re-registering before each reload so a bump during
+    /// an in-flight reload is never missed.
+    @ObservationIgnored
+    private lazy var revisionReloader = ObservationReloader(
+        track: { [weak self] in _ = self?.session.storeRevision },
+        reload: { [weak self] in self?.reload() }
+    )
 
-    private func observeRevision() {
-        withObservationTracking {
-            _ = session.storeRevision
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.reload()
-                self?.observeRevision()
-            }
-        }
+    func startObserving() {
+        revisionReloader.start()
     }
 
     // MARK: - Read

@@ -55,20 +55,16 @@ final class MetadataRepository {
 
     // MARK: - Observe storeRevision
 
-    /// Wire the revision observer (mirrors RecipeRepository.startObserving()).
-    func startObserving() {
-        observeRevision()
-    }
+    /// Wire the revision observer via `ObservationReloader` (simmersmith-7mb) — re-registers
+    /// before each reload so a bump during an in-flight reload is never missed.
+    @ObservationIgnored
+    private lazy var revisionReloader = ObservationReloader(
+        track: { [weak self] in _ = self?.session.storeRevision },
+        reload: { [weak self] in self?.reloadMetadata() }
+    )
 
-    private func observeRevision() {
-        withObservationTracking {
-            _ = session.storeRevision
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.reloadMetadata()
-                self?.observeRevision()
-            }
-        }
+    func startObserving() {
+        revisionReloader.start()
     }
 
     // MARK: - Read
