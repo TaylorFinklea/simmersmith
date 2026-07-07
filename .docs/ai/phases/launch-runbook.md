@@ -22,7 +22,8 @@ paid-for and ignored, through submission.
 ## Gate 1 — data safety (arch-v2 P1, Lane A–C of the execution plan)
 - [x] r8q (`0bee2a7`) + c7r (`1197bdb`) + 6ce (`4a17515`) + dab (`24d0826`) engine core · 9zf
       (`94b4231`) · eky (`a907de6`) landed 2026-07-02, suites green (Kit 155 / CK 436 / app builds).
-- [ ] pr9 CKRecord defensive copies (last Lane C item; bead carries a post-eky grounding note).
+- [x] pr9 CKRecord defensive copies (`23efe83`, 2026-07-07) — store copy-in/copy-out + merger/rebase
+      copy-before-mutate; CK 449 green.
 - [ ] Fresh TestFlight build (148+): device regression — two-device edit storm converges (no lost
       fields), backup→recover round-trip, and the NEW cold-launch check: relaunch → full week
       visible immediately → a backup taken right after relaunch contains the FULL household.
