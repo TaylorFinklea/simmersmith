@@ -73,7 +73,7 @@ extension AppState {
                 return
             }
 
-            let session = HouseholdSession(householdID: householdID)
+            let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
             await session.start()
 
             // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
@@ -324,6 +324,13 @@ extension AppState {
     func teardownHouseholdSession() {
         householdSession?.clearState()
         householdSession = nil
+        // simmersmith-qrt (adversarial fix): without this, a stale `.stalled`/`.joined`
+        // participant-join verdict (or a stale failure) from a prior session survives into
+        // the NEXT session booted on this device — including an OWNER session after
+        // sign-out/sign-in or a factory reset, which isn't shared at all. Both call sites
+        // (sign-out via `clearHouseholdContext` and factory reset) go through this single
+        // teardown choke point, so resetting here covers both.
+        syncStatusCenter.reset()
         recipeRepository = nil
         metadataRepository = nil
         weekRepository = nil

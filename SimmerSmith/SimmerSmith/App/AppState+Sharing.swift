@@ -130,8 +130,16 @@ extension AppState {
         // Warm swap: detach an already-booted owner engine (KEEP its state token so the
         // parked solo zone survives a future un-adopt), then replace the session.
         householdSession?.detach()
+        // simmersmith-qrt (backstop): the warm owner→participant swap must not carry the
+        // pre-swap session's stale failure/last-synced state into the new session's status
+        // surface. participantJoin is overwritten by the join loop below either way; this
+        // clears the rest. Mirrors teardownHouseholdSession()'s reset.
+        syncStatusCenter.reset()
 
-        let session = HouseholdSession(householdID: zoneID.zoneName, role: .participant(sharedZoneID: zoneID))
+        let session = HouseholdSession(
+            householdID: zoneID.zoneName, role: .participant(sharedZoneID: zoneID),
+            syncStatusCenter: self.syncStatusCenter
+        )
         // start() already runs one fetchChanges(); its raced .offline is non-terminal here.
         await session.start()
         await participantInitialFetch(session: session)
@@ -146,16 +154,25 @@ extension AppState {
         // this device — the accept can return before the server finishes, and the device gets
         // no push for its own acceptance. Retry until the owner's weeks land (or attempts run
         // out), logging record counts so a TestFlight run reveals whether data is arriving.
-        for attempt in 1...6 {
+        let maxAttempts = 6
+        for attempt in 1...maxAttempts {
+            syncStatusCenter.setParticipantJoin(.joining(attempt: attempt, maxAttempts: maxAttempts))
             do { try await session.engine.fetchChanges() }
             catch { print("[Sharing] participant fetch \(attempt) error: \(error)") }
             let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
             let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
             let recipes = session.store.records(ofType: HouseholdRecordType.recipe.recordTypeName).count
             print("[Sharing] participant fetch \(attempt): weeks=\(weeks) meals=\(meals) recipes=\(recipes)")
-            if weeks > 0 { break }
+            if weeks > 0 {
+                syncStatusCenter.setParticipantJoin(.joined)
+                return
+            }
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
+        // Retry budget exhausted and the shared household still looks empty — a slow join
+        // is indistinguishable from an empty household without this: surface it distinctly
+        // rather than letting the join silently give up (simmersmith-qrt).
+        syncStatusCenter.setParticipantJoin(.stalled)
     }
 }
 #endif

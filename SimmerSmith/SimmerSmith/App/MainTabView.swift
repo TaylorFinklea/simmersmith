@@ -2,6 +2,11 @@ import SwiftUI
 
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
+    // simmersmith-qrt: presented from the sync banner below — links to the sync detail
+    // sheet rather than log export (bead 79y, not landed) per the bead's own note.
+    #if canImport(CloudKit)
+    @State private var showingSyncDetail = false
+    #endif
 
     var body: some View {
         @Bindable var appState = appState
@@ -59,6 +64,48 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .environment(coordinator)
+        // simmersmith-qrt: a permanently-failed household save or a stalled participant
+        // join used to be invisible (only the repos' unread `lastSyncError` and a print()
+        // in the participant fetch). Mirrors the ad-hoc error-banner idiom already used by
+        // `WeekView` (`appState.lastErrorMessage`), but reads the derived sync status
+        // instead so it survives independently of that legacy Fly-era error channel.
+        #if canImport(CloudKit)
+        .overlay(alignment: .top) {
+            if let bannerText = appState.syncStatusCenter.derivation.bannerText,
+               appState.syncStatusCenter.derivation.showsBanner {
+                Button {
+                    showingSyncDetail = true
+                } label: {
+                    HStack(alignment: .top, spacing: SMSpacing.sm) {
+                        Image(systemName: "icloud.slash")
+                            .foregroundStyle(SMColor.destructive)
+                        Text(bannerText)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(SMColor.textTertiary)
+                    }
+                    .padding(SMSpacing.md)
+                    .background(SMColor.surfaceElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous)
+                            .strokeBorder(SMColor.destructive.opacity(0.4), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: SMRadius.md, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, SMSpacing.md)
+                .padding(.top, SMSpacing.sm)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.syncStatusCenter.derivation.bannerText)
+        .sheet(isPresented: $showingSyncDetail) {
+            NavigationStack { SyncStatusDetailView() }
+        }
+        #endif
     }
 }
 

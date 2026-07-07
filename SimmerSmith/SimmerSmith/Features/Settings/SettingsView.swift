@@ -57,6 +57,26 @@ struct SettingsView: View {
                         await appState.refreshAll()                  // legacy Fly path (no-op in CloudKit-only)
                     }
                 }
+
+                // simmersmith-qrt: engine-level CloudKit sync status — distinct from
+                // `syncStatusText` above (the legacy Fly-era `syncPhase`, which never
+                // carries CloudKit failure detail). Surfaces a permanently-failed save or
+                // a stalled participant join instead of leaving them invisible.
+                #if canImport(CloudKit)
+                NavigationLink {
+                    SyncStatusDetailView()
+                } label: {
+                    HStack {
+                        Label("iCloud Sync", systemImage: "icloud")
+                        Spacer()
+                        Text(appState.syncStatusCenter.derivation.statusLine)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                #endif
             } header: {
                 SmithSectionHeader("sync")
             }

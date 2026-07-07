@@ -40,6 +40,10 @@ final class HouseholdSession {
     let role: HouseholdSessionRole
     /// The household id (owner zone derivation; exposed for owner-side share creation).
     let householdID: String
+    /// simmersmith-qrt: optional so pre-existing call sites (and any future test
+    /// construction) keep compiling without a center — nil means "no-op, no behavioral
+    /// change", mirroring `engine.onStoreChanged`/`onSyncError` being nil by default.
+    private let syncStatusCenter: SyncStatusCenter?
     /// SP-A Phase 4/5 follow-up (simmersmith-gju) — debounced cross-record repair layer
     /// (WeekRepairAdapter + EventMergeAdapter.dedupeWeekGrocery), previously only reachable
     /// from the DEBUG screen. Signaled on every post-fetch/post-send change below, and
@@ -89,7 +93,7 @@ final class HouseholdSession {
 
     // MARK: — Init
 
-    init(householdID: String, role: HouseholdSessionRole = .owner) {
+    init(householdID: String, role: HouseholdSessionRole = .owner, syncStatusCenter: SyncStatusCenter? = nil) {
         let containerID = "iCloud.app.simmersmith.cloud"
         let container = CKContainer(identifier: containerID)
         // Owner reads/writes its OWN private DB; a participant reaches the owner's zone
@@ -110,6 +114,7 @@ final class HouseholdSession {
         self.zoneID = zoneID
         self.role = role
         self.householdID = householdID
+        self.syncStatusCenter = syncStatusCenter
 
         // Stable Application Support URL for the sync-engine state token so that
         // the token survives app launches (NOT a temp file — tokens must be durable).
@@ -172,8 +177,27 @@ final class HouseholdSession {
         // before `start()` still has a live signal to call.
         engine.onStoreChanged = { [weak self] in
             Task { @MainActor in
-                self?.storeRevision += 1
-                self?.repairScheduler.signal()
+                guard let self else { return }
+                self.storeRevision += 1
+                self.repairScheduler.signal()
+                // simmersmith-qrt: piggyback the sync-status feed on the same per-event
+                // signal — no new engine API. Pending count is the boolean
+                // `hasPendingRecordChanges` (0/1, per spec); no pending work left after
+                // this batch is treated as a success tick.
+                let pendingCount = self.engine.hasPendingRecordChanges ? 1 : 0
+                self.syncStatusCenter?.setPendingCount(pendingCount)
+                if pendingCount == 0 {
+                    self.syncStatusCenter?.recordSyncSuccess(Date())
+                }
+            }
+        }
+        // simmersmith-qrt: wired alongside `onStoreChanged` above (same "must be non-nil
+        // before automaticSync can deliver a background event" rationale as the merger —
+        // see the simmersmith-c7r note on `merger` earlier in this initializer). Nil'd
+        // wherever `onStoreChanged` is nil'd (see `clearState()`/`detach()` below).
+        engine.onSyncError = { [weak self] failure in
+            Task { @MainActor in
+                self?.syncStatusCenter?.recordFailure(failure)
             }
         }
     }
@@ -218,6 +242,8 @@ final class HouseholdSession {
             try await engine.fetchChanges()
 
             syncPhase = .synced(Date())
+            syncStatusCenter?.setPendingCount(engine.hasPendingRecordChanges ? 1 : 0)
+            syncStatusCenter?.recordSyncSuccess(Date())
         } catch {
             // iCloud unavailable, network error, etc. — degrade gracefully.
             syncPhase = .offline
@@ -234,6 +260,7 @@ final class HouseholdSession {
     func clearState() {
         try? FileManager.default.removeItem(at: stateURL)
         engine.onStoreChanged = nil
+        engine.onSyncError = nil
     }
 
     /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
@@ -241,6 +268,7 @@ final class HouseholdSession {
     /// zone + its sync token must survive for a future un-adopt. ARC then releases the session.
     func detach() {
         engine.onStoreChanged = nil
+        engine.onSyncError = nil
     }
 }
 #endif

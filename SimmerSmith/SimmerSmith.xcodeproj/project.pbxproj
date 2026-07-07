@@ -53,6 +53,7 @@
 		446A8B1231ACE6510EE1259D /* RecipeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */; };
 		44A436E4F3FBF7F5C991C4BA /* AppState+AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16263AD59B5D2F17D3561E4A /* AppState+AI.swift */; };
 		44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */; };
+		44E38C2516B05904385EBA7D /* SyncStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D07381CBBD434447DD7638 /* SyncStatusCenter.swift */; };
 		4706C35EAD6EE2D739E87D76 /* AppState+TopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93F63F17E10C86615058DC2D /* AppState+TopBar.swift */; };
 		48D2EA94C48A2183C278FFCC /* EventMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8E58D8B9A530AEDFB06F7B /* EventMigrationLoader.swift */; };
 		4A8C79F7471AAC3982276DF8 /* MealSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6E839108F9DCE492AA99BF /* MealSidesSheet.swift */; };
@@ -158,6 +159,7 @@
 		CC0BA04D3AED7F501C9193B0 /* ShareSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D603B9AEBF7630A4E82C1FCC /* ShareSceneDelegate.swift */; };
 		CE023FB5F5FA60C88D456E04 /* AppState+Aliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A37211FCE416E9BD3B7C4F2 /* AppState+Aliases.swift */; };
 		CFE7B0CFDDC854D99448FF99 /* PhotoCompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE77361E7724F4B7835C0AE /* PhotoCompression.swift */; };
+		D123E4901F66A58E663D9B16 /* SyncStatusDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4BC28BFE979A7E1858AC8 /* SyncStatusDetailView.swift */; };
 		D12795B0EA94A8B2B7D60BC5 /* AppState+Seasonal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */; };
 		D16E49B2302C027341160A24 /* CookingTimerChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EDBF32F733FB6791D90373 /* CookingTimerChip.swift */; };
 		D29517D5A214EA67398BD1A9 /* MetadataRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FABD368F46E53789760BDBD /* MetadataRepository.swift */; };
@@ -241,6 +243,7 @@
 		23E7E670ABE57D04263684B7 /* GroceryItemEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryItemEditSheet.swift; sourceTree = "<group>"; };
 		25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventCreateSheet.swift; sourceTree = "<group>"; };
 		26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Profile.swift"; sourceTree = "<group>"; };
+		26C4BC28BFE979A7E1858AC8 /* SyncStatusDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusDetailView.swift; sourceTree = "<group>"; };
 		27B617C15FBB7189BE5086D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		289B584B688BF106322CF223 /* Caveat-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Caveat-Variable.ttf"; sourceTree = "<group>"; };
 		2B8B5724B1A7C4874B4F1713 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -395,6 +398,7 @@
 		F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuisinePill.swift; sourceTree = "<group>"; };
 		F7AB5C4A651E47C2ED148EC4 /* TodayMealCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayMealCard.swift; sourceTree = "<group>"; };
 		F80EE82F42F6428AF84B3E94 /* RecipeWebImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeWebImportView.swift; sourceTree = "<group>"; };
+		F8D07381CBBD434447DD7638 /* SyncStatusCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusCenter.swift; sourceTree = "<group>"; };
 		F9B7C710B194A7A3BDF6D722 /* RecipeImageOverrideSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeImageOverrideSheet.swift; sourceTree = "<group>"; };
 		FA6E46D15E4FD124EB6535A2 /* AddGroceryItemSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroceryItemSheet.swift; sourceTree = "<group>"; };
 		FAE77361E7724F4B7835C0AE /* PhotoCompression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoCompression.swift; sourceTree = "<group>"; };
@@ -595,6 +599,7 @@
 				49F8EB47D3C6DF82D0407A0A /* ProfileRepository.swift */,
 				B218483CD1F3FD11E8E349D4 /* RecipeMigrationLoader.swift */,
 				C252D2A966E47B881B77F401 /* RecipeRepository.swift */,
+				F8D07381CBBD434447DD7638 /* SyncStatusCenter.swift */,
 				2D7CDAF7CC440F6E5157D784 /* ToolRegistry.swift */,
 				9D96F0D206E3B5B539936DCE /* WeekGenContextGatherer.swift */,
 				A2DC9FE6CC5748257D90048D /* WeekMigrationLoader.swift */,
@@ -713,6 +718,7 @@
 				0C4E4BF5B456F3750DF56FB8 /* OpenModelsPickerRow.swift */,
 				4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */,
 				6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */,
+				26C4BC28BFE979A7E1858AC8 /* SyncStatusDetailView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -1136,6 +1142,8 @@
 				C90B01FDC95A67D89BCF39D0 /* StoreChip.swift in Sources */,
 				F5960E1BF51ECBF2D1356835 /* SubscriptionStore.swift in Sources */,
 				FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */,
+				44E38C2516B05904385EBA7D /* SyncStatusCenter.swift in Sources */,
+				D123E4901F66A58E663D9B16 /* SyncStatusDetailView.swift in Sources */,
 				6C57EBF2A02821F1F660DD1E /* TabPrimaryFAB.swift in Sources */,
 				F5F7F80B40D0162C32C8081E /* Theme.swift in Sources */,
 				BCD74EBF2BA0316C5394D03D /* TimeBadge.swift in Sources */,

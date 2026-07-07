@@ -89,6 +89,11 @@ final class AppState {
     /// awaits the same task instead of starting a second setup. Cleared on
     /// sign-out so a fresh session can be established after re-sign-in.
     @ObservationIgnored var householdSessionSetupTask: Task<Void, Never>?
+    // simmersmith-qrt: engine-level sync visibility (failed saves, pending count,
+    // participant-join progress). Constructed eagerly (no household-id dependency) so
+    // Settings/the main-UI banner can read it before a session boots. `@ObservationIgnored`
+    // mirrors the repositories above — it's `@Observable` itself and drives its own updates.
+    @ObservationIgnored let syncStatusCenter = SyncStatusCenter()
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
