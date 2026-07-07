@@ -77,14 +77,34 @@ extension AppState {
 
     /// Warm-tap entry: drain a just-accepted share from the inbox and adopt it (swapping out
     /// an already-booted owner session). Called by the scene delegate when the app is running.
+    ///
+    /// Re-entrancy (simmersmith-0gf): this is one of TWO entry points that can boot a household
+    /// session — the other is `ensureHouseholdSession()`. Both enqueue on `sessionBootQueue` (a
+    /// strict FIFO) so a warm share-accept boot and an in-flight owner boot never interleave at
+    /// suspension points and race on which session wins last-writer-wins.
     func processPendingShare() async {
-        guard let metadata = PendingShareInbox.shared.take() else { return }
-        print("[Sharing] processPendingShare: draining metadata, role=\(metadata.participantRole.rawValue) container=\(metadata.containerIdentifier)")
-        await bootParticipantSession(accepting: metadata)
+        // simmersmith-0gf blocking-finding fix: capture the epoch AT REQUEST TIME, before
+        // this op enters the queue — see `ensureHouseholdSession()` for the matching owner-
+        // side capture and `AppState.sessionBootEpoch`'s doc comment for why this is needed.
+        let requestEpoch = sessionBootEpoch
+        await sessionBootQueue.enqueue { [weak self] in
+            guard let self else { return }
+            // Stale: a sign-out landed while this request was queued behind a predecessor.
+            guard self.sessionBootEpoch == requestEpoch else { return }
+            guard let metadata = PendingShareInbox.shared.take() else { return }
+            print("[Sharing] processPendingShare: draining metadata, role=\(metadata.participantRole.rawValue) container=\(metadata.containerIdentifier)")
+            await self.bootParticipantSession(accepting: metadata, requestEpoch: requestEpoch)
+        }.value
     }
 
     /// Accept a zone-wide CKShare and adopt the owner's household.
-    func bootParticipantSession(accepting metadata: CKShare.Metadata) async {
+    ///
+    /// Must only be called from within a `sessionBootQueue` op (simmersmith-0gf) — it is called
+    /// directly by `ensureSessionBootOp()`'s participant-first check and by
+    /// `processPendingShare()`'s queued op. It must NOT itself enqueue: both of those callers
+    /// already run inside the queue's chain, so a nested `enqueue(...).value` here would await
+    /// a task that can only run after itself — a self-deadlock.
+    func bootParticipantSession(accepting metadata: CKShare.Metadata, requestEpoch: Int) async {
         print("[Sharing] bootParticipantSession: role=\(metadata.participantRole.rawValue) container=\(metadata.containerIdentifier)")
         // The owner tapping their own link is benign — do nothing (the owner path boots
         // normally on the next ensureHouseholdSession).
@@ -104,7 +124,18 @@ extension AppState {
             let flow = HouseholdShareFlow()
             let zoneID = try await flow.acceptZoneWideShare(metadata)
             print("[Sharing] accepted; adopting zone \(zoneID.zoneName) owner=\(zoneID.ownerName)")
-            await adoptSharedZone(zoneID)
+            // simmersmith-0gf blocking-finding fix: a sign-out during the accept round-trip
+            // above makes this request stale — don't adopt/wire or persist a participant
+            // marker for a household the user just tore down.
+            guard sessionBootEpoch == requestEpoch else {
+                print("[Sharing] abort: sessionBootEpoch moved during accept (stale request)")
+                return
+            }
+            let adopted = await adoptSharedZone(zoneID, requestEpoch: requestEpoch)
+            guard adopted else {
+                print("[Sharing] abort: sessionBootEpoch moved during adopt (stale request) — not saving marker")
+                return
+            }
             saveParticipantMarker(ParticipantMarker(zoneName: zoneID.zoneName, ownerName: zoneID.ownerName))
             print("[Sharing] adopted + marker saved — participant booted")
             lastErrorMessage = nil
@@ -121,12 +152,15 @@ extension AppState {
     }
 
     /// Re-boot an already-adopted participant household from the saved marker (relaunch).
-    func bootParticipantSession(reusing marker: ParticipantMarker) async {
-        await adoptSharedZone(marker.zoneID)
+    func bootParticipantSession(reusing marker: ParticipantMarker, requestEpoch: Int) async {
+        await adoptSharedZone(marker.zoneID, requestEpoch: requestEpoch)
     }
 
     /// Boot a participant `HouseholdSession` on the owner's shared zone, fetch, and wire repos.
-    private func adoptSharedZone(_ zoneID: CKRecordZone.ID) async {
+    /// Returns `false` (without wiring anything) if `requestEpoch` went stale mid-flight —
+    /// see the `discardableResult` callers for the simmersmith-0gf blocking-finding fix.
+    @discardableResult
+    private func adoptSharedZone(_ zoneID: CKRecordZone.ID, requestEpoch: Int) async -> Bool {
         // Warm swap: detach an already-booted owner engine (KEEP its state token so the
         // parked solo zone survives a future un-adopt), then replace the session.
         householdSession?.detach()
@@ -143,7 +177,18 @@ extension AppState {
         // start() already runs one fetchChanges(); its raced .offline is non-terminal here.
         await session.start()
         await participantInitialFetch(session: session)
+
+        // simmersmith-0gf blocking-finding fix: re-check right before the commit point — a
+        // sign-out could have landed during any of the awaits above (session.start(),
+        // participantInitialFetch()). Detach (don't wire) a session built for a now-stale
+        // request rather than resurrecting it post-teardown.
+        guard sessionBootEpoch == requestEpoch else {
+            session.detach()
+            return false
+        }
+
         await wireHouseholdRepositories(session: session)
+        return true
     }
 
     /// The make-or-break post-accept fetch: the accepting device usually receives no push

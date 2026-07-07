@@ -16,86 +16,99 @@ extension AppState {
     /// ID is known (from the Fly household snapshot). Idempotent — no-op if a
     /// session already exists. Called from `refreshAll()` after `refreshHousehold()`.
     ///
-    /// Re-entrancy: two concurrent `refreshAll()` callers would both pass the
-    /// `householdSession == nil` guard and start duplicate setups (two migrations,
-    /// two competing sync engines). Guard with a task-dedup: assign the setup
-    /// `Task` synchronously BEFORE the first `await` so a second caller arriving
-    /// while setup is in-flight awaits the same task instead of starting another.
+    /// Re-entrancy (simmersmith-0gf): this is only one of TWO entry points that can boot a
+    /// household session — the other is `processPendingShare()` (a share-accept boot from an
+    /// independent task, e.g. the warm-tap scene-delegate callback). Both entry points enqueue
+    /// their work on `sessionBootQueue` (a strict FIFO), so an in-flight owner boot and a
+    /// share-accept boot never interleave at suspension points and race on which session wins.
+    /// The queued op re-checks `householdSession != nil` after its predecessors finish — that
+    /// re-check (not a dedup flag) is what makes a chained-but-now-redundant boot no-op.
     func ensureHouseholdSession() async {
-        // Fast path — already set up.
+        // Cheap outer fast path — already set up. Preserves the common case of not even
+        // creating a Task when the session is already booted.
         if householdSession != nil {
-            // Ensure the launch phase is .ready even if called again after setup.
             householdLaunchPhase = .ready
             return
         }
+        // simmersmith-0gf blocking-finding fix: capture the epoch AT REQUEST TIME, before
+        // this op even enters the queue. If a sign-out lands while this request is queued
+        // or mid-flight, `ensureSessionBootOp` compares against this snapshot to detect it.
+        let requestEpoch = sessionBootEpoch
+        await sessionBootQueue.enqueue { [weak self] in
+            await self?.ensureSessionBootOp(requestEpoch: requestEpoch)
+        }.value
+    }
 
-        // Second concurrent caller: setup in-flight — await it instead of duplicating.
-        if let existing = householdSessionSetupTask {
-            await existing.value
+    /// The body of an owner-boot session op, run strictly serialized (after any
+    /// preceding boot) inside `sessionBootQueue`. See `ensureHouseholdSession()`.
+    private func ensureSessionBootOp(requestEpoch: Int) async {
+        // simmersmith-0gf blocking-finding fix: this op was enqueued behind (possibly
+        // several) predecessors — if a sign-out (`teardownHouseholdSession`) bumped the
+        // epoch while this request was waiting its turn, the request is stale: abort before
+        // touching anything rather than re-booting a session the user just tore down.
+        guard sessionBootEpoch == requestEpoch else { return }
+
+        // Re-check AFTER predecessors have run — this is the whole point of doing the check
+        // here rather than only in the outer function: a preceding share-accept boot may have
+        // just installed a participant session, and this chained ensure must no-op rather than
+        // fall through to owner discovery/mint.
+        if householdSession != nil {
+            householdLaunchPhase = .ready
             return
         }
 
         // SP-C identity slice (spec §1.2): the household id no longer comes from Fly
         // (`currentHousehold?.householdId`) — it is DISCOVERED from CloudKit, or minted
         // if the user has no household zone yet. Resolution is async (it lists the
-        // private DB's zones), so it happens inside the dedup task below rather than as
-        // a pre-task guard. The discover-before-create ordering is load-bearing
-        // (spec §7): minting a new zone when `household-<existingId>` already exists
-        // would orphan the migrated recipes.
+        // private DB's zones), so it happens here rather than as a pre-task guard. The
+        // discover-before-create ordering is load-bearing (spec §7): minting a new zone
+        // when `household-<existingId>` already exists would orphan the migrated recipes.
 
-        // Assign the task SYNCHRONOUSLY (no await between here and the assignment)
-        // so any concurrent caller on MainActor that runs next sees it.
-        let task = Task<Void, Never> { [weak self] in
-            guard let self else { return }
-
-            // PARTICIPANT-FIRST (accept-before-mint, sharing spec §6): if the user just
-            // accepted a share (PendingShareInbox) or has a saved participant marker, this
-            // device ADOPTS an owner's household — boot as participant and NEVER fall through
-            // to owner discovery/mint (which would orphan-mint a solo zone on a cold accept).
-            if let metadata = PendingShareInbox.shared.take() {
-                await self.bootParticipantSession(accepting: metadata)
-                self.householdSessionSetupTask = nil
-                return
-            }
-            if let marker = self.loadParticipantMarker() {
-                await self.bootParticipantSession(reusing: marker)
-                self.householdSessionSetupTask = nil
-                return
-            }
-
-            // 1. Resolve the household id: discover first, mint only if none exists.
-            guard let householdID = await self.resolveHouseholdID() else {
-                // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
-                // was already set inside resolveHouseholdID() before returning nil. Leave
-                // the session unset so a later retry can call ensureHouseholdSession()
-                // again; clear the dedup task so the retry isn't short-circuited.
-                self.householdSessionSetupTask = nil
-                return
-            }
-
-            let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
-            await session.start()
-
-            // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
-            // Receipt-gated (idempotent) — safe to call every launch. Runs after
-            // session.start() (zone provisioned + first fetch done) and before
-            // recipeRepo.reload() so a new install hydrates CloudKit before the
-            // first read. The migration is a no-op once the "recipes" receipt is
-            // present in the local store.
-            await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
-
-            await wireHouseholdRepositories(session: session)
-
-            // SP-C identity slice (spec §1.3): signal RootView that the household is
-            // resolved and the app is ready to show MainTabView.
-            self.householdLaunchPhase = .ready
-            // Symmetry with the failure path: clear the dedup task now that setup is
-            // done. The fast-path guard (`householdSession != nil`) short-circuits future
-            // callers, so the task no longer needs to be held for dedup.
-            self.householdSessionSetupTask = nil
+        // PARTICIPANT-FIRST (accept-before-mint, sharing spec §6): if the user just
+        // accepted a share (PendingShareInbox) or has a saved participant marker, this
+        // device ADOPTS an owner's household — boot as participant and NEVER fall through
+        // to owner discovery/mint (which would orphan-mint a solo zone on a cold accept).
+        if let metadata = PendingShareInbox.shared.take() {
+            await bootParticipantSession(accepting: metadata, requestEpoch: requestEpoch)
+            return
         }
-        householdSessionSetupTask = task
-        await task.value
+        if let marker = loadParticipantMarker() {
+            await bootParticipantSession(reusing: marker, requestEpoch: requestEpoch)
+            return
+        }
+
+        // 1. Resolve the household id: discover first, mint only if none exists.
+        guard let householdID = await resolveHouseholdID() else {
+            // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
+            // was already set inside resolveHouseholdID() before returning nil. Leave
+            // the session unset so a later retry can call ensureHouseholdSession() again.
+            return
+        }
+
+        let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
+        await session.start()
+
+        // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
+        // Receipt-gated (idempotent) — safe to call every launch. Runs after
+        // session.start() (zone provisioned + first fetch done) and before
+        // recipeRepo.reload() so a new install hydrates CloudKit before the
+        // first read. The migration is a no-op once the "recipes" receipt is
+        // present in the local store.
+        await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
+
+        // simmersmith-0gf blocking-finding fix: re-check right before the commit point — a
+        // sign-out could have landed during any of the awaits above. Detach (don't wire) a
+        // session built for a now-stale request rather than resurrecting it post-teardown.
+        guard sessionBootEpoch == requestEpoch else {
+            session.detach()
+            return
+        }
+
+        await wireHouseholdRepositories(session: session)
+
+        // SP-C identity slice (spec §1.3): signal RootView that the household is
+        // resolved and the app is ready to show MainTabView.
+        householdLaunchPhase = .ready
     }
 
     /// Build + wire all repositories for a booted session (OWNER or PARTICIPANT) and flip
@@ -322,6 +335,11 @@ extension AppState {
     /// state so a different household signed in on this device cannot inherit the
     /// prior sync token. Called from sign-out (`clearHouseholdContext`).
     func teardownHouseholdSession() {
+        // simmersmith-0gf blocking-finding fix: bump FIRST, before anything else. A boot op
+        // already queued (or awaiting mid-flight) on `sessionBootQueue` captured the epoch
+        // at request time; bumping it here makes every such op stale so it aborts instead of
+        // re-wiring a session (or repos) this teardown is about to tear down.
+        sessionBootEpoch += 1
         householdSession?.clearState()
         householdSession = nil
         // simmersmith-qrt (adversarial fix): without this, a stale `.stalled`/`.joined`
@@ -343,8 +361,10 @@ extension AppState {
         aliasRepository = nil
         aiService = nil
         assistantRepository = nil
-        // Clear the dedup task so a subsequent sign-in can start a fresh setup.
-        householdSessionSetupTask = nil
+        // `sessionBootQueue` itself needs no draining (simmersmith-0gf): the
+        // `sessionBootEpoch` bump above already makes every op queued or in-flight before
+        // this teardown a no-op when it (eventually) runs; a subsequent boot request
+        // captures the post-bump epoch and proceeds normally.
         // Reset the launch phase so RootView shows the loading state on next launch.
         householdLaunchPhase = .resolving
     }

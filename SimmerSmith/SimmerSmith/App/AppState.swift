@@ -84,11 +84,21 @@ final class AppState {
     // SP-C AI-5: private-plane assistant conversation storage. Constructed alongside
     // profileRepository once the CloudKit session is live. nil before the session is ready.
     @ObservationIgnored var assistantRepository: AssistantRepository?
-    /// Dedup guard for `ensureHouseholdSession()`. Set synchronously (before
-    /// any `await`) so a second concurrent caller on MainActor sees it and
-    /// awaits the same task instead of starting a second setup. Cleared on
-    /// sign-out so a fresh session can be established after re-sign-in.
-    @ObservationIgnored var householdSessionSetupTask: Task<Void, Never>?
+    /// Serializes every household-session boot (owner ensure + share-accept adopt) into a
+    /// strict FIFO so the two independent entry points (`ensureHouseholdSession` and
+    /// `processPendingShare`) never interleave at suspension points (simmersmith-0gf). Each
+    /// queued op re-checks `householdSession` after its predecessors finish, so no separate
+    /// dedup/clear bookkeeping is needed.
+    @ObservationIgnored let sessionBootQueue = SerialTaskQueue()
+    /// Bumped by `teardownHouseholdSession()` on every sign-out / factory-reset
+    /// (simmersmith-0gf blocking-finding fix). `sessionBootQueue` is never drained on
+    /// sign-out, so a boot op that was already queued (or mid-flight) behind an in-flight
+    /// predecessor can otherwise dequeue AFTER a teardown and silently re-wire a session the
+    /// user just tore down. Each boot entry point captures this epoch when the request is
+    /// made; the op re-checks it immediately before publishing `householdSession` (and once
+    /// more right after dequeuing, before doing any work) and aborts — detaching anything it
+    /// already built — if the epoch has moved on.
+    @ObservationIgnored var sessionBootEpoch: Int = 0
     // simmersmith-qrt: engine-level sync visibility (failed saves, pending count,
     // participant-join progress). Constructed eagerly (no household-id dependency) so
     // Settings/the main-UI banner can read it before a session boots. `@ObservationIgnored`
