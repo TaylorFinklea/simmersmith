@@ -99,3 +99,24 @@ func shouldApplyWhenLiveNotNewer() {
 func skipsWhenLiveIsNewer() {
     #expect(!shouldApplyBackupValue(liveModified: reference.addingTimeInterval(60), capturedAt: reference))
 }
+
+// simmersmith-13j — the snapshot type-guard used `init?(rawValue:)` (lowerCamelCase case
+// names) against CloudKit's PascalCase `record.recordType`, matching nothing: every backup
+// exported empty. `init?(recordTypeName:)` is the correct reverse mapping; pin it for every
+// case so a future case addition can't silently fall out of backups.
+
+@Test("init?(recordTypeName:) round-trips every case (backup snapshot type-guard)")
+func recordTypeNameRoundTripsAllCases() {
+    for type in HouseholdRecordType.allCases {
+        #expect(HouseholdRecordType(recordTypeName: type.recordTypeName) == type)
+    }
+}
+
+@Test("init?(recordTypeName:) rejects non-household types the snapshot must skip")
+func recordTypeNameRejectsUnknownTypes() {
+    #expect(HouseholdRecordType(recordTypeName: "cloudkit.share") == nil)
+    #expect(HouseholdRecordType(recordTypeName: "MigrationReceipt") == nil)
+    // The OLD bug shape: raw values (case names) are NOT CloudKit type names.
+    #expect(HouseholdRecordType(recordTypeName: "recipe") == nil)
+    #expect(HouseholdRecordType(recordTypeName: "weekMeal") == nil)
+}

@@ -116,6 +116,18 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
         }
     }
 
+    /// Reverse of `recordTypeName` — maps a CloudKit `record.recordType` back to the case.
+    /// NOT the same as `init?(rawValue:)`: raw values are the lowerCamelCase case names
+    /// (used in backup JSON), while CloudKit types are PascalCase (simmersmith-13j: the
+    /// rawValue form silently matched nothing, so backup snapshots exported empty).
+    public init?(recordTypeName: String) {
+        guard let match = Self.byRecordTypeName[recordTypeName] else { return nil }
+        self = match
+    }
+
+    private static let byRecordTypeName: [String: HouseholdRecordType] =
+        Dictionary(uniqueKeysWithValues: allCases.map { ($0.recordTypeName, $0) })
+
     public var namePolicy: RecordNamePolicy {
         switch self {
         // Composite/keyed PKs in Postgres → deterministic recordNames (no surrogate id to pass through).

@@ -49,7 +49,7 @@ extension AppState {
         guard let session = householdSession else { return nil }
         var values: [HouseholdRecordValue] = []
         for record in session.store.allRecords() {
-            guard let type = HouseholdRecordType(rawValue: record.recordType) else { continue }
+            guard let type = HouseholdRecordType(recordTypeName: record.recordType) else { continue }
             values.append(HouseholdRecordCodec.decode(record, as: type))
         }
         return HouseholdBackup(
