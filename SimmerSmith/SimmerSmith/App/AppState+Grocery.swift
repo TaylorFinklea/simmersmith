@@ -105,6 +105,18 @@ extension AppState {
         await editGroceryItem(id: id, removed: false)
     }
 
+    /// The current week's user-removed (tombstoned) grocery rows. CloudKit: delegates to
+    /// WeekRepository.removedGroceryItems, the read-only counterpart of the filter that hides
+    /// tombstones from `currentWeek.groceryItems`. Feeds GroceryArchiveSheet's "Removed items" list.
+    func removedGroceryItems() -> [GroceryItem] {
+        #if canImport(CloudKit)
+        if let weekID = currentWeek?.weekId, let weekRepo = weekRepository {
+            return weekRepo.removedGroceryItems(weekID: weekID)
+        }
+        #endif
+        return []
+    }
+
     // MARK: - DATA: event auto-merge toggle (SP-C slice 4: CloudKit-backed)
 
     func toggleEventAutoMerge(eventID: String, enabled: Bool) async {

@@ -1,15 +1,15 @@
 import SwiftUI
 import SimmerSmithKit
 
-/// Lists grocery items that the server has marked as
-/// `is_user_removed=true` (tombstones). Smart-merge regen keeps these
-/// rows so a removed-then-still-in-meals item stays removed; this
-/// sheet lets the user reverse that decision when an item disappeared
-/// unexpectedly (e.g., from a stale Reminders fetch in build 35/36).
+/// Lists grocery items marked `isUserRemoved=true` (tombstones) in the
+/// CloudKit grocery store. Smart-merge regen keeps these rows so a
+/// removed-then-still-in-meals item stays removed; this sheet lets the
+/// user reverse that decision when an item disappeared unexpectedly
+/// (e.g., from a stale Reminders fetch in build 35/36).
 ///
-/// Calls the existing M22 delta endpoint without a `since` cursor so
-/// we get the full set including tombstones, then filters to the
-/// removed ones for display.
+/// Reads via AppState.removedGroceryItems(), the read-only counterpart
+/// of the filter WeekRepository applies to hide tombstones from the
+/// regular week snapshot.
 struct GroceryArchiveSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -124,17 +124,12 @@ struct GroceryArchiveSheet: View {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        guard let weekID = appState.currentWeek?.weekId else {
+        guard appState.currentWeek?.weekId != nil else {
             errorMessage = "No week loaded yet. Pull to refresh on the Week tab and try again."
             return
         }
-        do {
-            let delta = try await appState.apiClient.fetchGroceryDelta(weekID: weekID, since: nil)
-            items = delta.items.filter(\.isUserRemoved)
-                .sorted { $0.ingredientName.localizedCaseInsensitiveCompare($1.ingredientName) == .orderedAscending }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        items = appState.removedGroceryItems()
+            .sorted { $0.ingredientName.localizedCaseInsensitiveCompare($1.ingredientName) == .orderedAscending }
     }
 
     private func restore(id: String) async {

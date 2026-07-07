@@ -182,6 +182,18 @@ final class WeekRepository {
         weeks = result
     }
 
+    /// Read-only: the week's user-removed (tombstoned) grocery rows — the counterpart of the
+    /// `isUserRemoved` filter `reload()` applies when assembling the snapshot's live list above.
+    /// Feeds GroceryArchiveSheet's "Removed items" sheet, which needs to see the rows the regular
+    /// snapshot hides.
+    func removedGroceryItems(weekID: String) -> [GroceryItem] {
+        session.store.records(ofType: GroceryCodec.recordType)
+            .filter { rec in
+                (rec["weekID"] as? String) == weekID && (rec["isUserRemoved"] as? Int ?? 0) != 0
+            }
+            .map(domainGrocery(fromRecord:))
+    }
+
     /// Find the week whose weekStart lands on the same UTC day as `start`, or nil.
     func week(forStart start: Date) -> WeekSnapshot? {
         let target = Self.utcDayKey(start)
