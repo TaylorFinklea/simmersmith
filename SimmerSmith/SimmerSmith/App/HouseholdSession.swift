@@ -241,6 +241,17 @@ final class HouseholdSession {
             // 3. Initial fetch to populate the local store from the server.
             try await engine.fetchChanges()
 
+            // simmersmith-vda: arm repairs only now — the fetch above RETURNED, so the store
+            // holds the complete zone for this launch and a destructive pass can no longer
+            // re-parent/delete against partially-fetched data. Crash-safety does NOT depend
+            // on this timing: every explicit engine operation (this fetch, migration drains,
+            // repair drains, repo drains) is serialized by the engine's AsyncSerialGate, so
+            // an early repair pass would merely queue behind whatever is in flight. If this
+            // fetch FAILS (offline boot), repairs stay dormant for the whole session —
+            // deliberate: the store may then fill incrementally via automaticSync and is
+            // never known-complete this launch; repair is opportunistic hygiene and runs on
+            // the next healthy launch instead.
+            repairScheduler.activate()
             syncPhase = .synced(Date())
             syncStatusCenter?.setPendingCount(engine.hasPendingRecordChanges ? 1 : 0)
             syncStatusCenter?.recordSyncSuccess(Date())

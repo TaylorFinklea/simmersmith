@@ -59,6 +59,34 @@ public final class RepairScheduler: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingTask: Task<Void, Never>?
 
+    // simmersmith-vda: cold-launch crash — every launch discards the sync token (r8q),
+    // forcing a full zone refetch delivered as MULTIPLE `onStoreChanged` batches. Each batch
+    // restarted this scheduler's debounce; on a slow/large refetch the debounce could elapse
+    // in a batch GAP, firing a destructive pass (`WeekRepairAdapter.collapseWeeks`) while
+    // `HouseholdSession.start()`'s own `engine.fetchChanges()` was still suspended —
+    // `collapseWeeks`'s `engine.save`s + `sendUntilDrained` raced that in-flight fetch's
+    // CKSyncEngine internals, tripping a CKSyncEngine-internal Swift assertion (SIGTRAP).
+    // Independently, `collapseWeeks` run against a PARTIALLY-fetched store only sees the
+    // children delivered so far, so it re-parents/deletes based on incomplete data —
+    // orphaning children the fetch hasn't delivered yet. Serializing calls alone doesn't fix
+    // this: the hazard is running a destructive pass AT ALL before the store is known-complete.
+    // `activated`/`signaledWhileInactive` below gate `signal()` on that quiescence.
+    private var activated = false
+    private var signaledWhileInactive = false
+
+    // simmersmith-vda: even after activation, two debounced Tasks could still interleave at
+    // an `await` — a `signal()` arriving while a pass is RUNNING scheduled a second debounced
+    // Task that, once its own timer elapsed, could start a second pass concurrently with the
+    // first (same crash class: two concurrent `sendUntilDrained` calls on one engine).
+    // `passRunning`/`passQueued` make pass execution single-flight: only one pass instance
+    // runs at a time, and a signal that lands mid-run is coalesced into exactly one follow-up
+    // run after the current one finishes (never lost, never concurrent). Mirrors
+    // `ObservationReloader`'s drain-flag idiom (SimmerSmithKit/Concurrency/ObservationReloader
+    // .swift) — the "is another run queued?" check and the flag reset happen inside ONE lock
+    // hold so a fire landing between the final check and the reset is never dropped.
+    private var passRunning = false
+    private var passQueued = false
+
     /// - Parameters:
     ///   - ownsZone: mirrors `HouseholdSyncEngine.ownsZone` — gates `passes.destructive`.
     ///   - debounceNanoseconds: settle window after the LAST `signal()` before a run fires
@@ -69,27 +97,110 @@ public final class RepairScheduler: @unchecked Sendable {
         self.passes = passes
     }
 
+    /// Arms the scheduler — call once the store is known to be fully populated this launch
+    /// (simmersmith-vda: `HouseholdSession.start()`'s initial `fetchChanges()` succeeding; an
+    /// offline boot deliberately never activates — repairs are opportunistic hygiene and run
+    /// on the next healthy launch). Crash-safety does NOT depend on this timing — explicit
+    /// engine operations are serialized by `HouseholdSyncEngine`'s `AsyncSerialGate`; this
+    /// gate exists for the DATA hazard (a destructive pass judging duplicates against a
+    /// partially-fetched store). Before this is called, `signal()` is inert (buffered, not
+    /// scheduled) — see `signal()`. If a signal arrived while inactive, replay it as a single
+    /// `signal()` call now (after releasing the lock) so a burst that landed during boot
+    /// coalesces into ONE normal debounced run rather than being lost entirely.
+    public func activate() {
+        lock.lock()
+        activated = true
+        let hadBufferedSignal = signaledWhileInactive
+        signaledWhileInactive = false
+        lock.unlock()
+        if hadBufferedSignal {
+            signal()
+        }
+    }
+
+    /// Symmetric with `activate()`: re-gates the scheduler and cancels any not-yet-fired
+    /// pending run. No production call site needs this yet (a household session activates
+    /// once per launch and stays active) — kept for test symmetry and future re-gating needs.
+    public func deactivate() {
+        lock.lock()
+        activated = false
+        pendingTask?.cancel()
+        pendingTask = nil
+        lock.unlock()
+    }
+
     /// Call on every change signal (post-fetch, post-send, or a manual "fix it" action).
-    /// Cancels any not-yet-fired pending run and restarts the debounce window — N signals in a
-    /// burst collapse into ONE run after the last one settles.
+    /// Before `activate()` has been called, this only records that a signal arrived (see
+    /// `activate()`) and schedules nothing — the store isn't known-complete yet, so running a
+    /// destructive pass would be unsafe (simmersmith-vda). Once active, cancels any
+    /// not-yet-fired pending run and restarts the debounce window — N signals in a burst
+    /// collapse into ONE run after the last one settles.
     public func signal() {
         lock.lock()
+        guard activated else {
+            signaledWhileInactive = true
+            lock.unlock()
+            return
+        }
         pendingTask?.cancel()
         let interval = debounceNanoseconds
-        let task = Task { [passes, ownsZone] in
+        let task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: interval)
-            guard !Task.isCancelled else { return }
-            await passes.nonDestructive()
-            if ownsZone {
-                await passes.destructive()
-            }
+            guard !Task.isCancelled, let self else { return }
+            await self.runDebouncedPass()
         }
         pendingTask = task
         lock.unlock()
     }
 
+    /// Runs the pass pair (`nonDestructive`, then `destructive` if `ownsZone`), single-flight.
+    /// If a pass is already running, this just marks a follow-up as queued and returns —
+    /// coalescing into the running pass's drain loop rather than overlapping it
+    /// (simmersmith-vda). The "queued?" check + flag reset happen inside one lock hold so a
+    /// `signal()` landing between the final check and the reset is never lost.
+    private func runDebouncedPass() async {
+        guard beginPassOrQueueFollowUp() else { return }
+        var again = true
+        while again {
+            await passes.nonDestructive()
+            if ownsZone {
+                await passes.destructive()
+            }
+            again = finishIterationAndTakeQueued()
+        }
+    }
+
+    /// Synchronous lock scope (NSLock must not be held across `await`): returns true if this
+    /// caller becomes the single running pass; false if one is already running (in which case
+    /// a follow-up run has been queued into its drain loop instead).
+    private func beginPassOrQueueFollowUp() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if passRunning {
+            passQueued = true
+            return false
+        }
+        passRunning = true
+        return true
+    }
+
+    /// Synchronous lock scope: consumes the queued-follow-up flag; clears `passRunning` only
+    /// when nothing was queued — the check and the reset happen in ONE lock hold so a
+    /// `signal()` landing between them is never dropped.
+    private func finishIterationAndTakeQueued() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let again = passQueued
+        passQueued = false
+        if !again {
+            passRunning = false
+        }
+        return again
+    }
+
     /// Test/debug hook: await the most recently scheduled run to completion (no-op if nothing
-    /// is pending).
+    /// is pending). Note: if a `signal()` arrived while a pass was already running, the Task
+    /// this awaits may only have queued a follow-up (returning immediately) rather than run it
+    /// — the follow-up itself is driven by the ORIGINAL task's drain loop. Tests that need to
+    /// observe that follow-up should await on pass-side signals instead.
     public func waitForPendingRun() async {
         await currentPendingTask()?.value
     }

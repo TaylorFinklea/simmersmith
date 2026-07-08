@@ -162,15 +162,32 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         delete(recordID)
     }
 
-    /// Fetch remote changes then push local ones. Manual drive for deterministic tests;
-    /// the app can also rely on `automaticallySync`.
+    // simmersmith-vda: every EXPLICIT engine operation below runs under one AsyncSerialGate.
+    // Build 149 crashed at first open when a repair pass's send overlapped the still-suspended
+    // boot fetch on this same engine (CKSyncEngine-internal Swift assertion). Serializing at
+    // the entry points kills the class: no per-call-site ordering rules, no activation-timing
+    // races — a caller that fires "too early" just queues. `CKSyncEngine`'s own
+    // `automaticallySync` machinery is internal to the framework and stays ungated (it
+    // coexisted with explicit ops for weeks on builds ≤147 without this assertion). The gate
+    // is non-reentrant: gated bodies must use raw `syncEngine` calls, never each other.
+    private let operationGate = AsyncSerialGate()
+
+    /// Fetch remote changes then push local ones, as ONE gated unit. Manual drive for
+    /// deterministic tests; the app can also rely on `automaticallySync`.
     public func sync() async throws {
-        try await syncEngine.fetchChanges()
-        try await syncEngine.sendChanges()
+        try await operationGate.withLock {
+            try await self.syncEngine.fetchChanges()
+            try await self.syncEngine.sendChanges()
+        }
     }
 
-    public func fetchChanges() async throws { try await syncEngine.fetchChanges() }
-    public func sendChanges() async throws { try await syncEngine.sendChanges() }
+    public func fetchChanges() async throws {
+        try await operationGate.withLock { try await self.syncEngine.fetchChanges() }
+    }
+
+    public func sendChanges() async throws {
+        try await operationGate.withLock { try await self.syncEngine.sendChanges() }
+    }
 
     /// True while record changes are still queued (e.g. a rebased save awaiting retry).
     public var hasPendingRecordChanges: Bool {
@@ -181,13 +198,17 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// can both be delivered to the delegate (which re-enqueues a merged save) AND thrown from
     /// `sendChanges()`; catch it and keep draining while the delegate left pending work, so the
     /// merged retry goes out. Rethrow only if nothing is pending (a real, unhandled failure).
+    /// The whole drain holds the operation gate — passes never interleave with another
+    /// explicit fetch/send (simmersmith-vda).
     public func sendUntilDrained(maxPasses: Int = 8) async throws {
-        for _ in 0..<maxPasses {
-            do {
-                try await syncEngine.sendChanges()
-                if !hasPendingRecordChanges { return }
-            } catch {
-                if !hasPendingRecordChanges { throw error }
+        try await operationGate.withLock {
+            for _ in 0..<maxPasses {
+                do {
+                    try await self.syncEngine.sendChanges()
+                    if !self.hasPendingRecordChanges { return }
+                } catch {
+                    if !self.hasPendingRecordChanges { throw error }
+                }
             }
         }
     }
