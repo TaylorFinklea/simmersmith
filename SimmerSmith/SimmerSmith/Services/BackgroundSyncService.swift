@@ -1,4 +1,8 @@
-import BackgroundTasks
+// simmersmith-q6y: @preconcurrency — BGTask predates Sendable annotations but its
+// completion API is thread-safe by design (Apple delivers expiration handlers on
+// arbitrary threads and expects setTaskCompleted from them). Required so the
+// explicitly-@Sendable expiration closure below may capture the task.
+@preconcurrency import BackgroundTasks
 import Foundation
 import os
 
@@ -29,9 +33,17 @@ final class BackgroundSyncService {
     func registerLaunchHandler() {
         guard !registered else { return }
         registered = true
+        // simmersmith-q6y: `using:` is the queue BGTaskScheduler invokes the launch
+        // handler on. `nil` meant the scheduler's PRIVATE serial queue — but this
+        // closure is MainActor-isolated (formed in a @MainActor class, calls
+        // @MainActor handleAppRefresh), so Swift's runtime isolation check
+        // (_dispatch_assert_queue_fail) killed the process ON ENTRY at every
+        // background-refresh wake (three production .ips, builds 106-138, identical
+        // stack on the 'com.apple.BGTaskScheduler (…grocerySync)' thread). `.main`
+        // delivers on the MainActor's queue, so the isolation check passes.
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.taskIdentifier,
-            using: nil
+            using: .main
         ) { [weak self] task in
             guard let task = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
@@ -122,7 +134,14 @@ final class BackgroundSyncService {
         // Backstop: if iOS expires us, cancel the sibling tasks by handle
         // and complete failure — but only if natural completion hasn't
         // already fired the guard.
-        task.expirationHandler = {
+        //
+        // simmersmith-q6y: explicitly @Sendable so this closure can NEVER carry an
+        // inferred-MainActor entry check — Apple documents the expiration handler
+        // as callable on a background thread REGARDLESS of the queue passed at
+        // registration, and an isolated closure entered off-main traps exactly like
+        // the launch-handler crash this bead fixed. The body was already designed
+        // thread-safe (handle cancels + CompletionFlag's unfair lock).
+        task.expirationHandler = { @Sendable in
             syncTask.cancel()
             timeoutTask.cancel()
             if completion.fire() {
