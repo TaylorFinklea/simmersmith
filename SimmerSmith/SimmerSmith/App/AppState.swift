@@ -158,9 +158,9 @@ final class AppState {
     var aiDirectAPIKeyDraft: String = ""
     var aiOpenAIModelDraft: String = ""
     var aiAnthropicModelDraft: String = ""
-    /// SP-C "Open models" entry: the selected vendor (glm|kimi|minimax) and its model id.
-    /// The single "Open models" provider row spans all three vendors; the chosen model
-    /// determines which vendor key + base URL is used (the model dropdown sets both).
+    /// SP-C "Open models" entry: the selected vendor (ollama|neuralwatt) and its model id.
+    /// The single "Open models" provider row spans the visible vendors; the chosen model
+    /// determines which vendor key + base URL is used (the picker sets both).
     var aiOpenModelsVendorDraft: String = ""
     var aiOpenModelsModelDraft: String = ""
     /// SP-C — CloudKit-path model dropdown state, keyed by provider

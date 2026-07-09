@@ -1,15 +1,15 @@
 import Foundation
 
-/// SP-C — the single source of truth for the directly-keyed open-model vendors
-/// (GLM/Z.ai, Kimi/Moonshot, MiniMax). It replaces the hardcoded binary
-/// openai/anthropic base-URL/key/model assumptions for the `.openModels` path: every
-/// `.openModels` request looks up its descriptor here instead of branching on string
-/// literals. OpenAI/Anthropic intentionally keep their existing dedicated methods.
+/// SP-C — the single source of truth for open-model BYO-key vendors. It replaces
+/// hardcoded binary openai/anthropic base-URL/key/model assumptions for the
+/// `.openModels` path: every `.openModels` request looks up its descriptor here
+/// instead of branching on string literals. OpenAI/Anthropic intentionally keep their
+/// existing dedicated methods.
 ///
-/// All three vendors are driven on their OpenAI-compatible `/chat/completions`
-/// surface with `Authorization: Bearer <key>` and OpenAI-shape `tools[]`/`tool_calls`.
-/// They differ only in base URL, Keychain key, model id, the `thinking` parameter,
-/// the reasoning field(s), and temperature — exactly what this descriptor captures.
+/// The visible vendors (Ollama Cloud, NeuralWatt) are driven on OpenAI-compatible
+/// `/chat/completions` surfaces with `Authorization: Bearer <key>` and OpenAI-shape
+/// `tools[]`/`tool_calls`. Dormant direct-vendor and legacy OpenRouter descriptors remain
+/// for compatibility but are not exposed by `allOpenModelVendors`.
 public struct ProviderDescriptor: Sendable {
     public let vendor: OpenModelVendor
     /// Stable id ("glm" | "kimi" | "minimax"); equals `vendor.rawValue`.
@@ -66,12 +66,47 @@ public struct ProviderDescriptor: Sendable {
 }
 
 public enum ProviderRegistry {
-    public static let allOpenModelVendors: [OpenModelVendor] = OpenModelVendor.allCases
+    public static let allOpenModelVendors: [OpenModelVendor] = [.ollamaCloud, .neuralwatt]
 
     /// The descriptor for a vendor. Hosts are the INTERNATIONAL endpoints (api.z.ai /
     /// api.moonshot.ai / api.minimax.io); China-region hosts are out of scope (v1).
     public static func descriptor(for vendor: OpenModelVendor) -> ProviderDescriptor {
         switch vendor {
+        case .ollamaCloud:
+            return ProviderDescriptor(
+                vendor: .ollamaCloud,
+                keychainKeyID: "ollama",
+                chatURL: "https://ollama.com/v1/chat/completions",
+                modelsURL: "https://ollama.com/v1/models",
+                defaultModel: "glm-5.2",
+                fallbackModels: ["glm-5.2", "kimi-k2.6", "minimax-m3"],
+                reasoningStyle: .none,
+                toolLoopTemperature: 0.3,
+                oneShotTemperature: 0.7,
+                applyThinkingEnabled: { _, _ in },
+                applyThinkingDisabled: { _, _ in }
+            )
+        case .neuralwatt:
+            return ProviderDescriptor(
+                vendor: .neuralwatt,
+                keychainKeyID: "neuralwatt",
+                chatURL: "https://api.neuralwatt.com/v1/chat/completions",
+                modelsURL: "https://api.neuralwatt.com/v1/models",
+                defaultModel: "glm-5.2-short",
+                fallbackModels: [
+                    "glm-5.2",
+                    "glm-5.2-short",
+                    "glm-5.2-fast",
+                    "glm-5.2-short-fast",
+                    "kimi-k2.6",
+                    "kimi-k2.6-fast",
+                ],
+                reasoningStyle: .none,
+                toolLoopTemperature: 0.3,
+                oneShotTemperature: 0.7,
+                applyThinkingEnabled: { _, _ in },
+                applyThinkingDisabled: { _, _ in }
+            )
         case .glm:
             // GLM-5.2 (Z.ai). Preserved Thinking (clear_thinking:false) makes reasoning
             // replay mandatory — which the open-models encoder always honors.
@@ -167,8 +202,9 @@ public enum ProviderRegistry {
         }
     }
 
-    /// Map a Keychain provider id back to its vendor ("zai" → .glm, "moonshot" → .kimi,
-    /// "minimax" → .minimax). Nil for any non-open-model provider string.
+    /// Map a visible Keychain provider id back to its vendor ("ollama" → .ollamaCloud,
+    /// "neuralwatt" → .neuralwatt). Nil for hidden legacy/direct vendors and any
+    /// non-open-model provider string.
     public static func vendor(forKeychainID id: String) -> OpenModelVendor? {
         allOpenModelVendors.first { descriptor(for: $0).keychainKeyID == id }
     }

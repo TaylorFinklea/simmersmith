@@ -4,7 +4,7 @@
 
 ## Vision
 
-SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. Apple-native architecture (since 2026-06): CloudKit is the data plane (household zone via CKSyncEngine + cross-account CKShare; NSPersistentCloudKitContainer private plane; iCloud account = identity, no sign-in), and AI runs BYO-key direct from the device (OpenAI / Anthropic / OpenRouter). The legacy FastAPI/Fly.io backend is being retired (SP-D, bead epic 990 — port-then-retire per decisions.md ADR-1 2026-07-01).
+SimmerSmith is an AI-first meal planning app for the App Store. AI is the star — it plans your week, optimizes your grocery list, and makes every part of meal planning easier. Apple-native architecture (since 2026-06): CloudKit is the data plane (household zone via CKSyncEngine + cross-account CKShare; NSPersistentCloudKitContainer private plane; iCloud account = identity, no sign-in), and AI runs BYO-key direct from the device (OpenAI / Anthropic / Ollama Cloud / NeuralWatt). The legacy FastAPI/Fly.io backend is being retired (SP-D, bead epic 990 — port-then-retire per decisions.md ADR-1 2026-07-01).
 
 **Design direction**: Rich & dark editorial aesthetic with AI as a prominent floating action. Week, Recipes, and Assistant are the three core tabs.
 

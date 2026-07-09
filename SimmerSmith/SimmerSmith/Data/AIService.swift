@@ -12,7 +12,7 @@ import AIProviderKit
 //   • Surface clear typed errors for "no key" and provider failures.
 //
 // AI setting keys in the private plane (PrivateProfileSetting):
-//   "ai_direct_provider"    → "openai" | "anthropic"
+//   "ai_direct_provider"    → "openai" | "anthropic" | "openmodels"
 //   "ai_openai_model"       → e.g. "gpt-4o"
 //   "ai_anthropic_model"    → e.g. "claude-opus-4-5"
 //
@@ -28,8 +28,8 @@ final class AIService {
     static let keyProvider = "ai_direct_provider"
     static let keyOpenAIModel = "ai_openai_model"
     static let keyAnthropicModel = "ai_anthropic_model"
-    // Open-models ("openmodels") provider: the selected vendor (glm|kimi|minimax) and
-    // its model id. The vendor implies the base URL + Keychain key via ProviderRegistry.
+    // Open-models ("openmodels") provider: the selected vendor (ollama|neuralwatt)
+    // and its model id. The vendor implies the base URL + Keychain key via ProviderRegistry.
     static let keyOpenModelsVendor = "ai_openmodels_vendor"
     static let keyOpenModelsModel = "ai_openmodels_model"
 
@@ -313,19 +313,26 @@ final class AIService {
         case "openmodels":
             let vendorRaw = ((try? store.profileSetting(key: Self.keyOpenModelsVendor))?.value ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            // An empty vendor means "accept the displayed default" (OpenRouter, the only
-            // user-visible open-models vendor) — resolve it rather than throwing, so the
-            // default path is never an unrecoverable config. Matches resolvedOpenVendor.
+            // Empty means "accept the displayed default". Hidden legacy vendors (direct
+            // GLM/Kimi/MiniMax or OpenRouter) are remapped to Ollama Cloud here too, so a
+            // session that never opens Settings cannot keep routing through OpenRouter.
+            // Matches resolvedOpenVendor.
             let vendor: OpenModelVendor
+            let dropStoredOpenModelsModel: Bool
             if vendorRaw.isEmpty {
-                vendor = .openRouter
-            } else if let v = OpenModelVendor(rawValue: vendorRaw) {
+                vendor = .ollamaCloud
+                dropStoredOpenModelsModel = false
+            } else if let v = OpenModelVendor(rawValue: vendorRaw), ProviderRegistry.allOpenModelVendors.contains(v) {
                 vendor = v
+                dropStoredOpenModelsModel = false
+            } else if OpenModelVendor(rawValue: vendorRaw) != nil {
+                vendor = .ollamaCloud
+                dropStoredOpenModelsModel = true
             } else {
                 throw AIServiceError.unsupportedProvider("openmodels:\(vendorRaw)")
             }
             cloudModel = .openModels(vendor)
-            openModelsModel = ((try? store.profileSetting(key: Self.keyOpenModelsModel))?.value ?? "")
+            openModelsModel = dropStoredOpenModelsModel ? "" : ((try? store.profileSetting(key: Self.keyOpenModelsModel))?.value ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         default: throw AIServiceError.unsupportedProvider(providerRaw)
         }

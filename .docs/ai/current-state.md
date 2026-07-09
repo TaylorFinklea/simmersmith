@@ -2,7 +2,7 @@
 Branch: main
 
 ## Plan
-- (empty — Fable day 2026-07-07 complete: pr9/13j/qrt/ebu/0gf/7mb + 5w8 draft landed, adversarially verified, closed; see git log 23efe83..bfe8af6 + runbook checkboxes + decisions.md 2026-07-07. Next session: `bd prime` → `bd ready`; Sonnet 5 resumes acting Lead per lead-succession.)
+- (empty — simmersmith-a7i provider swap landed: visible OpenRouter replaced by Ollama Cloud + NeuralWatt; hidden legacy OpenRouter remaps to Ollama on Settings/runtime. Verify green: `swift test --package-path SimmerSmithCloudKit`; `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO`. Next: `bd prime` → `bd ready`.)
 
 ## User-gated (details in roadmap Awaiting User + the beads)
 - CUT 150 (148 phantom-never-uploaded; 149 BURNED — crashed at first open): 150 = q6y BG-wake fix (bb687b3) + vda first-open fix (5fdbb2c: AsyncSerialGate serializes explicit engine ops; repairs gated on initial-fetch success — 149 was the FIRST build running the repair layer in production and its destructive pass fired mid-refetch). Field GREEN per beads q6y + vda. Beads open: ppp (late BG registration), hwi (drain audit), 148 (gate cancellation), ec2 (release-script dup guard).

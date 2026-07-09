@@ -97,21 +97,20 @@ struct SettingsView: View {
                     Text("None").tag("")
                     Text("OpenAI").tag("openai")
                     Text("Anthropic").tag("anthropic")
-                    // OpenRouter is the open-models entry (one key, many open models by
-                    // slug). Internal tag stays "openmodels" so all persistence/service
-                    // plumbing is unchanged; the selected vendor is pinned to OpenRouter.
-                    Text("OpenRouter").tag("openmodels")
+                    // Open models keeps the internal "openmodels" tag while the row below
+                    // selects Ollama Cloud or NeuralWatt plus that provider's model/key.
+                    Text("Open models").tag("openmodels")
                 }
                 .onChange(of: appState.aiDirectProviderDraft) { _, newValue in
-                    // Commit the displayed OpenRouter default so a default-accept user keys +
+                    // Commit the displayed Ollama Cloud default so a default-accept user keys +
                     // saves a resolvable config without having to open the model dropdown first.
                     if newValue == "openmodels" { appState.seedOpenModelsDefaultsIfNeeded() }
                 }
 
                 if !appState.aiDirectProviderDraft.isEmpty {
                     // SP-C — model selection is a key-aware dropdown: the provider's
-                    // live /v1/models (curated) with a static fallback. "OpenRouter"
-                    // (the open-models entry) shows a curated slug list + Custom….
+                    // live /v1/models (curated) with a static fallback. "Open models"
+                    // first chooses Ollama Cloud or NeuralWatt, then a model + Custom….
                     if appState.aiDirectProviderDraft == "openmodels" {
                         OpenModelsPickerRow()
                     } else {

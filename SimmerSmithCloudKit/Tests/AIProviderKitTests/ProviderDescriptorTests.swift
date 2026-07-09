@@ -6,24 +6,23 @@ import Testing
 // directly-keyed open-model vendors. These lock the host/key/default/temperature/
 // thinking-param facts the rest of the open-models path depends on.
 
-@Test("descriptor(for:) returns the right host, key, and default per vendor")
+@Test("descriptor(for:) returns the right host, key, and default for visible open-model vendors")
 func descriptorBasics() {
-    let glm = ProviderRegistry.descriptor(for: .glm)
-    #expect(glm.keychainKeyID == "zai")
-    #expect(glm.chatURL == "https://api.z.ai/api/paas/v4/chat/completions")
-    #expect(glm.defaultModel == "glm-5.2")
-    #expect(glm.reasoningStyle == .reasoningContent)
+    let ollama = ProviderRegistry.descriptor(for: .ollamaCloud)
+    #expect(ollama.keychainKeyID == "ollama")
+    #expect(ollama.chatURL == "https://ollama.com/v1/chat/completions")
+    #expect(ollama.modelsURL == "https://ollama.com/v1/models")
+    #expect(ollama.defaultModel == "glm-5.2")
+    #expect(ollama.fallbackModels == ["glm-5.2", "kimi-k2.6", "minimax-m3"])
+    #expect(ollama.reasoningStyle == .none)
 
-    let kimi = ProviderRegistry.descriptor(for: .kimi)
-    #expect(kimi.keychainKeyID == "moonshot")
-    #expect(kimi.chatURL == "https://api.moonshot.ai/v1/chat/completions")
-    #expect(kimi.defaultModel == "kimi-k2.6")
-
-    let mm = ProviderRegistry.descriptor(for: .minimax)
-    #expect(mm.keychainKeyID == "minimax")
-    #expect(mm.chatURL == "https://api.minimax.io/v1/chat/completions")
-    #expect(mm.defaultModel == "MiniMax-M3")
-    #expect(mm.reasoningStyle == .reasoningDetails)
+    let nw = ProviderRegistry.descriptor(for: .neuralwatt)
+    #expect(nw.keychainKeyID == "neuralwatt")
+    #expect(nw.chatURL == "https://api.neuralwatt.com/v1/chat/completions")
+    #expect(nw.modelsURL == "https://api.neuralwatt.com/v1/models")
+    #expect(nw.defaultModel == "glm-5.2-short")
+    #expect(nw.fallbackModels == ["glm-5.2", "glm-5.2-short", "glm-5.2-fast", "glm-5.2-short-fast", "kimi-k2.6", "kimi-k2.6-fast"])
+    #expect(nw.reasoningStyle == .none)
 }
 
 @Test("Kimi tool-loop temperature is the hard 1.0; one-shot is 0.6")
@@ -33,11 +32,11 @@ func kimiTemperatureConstraints() {
     #expect(kimi.oneShotTemperature == 0.6)
 }
 
-@Test("vendor(forKeychainID:) round-trips the keychain id mapping")
+@Test("vendor(forKeychainID:) maps visible provider keychain ids and excludes hidden OpenRouter")
 func keychainRoundTrip() {
-    #expect(ProviderRegistry.vendor(forKeychainID: "zai") == .glm)
-    #expect(ProviderRegistry.vendor(forKeychainID: "moonshot") == .kimi)
-    #expect(ProviderRegistry.vendor(forKeychainID: "minimax") == .minimax)
+    #expect(ProviderRegistry.vendor(forKeychainID: "ollama") == .ollamaCloud)
+    #expect(ProviderRegistry.vendor(forKeychainID: "neuralwatt") == .neuralwatt)
+    #expect(ProviderRegistry.vendor(forKeychainID: "openrouter") == nil)
     #expect(ProviderRegistry.vendor(forKeychainID: "openai") == nil)
 }
 
@@ -79,17 +78,10 @@ func thinkingParams() {
     #expect(disabled(.openRouter).isEmpty)
 }
 
-@Test("OpenRouter descriptor: one key, OpenAI-compatible URL, curated slugs, no live models list")
-func openRouterDescriptor() {
-    let or = ProviderRegistry.descriptor(for: .openRouter)
-    #expect(or.keychainKeyID == "openrouter")
-    #expect(or.chatURL == "https://openrouter.ai/api/v1/chat/completions")
-    #expect(or.modelsURL == nil)              // nil → Test-Key uses a real chat probe
-    #expect(or.reasoningStyle == .none)       // OpenRouter normalizes reasoning itself
-    #expect(or.defaultModel == "z-ai/glm-4.6")
-    #expect(or.fallbackModels.contains("z-ai/glm-4.6"))
-    #expect(or.fallbackModels.contains("minimax/minimax-m3"))
-    // The vendor round-trips through the keychain-id mapping like the direct vendors.
-    #expect(ProviderRegistry.vendor(forKeychainID: "openrouter") == .openRouter)
+@Test("visible open-model vendors are Ollama Cloud and NeuralWatt only")
+func visibleOpenModelVendors() {
+    #expect(ProviderRegistry.allOpenModelVendors == [.ollamaCloud, .neuralwatt])
+    #expect(OpenModelVendor(rawValue: "ollama") == .ollamaCloud)
+    #expect(OpenModelVendor(rawValue: "neuralwatt") == .neuralwatt)
     #expect(OpenModelVendor(rawValue: "openrouter") == .openRouter)
 }

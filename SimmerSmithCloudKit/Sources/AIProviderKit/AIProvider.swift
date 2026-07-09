@@ -31,16 +31,19 @@ public enum AITier: Sendable, Equatable {
 /// Keychain key + OpenAI-compatible base URL via `ProviderRegistry`.
 public enum OpenModelVendor: String, Sendable, Equatable, CaseIterable {
     case glm, kimi, minimax
-    /// OpenRouter — an OpenAI-compatible META-provider (one key, many open models by
-    /// slug). Preferred entry point for open models; the direct GLM/Kimi/MiniMax vendors
-    /// above stay in the code but are hidden from the picker. Explicit lowercase rawValue
-    /// so `OpenModelVendor(rawValue:)` resolves the "openrouter" provider string.
+    case ollamaCloud = "ollama"
+    case neuralwatt
+    /// Legacy OpenRouter case retained only so an existing persisted value can still be
+    /// decoded. New-user Settings selection is driven by `ProviderRegistry.allOpenModelVendors`,
+    /// which intentionally excludes OpenRouter.
     case openRouter = "openrouter"
     public var displayName: String {
         switch self {
         case .glm: return "GLM (Z.ai)"
         case .kimi: return "Kimi (Moonshot)"
         case .minimax: return "MiniMax"
+        case .ollamaCloud: return "Ollama Cloud"
+        case .neuralwatt: return "NeuralWatt"
         case .openRouter: return "OpenRouter"
         }
     }

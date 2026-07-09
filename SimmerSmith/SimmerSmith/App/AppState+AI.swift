@@ -49,7 +49,7 @@ extension AppState {
             }
 
             // API key → Keychain (never Fly, never CloudKit). For "openmodels" the key
-            // belongs to the SELECTED vendor (zai/moonshot/minimax), not the literal
+            // belongs to the SELECTED vendor (Ollama Cloud / NeuralWatt), not the literal
             // "openmodels" provider string.
             let keychainID = openModelsKeychainID(provider: provider, vendor: openModelsVendor)
             if clearStoredAPIKey {
@@ -236,8 +236,8 @@ extension AppState {
 
     #if canImport(CloudKit)
     /// Map the selected provider (+ vendor for "openmodels") to its Keychain id.
-    /// openai/anthropic key by their own name; openmodels keys by the vendor (zai/
-    /// moonshot/minimax). Nil when nothing resolvable is selected.
+    /// openai/anthropic key by their own name; openmodels keys by the selected
+    /// visible vendor (ollama/neuralwatt). Nil when nothing resolvable is selected.
     private func openModelsKeychainID(provider: String, vendor: String) -> String? {
         switch provider {
         case "openai", "anthropic": return provider
@@ -248,16 +248,18 @@ extension AppState {
         }
     }
 
-    /// Resolve an open-models vendor draft, defaulting an EMPTY draft to OpenRouter (the
-    /// only user-visible open-models vendor) so "accept the default" keys/persists a
-    /// resolvable config. A non-empty but invalid value stays unresolved (nil).
+    /// Resolve an open-models vendor draft, defaulting EMPTY or hidden legacy vendors to
+    /// Ollama Cloud so "accept the default" keys/persists a resolvable config and no new
+    /// runtime path routes through OpenRouter. A non-empty unrecognized value stays nil.
     func resolvedOpenVendor(_ raw: String) -> OpenModelVendor? {
         let r = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return r.isEmpty ? .openRouter : OpenModelVendor(rawValue: r)
+        guard !r.isEmpty else { return .ollamaCloud }
+        guard let vendor = OpenModelVendor(rawValue: r) else { return nil }
+        return ProviderRegistry.allOpenModelVendors.contains(vendor) ? vendor : .ollamaCloud
     }
 
-    /// Friendly label for a Keychain provider id — vendor displayName for the open
-    /// vendors (zai → "GLM (Z.ai)"), capitalized id otherwise.
+    /// Friendly label for a Keychain provider id — vendor displayName for the visible
+    /// open vendors (ollama → "Ollama Cloud"), capitalized id otherwise.
     func friendlyProviderLabel(_ keychainID: String) -> String {
         if let v = ProviderRegistry.vendor(forKeychainID: keychainID) { return v.displayName }
         return keychainID.capitalized
@@ -300,22 +302,22 @@ extension AppState {
         }
     }
 
-    /// Commit the displayed OpenRouter default when the provider switches to "openmodels"
+    /// Commit the displayed Ollama Cloud default when the provider switches to "openmodels"
     /// without the user having tapped the model dropdown — otherwise the drafts stay
     /// empty, the key save no-ops, and resolveConfiguration can't resolve the vendor.
-    /// OpenRouter is the only user-visible open-models vendor now, so a legacy direct-vendor
-    /// draft (glm/kimi/minimax) — which the picker no longer offers — is migrated to
-    /// OpenRouter (resetting the model to its default). Idempotent for an OpenRouter draft.
+    /// Legacy direct-vendor/OpenRouter drafts are migrated to Ollama Cloud (resetting the
+    /// model to its default). Idempotent for the visible Ollama/NeuralWatt drafts.
     func seedOpenModelsDefaultsIfNeeded() {
         #if canImport(CloudKit)
         guard aiDirectProviderDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "openmodels" else { return }
         let current = OpenModelVendor(rawValue: aiOpenModelsVendorDraft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-        if current != .openRouter {
-            aiOpenModelsVendorDraft = OpenModelVendor.openRouter.rawValue
-            aiOpenModelsModelDraft = ""   // drop any legacy direct-vendor model id
+        if current.map({ !ProviderRegistry.allOpenModelVendors.contains($0) }) ?? true {
+            aiOpenModelsVendorDraft = OpenModelVendor.ollamaCloud.rawValue
+            aiOpenModelsModelDraft = ""
         }
         if aiOpenModelsModelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: .openRouter).defaultModel
+            let vendor = resolvedOpenVendor(aiOpenModelsVendorDraft) ?? .ollamaCloud
+            aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: vendor).defaultModel
         }
         #endif
     }

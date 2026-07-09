@@ -1368,3 +1368,28 @@ request time, bumped first in teardown, re-checked at dequeue + every commit poi
 detach what they built. Verify-gate lesson: lead-authored designs get the same adversarial gate —
 it caught the lead's bug. Pre-existing mid-wire teardown window (identical under the old guard)
 deliberately NOT pulled into scope → bead v89 (P4).
+
+## 2026-07-09 — Replace OpenRouter with Ollama Cloud + NeuralWatt for visible open-model BYO-key AI
+
+**Context.** The iOS app's open-model path was already descriptor-driven under the internal
+`openmodels` provider tag. OpenRouter was only the visible `OpenModelVendor.openRouter` descriptor
+in Settings, not a separate provider stack. The user asked whether Ollama Cloud subscription API keys
+and NeuralWatt could replace OpenRouter entirely, and chose **Ollama Cloud + NeuralWatt only**; do not
+ship `opencode-go` because its non-coding app-traffic terms are unverified.
+
+**Decision.** Keep `ai_direct_provider = "openmodels"` and replace the visible vendor set with:
+- **Ollama Cloud** — Keychain id `ollama`, OpenAI-compatible endpoint `https://ollama.com/v1`,
+  defaults/fallbacks `glm-5.2`, `kimi-k2.6`, `minimax-m3`.
+- **NeuralWatt** — Keychain id `neuralwatt`, OpenAI-compatible endpoint
+  `https://api.neuralwatt.com/v1`, defaults/fallbacks around `glm-5.2-short` + GLM/Kimi variants.
+
+OpenRouter remains only as a hidden legacy enum/descriptor so old code/tests can decode the value, but
+it is not returned by `ProviderRegistry.allOpenModelVendors`, not offered in Settings, and persisted
+hidden vendors (OpenRouter or the old direct GLM/Kimi/MiniMax cases) remap to Ollama Cloud at Settings
+and runtime resolution. This closes the headless bypass where a stored `openrouter` value could keep
+calling OpenRouter without the user opening Settings.
+
+**Why.** This preserves the working BYO-key architecture, Keychain-only secret storage, model picker,
+assistant tool loop, streaming, and Test Key plumbing while replacing the aggregator account. It avoids
+a new top-level provider/migration surface and avoids using `opencode-go` in product until its terms are
+verified.

@@ -43,19 +43,33 @@ private func openModelsProvider(_ vendor: OpenModelVendor, keychainID: String, t
 
 // MARK: - T3 one-shot generate()
 
-@Test("GLM one-shot body disables thinking, uses default model + one-shot temp, sends json_object, hits the Z.ai URL")
-func glmOneShotBody() async throws {
+@Test("Ollama Cloud one-shot body uses default model, sends json_object, hits Ollama Cloud URL")
+func ollamaCloudOneShotBody() async throws {
     let transport = MockHTTPTransport(responseData: omChatSuccess())
-    let provider = openModelsProvider(.glm, keychainID: "zai", transport: transport)
+    let provider = openModelsProvider(.ollamaCloud, keychainID: "ollama", transport: transport)
     _ = try await provider.generate(AIRequest(feature: .weekGen, systemPrompt: "plan", prompt: "go", wantsStructuredJSON: true))
 
     let body = try omBody(transport)
     #expect(body["model"] as? String == "glm-5.2")
     #expect((body["temperature"] as? Double) == 0.7)
-    #expect((body["thinking"] as? [String: Any])?["type"] as? String == "disabled")
+    #expect(body["thinking"] == nil)
     #expect((body["response_format"] as? [String: Any])?["type"] as? String == "json_object")
-    #expect(transport.capturedRequest?.url?.absoluteString == "https://api.z.ai/api/paas/v4/chat/completions")
+    #expect(transport.capturedRequest?.url?.absoluteString == "https://ollama.com/v1/chat/completions")
     #expect(transport.capturedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
+}
+
+@Test("NeuralWatt one-shot body uses selected model and hits NeuralWatt URL")
+func neuralwattOneShotBody() async throws {
+    let transport = MockHTTPTransport(responseData: omChatSuccess())
+    let provider = openModelsProvider(.neuralwatt, keychainID: "neuralwatt", transport: transport, model: "kimi-k2.6-fast")
+    _ = try await provider.generate(AIRequest(feature: .weekGen, prompt: "go", wantsStructuredJSON: false))
+
+    let body = try omBody(transport)
+    #expect(body["model"] as? String == "kimi-k2.6-fast")
+    #expect((body["temperature"] as? Double) == 0.7)
+    #expect(body["thinking"] == nil)
+    #expect(body["response_format"] == nil)
+    #expect(transport.capturedRequest?.url?.absoluteString == "https://api.neuralwatt.com/v1/chat/completions")
 }
 
 @Test("Kimi one-shot uses the hard non-thinking temperature 0.6 and its own model id")
@@ -83,9 +97,8 @@ func minimaxOneShotStripsThink() async throws {
 @Test("missing open-models key throws noKeyConfigured for the right vendor")
 func openModelsNoKey() async {
     let transport = MockHTTPTransport(responseData: omChatSuccess())
-    // provider built WITHOUT setting the zai key:
-    let provider = BYOKeyProvider(model: .openModels(.glm), keyStore: OMKeyStore(), transport: transport)
-    await #expect(throws: AIError.noKeyConfigured(.openModels(.glm))) {
+    let provider = BYOKeyProvider(model: .openModels(.ollamaCloud), keyStore: OMKeyStore(), transport: transport)
+    await #expect(throws: AIError.noKeyConfigured(.openModels(.ollamaCloud))) {
         _ = try await provider.generate(AIRequest(feature: .weekGen, prompt: "go"))
     }
 }
@@ -100,24 +113,24 @@ func stripThink() {
 
 // MARK: - T4 listModels + catalog
 
-@Test("open-models listModels parses the vendor /models ids and hits the right URL")
-func glmListModels() async throws {
-    let data = #"{"data":[{"id":"glm-5.2"},{"id":"glm-4.6"}]}"#.data(using: .utf8)!
+@Test("open-models listModels parses Ollama Cloud /models ids and hits the right URL")
+func ollamaCloudListModels() async throws {
+    let data = #"{"data":[{"id":"glm-5.2"},{"id":"kimi-k2.6"}]}"#.data(using: .utf8)!
     let transport = MockHTTPTransport(responseData: data)
-    let provider = openModelsProvider(.glm, keychainID: "zai", transport: transport)
+    let provider = openModelsProvider(.ollamaCloud, keychainID: "ollama", transport: transport)
     let models = try await provider.listModels()
-    #expect(models == ["glm-5.2", "glm-4.6"])
-    #expect(transport.capturedRequest?.url?.absoluteString == "https://api.z.ai/api/paas/v4/models")
+    #expect(models == ["glm-5.2", "kimi-k2.6"])
+    #expect(transport.capturedRequest?.url?.absoluteString == "https://ollama.com/v1/models")
 }
 
-@Test("catalog resolves open vendors by keychain id and raw value, and leaves openai/anthropic alone")
+@Test("catalog resolves visible open vendors by keychain id and raw value, and leaves openai/anthropic alone")
 func catalogOpenVendor() {
-    #expect(AIModelCatalog.defaultModel(for: "zai") == "glm-5.2")
-    #expect(AIModelCatalog.defaultModel(for: "glm") == "glm-5.2")
-    #expect(AIModelCatalog.defaultModel(for: "moonshot") == "kimi-k2.6")
-    #expect(AIModelCatalog.fallback(for: "minimax").contains("MiniMax-M3"))
+    #expect(AIModelCatalog.defaultModel(for: "ollama") == "glm-5.2")
+    #expect(AIModelCatalog.defaultModel(for: "neuralwatt") == "glm-5.2-short")
+    #expect(AIModelCatalog.fallback(for: "ollama") == ["glm-5.2", "kimi-k2.6", "minimax-m3"])
+    #expect(AIModelCatalog.fallback(for: "neuralwatt").contains("glm-5.2-short-fast"))
 
-    let curated = AIModelCatalog.curatedModels(provider: "zai", rawIDs: ["foo", "glm-4.6", "glm-5.2"])
+    let curated = AIModelCatalog.curatedModels(provider: "ollama", rawIDs: ["foo", "kimi-k2.6", "glm-5.2"])
     #expect(curated.first == "glm-5.2")
     #expect(curated.contains("foo"))
 
