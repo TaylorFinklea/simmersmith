@@ -20,6 +20,13 @@ paid-for and ignored, through submission.
       recommended.
 
 ## Gate 1 — data safety (arch-v2 P1, Lane A–C of the execution plan)
+- [x] **arch-v3 delta review (2026-07-09)** — `glw` (`d54b6c3`): repair passes no longer outlive
+      session teardown / adopt-swap, and factory reset quiesces them before wiping zones (it
+      could otherwise resurrect the zone it just erased). `c57` (`02b1974`): pre-swap open-models
+      users no longer persist an incompatible vendor+model pair.
+- [ ] **`ioj`** — permanent sync failures (quota/auth/permission) are recorded then self-cleared
+      in the same tick, so the `qrt` banner never fires for them. Gate-1 class: it defeats the
+      ADR-3 "how would we know?" test. Land before the cut.
 - [x] r8q (`0bee2a7`) + c7r (`1197bdb`) + 6ce (`4a17515`) + dab (`24d0826`) engine core · 9zf
       (`94b4231`) · eky (`a907de6`) landed 2026-07-02, suites green (Kit 155 / CK 436 / app builds).
 - [x] pr9 CKRecord defensive copies (`23efe83`, 2026-07-07) — store copy-in/copy-out + merger/rebase

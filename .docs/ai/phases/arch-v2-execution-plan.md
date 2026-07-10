@@ -14,13 +14,20 @@ Opus backstop → commit):** Lane D `7pr` `9984ec2` + `962` `9487101` · Lane A 
 changed under it) · Lane E `5w8` · Lane F `9wr` (user Dashboard half) · runtime proof = device
 beads `6uj` + `a97` on a fresh build.
 
-**SUCCESSION:** Opus/Fable are rate-limit-unavailable for weeks from 2026-07-03. Sonnet 5 is
-acting Lead (per the `delegation-method` + `lead-succession` bd memories — the 2026-07-01
-promotion already covers all-but-hardest Lead work). Everything left in this plan and the P2
-wave is at or below that ceiling. Every non-negotiable below still applies verbatim — especially
-the independent adversarial verify and the personal backstop (run the suites yourself; never
-trust an implementer's report). Defer to Opus's return only: new CloudKit record-type schema
-sign-off beyond the signed 990.4 spec, and re-architecting anything a verify pass rejects twice.
+**SUCCESSION ENDED 2026-07-09 — Fable resumed Lead.** (History: Sonnet 5 was acting Lead from
+2026-07-03 during the rate-limit outage.) Sonnet 5 reverts to all-but-hardest Lead + Senior impl
+per `delegation-method`. Both deferred items are UNBLOCKED: new CloudKit record-type schema
+sign-off (990.4's RecipeMemory schema was signed 2026-07-09 and landed as `1556cc0`), and
+re-architecting anything a verify rejects twice. Every non-negotiable below still applies
+verbatim — especially the independent adversarial verify and the personal backstop (run the
+suites yourself; never trust an implementer's report — a 990.4.1 impl agent returned a
+content-free report on 2026-07-09 while its code was fine; only the diff-read caught it).
+
+**arch-v3 (2026-07-09)** added a delta review of the post-arch-v2 commits (findings → beads
+`glw` ✓, `c57` ✓, `ioj`, `44q`, `bnh`, `gd5`) and four forward-track specs. Its composition
+lesson: `vda`, `0gf` and `7mb` each landed three serialization primitives verified in isolation
+and never as a system — `glw` was the bug in their composition. Any future wave landing multiple
+concurrency primitives in one cycle gets a composition review before the build ships.
 
 ## Non-negotiables (delegation-method invariants)
 
