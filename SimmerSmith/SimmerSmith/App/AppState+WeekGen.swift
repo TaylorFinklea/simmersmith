@@ -86,6 +86,7 @@ extension AppState {
             pantryStaples: staples,
             dietaryGoal: profileRepository?.dietaryGoal,
             ingredientPreferences: ingredientPreferences,
+            preferenceSignals: preferenceRepository?.signals ?? [],
             recentWeeks: weekRepository?.weeks ?? [],
             termAliases: aliases,
             excludeWeekId: excludeWeekId

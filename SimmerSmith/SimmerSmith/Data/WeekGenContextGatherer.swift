@@ -37,6 +37,7 @@ enum WeekGenContextGatherer {
         pantryStaples: [String],
         dietaryGoal: DietaryGoal?,
         ingredientPreferences: [IngredientPreference],
+        preferenceSignals: [PreferenceSignal],
         recentWeeks: [WeekSnapshot],
         termAliases: [String: String],
         excludeWeekId: String? = nil
@@ -92,15 +93,20 @@ enum WeekGenContextGatherer {
             )
         }
 
+        // Signal-derived likes/cuisines (bead simmersmith-b9z — see PreferenceSignalScoring
+        // for the accumulate/clamp/threshold rule, recorded in the "feedback→signal
+        // scoring" ADR). brands/rules stay [] — no signalType writes them yet.
+        let derived = PreferenceSignalScoring.derive(signals: preferenceSignals)
+
         return PlanningContext(
             hardAvoids: mergedAvoids,
-            strongLikes: [],        // AI: preference-signal context deferred (later AI slice)
-            likedCuisines: [],      // AI: preference-signal context deferred
-            dislikedCuisines: [],   // AI: preference-signal context deferred
-            brands: [],             // AI: preference-signal context deferred
+            strongLikes: derived.strongLikes,
+            likedCuisines: derived.likedCuisines,
+            dislikedCuisines: derived.dislikedCuisines,
+            brands: [],              // AI: preference-signal context deferred (no brand signalType yet)
             staples: pantryStaples.sorted(),
             recentMeals: recentMeals,
-            rules: [],              // AI: preference-signal context deferred
+            rules: [],               // AI: preference-signal context deferred
             dietaryGoal: goalContext,
             allergies: dedupedAllergies,
             termAliases: termAliases

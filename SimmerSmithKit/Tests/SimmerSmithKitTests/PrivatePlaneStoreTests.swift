@@ -70,6 +70,44 @@ func preferenceSignalDeterministicKeyDedupes() throws {
 }
 
 @Test(requiresPrivatePlaneEntitledHost) @MainActor
+func allPreferenceSignalsReturnsWhatWasWritten() throws {
+    let store = try makeStore()
+    try store.upsertPreferenceSignal(signalType: "recipe", name: "Tacos", normalizedName: "tacos", score: 1, active: true)
+    try store.upsertPreferenceSignal(signalType: "cuisine", name: "Thai", normalizedName: "thai", score: 2, active: true)
+    try store.save()
+
+    let rows = try store.allPreferenceSignals()
+    #expect(rows.count == 2)
+    #expect(Set(rows.map(\.recordKey)) == ["recipe:tacos", "cuisine:thai"])
+}
+
+// bead simmersmith-b9z: exercises the actual call pattern the app uses (read the
+// current score via the list accessor, accumulate+clamp via `PreferenceSignalScoring`,
+// upsert the result) end-to-end against the store, across enough ratings to hit both
+// clamp bounds. `upsertPreferenceSignal` itself stays a plain replace-on-write (see
+// `preferenceSignalDeterministicKeyDedupes` above) — accumulation is a caller concern.
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
+func preferenceSignalAccumulatesAndClampsAtBothBounds() throws {
+    let store = try makeStore()
+
+    var likedScore = 0.0
+    for _ in 0..<5 {
+        likedScore = PreferenceSignalScoring.accumulate(currentScore: likedScore, sentiment: 1)
+        try store.upsertPreferenceSignal(signalType: "recipe", name: "Tacos", normalizedName: "tacos", score: likedScore, active: true)
+    }
+    var dislikedScore = 0.0
+    for _ in 0..<5 {
+        dislikedScore = PreferenceSignalScoring.accumulate(currentScore: dislikedScore, sentiment: -1)
+        try store.upsertPreferenceSignal(signalType: "cuisine", name: "Thai", normalizedName: "thai", score: dislikedScore, active: true)
+    }
+    try store.save()
+
+    let rows = try store.allPreferenceSignals()
+    #expect(rows.first { $0.recordKey == "recipe:tacos" }?.score == PreferenceSignalScoring.scoreMax)
+    #expect(rows.first { $0.recordKey == "cuisine:thai" }?.score == PreferenceSignalScoring.scoreMin)
+}
+
+@Test(requiresPrivatePlaneEntitledHost) @MainActor
 func ingredientPreferenceUpsertByID() throws {
     let store = try makeStore()
     try store.upsertIngredientPreference(preferenceID: "pref-1", baseIngredientID: "ing-1",

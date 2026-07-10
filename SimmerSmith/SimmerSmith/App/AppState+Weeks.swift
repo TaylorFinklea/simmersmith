@@ -572,9 +572,24 @@ extension AppState {
         return week
     }
 
-    // MARK: - DATA: feedback (stays on Fly — feedback ingestion is server-side)
+    // MARK: - DATA: feedback
 
+    /// Record a meal rating. CloudKit: write `PrivatePreferenceSignal` rows for the
+    /// recipe name (and the meal's cuisine, when the meal is linked to a saved recipe
+    /// that has one) via `preferenceRepository.upsertSignal`, then refresh the week so
+    /// the rating is visible immediately. This is bead simmersmith-b9z: previously this
+    /// always called the dead Fly `submitFeedback` endpoint, which silently no-op'd for
+    /// every CloudKit household — see the "feedback→signal scoring" ADR
+    /// (.docs/ai/decisions.md) for the scoring rule. Falls back to the legacy Fly path
+    /// when no CloudKit session is active.
     func submitMealFeedback(for meal: WeekMeal, in weekID: String, sentiment: Int, notes: String) async throws {
+        #if canImport(CloudKit)
+        if weekRepository != nil, let prefRepo = preferenceRepository {
+            recordMealFeedbackSignals(prefRepo: prefRepo, meal: meal, sentiment: sentiment)
+            await refreshWeek()
+            return
+        }
+        #endif
         _ = try await apiClient.submitFeedback(
             weekID: weekID,
             entries: [
@@ -587,15 +602,57 @@ extension AppState {
                 )
             ]
         )
-        // Reload the week after feedback (mirrors the old refreshWeekAfterSideMutation).
-        #if canImport(CloudKit)
-        if weekRepository != nil {
-            await refreshWeek()
-            return
-        }
-        #endif
         _ = try await refreshWeekAfterSideMutation(weekID: weekID)
     }
+
+    #if canImport(CloudKit)
+    /// Write the recipe signal, and the cuisine signal when the meal is linked to a
+    /// saved recipe (`meal.recipeId`) whose `cuisine` is non-empty. Per the bead: if no
+    /// cuisine is available in scope, only the recipe signal is written — no cuisine
+    /// field is invented.
+    private func recordMealFeedbackSignals(prefRepo: PreferenceRepository, meal: WeekMeal, sentiment: Int) {
+        recordSignal(
+            prefRepo: prefRepo,
+            signalType: PreferenceSignalScoring.recipeSignalType,
+            name: meal.recipeName,
+            sentiment: sentiment
+        )
+        if let recipeId = meal.recipeId,
+           let recipe = recipes.first(where: { $0.recipeId == recipeId }) {
+            let cuisine = recipe.cuisine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cuisine.isEmpty {
+                recordSignal(
+                    prefRepo: prefRepo,
+                    signalType: PreferenceSignalScoring.cuisineSignalType,
+                    name: cuisine,
+                    sentiment: sentiment
+                )
+            }
+        }
+    }
+
+    /// Accumulate `sentiment` onto the existing signal's score (0 if none yet), clamp
+    /// via `PreferenceSignalScoring.accumulate`, and upsert. Reads `prefRepo.signals`,
+    /// which `upsertSignal` refreshes synchronously after every write, so a back-to-back
+    /// recipe-then-cuisine call sees consistent state.
+    private func recordSignal(prefRepo: PreferenceRepository, signalType: String, name: String, sentiment: Int) {
+        let normalized = NutritionCalculator.normalizeName(name)
+        let current = prefRepo.signals.first {
+            $0.signalType == signalType && $0.normalizedName == normalized
+        }?.score ?? 0
+        let newScore = PreferenceSignalScoring.accumulate(currentScore: current, sentiment: sentiment)
+        prefRepo.upsertSignal(
+            signalType: signalType, name: name, normalizedName: normalized,
+            score: newScore, active: true
+        )
+    }
+    #endif
+
+    // MARK: - DATA: grocery feedback (stays on Fly — feedback ingestion is server-side;
+    // NOT covered by simmersmith-b9z, which is scoped to meal feedback only. Grocery-item
+    // feedback has the same dead-backend shape for CloudKit households — see this bead's
+    // report — but there is no ADR-specified signal type/threshold for ingredient-level
+    // feedback, so it is deliberately left unwired here.)
 
     func submitGroceryFeedback(for item: GroceryItem, sentiment: Int, notes: String) async throws {
         guard let weekID = currentWeek?.weekId else { return }

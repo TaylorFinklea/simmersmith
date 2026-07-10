@@ -2,6 +2,12 @@ import SwiftUI
 
 struct FeedbackComposerView: View {
     let title: String
+    /// simmersmith-b9z: on CloudKit households the rating is stored as a
+    /// `PrivatePreferenceSignal` (sentiment only) — nothing reads free-text notes, so
+    /// collecting them would be a control that does nothing, which is precisely the class
+    /// of bug this bead fixed. Callers pass `false` there. Restore this when a reader
+    /// exists (bead `zrr` tracks the follow-ups).
+    var collectsNotes: Bool = true
     let onSubmit: (_ sentiment: Int, _ notes: String) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -25,9 +31,11 @@ struct FeedbackComposerView: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("Notes") {
-                    TextEditor(text: $notes)
-                        .frame(minHeight: 140)
+                if collectsNotes {
+                    Section("Notes") {
+                        TextEditor(text: $notes)
+                            .frame(minHeight: 140)
+                    }
                 }
 
                 if let errorMessage {

@@ -106,6 +106,14 @@ public struct PrivatePlaneStore {
         return row
     }
 
+    /// All preference signals, unsorted (callers filter/derive as needed — see
+    /// `PreferenceSignalScoring.derive`). The read counterpart to
+    /// `upsertPreferenceSignal`; added for `WeekGenContextGatherer` (bead simmersmith-b9z),
+    /// which previously had no way to read back what `upsertPreferenceSignal` wrote.
+    public func allPreferenceSignals() throws -> [PrivatePreferenceSignal] {
+        try context.fetch(FetchDescriptor<PrivatePreferenceSignal>())
+    }
+
     // MARK: Ingredient preferences (id-keyed)
 
     @discardableResult

@@ -172,6 +172,7 @@
 		DF7731457AC9E508DD586A96 /* AppState+Vision.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */; };
 		E0378532886B9D2564206062 /* HouseholdSync in Frameworks */ = {isa = PBXBuildFile; productRef = 2040F6BEA94497101D5A4E38 /* HouseholdSync */; };
 		E1CDA323F24EFD0D782C52A1 /* EventPantrySupplementSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */; };
+		E2B89E1951A216A0F6C95B6C /* WeekGenContextGathererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */; };
 		E2F4671C3E4F1338A7AF13C0 /* CloudKitDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */; };
 		E395F9237FD8F1D10B4A2113 /* AIPageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BAF92537028E47DF2B80C2 /* AIPageContext.swift */; };
 		E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */; };
@@ -395,6 +396,7 @@
 		F222A33C201808AF925C11C1 /* EventEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEditSheet.swift; sourceTree = "<group>"; };
 		F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealNoteEditor.swift; sourceTree = "<group>"; };
 		F4DA130CC3CF01AC162AF455 /* SimmerSmithTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekGenContextGathererTests.swift; sourceTree = "<group>"; };
 		F796BB3E64B0CEC4AB2B6FF0 /* CuisinePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuisinePill.swift; sourceTree = "<group>"; };
 		F7AB5C4A651E47C2ED148EC4 /* TodayMealCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayMealCard.swift; sourceTree = "<group>"; };
 		F80EE82F42F6428AF84B3E94 /* RecipeWebImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeWebImportView.swift; sourceTree = "<group>"; };
@@ -781,6 +783,7 @@
 			children = (
 				8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */,
 				E8212BCB28C979E36992B399 /* ToolRegistryDecodeTests.swift */,
+				F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */,
 			);
 			path = SimmerSmithTests;
 			sourceTree = "<group>";
@@ -974,6 +977,7 @@
 			files = (
 				27EBF0EFE7D5CD79CA9B557D /* SimmerSmithTests.swift in Sources */,
 				41F9CBF40BCEBCAA38029143 /* ToolRegistryDecodeTests.swift in Sources */,
+				E2B89E1951A216A0F6C95B6C /* WeekGenContextGathererTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

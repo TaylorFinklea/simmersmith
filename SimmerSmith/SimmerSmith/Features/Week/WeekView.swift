@@ -410,7 +410,10 @@ struct WeekView: View {
             }
         }
         .sheet(item: $feedbackMeal) { meal in
-            FeedbackComposerView(title: meal.recipeName) { sentiment, notes in
+            // simmersmith-b9z: on CloudKit households the rating becomes a preference
+            // signal (sentiment only); nothing reads free-text notes there, so don't ask
+            // for them. The legacy Fly path still forwards notes.
+            FeedbackComposerView(title: meal.recipeName, collectsNotes: !appState.isCloudKitOnly) { sentiment, notes in
                 // Attach feedback to the displayed (possibly browsed) week the
                 // rated meal belongs to, not always the current week.
                 guard let weekID = displayedWeek?.weekId else { return }

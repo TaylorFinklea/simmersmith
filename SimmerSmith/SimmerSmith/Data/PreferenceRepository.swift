@@ -14,8 +14,9 @@ import SimmerSmithKit
 //   • PrivateIngredientPreference — id-keyed on the app's preferenceId. The published
 //     `preferences` projection is sorted by rank (rank=1 = primary brand pick).
 //   • PrivatePreferenceSignal — det-keyed "<signalType>:<normalizedName>"; the assistant's
-//     learned cuisine/ingredient signals. Write-through here; no published projection
-//     (consumed by the scoring path, not a Settings list).
+//     learned recipe/cuisine signals. Published as `signals` (bead simmersmith-b9z) so
+//     WeekGenContextGatherer can derive strongLikes/likedCuisines/dislikedCuisines from
+//     them — not a Settings list, just the scoring path's read side.
 //
 // The private plane stores only the fields it owns (preferenceId / baseIngredientID /
 // choiceMode / rank / active / brand / variation). The display NAMES
@@ -34,6 +35,11 @@ final class PreferenceRepository {
     /// AppState enriches them from the catalog on its rewire pass.
     private(set) var preferences: [IngredientPreference] = []
 
+    /// Preference signals (recipe + cuisine), unsorted — feeds
+    /// `WeekGenContextGatherer.build`'s strongLikes/likedCuisines/dislikedCuisines
+    /// derivation (bead simmersmith-b9z).
+    private(set) var signals: [PreferenceSignal] = []
+
     private let session: HouseholdSession
 
     init(session: HouseholdSession) {
@@ -48,6 +54,7 @@ final class PreferenceRepository {
     func reload() {
         guard let store = session.privateStore else {
             preferences = []
+            signals = []
             return
         }
         do {
@@ -55,6 +62,7 @@ final class PreferenceRepository {
             preferences = rows
                 .sorted { $0.rank < $1.rank }
                 .compactMap(Self.ingredientPreference(from:))
+            signals = try store.allPreferenceSignals().map(Self.preferenceSignal(from:))
         } catch {
             print("[PreferenceRepository] reload failed: \(error)")
         }
@@ -106,8 +114,9 @@ final class PreferenceRepository {
 
     // MARK: - Preference signal writes
 
-    /// Upsert a preference signal (det-keyed on signalType + normalizedName) and persist.
-    /// No projection refresh — signals feed the scoring path, not a published list.
+    /// Upsert a preference signal (det-keyed on signalType + normalizedName), persist,
+    /// and refresh `signals` so a subsequent read (a back-to-back recipe+cuisine write,
+    /// or the next planning-context gather) sees the write immediately.
     func upsertSignal(signalType: String, name: String, normalizedName: String, score: Double, active: Bool) {
         guard let store = session.privateStore else { return }
         do {
@@ -119,6 +128,7 @@ final class PreferenceRepository {
                 active: active
             )
             try store.save()
+            reload()
         } catch {
             print("[PreferenceRepository] upsertSignal failed: \(error)")
         }
@@ -157,5 +167,18 @@ final class PreferenceRepository {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+
+    /// Project a private-plane signal row into the app's `PreferenceSignal` value — a
+    /// direct field copy (no catalog enrichment needed, unlike ingredient preferences).
+    private static func preferenceSignal(from row: PrivatePreferenceSignal) -> PreferenceSignal {
+        PreferenceSignal(
+            signalType: row.signalType,
+            name: row.name,
+            normalizedName: row.normalizedName,
+            score: row.score,
+            active: row.active,
+            updatedAt: row.updatedAt
+        )
+    }
 }
 #endif
