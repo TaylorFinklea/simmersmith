@@ -80,23 +80,29 @@ private let zoneID = CKRecordZone.ID(zoneName: "test-zone", ownerName: CKCurrent
 
     // RecipeMemory cascades from Recipe via a `recipe` .deleteSelf reference — mirrors the
     // HouseholdRecordType.recipeMemory manifest ref (pinned separately in HouseholdRecordsTests).
-    let memory = CKRecord(recordType: "RecipeMemory", recordID: CKRecord.ID(recordName: "mem-1", zoneID: zoneID))
+    //
+    // The memoryID must be UNIQUE across this file: `makeRecord` stages the CKAsset at a stable
+    // Caches path keyed by recordName, and Swift Testing runs these tests in parallel — sharing
+    // "mem-1" with the round-trip test above raced that test's 11 bytes against this one's 1,
+    // failing whichever read last.
+    let memoryID = "mem-cascade"
+    let memory = CKRecord(recordType: "RecipeMemory", recordID: CKRecord.ID(recordName: memoryID, zoneID: zoneID))
     memory["recipe"] = CKRecord.Reference(recordID: recipe.recordID, action: .deleteSelf)
     store.setRecord(memory)
 
     // RecipeMemoryImage cascades from RecipeMemory via RecipeMemoryImageCodec's own `recipeMemory` ref.
     let image = try RecipeMemoryImageCodec.makeRecord(
-        RecipeMemoryImage(memoryID: "mem-1", createdAt: Date(), imageData: Data("x".utf8)),
+        RecipeMemoryImage(memoryID: memoryID, createdAt: Date(), imageData: Data("x".utf8)),
         zoneID: zoneID)
     store.setRecord(image)
 
     // Level 1: Recipe -> RecipeMemory.
     let childrenOfRecipe = store.recordIDsCascadingFrom("recipe-1")
-    #expect(childrenOfRecipe.map(\.recordName) == ["mem-1"])
+    #expect(childrenOfRecipe.map(\.recordName) == [memoryID])
 
     // Level 2: RecipeMemory -> RecipeMemoryImage. `deleteCascading` (HouseholdSyncEngine)
     // recurses through exactly this scan, so a Recipe delete sweeps the whole subtree.
-    let childrenOfMemory = store.recordIDsCascadingFrom("mem-1")
-    #expect(childrenOfMemory.map(\.recordName) == ["rmemimg:mem-1"])
+    let childrenOfMemory = store.recordIDsCascadingFrom(memoryID)
+    #expect(childrenOfMemory.map(\.recordName) == ["rmemimg:\(memoryID)"])
 }
 #endif
