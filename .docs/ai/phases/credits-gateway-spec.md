@@ -135,10 +135,16 @@ CREATE INDEX ix_usage_subject_time ON usage_events(subject, created_at);
 CREATE INDEX ix_entitlements_origtxn ON entitlements(original_transaction_id);
 ```
 
-**Credit unit**: 1 credit ≈ 1k normalized upstream tokens (completion weighted ×3 vs prompt),
-rounded up per call, **scaled by a per-model cost multiplier** in env config — a flat unit does
-not survive multiple upstreams at different prices. `MONTHLY_ALLOWANCE`, `STARTER_GRANT`, and the
-multiplier table are activation-time parameters set when 98v flips.
+**Credit unit — credits are CENTS OF COGS, not tokens** (panel F4; adopted). `1 credit = $0.001`
+of upstream cost: `debit = ceil((prompt_tok × in_price_per_1k + completion_tok × out_price_per_1k) / 0.001)`,
+with the per-model price table in Worker config. A token-denominated credit silently breaks the
+moment a second upstream exists — glm-5.2 and a frontier model differ by >100× per token, so
+"1 credit ≈ 1k tokens" would mean the same allowance buys wildly different utility after a
+"config-only" provider swap. Cents survive provider swaps and internal cheap/expensive routing.
+`MONTHLY_ALLOWANCE`, `STARTER_GRANT`, and the price table are activation-time parameters (98v).
+
+**Per-request ceiling** (panel F6): cap `max_tokens` server-side; a single request must not be
+able to drain a balance. Reserve on the ceiling, settle down to actual.
 
 ### 5.1 Concurrency: one writer per subject (panel F5 — CRITICAL, found independently by two reviewers)
 
@@ -166,6 +172,13 @@ forwarding, then settles to the true cost when usage lands (`settled=1`).
   the charge and mark `settled=0`; a reconciliation pass corrects it if the frame ever lands.
   Over-estimate then refund; never double-debit, never bill zero.
 
+### 5.2b Rate limiting (panel F6 — a stolen session token must be bounded)
+
+Token bucket in the same per-subject DO as the balance: burst ~10 req/min, sustained ~1 req/min
+(activation-tunable). A stolen 1h JWT can then burn at most ~60 requests before expiry, and the
+`max_tokens` ceiling bounds each one. KV is the wrong primitive here — eventually consistent, no
+atomic decrement.
+
 ### 5.3 Entitlement state, not a boolean (panel F18)
 
 ASSN v2 emits `GRACE_PERIOD`, `BILLING_RETRY` (60-day window), upgrades/downgrades, `REFUND` vs
@@ -178,23 +191,47 @@ gateway re-reads the entitlement row on every `/v1/chat/completions` call and 40
 
 ## 6. iOS integration (codebase-derived — mirror, don't invent)
 
-- **New descriptor, zero new transport**: add a `gateway` vendor served by the existing
+- **New descriptor, no new transport**: add a `gateway` vendor served by the existing
   descriptor-driven open-models path (`chatWithToolsOpenModels` / `streamWithToolsOpenModels`
   — find the `ProviderDescriptor` for Ollama Cloud and mirror it; baseURL = Worker,
   `modelsURL: nil`, reasoning `.none`). It is NOT user-visible in the vendor picker; the
   router selects it, Settings shows it as "SimmerSmith AI (included with Pro)".
+  **Verified 2026-07-09:** `BYOKeyProvider` resolves `keyStore.key(for: descriptor.keychainKeyID)`
+  **per call** (`Providers.swift:225`), so writing a refreshed session JWT to Keychain id
+  `gateway` is picked up by the next request with no descriptor rebuild. (A panel reviewer
+  claimed the descriptor captures the key at construction and that a cached provider would go
+  stale — **refuted against the real code**; that claim rested on a file that does not exist.)
+- **402 needs new client code — say so** (panel F1b, verified): real `AIError` carries only
+  `httpError(provider:statusCode:body:)`. A 402 today renders as a generic HTTP-error string;
+  nothing maps it to `AppState.presentPaywall` (which exists). Required: an
+  `AIError.insufficientCredits(reason:)` case, a 402 → that case mapping in the HTTP check, and
+  a hook that routes `starter_exhausted` / `subscription_lapsed` to the paywall while
+  `allowance_exhausted` shows a reset-date notice. **This is ~20 lines of new iOS code, not
+  zero** — the draft overclaimed "renders without new client code."
 - **Session acquisition** lives beside `SubscriptionStore` (it already retains
   `lastSignedTransaction` "for a future backend-verification path" — that future is this).
-  Refresh the gateway session on launch and on `Transaction.updates`.
+  Refresh on launch, on `Transaction.updates`, and on any 401 from the gateway.
 - **`appAccountToken` at purchase**: extend `SubscriptionStore.purchase(_:)` with
-  `Product.PurchaseOption.appAccountToken(userToken)`; mint + persist the token in the
-  private plane (mirror how per-user profile rows are stored there today — read the
-  pantry-profile private-plane path first).
-- **Paywall relaunch (98v)**: `MonetizationFlags` flips at activation; `presentPaywall` choke
-  point already exists; paywall copy adds the allowance framing. ASC products + `.storekit`
-  config = existing beads (98v children, 2kv).
-- **Router wiring**: `creditsAvailable` = session valid && balance > 0 (cached snapshot,
-  refreshed opportunistically; a 402 mid-call flips it false and surfaces the paywall).
+  `Product.PurchaseOption.appAccountToken(userToken)`; mint + persist the token BEFORE the
+  purchase call, and block the purchase if persistence fails (§3).
+- **`userToken` persistence is Keychain-first, private-plane-second** (panel F2c). CloudKit is
+  eventually consistent and unavailable when the user is signed out of iCloud or has iCloud
+  disabled for SimmerSmith — a private-plane-only token is lost on reinstall in exactly those
+  cases, orphaning a paid subscription. Store in Keychain (`AfterFirstUnlockThisDeviceOnly`,
+  consistent with bead `kde`) for reinstall survival, mirror to the private plane for
+  cross-device sync. **Merge rule**: if the private plane later delivers a *different* token,
+  the synced one wins — discard the local mint, invalidate the cached session, re-acquire.
+- **Starter → subscriber migration** (panel F2b): a starter user's subject is their App Attest
+  key id; on subscribing it becomes the `appAccountToken`. Without a merge the remaining starter
+  credits vanish and the row orphans. The `/v1/session` call presenting a subscriber JWS MUST
+  also send the prior attest key id; the Worker merges balances and marks the old subject
+  `migrated_to` the new one (add `users.migrated_to TEXT REFERENCES users(subject)`; reject
+  sessions on a migrated subject).
+- **Paywall relaunch (98v)**: `MonetizationFlags` flips at activation; the `presentPaywall`
+  choke point exists; copy adds the allowance framing. ASC products + `.storekit` = beads
+  98v children, `2kv`.
+- **Router wiring**: `creditsAvailable` = session valid && balance > 0 (cached snapshot; a 402
+  mid-call flips it false and routes per the `code` above).
 
 ## 7. Privacy & compliance
 
@@ -206,10 +243,34 @@ gateway re-reads the entitlement row on every `/v1/chat/completions` call and 40
   the gateway never takes payment.
 - App Review: the trial grant gives reviewers a working AI path with no key and no purchase.
 
+## 7.5 Panel review — what was adopted, and what was refuted
+
+Reviewed 2026-07-09 by qwen3.7-max (×2 lanes) + minimax-m3, pre-digested one-shot. Two reviewers
+independently found the D1 double-spend; neither the Claude fleet nor the author caught it.
+
+**Adopted:** Family-Sharing identity hole (§3.1) · per-subject Durable Object debit (§5.1) ·
+App Attest challenge-response (§3) · 1h JWT + per-call entitlement re-read (§5.3) · three 402
+states + "starter credits" language (§4) · SSE abort drains via `ctx.waitUntil` (§5.2) ·
+credits-as-cents (§5) · rate-limit params + `max_tokens` ceiling (§5.2b) · ASSN state machine
+with grace/retry (§5.3) · Keychain-first `userToken` (§6) · starter→subscriber merge (§6) ·
+402 needs real client code (§6) · `request_id` idempotency + indexes (§5).
+
+**Refuted (recorded so it is not re-raised):** "the gateway descriptor caches its key at
+construction, so a cached provider serves a stale session JWT." `BYOKeyProvider` reads
+`keyStore.key(for: descriptor.keychainKeyID)` per call (`Providers.swift:225`); the descriptor
+holds an id, not a key. The reviewer grounded this in `SimmerSmithKit/Sources/SimmerSmithKit/AI/
+OpenModelsProvider.swift`, **which does not exist** — its whole "I read the codebase" preamble
+cited fabricated paths. *Method note:* a reviewer that names files is not thereby grounded.
+Every panel claim about this codebase gets checked against the code before adoption; the two
+findings above are the ones that survived that check, and one of them (402) corrected the
+author's own overclaim.
+
 ## 8. What this spec deliberately does NOT do
 
 - No consumable credit packs (deferred; ledger supports them — a pack is just a
-  `balances.credits +=` fulfillment from a new consumable product's ASSN/JWS).
+  `balances.credits +=` fulfillment). **Design the ASSN receiver as a dispatch-on-
+  notification-type table from day one** so adding non-renewing products is a new handler, not
+  a rewrite (panel F5a).
 - No multi-provider routing logic in v1: one upstream (env-config base URL + key; pick at
   activation — Ollama Cloud subscription is the default candidate). Failover is a config
   change, not code.
