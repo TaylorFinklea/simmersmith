@@ -198,3 +198,500 @@ this is the full extent of it.
 | `fetchWeek` | `Data/WeekMigrationLoader.swift:113` | Same function/gate as fetchWeeks row above; only reached inside the per-week detail fetch  |
 | `fetchWeek` | `Data/WeekMigrationLoader.swift:127` | Replenish-iteration duplicate of line 113 inside the same bounded task group; identical re |
 
+
+---
+
+## Appendix — verbatim evidence for selected LIVE-AND-BROKEN rows
+
+> Written by the audit agents during enumeration: the full enclosing function body and the
+> traced user entry point, unabridged. Not exhaustive — the authoritative, complete
+> classification is the table above. Kept because re-deriving a guard's absence from memory
+> is exactly the mistake that produced ADR-1's wrong list.
+
+## Row: apiClient.fetchBaseIngredients (AppState+Ingredients.swift:14, searchBaseIngredients)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Ingredients.swift:14`,
+  inside `searchBaseIngredients(query:limit:includeArchived:provisionalOnly:
+  withPreferences:withVariations:includeProductLike:)` (lines 5-23, entire
+  function read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  func searchBaseIngredients(
+      query: String = "",
+      limit: Int = 20,
+      includeArchived: Bool = false,
+      provisionalOnly: Bool = false,
+      withPreferences: Bool = false,
+      withVariations: Bool = false,
+      includeProductLike: Bool = false
+  ) async throws -> [BaseIngredient] {
+      try await apiClient.fetchBaseIngredients(
+          query: query,
+          limit: limit,
+          includeArchived: includeArchived,
+          provisionalOnly: provisionalOnly,
+          withPreferences: withPreferences,
+          withVariations: withVariations,
+          includeProductLike: includeProductLike
+      )
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard (no
+  `preferenceRepository`/other repo reference at all), no
+  `hasSavedConnection` check — the apiClient call IS the entire body,
+  unconditional. Same class of gap as the `updateBaseIngredient` /
+  `fetchBaseIngredientDetail` / `archiveBaseIngredient` rows above, same
+  file: the very next function, `refreshIngredientPreferences()` (lines
+  209-224), DOES have both the `#if canImport(CloudKit)` +
+  `preferenceRepository` branch AND a `guard hasSavedConnection else {
+  return }` before its own Fly fallback, confirming the omission here is a
+  gap against this file's own established pattern, not a deliberate
+  "no guard needed" design.
+- **Caller grep**: `grep -rn "searchBaseIngredients"` across
+  `SimmerSmith/SimmerSmith` finds six call sites outside the definition:
+  1. `Features/Ingredients/IngredientsView.swift:91`, inside
+     `loadIngredients()` (lines 87-104).
+  2. `Features/Settings/SettingsView.swift:1165`, inside
+     `loadInitialState()` (lines 1161-1173) of `IngredientPreferenceEditorSheet`.
+  3. `Features/Settings/SettingsView.swift:1179`, inside
+     `searchIngredients()` (lines 1175-1184), same sheet.
+  4. `Features/Settings/SettingsView.swift:1330`, inside
+     `loadIngredients()` (lines 1326-1335) of `IngredientCatalogSheet`.
+  5. `Features/Ingredients/BaseIngredientMergeSheet.swift:114`, inside
+     `loadCandidates()` (lines 110-124).
+  6. `Features/Recipes/RecipeEditorIngredientResolution.swift:390`, inside
+     `searchIngredients()` (lines 386-403) of `IngredientResolutionSheet`.
+  None of the six enclosing functions has a CloudKit/`hasSavedConnection`
+  guard before the call.
+- **Reachability — confirmed for 5 of 6 sites, one refuted**:
+  - **(1) IngredientsView.swift:91**: `.task(id: loadKey)` on the view's
+    root (`IngredientsView.swift:66-68`) calls `loadIngredients()`
+    unconditionally whenever the view appears/`loadKey` changes.
+    `IngredientsView` is pushed from `SettingsView.swift:479-483`
+    (`NavigationLink { IngredientsView() } label: { Label("Manage
+    Ingredient Catalog", ...) }`), a plain top-level `Form { Section {...}
+    }` entry with no enclosing `if`/`#if canImport(CloudKit)` — the
+    nearest `hasSavedConnection`/CloudKit-gated blocks in the file are
+    elsewhere (e.g. an unrelated Section starting at line 629), not around
+    this one. **Confirmed reachable**: Settings → "Manage Ingredient
+    Catalog" → unconditional load.
+  - **(2)+(3) SettingsView.swift:1165/1179**: `IngredientPreferenceEditorSheet`
+    is presented via `.sheet(item: $preferenceEditor)`
+    (`SettingsView.swift:657-658`), set either by tapping an existing
+    preference row (`:410`) or the "Add Ingredient Preference" button
+    (`:467`) — both inside the same ungated "ingredient preferences"
+    `Section` (`:400-473`) as (1)'s surrounding Form. `.task { ... await
+    loadInitialState() }` (`:1153-1157`) fires once per sheet presentation
+    unconditionally, and the "Search Catalog" button (`:1179`'s
+    `searchIngredients()`) is a plain, always-enabled button. **Confirmed
+    reachable**: Settings → Ingredient Preferences editor → unconditional
+    load / user-triggered search.
+  - **(4) SettingsView.swift:1330 — REFUTED as a live entry point.**
+    `grep -rn "IngredientCatalogSheet"` across the whole app finds exactly
+    one match: the `struct IngredientCatalogSheet: View` definition itself
+    (`SettingsView.swift:1239`). No `.sheet`, `NavigationLink`, or any
+    other call constructs `IngredientCatalogSheet(...)` anywhere in the
+    codebase — this view (and its `apiClient.fetchBaseIngredients` call at
+    `:1330`) is dead code, defined but never instantiated. It also does
+    NOT correspond to "Settings > Manage Ingredient Catalog" (that label
+    points at `IngredientsView`, site (1) above, not `IngredientCatalogSheet`).
+  - **(5) BaseIngredientMergeSheet.swift:114**: presented via
+    `.sheet(isPresented: $mergePresented)` in `IngredientDetailView`
+    (`IngredientsView.swift:178-181`), set by the always-visible "Merge
+    Into Another Ingredient" button inside the unconditional toolbar
+    `Menu("Manage")` (`IngredientsView.swift:135-137`). `IngredientDetailView`
+    itself is pushed via a plain `NavigationLink` on every catalog row
+    (`IngredientCatalogList.swift:26-27`), reached from (1)'s
+    `IngredientsView`. `.task { if candidates.isEmpty { await
+    loadCandidates() } }` (`BaseIngredientMergeSheet.swift:50-54`) fires
+    unconditionally on sheet presentation. **Confirmed reachable**:
+    Settings → Manage Ingredient Catalog → tap an ingredient → Manage →
+    Merge Into Another Ingredient → unconditional load.
+  - **(6) RecipeEditorIngredientResolution.swift:390**: presented via
+    `.sheet(item: $ingredientResolutionContext)`
+    (`RecipeEditorView.swift:438-442`), set by the always-visible "Review
+    ingredient match" / "Change ingredient match" `Button` on every recipe
+    ingredient row (`RecipeEditorView.swift:307-320`, no CloudKit/
+    `hasSavedConnection` guard). `.task { guard !didLoad ...; await
+    loadInitialState() }` (`RecipeEditorIngredientResolution.swift:
+    290-294`) → `loadInitialState()` (`:351-359`) unconditionally calls
+    `searchIngredients()` (`:386-403`, the `:390` call site). **Confirmed
+    reachable**: Recipe editor → any ingredient row → Review/Change
+    ingredient match → unconditional load.
+- **`hasSavedConnection` semantics** (`AppState.swift:316-318`):
+  `!ConnectionSettingsStore.normalizeServerURL(serverURLDraft).isEmpty` —
+  `false` means no Fly server URL is configured. `buildRequest`
+  (`SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  2243-2253`) throws `SimmerSmithAPIError.missingServerURL` in exactly
+  that state, so on a CloudKit household with `hasSavedConnection ==
+  false` every reachable call site above surfaces a caught, user-visible
+  `errorMessage = error.localizedDescription` (e.g. an empty search plus
+  an error banner) instead of silently working through the CloudKit
+  repositories — a broken/visible-lie UX, not a silent no-op.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN**, with one correction to the
+  claimed entry-point list: `SettingsView.swift:1330`
+  (`IngredientCatalogSheet`) is dead code, never instantiated anywhere —
+  drop it from the entry-point list. The other five call sites
+  (`IngredientsView.swift:91`, `SettingsView.swift:1165`,
+  `SettingsView.swift:1179`, `BaseIngredientMergeSheet.swift:114`,
+  `RecipeEditorIngredientResolution.swift:390`) are each independently
+  confirmed reachable from an ordinary, non-DEBUG user action with no
+  `#if canImport(CloudKit)` block or `hasSavedConnection` guard anywhere
+  between the tap and the `apiClient.fetchBaseIngredients` call — matching
+  the calibration pattern (bare pass-through, no early return above the
+  call) and the same-file precedent set by the `updateBaseIngredient`,
+  `fetchBaseIngredientDetail`, and `archiveBaseIngredient` rows above.
+
+## Row: apiClient.mergeBaseIngredient (AppState+Ingredients.swift:104)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Ingredients.swift:104`,
+  inside `mergeBaseIngredient(sourceID:targetID:)` (lines 103-105, entire
+  function read).
+- **Full function body** (verbatim, the entire function):
+  ```swift
+  func mergeBaseIngredient(sourceID: String, targetID: String) async throws -> BaseIngredient {
+      try await apiClient.mergeBaseIngredient(sourceID: sourceID, targetID: targetID)
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check — it is the entire body, called
+  unconditionally. Confirmed by reading the whole file
+  (`AppState+Ingredients.swift`, lines 1-317): `createBaseIngredient`,
+  `updateBaseIngredient`, `archiveBaseIngredient`, `mergeBaseIngredient`,
+  the variation CRUD functions, and `resolveIngredient` all lack any
+  guard; only `refreshIngredientPreferences` (209-224) and
+  `upsertIngredientPreference` (226-296) have the `#if canImport(CloudKit)
+  if let repo = preferenceRepository { ... return }` pattern.
+- **Callee confirmed real, not a stub**:
+  `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  1290-1296` issues an actual `POST /api/ingredients/{sourceID}/merge`
+  request via the shared `request(...)` helper.
+- **Caller grep**: `grep -rn "mergeBaseIngredient"` across the repo finds
+  exactly one call site outside the two definitions (`AppState+
+  Ingredients.swift:104` and the API client method itself):
+  `Features/Ingredients/BaseIngredientMergeSheet.swift:131`, inside
+  `private func merge() async` (lines 126-138, entirely read):
+  ```swift
+  private func merge() async {
+      guard let selectedTargetID else { return }
+      do {
+          isMerging = true
+          errorMessage = nil
+          _ = try await appState.mergeBaseIngredient(sourceID: baseIngredientID, targetID: selectedTargetID)
+          onMerged()
+          dismiss()
+      } catch {
+          errorMessage = error.localizedDescription
+      }
+      isMerging = false
+  }
+  ```
+  The only guard is `guard let selectedTargetID else { return }` — a
+  nil-selection bail (the user hasn't picked a merge target yet), not a
+  household-type check. No CloudKit/hasSavedConnection guard precedes the
+  call.
+- **Reachability from `merge()` to a user action** (every hop read in
+  full):
+  1. `merge()` is wired to the sheet's `.confirmationAction` toolbar
+     button: `Button(isMerging ? "Merging…" : "Merge") { Task { await
+     merge() } }.disabled(isMerging || selectedTargetID == nil)`
+     (`BaseIngredientMergeSheet.swift:41-47`) — an ordinary, always-
+     compiled button, enabled once a target is selected.
+  2. `BaseIngredientMergeSheet` is presented via `.sheet(isPresented:
+     $mergePresented)` at `IngredientsView.swift:178-182`, inside
+     `IngredientDetailView.body`.
+  3. `mergePresented = true` is set from the unconditional "Merge Into
+     Another Ingredient" button inside the always-visible toolbar
+     `Menu("Manage")` at `IngredientsView.swift:128-144` (`if let detail`
+     only gates on the detail having loaded, not on household/backend
+     type; the menu button itself has no further guard).
+  4. `IngredientDetailView` is pushed from `IngredientCatalogList.swift:
+     26-27`, a plain `NavigationLink` inside an unconditional
+     `ForEach(ingredients)` — no CloudKit/hasSavedConnection check.
+  5. `IngredientCatalogList` is embedded directly in `IngredientsView.body`
+     (`IngredientsView.swift:36-40`), a flat `List`, no wrapping guard.
+  6. `IngredientsView` is reached via `SettingsView.swift:479-483`:
+     `NavigationLink { IngredientsView() } label: { Label("Manage
+     Ingredient Catalog", ...) }`, a direct sibling Section inside the flat
+     top-level `Form` at `SettingsView.body` (lines 33-484, read in full).
+     The only `#if canImport(CloudKit)` in this stretch (65-79) wraps an
+     unrelated `SyncStatusDetailView` link inside the *first* Section and
+     closes well before the ingredient-catalog Section (475-484) begins.
+     The nearest `hasSavedConnection` check in the file is an unrelated
+     section starting at line 629 — well after, and not an ancestor of,
+     this Section.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), Settings → "Manage
+  Ingredient Catalog" → tap any ingredient row → "Manage" menu → "Merge
+  Into Another Ingredient" → pick a target → "Merge" unconditionally calls
+  `BaseIngredientMergeSheet.merge()`, which unconditionally calls
+  `appState.mergeBaseIngredient(sourceID:targetID:)`, which — with zero
+  guard of any kind — calls `apiClient.mergeBaseIngredient(...)`, issuing a
+  real `POST /api/ingredients/{id}/merge` against the dead Fly backend
+  with no fallback path. Every hop was read in full; none contains a
+  repository-nil check, `hasSavedConnection` check, or `#if
+  canImport(CloudKit)` branch. Matches the claimed user entry point
+  (`BaseIngredientMergeSheet.swift:131`, `merge()`) exactly, and is the
+  same class of gap as the `updateBaseIngredient` / `archiveBaseIngredient`
+  / `fetchBaseIngredientDetail` rows above (same file, same catalog entry
+  point, same missing guard pattern).
+
+## Row: apiClient.createBaseIngredient (AppState+Ingredients.swift:48)
+
+- **Related bead**: simmersmith-990.5.1 ("990.5a: household-zone ingredient
+  repositories + CRUD rewire", P2, open) — description states plainly
+  "rewire AppState+Ingredients CRUD off apiClient," i.e. it has not
+  happened yet. Independent corroboration, not the source of this row's
+  evidence.
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Ingredients.swift:48`,
+  inside `createBaseIngredient(name:normalizedName:category:defaultUnit:
+  notes:sourceName:sourceRecordID:sourceURL:provisional:active:
+  nutritionReferenceAmount:nutritionReferenceUnit:calories:)` (lines 33-63,
+  entire function read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  func createBaseIngredient(
+      name: String,
+      normalizedName: String? = nil,
+      category: String = "",
+      defaultUnit: String = "",
+      notes: String = "",
+      sourceName: String = "",
+      sourceRecordID: String = "",
+      sourceURL: String = "",
+      provisional: Bool = false,
+      active: Bool = true,
+      nutritionReferenceAmount: Double? = nil,
+      nutritionReferenceUnit: String = "",
+      calories: Double? = nil
+  ) async throws -> BaseIngredient {
+      try await apiClient.createBaseIngredient(
+          name: name,
+          normalizedName: normalizedName,
+          category: category,
+          defaultUnit: defaultUnit,
+          notes: notes,
+          sourceName: sourceName,
+          sourceRecordId: sourceRecordID,
+          sourceURL: sourceURL,
+          provisional: provisional,
+          active: active,
+          nutritionReferenceAmount: nutritionReferenceAmount,
+          nutritionReferenceUnit: nutritionReferenceUnit,
+          calories: calories
+      )
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check anywhere in the function — it is the entire
+  body, called unconditionally. Same class of gap already documented in
+  this file for the sibling `updateBaseIngredient`,
+  `fetchBaseIngredientDetail`, and `archiveBaseIngredient` rows (same
+  file, contrast with `refreshIngredientPreferences`/
+  `upsertIngredientPreference`, which do have the `#if
+  canImport(CloudKit) if let repo = preferenceRepository { ... return }`
+  pattern).
+- **Caller grep**: `grep -rn "createBaseIngredient"` across
+  `SimmerSmith/SimmerSmith` finds two call sites of the `AppState` facade
+  method outside its own definition, plus one direct bypass:
+  - `Features/Ingredients/IngredientsView.swift:593`, inside
+    `BaseIngredientEditorSheet.save()` (lines 574-611, entirely read).
+  - `Features/Recipes/RecipeEditorIngredientResolution.swift:571`, inside
+    `NewBaseIngredientSheet.save()` (lines 568-583, entirely read).
+  - `Features/Grocery/IngredientLinkPickerSheet.swift:192` — a third,
+    previously-unfiled call site that bypasses the `AppState` facade
+    entirely (`appState.apiClient.createBaseIngredient` direct). Not one
+    of the two claimed entry points for this row; noted for completeness
+    only. Consistent with the same file already being flagged in
+    `simmersmith-990.5.1`'s notes for a sibling facade-bypass
+    (`submitIngredientForAdoption` at line 564).
+  Both audited callers' enclosing `save()` functions were read start to
+  finish; neither has a `#if canImport(CloudKit)` block, repository-nil
+  guard, or `hasSavedConnection` check anywhere above the
+  `createBaseIngredient` call.
+  - `BaseIngredientEditorSheet.save()`'s only branch is `if let existing =
+    context.ingredient { …update path, see updateBaseIngredient row above…
+    } else { …create path, this row, line 593… }` — household-type-
+    agnostic.
+  - `NewBaseIngredientSheet.save()` has no branch at all before the call
+    (lines 568-576): `isSaving = true` then the call is the very next
+    statement.
+- **Reachability to a user action — entry point 1**
+  (`IngredientsView.swift:593`): `IngredientsView.swift:51-58` — a plain
+  toolbar `Button` ("New Ingredient", `topBarTrailing`, always visible, no
+  CloudKit/hasSavedConnection gate) sets `editorContext =
+  BaseIngredientEditorContext()`; the context's `init` defaults
+  `ingredient` to `nil` (`IngredientsView.swift:414-421`), so `save()`'s
+  `else` branch (create path, line 593) fires. `IngredientsView.swift:
+  61-65` wires `.sheet(item: $editorContext) {
+  BaseIngredientEditorSheet(context:...) }`. `IngredientsView` itself is
+  reached via `Features/Settings/SettingsView.swift:479-483`'s
+  `NavigationLink { IngredientsView() }` ("Manage Ingredient Catalog") — a
+  plain, always-present link in a flat `Form`/`Section`, not behind any
+  `isCloudKitOnly`/`hasSavedConnection` conditional (same Settings-entry
+  verification already done for the `updateBaseIngredient`,
+  `fetchBaseIngredientDetail`, and `archiveBaseIngredient` rows above).
+  Full chain: Settings tab → "Manage Ingredient Catalog" → toolbar "+"
+  ("New Ingredient") → fill in name → "Save" →
+  `BaseIngredientEditorSheet.save()` (create branch) →
+  `appState.createBaseIngredient` → `apiClient.createBaseIngredient`.
+- **Reachability to a user action — entry point 2**
+  (`RecipeEditorIngredientResolution.swift:571`):
+  `RecipeEditorIngredientResolution.swift:187-197` — inside
+  `IngredientResolutionSheet`'s "Find Canonical Ingredient" section, a
+  plain `Button` labeled "Create Base Ingredient" (shown whenever a
+  catalog search returns no results and the search text is non-empty; no
+  CloudKit/hasSavedConnection gate) sets `newBaseIngredientContext =
+  NewBaseIngredientContext(...)`; `:300` wires `.sheet(item:
+  $newBaseIngredientContext) { NewBaseIngredientSheet(...) }`.
+  `IngredientResolutionSheet` is presented from
+  `Features/Recipes/RecipeEditorView.swift:309-319` via a plain,
+  always-visible "Review ingredient match"/"Change ingredient match"
+  button on every recipe-ingredient row (no gate;
+  `ingredientResolutionContext = IngredientResolutionSheetContext(...)`).
+  `RecipeEditorView` is reached from the Recipes tab via
+  `RecipesView.swift:248`, `RecipeDetailView.swift:234`,
+  `RecipeSupport.swift:463`, and `RecipeDraftReviewSheet.swift:126` — and
+  Recipes is the one feature area `AppState.swift:275-280` documents by
+  name as the "first (and currently only) fully cut-over" feature,
+  explicitly NOT behind `ComingSoonView` (only "Weeks / Grocery / Events /
+  Profile / AI" are named as gated). Full chain: Recipes tab → open/
+  create a recipe → an ingredient row → "Review ingredient match" → type
+  a search term with no catalog hits → "Create Base Ingredient" → fill
+  in name → "Save" → `NewBaseIngredientSheet.save()` →
+  `appState.createBaseIngredient` → `apiClient.createBaseIngredient`.
+- **`isCloudKitOnly`/`hasSavedConnection` context confirmed**
+  (`AppState.swift:280,294,316-318`): `isCloudKitOnly` is a hardcoded
+  `true` compile-time constant (`private static let cloudKitOnlyBuild =
+  true`), and the surrounding comment (274-279) names only "Weeks /
+  Grocery / Events / Profile / AI" as gated behind `ComingSoonView`;
+  Ingredients is absent from that list and is not gated anywhere in the
+  navigation chain traced above, for either entry point.
+  `hasSavedConnection == false` (`!ConnectionSettingsStore.
+  normalizeServerURL(serverURLDraft).isEmpty`, i.e. no Fly server URL
+  ever configured) is therefore the default/typical state for any
+  CloudKit-only-build household, not a rare edge case.
+- **Confirmed genuinely broken, not just theoretically reachable**:
+  `SimmerSmithAPIClient.swift:2243-2253` (`buildRequest`, the private
+  helper underlying `createBaseIngredient`'s real `POST` implementation at
+  line 1197) guards `baseURLString.isEmpty` and throws
+  `SimmerSmithAPIError.missingServerURL` before any network call is
+  attempted — so on `hasSavedConnection == false` the call doesn't
+  silently no-op or crash the app, it throws, and both `save()` callers
+  catch it into `errorMessage = error.localizedDescription`
+  (`IngredientsView.swift:607-609`, `RecipeEditorIngredientResolution.swift:
+  579-581`). The user sees a save failure banner and the ingredient is
+  never created — no CloudKit fallback exists anywhere in either chain.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), both claimed
+  entry points — Ingredient Catalog's "New Ingredient" Save
+  (`IngredientsView.swift:593`, `BaseIngredientEditorSheet.save`, create
+  branch) and the recipe editor's "Create Base Ingredient" Save
+  (`RecipeEditorIngredientResolution.swift:571`,
+  `NewBaseIngredientSheet.save`) — reach `appState.createBaseIngredient`
+  with zero guards above the call, which reaches
+  `apiClient.createBaseIngredient` with zero guards above that either,
+  which throws `missingServerURL` against the dead/unconfigured Fly
+  backend. Matches bead `simmersmith-990.5.1`'s own description ("rewire
+  AppState+Ingredients CRUD off apiClient" — not yet done) independently,
+  without relying on the bead's text as evidence, and is the same class
+  of gap as this file's `updateBaseIngredient`, `fetchBaseIngredientDetail`,
+  and `archiveBaseIngredient` rows (same file, same missing-guard pattern,
+  same catalog/recipe-editor entry points).
+
+## Row: apiClient.resolveIngredient (AppState+Ingredients.swift:202)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Ingredients.swift:202`,
+  inside `resolveIngredient(_:)` (lines 201-203, entire function read).
+- **Full function body** (verbatim, the entire function):
+  ```swift
+  func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
+      try await apiClient.resolveIngredient(ingredient)
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check — it is the entire body, called
+  unconditionally. Re-confirmed by reading the whole file
+  (`AppState+Ingredients.swift`, lines 1-317, same read as the
+  `mergeBaseIngredient` row above): `resolveIngredient` sits directly below
+  the variation CRUD functions with the same bare pass-through shape; only
+  `refreshIngredientPreferences` (209-224) and
+  `upsertIngredientPreference` (226-296), further down in the same file,
+  have the `#if canImport(CloudKit) if let repo = preferenceRepository {
+  ... return }` pattern.
+- **Callee confirmed real, not a stub**:
+  `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  1411-1425` issues an actual `POST /api/ingredients/resolve` request via
+  the shared `request(...)` helper.
+- **Caller grep**: `grep -rn "resolveIngredient(\|loadSuggestedResolution"`
+  across `SimmerSmith/SimmerSmith/` finds exactly one call site outside the
+  two definitions: `Features/Recipes/RecipeEditorIngredientResolution.swift:
+  364`, inside `private func loadSuggestedResolution() async` (lines
+  361-384, entirely read):
+  ```swift
+  private func loadSuggestedResolution() async {
+      do {
+          isLoadingSuggestion = true
+          suggestedResolution = try await appState.resolveIngredient(ingredient)
+          ...
+      } catch {
+          errorMessage = error.localizedDescription
+      }
+      isLoadingSuggestion = false
+  }
+  ```
+  No guard of any kind precedes the call — no CloudKit check, no
+  `hasSavedConnection` check, no repository check.
+- **Reachability from `loadSuggestedResolution()` to a user action** (every
+  hop read in full):
+  1. `loadSuggestedResolution()` is called from `loadInitialState()`
+     (`RecipeEditorIngredientResolution.swift:351-359`, read in full):
+     `await searchIngredients(); if ingredient.baseIngredientId == nil {
+     await loadSuggestedResolution() }` — the only gate is "ingredient has
+     no base match yet," not a household/backend-type check.
+  2. `loadInitialState()` is invoked from `IngredientResolutionSheet.body`'s
+     `.task { guard !didLoad else { return }; didLoad = true; await
+     loadInitialState() }` (lines 290-294) — an ordinary SwiftUI `.task`
+     that fires automatically the first time the sheet renders; `didLoad`
+     only prevents re-firing on view updates, it is not a CloudKit/
+     `hasSavedConnection` gate. `IngredientResolutionSheet`'s `init` (lines
+     103-112) and stored properties (84-101) contain no such gate either.
+  3. `IngredientResolutionSheet` is presented via `.sheet(item:
+     $ingredientResolutionContext)` at `RecipeEditorView.swift:438-442`,
+     matching the claimed entry point exactly.
+  4. `ingredientResolutionContext` is set unconditionally from the "Review
+     ingredient match" / "Change ingredient match" `Button`
+     (`RecipeEditorView.swift:307-322`), a plain, always-rendered button
+     inside each ingredient row's `Form` section — no `if` wrapping it on
+     household/backend type, no `.disabled` tied to `hasSavedConnection`.
+  5. That ingredient row section sits in the ordinary recipe-editing flow
+     (per-ingredient detail fields: quantity, unit, prep, category, notes,
+     immediately preceding this button) — reachable by any user editing any
+     recipe ingredient, CloudKit household or not.
+- **`apiClient` is non-optional**: `AppState.swift:57` declares `let
+  apiClient: SimmerSmithAPIClient` — always instantiated, never nil — so
+  the call is a genuine network attempt, not a silent no-op. (Contrast with
+  the many sibling functions in `AppState+Grocery.swift`,
+  `AppState+Household.swift`, and `AppState.swift` itself that guard with
+  `guard hasSavedConnection else { return }` before touching `apiClient`;
+  `resolveIngredient` conspicuously has no such guard.)
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), tapping "Review
+  ingredient match" / "Change ingredient match" on any unresolved recipe
+  ingredient during ordinary recipe editing (`RecipeEditorView.swift:307-
+  322`) presents `IngredientResolutionSheet` (`RecipeEditorView.swift:438-
+  442`), whose `.task` unconditionally runs `loadInitialState()` →
+  `loadSuggestedResolution()` (`RecipeEditorIngredientResolution.swift:356-
+  357, 361-364`) whenever the ingredient has no `baseIngredientId` yet —
+  the ordinary state for a freshly-parsed or freshly-typed ingredient. That
+  call reaches `appState.resolveIngredient(ingredient)` with zero guards
+  above it, which reaches `apiClient.resolveIngredient(...)` with zero
+  guards above that either, issuing a real `POST /api/ingredients/resolve`
+  against the dead Fly backend with no CloudKit fallback path. Every hop
+  was read in full; none contains a repository-nil check,
+  `hasSavedConnection` check, or `#if canImport(CloudKit)` branch. Matches
+  the claimed user entry point (`RecipeEditorIngredientResolution.swift:
+  364`, `loadSuggestedResolution`, sheet presented from
+  `RecipeEditorView.swift:439`) exactly, and is the same class of gap as
+  this file's `mergeBaseIngredient` / `createBaseIngredient` /
+  `archiveBaseIngredient` rows (same file, same missing-guard pattern).
