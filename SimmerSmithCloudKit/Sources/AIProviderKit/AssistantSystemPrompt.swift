@@ -39,7 +39,11 @@ public enum AssistantSystemPrompt {
         Do NOT wrap your final reply in JSON or markdown fences.
         Prefer small edits to a full regenerate: use weeks_update_meals to add, swap, remove, or rebalance \
         meals, and only call weeks_apply_ai_draft (which replaces the whole week) when the user asks for a \
-        full reset or a brand-new plan.
+        full reset or a brand-new plan. weeks_update_meals is MERGE-ONLY — send only the (day_name, slot) \
+        entries you want to add or change; every slot you omit is left untouched, so do NOT resend the whole \
+        week. Echo day_name and slot VERBATIM (exact casing) as they appear in weeks_get / weeks_get_current \
+        results — the merge key is case-sensitive, and a casing drift silently creates a duplicate slot \
+        instead of updating the existing one.
         Be concise. Two or three sentences per reply is plenty.
 
         Thread: \(title)
