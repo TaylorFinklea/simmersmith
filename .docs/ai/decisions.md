@@ -1510,9 +1510,50 @@ tool loop and existing preference tables. No new interview engine, no new record
 
 **Rationale.** (1) A keyless user cannot run a conversational interview at all, so it would be the
 first thing a new user hits and the first thing that fails — and it is on App Review's reviewer
-path. (2) The app already learns preferences from `PreferenceSignal` scores, ingredient
-avoid/allergy flags, and meal feedback; that data beats a cold interview's. (3) The interview's
-real job is cold-start, and cold-start needs about five facts, not a conversation.
+path. (2) The interview's real job is cold-start, and cold-start needs about five facts, not a
+conversation. (3) The facts worth capturing are the ones that are load-bearing *and actually
+wired*: hard avoids and allergies, which reach the planner via `hard_avoids` and the emphasized
+allergy prompt line (`WeekGenContextGatherer.swift:46-60`).
+
+**Correction, same day.** An earlier draft of this ADR argued partly that "the app already learns
+preferences from `PreferenceSignal` scores and meal feedback, which beats a cold interview's
+data." **That is false on the shipping architecture**, and is now bead `b9z`: rating a meal calls
+the dead Fly backend, `PreferenceRepository.upsertSignal` has zero production callers, and
+`WeekGenContextGatherer` hard-codes `strongLikes`/`likedCuisines`/`dislikedCuisines` to `[]`.
+Only the ingredient avoid/allergy half is live. The conclusion stands — arguably strengthened,
+since deterministic onboarding captures precisely the facts that *do* reach the planner — but the
+reasoning must not rest on a learning loop that does not run. Do not claim the app learns from
+feedback until `b9z` lands.
 
 **Success metric for the spec:** a first-run user with no key reaches a plannable week without
 hitting an AI dead-end — the same manual path that mitigates guideline 4.2.
+
+## 2026-07-09 — ADR: the product-proposal fleet found what two review fleets missed
+
+**Context.** A 50-agent fan-out generated new-feature proposals from five lenses (retention,
+AI-native, friction, household-social, keyless), then stress-tested each with three adversarial
+critics. Exactly **one** proposal survived. That looked like a poor yield until the *kill*
+rationales were read.
+
+**What the critics actually found.** To refute proposals they had to check whether the features
+those proposals built upon were real. Two were not:
+
+- **`b9z` (P1, Gate-2 blocker)** — meal feedback is a silent no-op end to end. The rating UI
+  exists, its handler targets the dead Fly backend, `upsertSignal` has no callers, and the
+  planner hard-codes empty likes/cuisines. M1's headline promise ("deprioritize poorly-rated
+  meals via signal scores"), marked complete on the roadmap, does not run.
+- **`80s` (P3)** — `recipes.lastUsed` is never written, so the "Never used" filter matches every
+  recipe and the `lastUsed` sort is a no-op.
+
+**Why both architecture reviews missed them.** ADR-1's inventory of Fly-backed features names
+seven; feedback is not among them, and `bd search feedback` returned nothing. The v1 (80-agent)
+and v2 (114-agent) reviews both asked "is this code correct?" and "does this feature call a dead
+backend?" — but neither asked **"does this feature's *value loop* actually close?"** A rating that
+posts successfully to a guard-nil'd client is not a dead-backend call; it is a dead *loop*.
+
+**Decision (review method).** Add a **value-loop lens** to any future full review, phrased as:
+*for each feature that claims to learn, adapt, or accumulate — trace the write, the read, and the
+place the read changes behavior. If any link is missing, the feature is decorative.* Product-truth
+(does it call a live backend?) is necessary but not sufficient. Recorded because the cheapest way
+to find this class turned out to be asking a product question, not a correctness question — a
+proposal fleet is a review instrument, and its kill rationales are the deliverable.
