@@ -200,6 +200,16 @@ final class HouseholdSession {
                 self?.syncStatusCenter?.recordFailure(failure)
             }
         }
+        // simmersmith-ioj: a permanent failure (see `recordFailure` above) persists across
+        // clean sync ticks by design — its only clear path is the SAME record later saving
+        // successfully. Wired alongside `onStoreChanged`/`onSyncError` for the same reason
+        // (must be non-nil before automaticSync can deliver a background event); nil'd
+        // wherever those are nil'd below.
+        engine.onRecordSaved = { [weak self] recordName in
+            Task { @MainActor in
+                self?.syncStatusCenter?.recordSaveSucceeded(recordName: recordName)
+            }
+        }
     }
 
     // MARK: — Boot
@@ -280,6 +290,7 @@ final class HouseholdSession {
         repairScheduler.deactivate()
         engine.onStoreChanged = nil
         engine.onSyncError = nil
+        engine.onRecordSaved = nil
     }
 
     /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
@@ -292,6 +303,7 @@ final class HouseholdSession {
         repairScheduler.deactivate()
         engine.onStoreChanged = nil
         engine.onSyncError = nil
+        engine.onRecordSaved = nil
     }
 }
 #endif

@@ -118,4 +118,40 @@ func joinedClearsToOkBaseline() {
     #expect(derivation.showsBanner == false)
     #expect(derivation.bannerText == nil)
 }
+
+// simmersmith-ioj: `failureAfterCleanSync` is the clean-sync-tick policy `SyncStatusCenter
+// .recordSyncSuccess` defers to instead of unconditionally wiping `lastFailure` — a bug that let
+// a permanent failure (quota/auth/permission) recorded and then immediately followed by the same
+// sync event's "nothing pending" tick erase itself before the banner ever showed. Transient must
+// still self-clear on a clean tick; permanent must survive it.
+
+@Test("clean sync clears a transient failure")
+func cleanSyncClearsTransientFailure() {
+    let failure = SyncFailure(
+        recordName: "week-1", code: .networkFailure, kind: .transient,
+        message: HouseholdSyncEngine.userMessage(for: .networkFailure)
+    )
+    #expect(SyncStatusInputs.failureAfterCleanSync(failure) == nil)
+}
+
+@Test("clean sync does NOT clear a permanent failure")
+func cleanSyncRetainsPermanentFailure() {
+    let failure = SyncFailure(
+        recordName: "week-1", code: .quotaExceeded, kind: .permanent,
+        message: HouseholdSyncEngine.userMessage(for: .quotaExceeded)
+    )
+    let retained = SyncStatusInputs.failureAfterCleanSync(failure)
+    #expect(retained?.recordName == failure.recordName)
+    #expect(retained?.message == failure.message)
+    if case .permanent = retained?.kind {
+        // expected
+    } else {
+        Issue.record("expected the permanent failure to survive a clean sync tick")
+    }
+}
+
+@Test("clean sync with no prior failure stays nil")
+func cleanSyncWithNoFailureStaysNil() {
+    #expect(SyncStatusInputs.failureAfterCleanSync(nil) == nil)
+}
 #endif

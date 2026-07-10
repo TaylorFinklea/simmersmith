@@ -71,6 +71,18 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// wires it up — no behavioral change when unset.
     public var onSyncError: (@Sendable (SyncFailure) -> Void)?
 
+    /// Called once per record whose pending change the server CONFIRMED — both
+    /// `sentRecordZoneChanges.savedRecords` (share records excluded) and `.deletedRecordIDs`.
+    /// simmersmith-ioj: a PERMANENT failure is never auto-re-enqueued (see `handleFailedSave`'s
+    /// `.permanent` branch below), so the only in-band evidence that a previously-failed record
+    /// is resolved is that record later reaching the server — either the user edits it again
+    /// after fixing the cause (signs back into iCloud, frees storage), OR they delete it, which
+    /// resolves the failure by removing the data. `SyncStatusCenter` matches on record name to
+    /// clear a stale failure; a delete that never fired here would wedge the banner forever.
+    /// Called off-main, mirroring `onStoreChanged`/`onSyncError`. Nil in tests and until a caller
+    /// wires it up — no behavioral change when unset.
+    public var onRecordSaved: (@Sendable (String) -> Void)?
+
     private let traceLock = NSLock()
     private var trace: [String] = []
     /// Diagnostic trace of sent/failed/fetched events (DEBUG round-trip uses it).
@@ -278,6 +290,16 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 if Self.isShareRecord(saved) { continue }
                 store.setRecord(saved)
                 note("saved \(saved.recordID.recordName)=\(saved["value"] as? String ?? "?")")
+                onRecordSaved?(saved.recordID.recordName)
+            }
+            // simmersmith-ioj (lead amendment): a DELETE of the failed record resolves its
+            // failure exactly as well as a re-save does — the user removed the data rather than
+            // fixing it. Without this, deleting the offending record is a one-way trip: no later
+            // save of that recordName ever fires, so the permanent-failure banner (which a clean
+            // tick deliberately no longer clears) would persist for the rest of the session.
+            for deletedID in sent.deletedRecordIDs {
+                note("deleted \(deletedID.recordName)")
+                onRecordSaved?(deletedID.recordName)
             }
             for failure in sent.failedRecordSaves {
                 note("FAILED \(failure.record.recordID.recordName) code=\(failure.error.code.rawValue)")

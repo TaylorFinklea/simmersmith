@@ -52,6 +52,23 @@ public struct SyncStatusInputs: Sendable {
         self.lastFailureAt = lastFailureAt
         self.participantJoin = participantJoin
     }
+
+    /// simmersmith-ioj: the clean-sync-tick policy — PURE, so `SyncStatusCenter.recordSyncSuccess`
+    /// can stay a dumb holder that just calls this instead of encoding the rule itself. A clean
+    /// tick (nothing left pending) is only meaningful evidence for a TRANSIENT failure: CKSyncEngine
+    /// re-enqueues transient saves itself (see `HouseholdSyncEngine.handleFailedSave`'s `.transient`
+    /// branch), so reaching "nothing pending" again means the retry actually landed. A PERMANENT
+    /// failure (quota/auth/permission — `classifyFailure`'s default branch) is BY DESIGN never
+    /// re-enqueued, so a clean tick proves nothing about it — it persists across clean ticks until
+    /// the SAME record saves successfully (`SyncStatusCenter.recordSaveSucceeded`, fed by
+    /// `HouseholdSyncEngine.onRecordSaved`).
+    public static func failureAfterCleanSync(_ failure: SyncFailure?) -> SyncFailure? {
+        guard let failure else { return nil }
+        switch failure.kind {
+        case .transient: return nil
+        case .permanent: return failure
+        }
+    }
 }
 
 /// The derived, user-facing sync status. Everything a Settings row or a transient banner
