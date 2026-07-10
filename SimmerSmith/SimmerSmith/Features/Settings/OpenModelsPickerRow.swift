@@ -98,6 +98,7 @@ struct OpenModelsPickerRow: View {
     private func ensureVisibleDefaults() {
         if visibleDraftVendor == nil {
             appState.aiOpenModelsVendorDraft = OpenModelVendor.ollamaCloud.rawValue
+            appState.aiOpenModelsModelDraft = ""
         }
         if model.isEmpty {
             appState.aiOpenModelsModelDraft = ProviderRegistry.descriptor(for: currentVendor).defaultModel
