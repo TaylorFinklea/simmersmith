@@ -1557,3 +1557,36 @@ place the read changes behavior. If any link is missing, the feature is decorati
 (does it call a live backend?) is necessary but not sufficient. Recorded because the cheapest way
 to find this class turned out to be asking a product question, not a correctness question — a
 proposal fleet is a review instrument, and its kill rationales are the deliverable.
+
+## 2026-07-09 — ADR: feedback→signal scoring is deliberately simple and inspectable (bead b9z)
+
+**Context.** `b9z` found that the feedback→signal→planner loop does not close. The storage exists
+on both ends (`PrivatePreferenceSignal` is a real `@Model` in the private-plane container;
+`PreferenceRepository.upsertSignal` writes it), and the private plane is the correct scope —
+taste is per-user, not per-household, consistent with the M21 ADR. **So there is no schema work
+and no Lead schema sign-off**: only three edits (write on rating, add a list accessor, read it in
+`WeekGenContextGatherer`).
+
+The one genuinely non-mechanical piece: the Fly server derived signal scores from sentiment, and
+that logic died with it. Something must replace it.
+
+**Decision.** Keep it simple enough to reason about and test at the boundaries:
+- A meal rating writes signals for **both** the recipe name and the meal's cuisine, as separate
+  `signalType`s.
+- `score += sentiment` (sentiment ∈ {−1, 0, +1}), clamped to `[−3, +3]`.
+- `strongLikes` = recipe signals with `score ≥ 2`; `likedCuisines` = cuisine signals `≥ 2`;
+  `dislikedCuisines` = cuisine signals `≤ −2`.
+- Thresholds are constants in `SimmerSmithKit`, host-tested at the boundaries.
+
+**Why so plain.** The failure mode here was never a bad weighting — it was a loop that did not
+run at all, silently, for months, while the roadmap marked M1 complete. A clever decay curve
+would add a second thing to be wrong about before the first thing works. `WeekGenPrompt.swift`
+already renders these four sections faithfully; the prompt needs no change. Ship the closed loop,
+watch it on real data, then tune.
+
+**Reversible.** The scoring rule is an implementation detail behind constants, not a schema or a
+contract. Changing it later costs one commit and re-derives from the stored `score` history. The
+irreversible part — where signals live — is already settled by the private-plane model.
+
+**If the rule stalls:** hiding the rating affordance remains a legitimate scope cut (option (b) on
+the bead). What is *not* acceptable is the status quo: a visible control that does nothing.
