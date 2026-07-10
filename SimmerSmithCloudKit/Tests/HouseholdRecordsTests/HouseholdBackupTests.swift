@@ -119,4 +119,32 @@ func recordTypeNameRejectsUnknownTypes() {
     // The OLD bug shape: raw values (case names) are NOT CloudKit type names.
     #expect(HouseholdRecordType(recordTypeName: "recipe") == nil)
     #expect(HouseholdRecordType(recordTypeName: "weekMeal") == nil)
+    // SP-D 990.4.1 acceptance: manifest-EXTERNAL image types are asset codecs, never manifest
+    // members — this non-membership IS the backup-exclusion mechanism for photo records.
+    #expect(HouseholdRecordType(recordTypeName: "RecipeImage") == nil)
+    #expect(HouseholdRecordType(recordTypeName: "RecipeMemoryImage") == nil)
+}
+
+// SP-D 990.4.1 — RecipeMemory is a manifest member, so a HouseholdBackup snapshot captures its
+// scalars (body/createdAt) exactly like any other plain-CRUD type; RecipeMemoryImage can't even
+// be constructed as a HouseholdRecordValue (no such case exists), pinning its exclusion structurally.
+
+@Test("HouseholdBackup captures RecipeMemory body+createdAt via manifest membership")
+func backupCapturesRecipeMemoryScalars() throws {
+    let created = Date(timeIntervalSince1970: 1_750_300_000)
+    let backup = HouseholdBackup(
+        capturedAt: Date(timeIntervalSince1970: 1_750_300_100),
+        appBuild: "150", role: "owner",
+        records: [
+            HouseholdRecordValue(
+                type: .recipeMemory, recordName: "mem-1",
+                scalars: ["body": .string("Great with extra garlic"), "createdAt": .date(created)],
+                refs: ["recipe": "recipe-1"]),
+        ])
+    let data = try BackupCodec.encode(backup)
+    let decoded = try BackupCodec.decode(data)
+    #expect(decoded == backup)
+    #expect(decoded.records.first?.scalars["body"] == .string("Great with extra garlic"))
+    #expect(decoded.records.first?.scalars["createdAt"] == .date(created))
+    #expect(decoded.records.first?.refs["recipe"] == "recipe-1")
 }

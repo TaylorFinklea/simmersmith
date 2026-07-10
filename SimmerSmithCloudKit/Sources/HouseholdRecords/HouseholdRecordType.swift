@@ -90,6 +90,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
     case weekChangeEvent
     case managedListItem
     case pantryItem
+    case recipeMemory
 
     /// The CloudKit record type name.
     public var recordTypeName: String {
@@ -113,6 +114,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
         case .weekChangeEvent: return "WeekChangeEvent"
         case .managedListItem: return "ManagedListItem"
         case .pantryItem: return "PantryItem"
+        case .recipeMemory: return "RecipeMemory"
         }
     }
 
@@ -132,7 +134,7 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
         switch self {
         // Composite/keyed PKs in Postgres → deterministic recordNames (no surrogate id to pass through).
         case .householdSetting, .householdTermAlias, .eventAttendee, .managedListItem: return .det
-        default: return .pk   // .pantryItem uses its legacy UUID id as recordName
+        default: return .pk   // .pantryItem, .recipeMemory use their legacy UUID id as recordName
         }
     }
 
@@ -237,6 +239,15 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
                     F("category", .string), F("categories", .string),
                     F("lastAppliedAt", .date), F("frozenAt", .date),
                     F("createdAt", .date), F("updatedAt", .date)]
+        case .recipeMemory:
+            // SP-D 990.4 (990.4.1, schema signed 2026-07-09): per-cook memory log entry
+            // attached to a recipe (Fly recipe_memories: body, created_at). recordName
+            // policy: .pk (legacy UUID id). mimeType is NOT here — it pairs with the optional
+            // photo and lives on RecipeMemoryImage (manifest-EXTERNAL), matching Fly's
+            // mime_type sitting beside image_bytes rather than on recipe_memories itself.
+            // createdAt SORTABLE: the memories section renders entries time-ordered
+            // (client-side sort over the whole-zone fetch, matching weekMeal).
+            return [F("body", .string), F("createdAt", .date, sortable: true)]
         }
     }
 
@@ -313,6 +324,12 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
         case .pantryItem:
             // No foreign keys — a top-level household-owned staple record (spec §2).
             return []
+        case .recipeMemory:
+            // recipe is the CASCADE parent (Fly recipe_memories.recipe_id ondelete=CASCADE) —
+            // a memory dies with its recipe. The engine's local .deleteSelf sweep additionally
+            // cascades onward to RecipeMemoryImage (which carries a .deleteSelf ref to this
+            // record), so deleting a Recipe sweeps its whole RecipeMemory(+photo) subtree.
+            return [R("recipe", .cascadeParent, target: "Recipe")]
         }
     }
 

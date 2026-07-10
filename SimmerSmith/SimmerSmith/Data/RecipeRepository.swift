@@ -38,6 +38,18 @@ import HouseholdSync
 // call site (not in a pure value transform), so no headless test is added; this is
 // deferred to on-device verification in Task 7.
 
+// SP-D 990.4.1 — one memory log entry attached to a recipe (Fly recipe_memories, mirrored onto
+// the household-zone RecipeMemory manifest record). `hasPhoto` mirrors RecipeSummary.hasImage:
+// the photo itself is a separate RecipeMemoryImage CKAsset, fetched via `memoryPhotoBytes(_:)`,
+// never inlined here. Named RecipeMemory*-prefixed to stay distinct from Recipe's legacy
+// scalar `memories` field (a different, pre-existing free-text concept).
+struct RecipeMemoryEntry: Identifiable, Equatable {
+    let id: String
+    var body: String
+    var createdAt: Date
+    var hasPhoto: Bool
+}
+
 @MainActor
 @Observable
 final class RecipeRepository {
@@ -510,6 +522,114 @@ final class RecipeRepository {
         session.engine.delete(id)
         reload()
         Task { [weak self] in await self?.drainSync() }
+    }
+
+    // MARK: - Memories (SP-D 990.4.1)
+    //
+    // RecipeMemory is a plain-scalar manifest type (body/createdAt) — no dedicated codec
+    // struct, decoded generically via HouseholdRecordCodec like recipe/recipeIngredient
+    // (typed domain structs only exist for asset-carrying types, per HouseholdRecordValue's
+    // own doc comment). RecipeMemoryImage IS a dedicated CKAsset codec, mirroring
+    // RecipeImageCodec exactly. UI wiring is 990.4.2's job; this section is CRUD only.
+
+    /// All memory entries for a recipe, oldest→newest (client-side sort — the manifest field
+    /// is SORTABLE but the sync engine fetches the zone whole; mirrors how `reload()` groups
+    /// ingredient/step children by their `recipe` ref).
+    func memories(forRecipe recipeId: String) -> [RecipeMemoryEntry] {
+        let store = session.store
+        let imageNames = Set(
+            store.records(ofType: RecipeMemoryImageCodec.recordType).map { $0.recordID.recordName }
+        )
+        let entries: [RecipeMemoryEntry] = store
+            .records(ofType: HouseholdRecordType.recipeMemory.recordTypeName)
+            .compactMap { record in
+                let value = HouseholdRecordCodec.decode(record, as: .recipeMemory)
+                guard value.refs["recipe"] == recipeId else { return nil }
+                return RecipeMemoryEntry(
+                    id: value.recordName,
+                    body: scalarString(value, "body") ?? "",
+                    createdAt: scalarDate(value, "createdAt") ?? Date(timeIntervalSince1970: 0),
+                    hasPhoto: imageNames.contains(RecipeMemoryImageCodec.recordName(forMemory: value.recordName))
+                )
+            }
+        return entries.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// Create a new memory log entry for a recipe. Returns the new memory's id.
+    @discardableResult
+    func addMemory(_ recipeId: String, body: String, createdAt: Date = Date()) -> String {
+        let memoryId = UUID().uuidString
+        let value = HouseholdRecordValue(
+            type: .recipeMemory, recordName: memoryId,
+            scalars: ["body": .string(body), "createdAt": .date(createdAt)],
+            refs: ["recipe": recipeId]
+        )
+        upsertRecord(value)
+        reload()
+        Task { [weak self] in await self?.drainSync() }
+        return memoryId
+    }
+
+    /// Delete a memory entry. `deleteCascading` sweeps its RecipeMemoryImage via the local
+    /// `.deleteSelf` subtree scan; the explicit delete below is belt-and-suspenders,
+    /// mirroring `delete(_:)`'s equivalent extra step for RecipeImage.
+    func deleteMemory(_ memoryId: String) {
+        let id = CKRecord.ID(recordName: memoryId, zoneID: session.zoneID)
+        session.engine.deleteCascading(id)
+        let imageID = CKRecord.ID(
+            recordName: RecipeMemoryImageCodec.recordName(forMemory: memoryId),
+            zoneID: session.zoneID
+        )
+        if session.store.record(for: imageID) != nil {
+            session.engine.delete(imageID)
+        }
+        reload()
+        Task { [weak self] in await self?.drainSync() }
+    }
+
+    // MARK: - Memory photos
+
+    /// Return the raw bytes of a memory's photo, or nil if not yet downloaded or not present.
+    func memoryPhotoBytes(_ memoryId: String) async -> Data? {
+        let imgName = RecipeMemoryImageCodec.recordName(forMemory: memoryId)
+        let id = CKRecord.ID(recordName: imgName, zoneID: session.zoneID)
+        guard let record = session.store.record(for: id) else { return nil }
+        guard let image = try? RecipeMemoryImageCodec.decode(record) else { return nil }
+        return image.imageData
+    }
+
+    /// Stage and save a photo for a memory. The engine uploads the CKAsset on the next
+    /// `sendChanges` pass.
+    func setMemoryPhoto(_ memoryId: String, _ data: Data, mime: String) {
+        let image = RecipeMemoryImage(memoryID: memoryId, mimeType: mime, createdAt: Date(), imageData: data)
+        let imgName = RecipeMemoryImageCodec.recordName(forMemory: memoryId)
+        let id = CKRecord.ID(recordName: imgName, zoneID: session.zoneID)
+
+        do {
+            if let existing = session.store.record(for: id) {
+                try RecipeMemoryImageCodec.encode(image, into: existing, zoneID: session.zoneID)
+                session.engine.save(existing)
+            } else {
+                let record = try RecipeMemoryImageCodec.makeRecord(image, zoneID: session.zoneID)
+                session.engine.save(record)
+            }
+            reload()
+            Task { [weak self] in await self?.drainSync() }
+        } catch {
+            // Staging the asset file failed (disk full, etc.); leave the store untouched.
+        }
+    }
+
+    // MARK: - Memory scalar accessors
+
+    private func scalarString(_ value: HouseholdRecordValue, _ key: String) -> String? {
+        if case let .string(v)? = value.scalars[key] { return v }
+        return nil
+    }
+
+    private func scalarDate(_ value: HouseholdRecordValue, _ key: String) -> Date? {
+        if case let .date(v)? = value.scalars[key] { return v }
+        return nil
     }
 }
 #endif

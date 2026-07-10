@@ -503,3 +503,35 @@ DEFINE SCHEMA
         GRANT WRITE TO "_creator",
         GRANT READ, CREATE TO "_icloud"
     );
+
+    // ---- SP-D 990.4 (990.4.1, schema signed 2026-07-09): RecipeMemory — per-cook memory log
+    //      entry attached to a recipe (Fly recipe_memories: body, created_at). recordName
+    //      policy: .pk (legacy UUID id). recipe is the CASCADE parent (.deleteSelf) — a memory
+    //      dies with its recipe. Generated from the HouseholdRecordType manifest (ckdsl()).
+    //      HUMAN STEP: Deploy to Production in CloudKit Dashboard before on-device use
+    //      (bead pb8; additive, irreversible). ----
+
+    RECORD TYPE RecipeMemory (
+        body STRING,
+        createdAt TIMESTAMP SORTABLE,
+        recipe REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );
+
+    // ---- SP-D 990.4 (990.4.1): RecipeMemoryImage — optional 0-or-1 photo per memory (CKAsset).
+    //      Mirrors RecipeImage's split: memory TEXT lives on the manifest RecipeMemory record
+    //      above; the photo is a manifest-EXTERNAL type (hand-added here, NOT generated from
+    //      the manifest) so it is excluded from HouseholdBackup by construction — a deliberate
+    //      v1 exclusion, since memory photos are user family photos, not regenerable AI art.
+    //      recipeMemory is the .deleteSelf CASCADE parent (deleting the memory removes its
+    //      photo). recordName: rmemimg:<memoryID> (DET). ----
+
+    RECORD TYPE RecipeMemoryImage (
+        mimeType STRING,
+        createdAt TIMESTAMP,
+        imageAsset ASSET,
+        recipeMemory REFERENCE,
+        GRANT WRITE TO "_creator",
+        GRANT READ, CREATE TO "_icloud"
+    );

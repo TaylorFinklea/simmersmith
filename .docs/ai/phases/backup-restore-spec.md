@@ -11,23 +11,29 @@ snapshot if a build clears or corrupts it — with zero risk that restoring dest
 
 All household data already flows through one serializable primitive: `HouseholdRecordValue`
 (`SimmerSmithCloudKit/Sources/HouseholdRecords/HouseholdRecordValue.swift`) — `{ type, recordName, scalars,
-refs }` — for all 19 record types, via `HouseholdRecordCodec.encode/decode`
+refs }` — for all 20 record types, via `HouseholdRecordCodec.encode/decode`
 (`…/HouseholdRecords/HouseholdRecordCodec.swift`). So:
 
 - **Snapshot:** `session.store.allRecords()` (`HouseholdLocalStore.allRecords()`) → for each, `HouseholdRecordType(rawValue: record.recordType)` then `HouseholdRecordCodec.decode(record, as: type)` → `[HouseholdRecordValue]` → JSON.
 - **Restore:** JSON → `[HouseholdRecordValue]` → `HouseholdRecordCodec.encode(value, zoneID: session.zoneID)` → `session.engine.save(record)` (upsert) → `session.engine.sendUntilDrained()` → reload repos + re-mirror.
 
-**Why generic (not domain-level WeekSnapshot/Recipe JSON):** one snapshot + one restore function cover **all 19
+**Why generic (not domain-level WeekSnapshot/Recipe JSON):** one snapshot + one restore function cover **all 20
 types** (week, weekMeal, weekMealSide, recipe, recipeIngredient, recipeStep, pantryItem, event/eventMeal/…,
-baseIngredient/ingredientVariation, managedListItem, aliases, householdSetting) with **exact IDs + references
-preserved** — no per-entity code, no "forgot type X," no re-link bugs. The domain approach is lighter to read
-but incomplete (meals+recipes only) and re-mints/relinks. Precedent: `MigrationLedger` already enumerates
+baseIngredient/ingredientVariation, managedListItem, aliases, householdSetting, recipeMemory) with **exact IDs +
+references preserved** — no per-entity code, no "forgot type X," no re-link bugs. The domain approach is lighter
+to read but incomplete (meals+recipes only) and re-mints/relinks. Precedent: `MigrationLedger` already enumerates
 `store.allRecords()`.
 
 **Excluded (v1, acceptable):** recipe **images** are `CKAsset`s, not scalar fields — not captured by
-`HouseholdRecordValue`. They're regenerable via the existing "Generate missing images" (SettingsView ~237). Text
-data (the stuff that matters) is fully covered. **Per-user profile/dietary** lives on the private plane (separate
-from the household zone) — out of v1 scope; the household zone (the shared meals/recipes/pantry/events) is covered.
+`HouseholdRecordValue`. They're regenerable via the existing "Generate missing images" (SettingsView ~237). The
+same manifest-membership mechanism excludes **`RecipeMemoryImage`** (bead 990.4.1, schema signed 2026-07-09):
+it's manifest-EXTERNAL (not a `HouseholdRecordType` case), so `store.allRecords()` never surfaces it and it isn't
+captured or restored either. Unlike recipe images, memory photos are **user family photos, not regenerable AI
+art** — a deliberate v1 gap (not a lesser-severity case of the recipe-image exclusion); the memory's text
+(`body`/`createdAt`) IS backed up via `recipeMemory`, only its optional photo is not. Getting the photo asset
+into backup/restore is a post-launch follow-up candidate. Text data (the stuff that matters) is fully covered.
+**Per-user profile/dietary** lives on the private plane (separate from the household zone) — out of v1 scope; the
+household zone (the shared meals/recipes/pantry/events) is covered.
 
 ## 2. Data model + serialization (host-testable)
 

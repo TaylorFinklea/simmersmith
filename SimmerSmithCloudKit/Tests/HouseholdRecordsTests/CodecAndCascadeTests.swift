@@ -47,6 +47,15 @@ import CloudKit
     #expect(refs.first { $0.name == "assignedGuest" }?.kind == .setNullInZone)
 }
 
+@Test func recipeMemoryCascadesFromRecipe() {
+    // SP-D 990.4.1 — recipe is the CASCADE parent (mirrors the Fly ondelete=CASCADE); the
+    // engine's local .deleteSelf sweep additionally cascades onward to RecipeMemoryImage.
+    let refs = HouseholdRecordType.recipeMemory.refs
+    #expect(refs.first { $0.name == "recipe" }?.kind == .cascadeParent)
+    #expect(refs.first { $0.name == "recipe" }?.target == "Recipe")
+    #expect(refs.count == 1)
+}
+
 @Test func recipeTemplateAndCatalogRefsAreCrossDBStrings() {
     #expect(HouseholdRecordType.recipe.refs.first { $0.name == "recipeTemplateID" }?.kind == .crossDBString)
     let ri = HouseholdRecordType.recipeIngredient.refs
@@ -67,7 +76,8 @@ import CloudKit
 }
 
 @Test func pkTypesPassThroughLegacyID() {
-    for t in [HouseholdRecordType.recipe, .guest, .event, .eventMeal, .baseIngredient, .ingredientVariation] {
+    for t in [HouseholdRecordType.recipe, .guest, .event, .eventMeal, .baseIngredient,
+              .ingredientVariation, .recipeMemory] {
         #expect(t.namePolicy == .pk)
     }
 }
@@ -77,6 +87,7 @@ import CloudKit
     // Task 4b added ManagedListItem (17 types total).
     // SP-C Task 2 added WeekMealSide (18 types total).
     // SP-C Task 1 added PantryItem (19 types total).
+    // SP-D 990.4.1 added RecipeMemory (20 types total).
     // FeedbackEntry is the sole remaining deferred type (independent; no repair machinery).
     let names = HouseholdRecordType.allCases.map(\.recordTypeName)
     #expect(names.contains("Week") && names.contains("WeekMeal"))
@@ -84,8 +95,9 @@ import CloudKit
     #expect(names.contains("WeekChangeBatch") && names.contains("WeekChangeEvent"))
     #expect(names.contains("ManagedListItem"))
     #expect(names.contains("PantryItem"))
+    #expect(names.contains("RecipeMemory"))
     #expect(names.contains("FeedbackEntry") == false)
-    #expect(names.count == 19)
+    #expect(names.count == 20)
 }
 
 // MARK: Field typing
@@ -105,6 +117,17 @@ import CloudKit
     #expect(recipe["createdAt"]?.sortable == true)
     #expect(HouseholdRecordType.baseIngredient.fields.first { $0.name == "normalizedName" }?.queryable == true)
     #expect(HouseholdRecordType.householdSetting.fields.first { $0.name == "key" }?.queryable == true)
+}
+
+@Test func recipeMemoryFieldsMatchSignedSchema() {
+    // SP-D 990.4.1 signed schema: body:STRING, createdAt:TIMESTAMP SORTABLE. mimeType is
+    // deliberately absent — it lives on RecipeMemoryImage (manifest-EXTERNAL), not here.
+    let fields = Dictionary(uniqueKeysWithValues: HouseholdRecordType.recipeMemory.fields.map { ($0.name, $0) })
+    #expect(fields["body"]?.type == .string)
+    #expect(fields["body"]?.queryable == false)
+    #expect(fields["createdAt"]?.type == .date)
+    #expect(fields["createdAt"]?.sortable == true)
+    #expect(fields.count == 2)
 }
 
 // MARK: Codec round-trip (headless CloudKit)
@@ -153,6 +176,20 @@ private let zoneID = CKRecordZone.ID(zoneName: "test-zone", ownerName: CKCurrent
     #expect(HouseholdRecordCodec.decode(record, as: .ingredientVariation) == value)
 }
 
+@Test func recipeMemoryRoundTripPreservesBodyAndCreatedAtWithCascadeRef() {
+    let created = Date(timeIntervalSince1970: 1_700_000_000)
+    let value = HouseholdRecordValue(
+        type: .recipeMemory, recordName: "mem-1",
+        scalars: ["body": .string("First time making this — kids loved it!"), "createdAt": .date(created)],
+        refs: ["recipe": "recipe-1"])
+    let record = HouseholdRecordCodec.encode(value, zoneID: zoneID)
+
+    #expect(record.recordType == "RecipeMemory")
+    #expect((record["recipe"] as? CKRecord.Reference)?.action == .deleteSelf)
+    #expect((record["recipe"] as? CKRecord.Reference)?.recordID.recordName == "recipe-1")
+    #expect(HouseholdRecordCodec.decode(record, as: .recipeMemory) == value)
+}
+
 @Test func decode_dropsPresentWrongTypeFieldButKeepsSiblings() {
     // "name" is a .string field — store it as an Int CKRecordValue to simulate CloudKit
     // drift/corruption (a present field/key with the wrong type, never a normal write path).
@@ -195,4 +232,16 @@ private let zoneID = CKRecordZone.ID(zoneName: "test-zone", ownerName: CKCurrent
     #expect(dsl.contains("baseRecipe REFERENCE"))   // in-zone ref
     #expect(dsl.contains("recipeTemplateID STRING")) // cross-DB string key
     #expect(dsl.contains("GRANT WRITE TO \"_creator\""))
+}
+
+@Test func recipeMemoryCkdslMatchesPhase0SchemaCkdb() {
+    // Pins the generated block against what's hand-appended to phase0-schema.ckdb — a drift
+    // here means the deployed-schema copy is stale relative to the manifest.
+    let dsl = HouseholdRecordType.recipeMemory.ckdsl()
+    #expect(dsl.contains("RECORD TYPE RecipeMemory ("))
+    #expect(dsl.contains("body STRING"))
+    #expect(dsl.contains("createdAt TIMESTAMP SORTABLE"))
+    #expect(dsl.contains("recipe REFERENCE"))
+    #expect(dsl.contains("GRANT WRITE TO \"_creator\""))
+    #expect(dsl.contains("GRANT READ, CREATE TO \"_icloud\""))
 }
