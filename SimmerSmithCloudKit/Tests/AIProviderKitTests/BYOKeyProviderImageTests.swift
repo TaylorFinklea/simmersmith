@@ -58,7 +58,7 @@ func openAIVisionRequestBody() async throws {
     keyStore.setKey("sk-test", for: "openai")
     let provider = BYOKeyProvider(model: .openAI, keyStore: keyStore, openAIModel: "gpt-4o", transport: transport)
     let request = AIRequest(
-        feature: .companionDraft,
+        feature: .vision,
         systemPrompt: "You are a culinary expert.",
         prompt: "Identify the ingredient in this photo.",
         wantsStructuredJSON: true
@@ -90,7 +90,7 @@ func openAIVisionResponseParsing() async throws {
     keyStore.setKey("sk-test", for: "openai")
     let provider = BYOKeyProvider(model: .openAI, keyStore: keyStore, transport: transport)
     let response = try await provider.generateWithImage(
-        AIRequest(feature: .companionDraft, prompt: "go", wantsStructuredJSON: true),
+        AIRequest(feature: .vision, prompt: "go", wantsStructuredJSON: true),
         imageData: sampleImage, mimeType: "image/jpeg"
     )
     #expect(response.text == #"{"name":"habanero pepper"}"#)
@@ -104,7 +104,7 @@ func openAIVisionMissingKey() async {
     let provider = BYOKeyProvider(model: .openAI, keyStore: keyStore, transport: transport)
     await #expect(throws: AIError.noKeyConfigured(.openAI)) {
         _ = try await provider.generateWithImage(
-            AIRequest(feature: .companionDraft, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
+            AIRequest(feature: .vision, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
         )
     }
 }
@@ -120,7 +120,7 @@ func anthropicVisionRequestBody() async throws {
         model: .anthropic, keyStore: keyStore, anthropicModel: "claude-opus-4-5", transport: transport
     )
     let request = AIRequest(
-        feature: .companionDraft,
+        feature: .vision,
         systemPrompt: "You are a calm cooking coach.",
         prompt: "Judge whether the cook is on track.",
         wantsStructuredJSON: true
@@ -152,7 +152,7 @@ func anthropicVisionMissingKey() async {
     let provider = BYOKeyProvider(model: .anthropic, keyStore: keyStore, transport: transport)
     await #expect(throws: AIError.noKeyConfigured(.anthropic)) {
         _ = try await provider.generateWithImage(
-            AIRequest(feature: .companionDraft, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
+            AIRequest(feature: .vision, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
         )
     }
 }
@@ -166,7 +166,7 @@ func openRouterVisionRequestBody() async throws {
     keyStore.setKey("sk-or-test", for: ProviderRegistry.descriptor(for: .openRouter).keychainKeyID)
     let provider = BYOKeyProvider(model: .openModels(.openRouter), keyStore: keyStore, transport: transport)
     let request = AIRequest(
-        feature: .companionDraft,
+        feature: .vision,
         prompt: "Identify the ingredient in this photo.",
         wantsStructuredJSON: true
     )
@@ -191,7 +191,7 @@ func openModelsVisionMissingKey() async {
     let provider = BYOKeyProvider(model: .openModels(.openRouter), keyStore: keyStore, transport: transport)
     await #expect(throws: AIError.noKeyConfigured(.openModels(.openRouter))) {
         _ = try await provider.generateWithImage(
-            AIRequest(feature: .companionDraft, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
+            AIRequest(feature: .vision, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
         )
     }
 }
@@ -205,7 +205,7 @@ func geminiVisionNotWired() async {
     let provider = BYOKeyProvider(model: .gemini, keyStore: keyStore, transport: transport)
     await #expect(throws: AIError.notWiredYet(.cloudBYOKey(.gemini))) {
         _ = try await provider.generateWithImage(
-            AIRequest(feature: .companionDraft, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
+            AIRequest(feature: .vision, prompt: "x"), imageData: sampleImage, mimeType: "image/jpeg"
         )
     }
 }

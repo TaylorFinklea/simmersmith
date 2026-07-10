@@ -10,11 +10,11 @@ public enum AIFeature: String, Sendable, CaseIterable {
     // light — strong on-device (first-gen FM on iOS 26; AFM 3 at GA)
     case substitution, pairing, difficulty, seasonal, normalization, companionDraft
     // heavy — cloud by default on iOS 26 (Spike 2 at GA decides if on-device clears it)
-    case weekGen, assistantPlanning, recipeImage
+    case weekGen, assistantPlanning, recipeImage, vision
 
     public var isHeavy: Bool {
         switch self {
-        case .weekGen, .assistantPlanning, .recipeImage: return true
+        case .weekGen, .assistantPlanning, .recipeImage, .vision: return true
         default: return false
         }
     }

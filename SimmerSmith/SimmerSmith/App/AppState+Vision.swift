@@ -22,7 +22,7 @@ extension AppState {
             )
         }
         let request = AIRequest(
-            feature: .companionDraft,
+            feature: .vision,
             systemPrompt: VisionPrompt.identifyIngredientSystemPrompt,
             prompt: VisionPrompt.identifyIngredientPrompt(),
             wantsStructuredJSON: true
@@ -64,7 +64,7 @@ extension AppState {
         let sortedSteps = recipe?.steps.sorted { $0.sortOrder < $1.sortOrder } ?? []
         let stepText = (stepNumber >= 0 && stepNumber < sortedSteps.count) ? sortedSteps[stepNumber].instruction : ""
         let request = AIRequest(
-            feature: .companionDraft,
+            feature: .vision,
             systemPrompt: VisionPrompt.cookCheckSystemPrompt,
             prompt: VisionPrompt.cookCheckPrompt(
                 recipeTitle: recipe?.name ?? "",
