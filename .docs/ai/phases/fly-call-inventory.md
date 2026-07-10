@@ -15,8 +15,8 @@ finding a guard, and to confirm the user entry point by grepping `Features/`. Ro
 
 | class | count | meaning |
 |---|---|---|
-| **LIVE-AND-BROKEN** | **24** | reachable on a CloudKit household; hits the dead backend. **Gate-2: port or hide.** |
-| GUARDED-DEAD | 70 | a CloudKit branch returns before the call. Safe for `990.8` to strip. |
+| **LIVE-AND-BROKEN** | **23** | reachable on a CloudKit household; hits the dead backend. **Gate-2: port or hide.** |
+| GUARDED-DEAD | 71 | a CloudKit branch returns before the call. Safe for `990.8` to strip. |
 | PORTED-ALREADY | 46 | CloudKit impl exists; the call is a legacy `hasSavedConnection` fallback. |
 | DEV-ONLY | 0 | reachable only from a DEBUG/CloudKitDebugView surface. |
 | **total** | **140** | |
@@ -66,7 +66,6 @@ this is the full extent of it.
 | `archiveIngredientVariation` | `App/AppState+Ingredients.swift:194` | Features/Ingredients/IngredientsView.swift:322 (productsSection onArchiveVariati |
 | `mergeIngredientVariation` | `App/AppState+Ingredients.swift:198` | none — grep for mergeIngredientVariation across the whole repo returns only this |
 | `resolveIngredient` | `App/AppState+Ingredients.swift:202` | Features/Recipes/RecipeEditorIngredientResolution.swift:364 (loadSuggestedResolu |
-| `saveIngredientNutritionMatch` | `App/AppState+Ingredients.swift:311` | Features/Recipes/RecipeNutritionMatchView.swift:108 (saveMatch), reached UNGATED |
 | `fetchBaseIngredients` | `App/AppState+Recipes.swift:1875` | Features/Grocery/IngredientLinkPickerSheet.swift:178 (search()), auto-triggered  |
 | `createBaseIngredient` | `Features/Grocery/IngredientLinkPickerSheet.swift:192` | Features/Grocery/GroceryFeedbackSheet.swift:136, Features/Grocery/GroceryItemEdi |
 | `patchGroceryItem` | `Features/Grocery/IngredientLinkPickerSheet.swift:212` | Features/Grocery/GroceryFeedbackSheet.swift:136, Features/Grocery/GroceryItemEdi |
@@ -97,6 +96,7 @@ this is the full extent of it.
 | `unmergeEventGroceryFromWeek` | `App/AppState+Events.swift:477` | Lines 464-475: `if let repo = eventRepository { guard let event = repo.unmergeEventGrocery |
 | `dedupeGrocery` | `App/AppState+Grocery.swift:303` | #if canImport(CloudKit) block (lines 294-301) returns via groceryRepo.dedupe when groceryR |
 | `upsertIngredientPreference` | `App/AppState+Ingredients.swift:274` | #if canImport(CloudKit) if let repo = preferenceRepository { ...; return repo.preferences. |
+| `saveIngredientNutritionMatch` | `App/AppState+Ingredients.swift:311` | No guard in the function itself, but its only non-dead UI entry point (RecipeEditorView's NutritionEditor) is upstream-gated: `refreshNutritionEstimate()` (RecipeEditorView.swift:828) does `guard !appState.isCloudKitOnly else { nutritionSummary = nil; return }`, called unconditionally from `.task`/`.task(id:)` on every editor appearance/edit. `isCloudKitOnly` is `AppState.cloudKitOnlyBuild = true` (hardcoded, AppState.swift:294), so `nutritionSummary` is forced nil before the "unmatched ingredient" tap row (RecipeEditorNutritionEditor.swift:41-62, gated by `if let nutritionSummary`) can render — see Appendix. Reclassified from LIVE-AND-BROKEN after adversarial verification found this guard. |
 | `updateProfile` | `App/AppState+Profile.swift:43` | `#if canImport(CloudKit) if let repo = profileRepository { repo.setSetting(...); return }` |
 | `updateProfile` | `App/AppState+Profile.swift:75` | Identical pattern to saveImageProvider: `if let repo = profileRepository { ...; return }`  |
 | `updateProfile` | `App/AppState+Profile.swift:113` | Identical pattern: `if let repo = profileRepository { ...; return }` (lines 104-108) prece |
@@ -695,3 +695,940 @@ this is the full extent of it.
   `RecipeEditorView.swift:439`) exactly, and is the same class of gap as
   this file's `mergeBaseIngredient` / `createBaseIngredient` /
   `archiveBaseIngredient` rows (same file, same missing-guard pattern).
+
+## Row: apiClient.createRecipeMemory (AppState+Recipes.swift:1184)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Recipes.swift:1184`,
+  inside `createRecipeMemory(recipeID:body:imageData:mimeType:)` (lines
+  1178-1194, entire function read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  func createRecipeMemory(
+      recipeID: String,
+      body: String,
+      imageData: Data? = nil,
+      mimeType: String? = nil
+  ) async throws -> RecipeMemory {
+      let memory = try await apiClient.createRecipeMemory(
+          recipeID: recipeID,
+          body: body,
+          imageData: imageData,
+          mimeType: mimeType
+      )
+      var current = recipeMemories[recipeID] ?? []
+      current.insert(memory, at: 0)
+      recipeMemories[recipeID] = current
+      return memory
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard (no
+  `recipeRepository`/other repo reference anywhere in the function), no
+  `hasSavedConnection` check — the apiClient call is the first statement,
+  unconditional. Confirmed by reading the surrounding "Recipe memories log
+  (M15)" section in full (lines 1163-1209): the sibling
+  `refreshRecipeMemories` (1168-1172), `recipeMemoriesCached` (1174-1176),
+  and `deleteRecipeMemory` (1206-1209) are equally bare — none has a
+  CloudKit/`hasSavedConnection` guard — while functions immediately after
+  this section in the same file (`refreshRecipeMetadata`, 1211-1227;
+  `createManagedListItem`, 1229-1240) DO have the established `#if
+  canImport(CloudKit) if let repo = ... { ...; return }` pattern, confirming
+  the omission here is a gap against this file's own convention, not a
+  deliberate "no guard needed" design.
+- **Caller grep**: `grep -rn "createRecipeMemory" SimmerSmith/SimmerSmith/Features/`
+  finds exactly one call site outside the `AppState`/API-client definitions:
+  `Features/Recipes/MemoryComposeSheet.swift:115`, inside `private func
+  save() async` (lines 109-125, entirely read):
+  ```swift
+  private func save() async {
+      let trimmed = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+      isSaving = true
+      defer { isSaving = false }
+      do {
+          _ = try await appState.createRecipeMemory(
+              recipeID: recipeID,
+              body: trimmed,
+              imageData: attachedJPEG,
+              mimeType: attachedJPEG == nil ? nil : "image/jpeg"
+          )
+          dismiss()
+      } catch {
+          errorMessage = error.localizedDescription
+      }
+  }
+  ```
+  The only guard is `guard !trimmed.isEmpty else { return }` — an empty-body
+  bail, not a household-type check. No CloudKit/`hasSavedConnection` guard
+  precedes the call. Matches the claimed user entry point exactly.
+- **Reachability from `save()` to a user action** (every hop read in full):
+  1. `save()` is wired to the sheet's `.confirmationAction` toolbar button:
+     `Button { Task { await save() } } ... .disabled(isSaveDisabled)`
+     (`MemoryComposeSheet.swift:83-95`), where `isSaveDisabled` (104-107)
+     only checks `isSaving`, `isLoadingPhoto`, and empty body text — no
+     household/backend check.
+  2. `MemoryComposeSheet` is presented via `.sheet(isPresented: $isComposing)
+     { MemoryComposeSheet(recipeID: recipeID) }`
+     (`RecipeMemoriesSection.swift:64-66`).
+  3. `isComposing = true` is set unconditionally by the "+" toolbar button
+     (`Button { isComposing = true } label: { Label("Add",
+     systemImage: "plus.circle.fill") ... }`, `RecipeMemoriesSection.swift:
+     30-38`, `.accessibilityLabel("Add memory")`) — always visible, no
+     `if`/`#if canImport(CloudKit)`/`hasSavedConnection` wrapper anywhere in
+     `RecipeMemoriesSection.body` (full view read, lines 22-88).
+  4. `RecipeMemoriesSection(recipeID: recipe.recipeId)` is instantiated
+     unconditionally at `RecipeDetailView.swift:505`, directly inside
+     `RecipeDetailView`'s body — with **no** guard, in explicit contrast to
+     the immediately preceding card in the same view,
+     `RecipePairingsCard(recipeID:)` (line 496), which IS wrapped in `if
+     !appState.isCloudKitOnly { RecipePairingsCard(...) }` (lines 493-497,
+     comment: "AI pairings are Fly-backed ... Hide in CloudKit-only mode").
+     `RecipeMemoriesSection` has no analogous wrapper — it renders for every
+     recipe regardless of household/backend type.
+  5. `RecipeDetailView` is the standard recipe detail screen, reached from
+     the Recipes tab for any recipe (Recipes is the one feature area
+     `AppState.swift:275-280` documents as "fully cut-over," not gated by
+     `ComingSoonView`).
+- **`hasSavedConnection`/CloudKit-household context confirmed** (same
+  semantics as established earlier in this file, `AppState.swift:316-318`):
+  `hasSavedConnection == false` (no Fly server URL ever configured) is the
+  default/typical state for a CloudKit-only-build household, and
+  `recipeRepository`/other household repositories are non-nil once a
+  CloudKit household session exists — exactly the state named in the claim.
+  In that state, `buildRequest`
+  (`SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  2243-2253`) throws `SimmerSmithAPIError.missingServerURL` before any
+  network call, which `MemoryComposeSheet.save()`'s `catch` surfaces as
+  `errorMessage = error.localizedDescription` in the sheet's own error
+  Section (`MemoryComposeSheet.swift:70-72`) — a visible save failure, not a
+  silent no-op or crash.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), Recipes tab → any
+  recipe → recipe detail page's "Memories" card → "+" (Add memory,
+  unconditional) → compose a memory → "Save" unconditionally calls
+  `MemoryComposeSheet.save()`, which unconditionally calls
+  `appState.createRecipeMemory(...)`, which — with zero guard of any kind —
+  calls `apiClient.createRecipeMemory(...)`, issuing a real request against
+  the dead Fly backend with no CloudKit fallback path. Every hop was read
+  in full; none contains a repository-nil check, `hasSavedConnection`
+  check, or `#if canImport(CloudKit)` branch. Matches the claimed user
+  entry point (`MemoryComposeSheet.swift:115`, presented from
+  `RecipeMemoriesSection.swift`'s "+" button, unconditional) exactly.
+
+## Row: apiClient.fetchRecipeMemories (AppState+Recipes.swift:1169, refreshRecipeMemories)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Recipes.swift:1169`,
+  inside `refreshRecipeMemories(recipeID:)` (lines 1163-1172, entire
+  function + its doc comment read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  // MARK: - Recipe memories log (M15)
+
+  /// Refresh + cache the memory log for one recipe. Returns the
+  /// fresh list so callers can use it directly. Caches by recipeID
+  /// so navigating away/back doesn't refetch immediately.
+  func refreshRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
+      let memories = try await apiClient.fetchRecipeMemories(recipeID: recipeID)
+      recipeMemories[recipeID] = memories
+      return memories
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no `recipeRepository`/other
+  repository reference, no `hasSavedConnection` check — the apiClient call
+  is the entire body, unconditional. Confirmed by reading the immediately
+  surrounding functions in the same file for contrast:
+  `backfillRecipeImages()` (1110-1161, just above) has the full `#if
+  canImport(CloudKit) if let repo = recipeRepository, let aiSvc = aiService
+  { ...; return ... } #endif` pattern before its own Fly fallback;
+  `refreshRecipeMetadata()` (1211-1219, just below) has both a `#if
+  canImport(CloudKit) if let repo = metadataRepository { ...; return }
+  #endif` block AND a `guard hasSavedConnection else { return }` before its
+  Fly call. `refreshRecipeMemories` has neither — an omission against this
+  file's own established pattern, not a deliberate no-guard design. The
+  three sibling memory functions in the same block
+  (`createRecipeMemory` :1178-1194, `fetchRecipeMemoryPhotoBytes`
+  :1196-1204, `deleteRecipeMemory` :1206-1209) are equally unguarded.
+- **Callee confirmed real, not a stub**:
+  `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:1503-1505`:
+  ```swift
+  public func fetchRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
+      try await request(path: "/api/recipes/\(recipeID)/memories")
+  }
+  ```
+  an actual `GET /api/recipes/{id}/memories` via the shared `request(...)`
+  helper.
+- **Caller grep**: `grep -rn "refreshRecipeMemories"` across the repo finds
+  exactly one call site outside the `AppState` definition itself:
+  `Features/Recipes/RecipeMemoriesSection.swift:135`, inside `private func
+  load() async` (lines 133-140, entirely read):
+  ```swift
+  private func load() async {
+      do {
+          _ = try await appState.refreshRecipeMemories(recipeID: recipeID)
+          loadError = nil
+      } catch {
+          loadError = error.localizedDescription
+      }
+  }
+  ```
+  No guard of any kind before the call — `load()`'s only logic is the
+  do/catch around `refreshRecipeMemories` itself.
+- **`load()`'s own trigger — read the whole view file (149 lines)**:
+  `RecipeMemoriesSection.body` (22-88) wires `.task(id: recipeID) { await
+  load() }` (61-63) directly on the top-level `SMCard { ... }` — no
+  enclosing `if`/`#if canImport(CloudKit)`/`if !appState.isCloudKitOnly`
+  around either the `.task` modifier or the `body` itself. Every other
+  modifier in `body` (`.sheet`, `.fullScreenCover`,
+  `.confirmationDialog`) sits at the same unconditional top level.
+  `isCloudKitOnly`/`hasSavedConnection` do not appear anywhere in this
+  file (confirmed by reading it in full).
+- **Reachability to a user action — every hop read in full**:
+  1. `RecipeMemoriesSection(recipeID: recipe.recipeId)` is embedded at
+     `Features/Recipes/RecipeDetailView.swift:505`, inside
+     `contentSections(_:)` (437-524, entirely read) — a plain statement in
+     the `VStack`, with **no** `if`/`if !appState.isCloudKitOnly` wrapper.
+     Contrast confirmed directly above it in the same `VStack`: the
+     AI-pairings card at line 495-497 IS wrapped (`if
+     !appState.isCloudKitOnly { RecipePairingsCard(...) }`, with an inline
+     comment "AI pairings are Fly-backed ... Hide in CloudKit-only mode");
+     the Memories line 3 rows below has no such wrapper, matching the
+     claim exactly.
+  2. `contentSections(recipe)` is called unconditionally from
+     `RecipeDetailView.body` (46-54, read in full): `if let recipe {
+     ScrollView { VStack { headerSection(recipe); contentSections(recipe) }
+     } }` — fires as soon as the recipe has loaded, for any recipe,
+     independent of household/backend type.
+  3. `RecipeDetailView(recipeID:)` is pushed from seven ordinary,
+     always-visible navigation sites, none CloudKit/hasSavedConnection-
+     gated (`grep -rn "RecipeDetailView("`): `RecipeDetailView.swift:770`
+     (variant card), `RecipesView.swift:692,710,731,752,818,870` (hero
+     card + list rows across the Recipes tab's different sections), and
+     `Features/Week/WeekView.swift:326` (meal card in the Week tab). Recipes
+     is documented in `AppState.swift:274-280` as the one feature area
+     explicitly NOT behind `ComingSoonView` (only "Weeks / Grocery / Events
+     / Profile / AI" are named as gated) — recipe browsing/detail is fully
+     live for CloudKit-only households.
+- **`hasSavedConnection` mechanics confirmed** (`AppState.swift:316-318`,
+  `SimmerSmithAPIClient.swift:2243-2253`): `hasSavedConnection == false`
+  means no Fly server URL configured (the default/typical state for a
+  CloudKit-only household); `buildRequest` throws
+  `SimmerSmithAPIError.missingServerURL` before any actual network
+  attempt in that state. So concretely: the call doesn't hang or crash —
+  it throws immediately, `RecipeMemoriesSection.load()` catches it into
+  `loadError = error.localizedDescription`, and the Memories card renders
+  a visible error line (e.g. "The operation couldn't be completed...")
+  under an otherwise-empty memories list, on every single recipe detail
+  page opened by a CloudKit-only household. This is the exact
+  broken-but-visible-lie UX pattern already established for the other
+  confirmed rows in this file.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** Matches the claim precisely:
+  `refreshRecipeMemories(recipeID:)` (`AppState+Recipes.swift:1169`) has no
+  guard of any kind — no `#if canImport(CloudKit)`, no repository-nil
+  check, no `hasSavedConnection` check — and `RecipeMemoriesSection`
+  (`RecipeMemoriesSection.swift:135`, `load()`, run from `.task(id:
+  recipeID)`) is embedded unconditionally in `RecipeDetailView.swift:505`,
+  three lines below the AI-pairings card that IS correctly gated behind
+  `!appState.isCloudKitOnly` at line 495 — confirming the claimed contrast
+  exactly. Opening any recipe detail page, from any of the seven ordinary
+  navigation entry points, unconditionally fires this dead-backend call on
+  a CloudKit-only household. No reclassification — the original claim
+  stands as filed.
+
+## Row: apiClient.createIngredientVariation (AppState+Ingredients.swift:127)
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Ingredients.swift:127`,
+  inside `createIngredientVariation(baseIngredientID:name:normalizedName:
+  brand:upc:packageSizeAmount:packageSizeUnit:countPerPackage:productUrl:
+  retailerHint:notes:sourceName:sourceRecordID:sourceURL:active:
+  nutritionReferenceAmount:nutritionReferenceUnit:calories:)` (lines
+  107-147, entire function read).
+- **Full function body** (verbatim, the entire function, lines 107-147):
+  ```swift
+  func createIngredientVariation(
+      baseIngredientID: String,
+      name: String,
+      normalizedName: String? = nil,
+      brand: String = "",
+      upc: String = "",
+      packageSizeAmount: Double? = nil,
+      packageSizeUnit: String = "",
+      countPerPackage: Double? = nil,
+      productUrl: String = "",
+      retailerHint: String = "",
+      notes: String = "",
+      sourceName: String = "",
+      sourceRecordID: String = "",
+      sourceURL: String = "",
+      active: Bool = true,
+      nutritionReferenceAmount: Double? = nil,
+      nutritionReferenceUnit: String = "",
+      calories: Double? = nil
+  ) async throws -> IngredientVariation {
+      try await apiClient.createIngredientVariation(
+          baseIngredientID: baseIngredientID,
+          name: name,
+          normalizedName: normalizedName,
+          brand: brand,
+          upc: upc,
+          packageSizeAmount: packageSizeAmount,
+          packageSizeUnit: packageSizeUnit,
+          countPerPackage: countPerPackage,
+          productUrl: productUrl,
+          retailerHint: retailerHint,
+          notes: notes,
+          sourceName: sourceName,
+          sourceRecordId: sourceRecordID,
+          sourceURL: sourceURL,
+          active: active,
+          nutritionReferenceAmount: nutritionReferenceAmount,
+          nutritionReferenceUnit: nutritionReferenceUnit,
+          calories: calories
+      )
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check — it is the entire body, called
+  unconditionally. Re-confirmed by re-reading the whole file
+  (`AppState+Ingredients.swift`, lines 1-317): only
+  `refreshIngredientPreferences` (209-224) and
+  `upsertIngredientPreference` (226-296) have the `#if canImport(CloudKit)
+  if let repo = preferenceRepository { ... return }` pattern; there is no
+  `variationRepository` / `IngredientVariationRepository` anywhere in the
+  repo (`grep -rln "IngredientVariationRepository\|variationRepository"`
+  returns nothing) — ingredient variations have no CloudKit-ported path at
+  all, unlike preferences.
+- **Callee confirmed real, not a stub**:
+  `SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  1298-1336` issues an actual `POST /api/ingredients/{baseIngredientID}/
+  variations` via the shared `request(path:method:body:)` helper. That
+  helper's `buildRequest` (line 2243) does
+  `let baseURLString = ConnectionSettingsStore.normalizeServerURL(connection.serverURLString)`
+  then `guard !baseURLString.isEmpty ... else { throw
+  SimmerSmithAPIError.missingServerURL }` (lines 2249-2253) — exactly the
+  state of a CloudKit-only household that never configured a Fly server
+  (`hasSavedConnection == false`). The call doesn't silently no-op; it
+  throws, and both callers below surface `error.localizedDescription` as
+  an on-screen error banner instead of saving.
+- **Caller grep**: `grep -rn "createIngredientVariation"` across
+  `Features/` finds exactly two call sites, matching the claim exactly:
+  `Features/Ingredients/IngredientsView.swift:757` and
+  `Features/Recipes/RecipeEditorIngredientResolution.swift:666`.
+
+  **Entry point 1 — `IngredientVariationEditorSheet.save()`**
+  (`IngredientsView.swift:733-780`, entirely read):
+  ```swift
+  private func save() async {
+      do {
+          isSaving = true
+          errorMessage = nil
+          let saved: IngredientVariation
+          if let existing = context.variation {
+              saved = try await appState.updateIngredientVariation(...)
+          } else {
+              saved = try await appState.createIngredientVariation(   // :757
+                  baseIngredientID: context.baseIngredient.baseIngredientId,
+                  name: name, brand: brand, upc: upc, ...
+              )
+          }
+          onSaved(saved)
+          dismiss()
+      } catch {
+          errorMessage = error.localizedDescription
+      }
+      isSaving = false
+  }
+  ```
+  The only branch is `if let existing = context.variation` (edit vs.
+  create) — no household/backend guard. Reachability, every hop read in
+  full:
+  1. `save()` is wired to the sheet's `.confirmationAction` "Save" button
+     (`IngredientsView.swift:721-727`):
+     `Button(isSaving ? "Saving…" : "Save") { Task { await save() } }
+     .disabled(isSaving || name...isEmpty)` — an ordinary, always-compiled
+     button gated only on a non-empty name.
+  2. `IngredientVariationEditorSheet` is presented via `.sheet(item:
+     $variationEditorContext)` (`IngredientsView.swift:170-174`), inside
+     `IngredientDetailView.body`.
+  3. `variationEditorContext` is set (with `variation: nil`) from the
+     unconditional "Add Product Variation" button inside
+     `IngredientVariationManagementSection` (`IngredientVariationManagementSection.swift:25-27`,
+     `onCreateVariation` closure wired at `IngredientsView.swift:307-311`),
+     itself called unconditionally from `productsSection` inside
+     `detailSections` (`IngredientsView.swift:213-220`), rendered whenever
+     `if let detail` (i.e., detail finished loading — not a household/backend
+     check) inside `listContent` (`IngredientsView.swift:207-209`).
+  4. `IngredientDetailView` is pushed from a plain `NavigationLink` inside
+     an unconditional `ForEach(ingredients)` in `IngredientCatalogList.swift`
+     — same hop already verified in the `mergeBaseIngredient` row above.
+  5. `IngredientCatalogList` is embedded directly in `IngredientsView.body`
+     (`IngredientsView.swift:36-40`), a flat `List`, no wrapping guard.
+  6. `IngredientsView` is reached via `SettingsView.swift:479-483`
+     (`NavigationLink { IngredientsView() } label: { Label("Manage
+     Ingredient Catalog", ...) }`) — already verified unguarded in the
+     `mergeBaseIngredient` row above (no `isCloudKitOnly` anywhere in
+     `SettingsView.swift`; confirmed again this session via
+     `grep -n "isCloudKitOnly" SettingsView.swift` → no matches).
+
+  **Entry point 2 — `NewIngredientVariationSheet.save()`**
+  (`RecipeEditorIngredientResolution.swift:663-680`, entirely read):
+  ```swift
+  private func save() async {
+      do {
+          isSaving = true
+          let created = try await appState.createIngredientVariation(   // :666
+              baseIngredientID: context.baseIngredient.baseIngredientId,
+              name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+              brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
+              packageSizeAmount: Double(packageSizeAmountText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              packageSizeUnit: packageSizeUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+              notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+          onCreated(created)
+          dismiss()
+      } catch {
+          errorMessage = error.localizedDescription
+      }
+      isSaving = false
+  }
+  ```
+  No guard of any kind precedes the call. Reachability, every hop read in
+  full:
+  1. `save()` is wired to the sheet's `.confirmationAction` "Save" button
+     (`RecipeEditorIngredientResolution.swift:651-657`), gated only on a
+     non-empty name (`.disabled(isSaving || name...isEmpty)`).
+  2. `NewIngredientVariationSheet` is presented via `.sheet(item:
+     $newVariationContext)` (`RecipeEditorIngredientResolution.swift:
+     308-316`), inside `IngredientResolutionSheet.body`.
+  3. `newVariationContext` is set from the unconditional "Create Product
+     Variation" button (`RecipeEditorIngredientResolution.swift:237-247`),
+     inside a `Section("Product Variation")` that renders whenever `if let
+     selectedBaseIngredient` (i.e., the user has picked/created a base
+     ingredient to match against — not a household/backend check;
+     `RecipeEditorIngredientResolution.swift:200-248`).
+  4. `IngredientResolutionSheet` is presented via `.sheet(item:
+     $ingredientResolutionContext)` at `RecipeEditorView.swift:438-442` —
+     no wrapping guard (confirmed by reading lines 425-443; the two
+     `isCloudKitOnly` guards in this file, at lines 672 and 828, are inside
+     `searchIngredients(query:)` and gate the Fly-backed autocomplete
+     suggestion list only, not the sheet presentation).
+  5. `ingredientResolutionContext` is set from the unconditional "Review
+     ingredient match" / "Change ingredient match" button
+     (`RecipeEditorView.swift:307-322`), inside an unconditional
+     `Section("Ingredients") { ForEach($draft.ingredients) { ... } }`
+     (confirmed via `awk`/`grep` over lines 200-330: no `isCloudKitOnly`
+     wraps this section) — i.e., a plain per-ingredient row control shown
+     for every ingredient of every recipe being edited.
+  6. `RecipeEditorView` is the ordinary recipe editor, reached by
+     creating/editing any recipe — recipes are the one feature the
+     `isCloudKitOnly` comment (`AppState.swift:278`) calls "fully
+     cut-over," so this screen is exactly where CloudKit-household users
+     spend their time.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), either (a)
+  Settings → "Manage Ingredient Catalog" → tap an ingredient → "Add Product
+  Variation" → fill in a name → "Save", or (b) edit any recipe → tap
+  "Review ingredient match" on an ingredient row → pick/create a base
+  ingredient → "Create Product Variation" → fill in a name → "Save" —
+  unconditionally reaches `appState.createIngredientVariation(...)`, which
+  — with zero guard of any kind — calls `apiClient.createIngredientVariation(...)`,
+  which throws `SimmerSmithAPIError.missingServerURL` from `buildRequest`
+  because no Fly server URL is configured. Both callers catch the error and
+  merely set `errorMessage`/show a red banner — the save silently fails
+  from the user's perspective (tap Save, get an error, nothing persisted).
+  Every hop in both chains was read in full; none contains a repository-nil
+  check, `hasSavedConnection` check, or `#if canImport(CloudKit)` branch.
+  Matches both claimed user entry points exactly
+  (`IngredientsView.swift:757` `IngredientVariationEditorSheet.save`;
+  `RecipeEditorIngredientResolution.swift:666` `NewIngredientVariationSheet.save`),
+  and is the same class of gap as the `mergeBaseIngredient` /
+  `updateBaseIngredient` / `archiveBaseIngredient` rows above (same file,
+  same missing-guard pattern, distinct entry points).
+
+## Row: apiClient.saveIngredientNutritionMatch (AppState+Ingredients.swift:311, saveIngredientNutritionMatch) — REFUTED, moved to GUARDED-DEAD
+
+- **Original claim**: LIVE-AND-BROKEN via `RecipeEditorView`'s `NutritionEditor`
+  (embedded `RecipeEditorEditorView.swift:343-348`, wired to
+  `presentNutritionMatcher(for:)` at `:856-864`), reached ungated (no
+  `isCloudKitOnly` check anywhere in `RecipeEditorNutritionEditor.swift`),
+  distinct from the already-known-gated `RecipeDetailView.swift:723` site.
+- **Full function body** (`AppState+Ingredients.swift:298-316`, verbatim):
+  ```swift
+  func saveIngredientNutritionMatch(
+      ingredientName: String,
+      normalizedName: String?,
+      nutritionItemID: String
+  ) async throws -> IngredientNutritionMatch {
+      // CATALOG TRACK: ... (comment, lines 303-310, claims the only caller,
+      // RecipeNutritionMatchView, is gated behind `!isCloudKitOnly` already)
+      try await apiClient.saveIngredientNutritionMatch(
+          ingredientName: ingredientName,
+          normalizedName: normalizedName,
+          nutritionItemID: nutritionItemID
+      )
+  }
+  ```
+  Confirmed: no `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check — this part of the claim is correct, and matches
+  this file's anomaly pattern (sibling functions `refreshIngredientPreferences()`
+  lines 209-224 and `upsertIngredientPreference(...)` lines 226-296 both DO
+  have the `#if canImport(CloudKit)`-repo-first / Fly-fallback pattern; this
+  function skips straight to the Fly call).
+- **Caller grep**: `grep -rn "saveIngredientNutritionMatch\|presentNutritionMatcher\|nutritionMatchContext\|onSelectUnmatchedIngredient"` across `Features/` and
+  `App/` confirms exactly two UI sites construct
+  `RecipeNutritionMatchContext`/present `RecipeNutritionMatchView`:
+  `RecipeDetailView.swift` (already known, wrapped in `if
+  !appState.isCloudKitOnly`, `:723`) and `RecipeEditorView.swift`
+  (`presentNutritionMatcher(for:)` at `:856-864`, wired from
+  `NutritionEditor(onSelectUnmatchedIngredient:)` at `:343-348`). Confirmed
+  `RecipeEditorNutritionEditor.swift` (the `NutritionEditor` view) itself
+  contains no `isCloudKitOnly` reference anywhere — this half of the claim is
+  literally true.
+- **The guard the claim missed**: `NutritionEditor`'s "unmatched ingredient"
+  tap row (`RecipeEditorNutritionEditor.swift:41-62`) only renders inside `if
+  let nutritionSummary { ... }` (line 12) — when `nutritionSummary == nil`,
+  none of that section (including the tappable rows that call
+  `onSelectUnmatchedIngredient`) is in the view tree at all. `nutritionSummary`
+  is a `RecipeEditorView` `@State` (`:57`), and the **only** function that ever
+  assigns it is `refreshNutritionEstimate(force:)` (`RecipeEditorView.swift:
+  825-854`):
+  ```swift
+  private func refreshNutritionEstimate(force: Bool = false) async {
+      // SP-C review finding D: AI nutrition estimation is Fly-backed. Skip it in
+      // CloudKit-only mode; the recipe still saves (just without an auto estimate).
+      guard !appState.isCloudKitOnly else {
+          nutritionSummary = nil
+          nutritionEstimateError = nil
+          return
+      }
+      ... // real estimate, sets nutritionSummary = try await appState.estimateRecipeNutrition(...)
+  }
+  ```
+  This function is called unconditionally from `.task { ...; await
+  refreshNutritionEstimate(force: true) }` (`:422-426`, fires once per editor
+  appearance) and `.task(id: nutritionEstimateSignature) { await
+  refreshNutritionEstimate() }` (`:428-430`, refires on every ingredient
+  edit) — both with no `isCloudKitOnly` wrapper of their own, i.e. they always
+  run and always hit the guard when `isCloudKitOnly` is true. `isCloudKitOnly`
+  (`AppState.swift:280`) is `let isCloudKitOnly: Bool =
+  AppState.cloudKitOnlyBuild`, and `cloudKitOnlyBuild` (`:294`) is `private
+  static let cloudKitOnlyBuild = true` — a hardcoded compile-time constant,
+  currently `true` for every build/household, not a per-household runtime
+  flag. So on every `RecipeEditorView` appearance and every ingredient edit,
+  `refreshNutritionEstimate` deterministically forces `nutritionSummary =
+  nil` before the "real" estimate path (which alone could populate
+  `unmatchedIngredients`) is ever reached. Grepped every `nutritionSummary =`
+  assignment in the file (`:821` only reassigns a local `prepared` copy for
+  the outgoing save payload, not the `@State`; `:829`/`:838` are the two nil
+  branches inside `refreshNutritionEstimate`; `:848` is the real-estimate
+  branch, unreachable when `isCloudKitOnly`) — there is no other path back to
+  non-nil.
+  - **Residual race, not a real entry point**: if `initialDraft.nutritionSummary`
+    (seeded at `:88`, e.g. a recipe imported with a pre-existing estimate)
+    already carries `unmatchedIngredients`, the very first render — before
+    the `.task` fires — briefly shows the tap row with a stale summary.
+    `.task` starts as soon as the view appears with no `await` before the
+    guard, so this window closes within (at most) one run-loop tick, well
+    under human reaction time; it does not constitute a reliable,
+    demonstrable user-driven path to the `apiClient` call, unlike the
+    sustained, always-visible affordances confirmed for the other rows in
+    this file (e.g. the `createIngredientVariation` row above).
+- **Verdict: REFUTED as LIVE-AND-BROKEN, reclassified GUARDED-DEAD.** The
+  in-file comment at `AppState+Ingredients.swift:308-309` is wrong about
+  *which* file gates the `RecipeEditorView` path (it isn't
+  `RecipeEditorNutritionEditor.swift`, and there's no `isCloudKitOnly` check
+  in that file) but right about the outcome: `RecipeEditorView`'s
+  nutrition-match affordance is gated too, just one layer up, via
+  `refreshNutritionEstimate`'s `isCloudKitOnly` early-return forcing
+  `nutritionSummary` to `nil` (same "SP-C review finding D" pattern this
+  file uses elsewhere, e.g. `searchIngredients(query:)`'s `isCloudKitOnly`
+  guard at `:672`). No concrete, sustained, reproducible user action reaches
+  `apiClient.saveIngredientNutritionMatch` on a CloudKit household through
+  either known UI site.
+
+## Row: apiClient.patchGroceryItem (Features/Grocery/IngredientLinkPickerSheet.swift:212, link(to:))
+
+- **Call site**: `SimmerSmith/SimmerSmith/Features/Grocery/
+  IngredientLinkPickerSheet.swift:212`, inside `private func link(to base:
+  BaseIngredient) async` (lines 204-224, entire function read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  private func link(to base: BaseIngredient) async {
+      guard let weekID = appState.currentWeek?.weekId else { return }
+      savingID = base.baseIngredientId
+      defer { savingID = nil }
+      errorMessage = nil
+      var body = SimmerSmithAPIClient.GroceryItemPatchBody()
+      body.baseIngredientId = .set(base.baseIngredientId)
+      do {
+          let updated = try await appState.apiClient.patchGroceryItem(
+              weekID: weekID,
+              itemID: item.groceryItemId,
+              body: body
+          )
+          appState.replaceGroceryItemInCurrentWeek(updated)
+          await appState.syncGroceryToReminders()
+          onLinked?(updated)
+          dismiss()
+      } catch {
+          errorMessage = "Couldn't link: \(error.localizedDescription)"
+      }
+  }
+  ```
+  The ONLY guard in the function is `guard let weekID = appState.currentWeek?.weekId
+  else { return }` — a nil-current-week bail, not a household/backend-type
+  check. No `#if canImport(CloudKit)` block, no `groceryRepository`/repository-nil
+  guard, no `hasSavedConnection` check anywhere in the function — this is a
+  direct `appState.apiClient.patchGroceryItem` call from a View, bypassing the
+  `AppState` façade (`editGroceryItem`/`AppState+Grocery.swift`) entirely.
+- **`weekID` is populated on CloudKit households too — the guard does not
+  gate out the broken case**: `currentWeek` is refreshed via
+  `mirrorWeekFromRepository()` (`App/AppState+Recipes.swift:429-450`), which
+  reads `weekRepository.weeks` (the CloudKit-backed repository) and sets
+  `currentWeek` independent of `hasSavedConnection` — confirmed by reading
+  the function in full: no `hasSavedConnection` reference anywhere in it. So
+  on a CloudKit household with `groceryRepository` non-nil and
+  `hasSavedConnection == false`, `appState.currentWeek?.weekId` still
+  resolves to a real week id; the guard passes straight through to the
+  `apiClient` call.
+- **Contrast with the app's own established façade pattern**: every other
+  grocery-mutation entry point in `AppState+Grocery.swift` (`addGroceryItem`
+  lines 9-33, `editGroceryItem` lines 39-94) follows `#if canImport(CloudKit)
+  if let weekID = currentWeek?.weekId, let groceryRepo = groceryRepository {
+  ...; return }` followed by `guard hasSavedConnection, let weekID =
+  currentWeek?.weekId else { return }` before ever touching `apiClient`.
+  `IngredientLinkPickerSheet.link(to:)` calls `appState.apiClient.
+  patchGroceryItem` directly from the View layer, skipping `editGroceryItem`
+  and both of those guards — the same class of façade-bypass gap already
+  flagged for `createBaseIngredient` in this same file (line 192, see the
+  `createBaseIngredient` row's caller-grep note above) and for
+  `submitIngredientForAdoption` per bead `simmersmith-990.5.1`'s notes.
+- **Callee confirmed real, not a stub**: `patchGroceryItem` issues an actual
+  `PATCH /api/weeks/{weekID}/grocery/{itemID}` request through
+  `SimmerSmithAPIClient`'s shared `request(...)`/`buildRequest` helper, which
+  throws `SimmerSmithAPIError.missingServerURL` when `baseURLString` is empty
+  (`hasSavedConnection == false`) — a genuine, user-visible failure, not a
+  silent no-op.
+- **Caller grep**: `grep -rn "IngredientLinkPickerSheet(" SimmerSmith/SimmerSmith/Features`
+  finds exactly three presenter sites outside the view's own definition,
+  matching the claim exactly:
+  1. `Features/Grocery/GroceryFeedbackSheet.swift:136`
+  2. `Features/Grocery/GroceryItemEditSheet.swift:104`
+  3. `Features/Recipes/RecipeSupport.swift:474`
+- **Reachability — entry point 1 (`GroceryFeedbackSheet.swift:136`)**, every
+  hop read in full:
+  1. `.sheet(isPresented: $showingLinker) { IngredientLinkPickerSheet(item:
+     item) { _ in dismiss() } }` (lines 135-144) — a plain SwiftUI sheet, no
+     CloudKit/`hasSavedConnection` guard around the modifier or the sheet
+     body.
+  2. `showingLinker = true` is set from an unconditional `Button` labeled
+     "Link to Ingredient" / "Re-link to Ingredient" (lines 52-59), inside a
+     plain `Section` of the feedback sheet's `Form` — no `if`/`#if
+     canImport(CloudKit)`/`hasSavedConnection` wrapping the button.
+  3. `GroceryFeedbackSheet` is presented via `.sheet(item:) { GroceryFeedbackSheet(item: item) }`
+     from `Features/Grocery/GroceryView.swift:317` — reached from the Grocery
+     tab, an ordinary always-available tab (not one of the `ComingSoonView`-
+     gated feature areas named in `AppState.swift`'s `isCloudKitOnly`
+     comment for Weeks/Grocery/Events/Profile/AI — Grocery's list view itself
+     is live, only specific server-backed sub-actions are gated per-call).
+- **Reachability — entry point 2 (`GroceryItemEditSheet.swift:104`)**: same
+  shape — `.sheet(isPresented: $showingLinker) { IngredientLinkPickerSheet(item: item) { _ in dismiss() } }`
+  (lines 103-111), no guard; `GroceryItemEditSheet` is presented from
+  `Features/Grocery/GroceryView.swift:321` via `.sheet(item:)`, same
+  Grocery-tab entry point as above.
+- **Reachability — entry point 3 (`RecipeSupport.swift:474`)**: matches the
+  claim; not re-traced in full here since entry points 1 and 2 already
+  independently confirm the sheet is reachable via an ungated button tap from
+  the Grocery tab, which is sufficient to confirm the row.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (`groceryRepository` non-nil, `hasSavedConnection == false`), Grocery tab →
+  open any item's feedback/edit sheet (`GroceryFeedbackSheet` or
+  `GroceryItemEditSheet`, both presented ungated from `GroceryView.swift:317`
+  and `:321`) → tap "Link to Ingredient" → `IngredientLinkPickerSheet` opens,
+  auto-searches, and renders results → tap any search result → `link(to:)`
+  runs with its only guard (`currentWeek?.weekId`) satisfied by the
+  CloudKit-populated `currentWeek` → unconditionally calls
+  `appState.apiClient.patchGroceryItem(...)`, which throws
+  `missingServerURL` against the dead/unconfigured Fly backend (caught into
+  a visible "Couldn't link: …" error banner, `link(to:)`'s catch block) —
+  the primary action of this sheet silently/visibly fails with no CloudKit
+  fallback anywhere in the chain. Matches the claimed evidence and all three
+  claimed user entry points exactly. Same class of gap as this file's own
+  `createBaseIngredient` call at line 192 (already noted as a facade-bypass
+  in the `createBaseIngredient` row above) — `IngredientLinkPickerSheet`
+  bypasses the `AppState` grocery façade (`editGroceryItem`) entirely for
+  both of its `apiClient` calls.
+
+## Row: apiClient.fetchBaseIngredients (AppState+Recipes.swift:1875, fetchBaseIngredients(query:limit:))
+
+- **Call site**: `SimmerSmith/SimmerSmith/App/AppState+Recipes.swift:1875`,
+  inside `fetchBaseIngredients(query:limit:)` (lines 1872-1876, entire
+  function read, plus the doc-comment above it at 1855-1871).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  func fetchBaseIngredients(query: String, limit: Int) async throws -> [BaseIngredient] {
+      // CATALOG TRACK: rewire to session.catalog (PublicCatalogReader) when the
+      // Ingredient slice lands; substring search is out of scope for recipe slice 1.
+      try await apiClient.fetchBaseIngredients(query: query, limit: limit)
+  }
+  ```
+  No `#if canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection`/`isCloudKitOnly` check anywhere — the apiClient call
+  IS the entire body, unconditional. The preceding doc comment (1857-1871)
+  independently corroborates: it explains this façade "delegates to Fly"
+  "during the transition" and that the Ingredient slice/`session.catalog`
+  rewire hasn't landed yet — matching the inline `// CATALOG TRACK:` comment.
+  Contrast with the two functions immediately below it in the same file,
+  `archiveRecipe` (1938-1951) and `restoreRecipe` (1953-1966), each of which
+  DOES have `#if canImport(CloudKit) if let repo = recipeRepository { ...;
+  return }` before its own Fly fallback — confirming the omission here is a
+  gap against this file's own established pattern, not a deliberate
+  "no guard needed" design.
+- **Caller grep**: `grep -rn "fetchBaseIngredients"
+  SimmerSmith/SimmerSmith/Features/` finds exactly three call sites of this
+  `AppState` facade method (a fourth, `App/AppState+Ingredients.swift:14`'s
+  `searchBaseIngredients`, is a separate façade over a different apiClient
+  overload and already covered as its own row above):
+  1. `Features/Recipes/RecipeEditorView.swift:685`, inside
+     `searchIngredients(query:)` (lines 667-695, entirely read) —
+     **guarded**: line 672, `guard !appState.isCloudKitOnly else {
+     ingredientSuggestions = []; return }`, precedes the call by 13 lines,
+     with an explicit comment (669-671) citing "SP-C review finding D:
+     ingredient autocomplete resolves via the Fly catalog (no token → 401)
+     in CloudKit-only mode. Skip the lookup." **This caller is correctly
+     guarded and does NOT reach the call on a CloudKit household** — it is
+     not part of this row's live-and-broken claim.
+  2. `Features/Grocery/IngredientLinkPickerSheet.swift:178`, inside
+     `private func search() async` (lines 171-183, entirely read):
+     ```swift
+     private func search() async {
+         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+         isSearching = true
+         defer { isSearching = false }
+         errorMessage = nil
+         do {
+             // SP-C: routed through AppState façade (closes the direct apiClient leak).
+             results = try await appState.fetchBaseIngredients(query: trimmed, limit: 25)
+         } catch {
+             errorMessage = "Search failed: \(error.localizedDescription)"
+             results = []
+         }
+     }
+     ```
+     No guard of any kind precedes the call — no CloudKit check, no
+     `hasSavedConnection`/`isCloudKitOnly` check, no repository check, not
+     even a minimum-length check on `trimmed`.
+  3. `Features/Grocery/PantryItemEditorSheet.swift:252`, inside
+     `private func runSearch(query: String) async` (lines 244-262, entirely
+     read):
+     ```swift
+     private func runSearch(query: String) async {
+         guard !query.isEmpty, query != lastSearchedQuery else { return }
+         lastSearchedQuery = query
+         isSearchingIngredients = true
+         defer { isSearchingIngredients = false }
+         do {
+             // Route through the catalog façade in AppState (AppState+Recipes.swift)
+             // so PantryItemEditorSheet does NOT reach into apiClient directly.
+             let results = try await appState.fetchBaseIngredients(query: query, limit: 8)
+             ...
+         } catch {
+             // Silent failure — autocomplete is a nice-to-have.
+         }
+     }
+     ```
+     The only guard is `!query.isEmpty, query != lastSearchedQuery` — a
+     dedup/empty-string bail, not a household/backend-type check. Confirmed
+     by grepping both files for `isCloudKitOnly\|hasSavedConnection`: zero
+     matches in either `IngredientLinkPickerSheet.swift` or
+     `PantryItemEditorSheet.swift` — neither sheet contains the guard
+     anywhere, not just "not before the call."
+- **Reachability — entry point 2, `IngredientLinkPickerSheet.search()`**
+  (every hop read in full):
+  1. `.task { if query.isEmpty { query = item.ingredientName; await search()
+     } }` (`IngredientLinkPickerSheet.swift:139-144`) fires automatically
+     the first time the sheet renders (`query` starts empty via
+     `@State private var query = ""`), calling `search()` (site 2)
+     unconditionally — no CloudKit/backend-type gate in the `.task` or
+     anywhere else in the view's `body`.
+  2. `IngredientLinkPickerSheet` is presented via
+     `.sheet(isPresented: $showingLinker) { IngredientLinkPickerSheet(item:
+     item) { ... } }` from three sites, each independently grepped:
+     `Features/Grocery/GroceryFeedbackSheet.swift:135-144` (plain `.sheet`,
+     no enclosing CloudKit guard; `showingLinker` set from an always-visible
+     button inside the grocery-item-feedback form), `Features/Grocery/
+     GroceryItemEditSheet.swift:104` (same pattern), and
+     `Features/Recipes/RecipeSupport.swift:474` (same pattern). None of the
+     three wraps the `.sheet` modifier or the triggering button in an
+     `isCloudKitOnly`/`hasSavedConnection` conditional.
+  3. Grocery item feedback/edit and recipe-side ingredient linking are
+     ordinary, always-reachable features — `AppState+Grocery.swift` has
+     full CloudKit repository plumbing (`groceryRepo`), confirming grocery
+     is a first-class, shipped CloudKit-cutover surface, not a
+     `ComingSoonView` placeholder.
+- **Reachability — entry point 3, `PantryItemEditorSheet.runSearch()`**
+  (every hop read in full):
+  1. Typing in the "Name" `TextField` (`PantryItemEditorSheet.swift:161`)
+     fires `.onChange` (line 151: `scheduleSearch(for: newValue)`), which
+     debounces 300ms (`scheduleSearch`, lines 223-242) then calls
+     `runSearch(query:)` (site 3) — no CloudKit/backend-type gate in either
+     function.
+  2. `PantryItemEditorSheet` is presented via `.sheet(item: $editorContext)
+     { ctx in PantryItemEditorSheet(item: ctx.item) }`
+     (`PantryView.swift:173-175`), triggered by the always-visible "+" /
+     "Add pantry item" toolbar button (`PantryView.swift:155-164`, gated
+     only on `pantryPrimary != .add`, a FAB-placement preference, not a
+     household/backend-type check) or by tapping an existing pantry row
+     (same `editorContext` binding).
+  3. `PantryView` itself is the Pantry tab's root list (`.task { if
+     appState.pantryItems.isEmpty { await appState.loadPantryItems() } }`,
+     lines 176-179) — an ordinary, always-reachable tab, not behind
+     `ComingSoonView`.
+- **`isCloudKitOnly`/`hasSavedConnection` state confirmed applicable**: per
+  the `createBaseIngredient` row above, `isCloudKitOnly` is a hardcoded
+  `true` compile-time constant in the shipping build
+  (`AppState.swift:280,294`: `private static let cloudKitOnlyBuild = true`),
+  and `hasSavedConnection == false` (`AppState.swift:316-318`) is the
+  default/typical state for a CloudKit-only household (no Fly server URL
+  ever configured). `buildRequest`
+  (`SimmerSmithKit/Sources/SimmerSmithKit/API/SimmerSmithAPIClient.swift:
+  2243-2253`) throws `SimmerSmithAPIError.missingServerURL` before any
+  network attempt in that state, so both unguarded callers surface a
+  caught, user-visible failure (`errorMessage = "Search failed: ..."` in
+  `IngredientLinkPickerSheet`, a silent swallow in `PantryItemEditorSheet`
+  — both dead ends, no CloudKit fallback path in either).
+- **Verdict: CONFIRMED LIVE-AND-BROKEN, with one precision correction to
+  the claimed evidence.** The claim's three-caller framing is right in
+  substance but slightly imprecise about `RecipeEditorView.swift`: it
+  correctly notes RecipeEditorView (line 685) DOES have the
+  `!appState.isCloudKitOnly` guard and is therefore NOT part of the
+  live-and-broken set — but the guard actually sits at line 672, thirteen
+  lines *before* the call at 685, not "right before its call" as the claim
+  phrases it; still functionally a correct read (nothing else intervenes
+  between the guard and the call) so this is a wording nit, not a
+  substantive error, and does not change the verdict. Of the two genuinely
+  unguarded callers, both are independently confirmed reachable from
+  ordinary, non-DEBUG user actions on a CloudKit household with zero
+  `isCloudKitOnly`/`hasSavedConnection`/`#if canImport(CloudKit)` guard
+  anywhere between the user action and the `apiClient.fetchBaseIngredients`
+  call:
+  - `Features/Grocery/IngredientLinkPickerSheet.swift:178` (`search()`),
+    auto-triggered by `.task` (139-144) whenever the sheet appears —
+    presented from `GroceryFeedbackSheet.swift:136`,
+    `GroceryItemEditSheet.swift:104`, `RecipeSupport.swift:474`, exactly as
+    claimed.
+  - `Features/Grocery/PantryItemEditorSheet.swift:252` (`runSearch()`),
+    triggered by typing a pantry item name (`scheduleSearch` ←
+    `.onChange`), exactly as claimed.
+  Matches the claimed user entry point. Confirmed LIVE-AND-BROKEN.
+
+## Row: apiClient.createBaseIngredient (Features/Grocery/IngredientLinkPickerSheet.swift:192)
+
+- **Distinct from the `AppState+Ingredients.swift:48` row above.** That row
+  verified the `AppState` façade method's two callers
+  (`IngredientsView.swift:593`, `RecipeEditorIngredientResolution.swift:571`)
+  and only *noted* this call site in passing as "a third,
+  previously-unfiled call site that bypasses the AppState facade entirely."
+  This entry independently verifies that bypass call site as its own row,
+  per the summary table's line `| createBaseIngredient |
+  Features/Grocery/IngredientLinkPickerSheet.swift:192 | ... |`.
+- **Call site**: `SimmerSmith/SimmerSmith/Features/Grocery/
+  IngredientLinkPickerSheet.swift:192`, inside `createNew(named:)` (lines
+  185-202, entire function read).
+- **Full function body** (verbatim, no truncation):
+  ```swift
+  private func createNew(named trimmed: String) async {
+      guard let weekID = appState.currentWeek?.weekId else { return }
+      isCreatingNew = true
+      defer { isCreatingNew = false }
+      errorMessage = nil
+      do {
+          // 1. Create the new BaseIngredient as household_only.
+          let created = try await appState.apiClient.createBaseIngredient(
+              name: trimmed,
+              submissionStatus: "household_only"
+          )
+          // 2. Link the grocery item to it (same path as tapping a
+          // matching row).
+          await link(to: created)
+      } catch {
+          errorMessage = "Couldn't add ingredient: \(error.localizedDescription)"
+      }
+  }
+  ```
+  The only early-return above the call is `guard let weekID =
+  appState.currentWeek?.weekId else { return }` — this checks whether an
+  active week exists, not CloudKit/repository/connection state; `weekID` is
+  bound but never referenced again in the function (dead binding, doesn't
+  change the guard's meaning). Confirmed by grepping the whole file
+  (`grep -n "canImport(CloudKit)\|hasSavedConnection\|repositor"
+  IngredientLinkPickerSheet.swift` → zero matches): no `#if
+  canImport(CloudKit)` block, no repository-nil guard, no
+  `hasSavedConnection` check anywhere in this file, including in `search()`
+  and `link(to:)` on either side of this function.
+- **Caller grep — confirms genuinely unique call, not a duplicate of the
+  façade row**: `grep -rn "appState.apiClient.createBaseIngredient"` across
+  `SimmerSmith/SimmerSmith` returns exactly one hit, this line — a
+  direct-bypass call (`appState.apiClient.createBaseIngredient(name:
+  submissionStatus:)`, a 2-arg overload on `SimmerSmithAPIClient`) distinct
+  from `appState.createBaseIngredient(name:normalizedName:category:...)`
+  (the 13-arg `AppState` façade wrapper verified in the row above).
+- **Reachability to a user action — three independent entry points, all
+  read in full**:
+  1. `Features/Grocery/GroceryFeedbackSheet.swift:53-58,135-144`: a plain
+     `Button` ("Link to Ingredient" / "Re-link to Ingredient", always
+     visible in the `Form`, no CloudKit/hasSavedConnection gate) sets
+     `showingLinker = true`, wired to `.sheet(isPresented: $showingLinker)
+     { IngredientLinkPickerSheet(item: item) { _ in dismiss() } }`.
+     `GroceryFeedbackSheet` is presented from
+     `Features/Grocery/GroceryView.swift:316-318` via `.sheet(item:
+     $selectedItem) { GroceryFeedbackSheet(item: item) }`; `selectedItem`
+     is set by a plain tap on a grocery row (`GroceryView.swift:225`,
+     confirmed by grep). `GroceryView` is the Grocery tab body
+     (`App/MainTabView.swift:37`, `.tag(AppState.MainTab.grocery)`).
+  2. `Features/Grocery/GroceryItemEditSheet.swift:53-59,102-111`: same
+     pattern — an always-visible "Link to Ingredient" `Button` sets
+     `showingLinker = true`, wired to `.sheet(isPresented: $showingLinker)
+     { IngredientLinkPickerSheet(item: item) { _ in dismiss() } }`.
+     `GroceryItemEditSheet` is presented from `GroceryView.swift:320-322`
+     via `.sheet(item: $editingItem) { GroceryItemEditSheet(item: item) }`,
+     and `editingItem` is set by a plain `.onTapGesture { editingItem =
+     item }` on a grocery row (`GroceryView.swift:219`, confirmed by grep).
+     Same Grocery-tab reach as entry point 1.
+  3. `Features/Recipes/RecipeSupport.swift:462-478,495-501`: an
+     ingredient-review queue sheet wires `.sheet(item: $linkingItem) {
+     IngredientLinkPickerSheet(item: item) { _ in Task { await
+     refreshQueue() } } }`; `groceryItemsNeedingReview` filters
+     `currentWeek?.groceryItems` for unresolved/flagged rows, no CloudKit
+     gate on the filter or on setting `linkingItem`.
+  In all three, once `IngredientLinkPickerSheet` is presented, typing a
+  name with no search hits (or alongside partial matches) surfaces an
+  always-enabled "Add \"<name>\" as new ingredient" `Button`
+  (`IngredientLinkPickerSheet.swift:70-83,103-111`) that calls `Task {
+  await createNew(named: trimmed) }` — no additional gate between the
+  button and the function under audit.
+- **`currentWeek` guard doesn't save this on a CloudKit household**:
+  `currentWeek: WeekSnapshot?` (`App/AppState.swift:181`) is populated from
+  either the Fly path or the CloudKit `weekRepository` path (multiple
+  assignment sites across `AppState+Weeks.swift`/`AppState+Grocery.swift`/
+  `AppState+Recipes.swift`); on any household with an active week — the
+  normal, non-empty state the whole Grocery/Recipes flow assumes — the
+  guard passes regardless of `hasSavedConnection` or repository state, so
+  it gates nothing relevant to this claim.
+- **Confirmed genuinely broken, not just theoretically reachable**: same
+  underlying `apiClient.createBaseIngredient` implementation as the row
+  above — `SimmerSmithAPIClient.swift:2251-2252` (`buildRequest`) throws
+  `SimmerSmithAPIError.missingServerURL` before any network call when
+  `baseURLString.isEmpty`, i.e. whenever `hasSavedConnection == false`.
+  `createNew(named:)`'s `catch` (lines 199-201) surfaces this as
+  `errorMessage = "Couldn't add ingredient: \(error.localizedDescription)"`
+  — a visible save failure, not a silent no-op, and no CloudKit fallback
+  path exists anywhere in this file for the create-new-ingredient flow.
+- **Verdict: CONFIRMED LIVE-AND-BROKEN.** On a CloudKit household
+  (repositories non-nil, `hasSavedConnection == false`), all three claimed
+  entry points — grocery-row feedback sheet, grocery-row edit sheet, and
+  the recipe ingredient-review queue — reach `IngredientLinkPickerSheet`'s
+  "Add as new ingredient" button with zero CloudKit/hasSavedConnection/
+  repository gate anywhere in the chain, which calls `createNew(named:)`,
+  whose only guard (`currentWeek?.weekId`) is unrelated to backend
+  selection, which calls `appState.apiClient.createBaseIngredient`
+  directly (bypassing the already-broken `AppState` façade entirely),
+  which throws `missingServerURL` against the dead Fly backend.
