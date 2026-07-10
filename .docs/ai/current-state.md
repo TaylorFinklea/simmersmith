@@ -2,12 +2,13 @@
 Branch: main
 
 ## Plan
-- (empty — simmersmith-a7i provider swap landed: visible OpenRouter replaced by Ollama Cloud + NeuralWatt; hidden legacy OpenRouter remaps to Ollama on Settings/runtime. Verify green: `swift test --package-path SimmerSmithCloudKit`; `xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' build CODE_SIGNING_ALLOWED=NO`. Next: `bd prime` → `bd ready`.)
+- (empty — arch-v3 session complete. Lead = Fable again; succession over.)
 
 ## User-gated (details in roadmap Awaiting User + the beads)
-- CUT 150 (148 phantom-never-uploaded; 149 BURNED — crashed at first open): 150 = q6y BG-wake fix (bb687b3) + vda first-open fix (5fdbb2c: AsyncSerialGate serializes explicit engine ops; repairs gated on initial-fetch success — 149 was the FIRST build running the repair layer in production and its destructive pass fired mid-refetch). Field GREEN per beads q6y + vda. Beads open: ppp (late BG registration), hwi (drain audit), 148 (gate cancellation), ec2 (release-script dup guard).
-- Assertion message recovery (nice-to-have): user runs `sudo /usr/bin/log collect --device-name Roshar --last 90m --output /tmp/roshar.logarchive`; cross-check vs gate design, update hwi.
-- 5w8 privacy draft awaits review: phases/privacy-policy-cloudkit-draft.md (+ asc-label-notes); remaining user steps itemized on the bead.
+- CUT a new build: 150 was cut pre-arch-v3. Since then: `c57` (02b1974, stale open-models slug — hits EVERY pre-swap user), `glw` (d54b6c3, repair pass outlived teardown; factory reset could resurrect the wiped zone). Both want field time.
+- Gate-1/2 device beads still open: `6uj` `a97` `nli` `3hn` `3sf` `cnx`. `9wr` PUBLIC-grant revoke + `pb8` prod schema = CloudKit Dashboard ops.
+- 5w8 privacy draft awaits review: phases/privacy-policy-cloudkit-draft.md (+ asc-label-notes).
+- NEW decision when monetization activates: Pro products must ship `isFamilyShareable = false` (decisions.md 2026-07-09).
 
 ## Blockers
 - none
