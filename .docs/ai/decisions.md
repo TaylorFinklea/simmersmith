@@ -1393,3 +1393,126 @@ calling OpenRouter without the user opening Settings.
 assistant tool loop, streaming, and Test Key plumbing while replacing the aggregator account. It avoids
 a new top-level provider/migration surface and avoids using `opencode-go` in product until its terms are
 verified.
+
+## 2026-07-09 — Fable resumes Lead; arch-v3 = delta review + forward tracks (supersedes the 2026-07-03 succession)
+
+**Context.** Opus/Fable returned from the multi-week rate-limit outage. The 2026-07-03 succession
+ADR made Sonnet 5 acting Lead and deferred two things to Opus's return: (a) new CloudKit
+record-type schema sign-off beyond the signed 990.4 spec, (b) re-architecting anything an
+adversarial verify rejected twice. Both are now unblocked.
+
+**Decision.** Sonnet 5 reverts to all-but-hardest Lead + Senior implementation per
+`delegation-method`. The launch queue (epic 0lm, `phases/launch-runbook.md`) is unchanged and
+still gated on user/device work. Session scope, user-approved 2026-07-09: **delta review of the
+post-arch-v2 commits** (a907de6..HEAD) + **forward architecture** for four tracks + **new-product
+proposals** + rolling implementation dispatch. Deliberately NOT a third from-zero review — the v1
+(80-agent) and v2 (114-agent) reviews converged and the bead queue is their consensus; the
+standing "don't re-review, implement" rule holds for everything they covered.
+
+**Delta-review outcome (26-agent fleet: 5 lens finders → 3 diverse adversarial verifiers per
+finding).** 7 findings raised, 7 confirmed (21/21 verifier votes), 0 refuted; Fable personally
+re-verified the top three by direct code read. Filed: `glw` (P1, critical class),
+`c57` (P1, fixed + committed `02b1974`), `ioj` (P1), `44q`/`bnh`/`gd5` (P2).
+
+**The load-bearing finding — `glw`, and the lesson it carries.** `RepairScheduler.deactivate()`
+has ZERO production call sites; its doc comment asserts the premise "a household session
+activates once per launch and stays active," which `0gf` (the adopt-swap) had falsified *the day
+before* `vda` shipped that comment. Consequences: an armed or in-flight destructive repair pass
+outlives session teardown and the owner→participant swap; worse, in factory reset
+(`deleteAllHouseholdZones` deliberately precedes teardown) an in-flight pass's next save hits
+`.zoneNotFound`, and `handleFailedSave`'s owner path **re-creates the zone the user just asked to
+erase**. The lesson generalizes the arch-v2 "fleet-written code gets the same lens" rule:
+**a comment asserting an invariant is not evidence the invariant holds — check it against what
+landed adjacent to it.** Each of `vda`, `0gf`, `7mb` was verified in isolation; nothing verified
+their composition. Any future wave that lands multiple concurrency primitives in one cycle must
+include a composition review before the build ships.
+
+**Panel-dispatch lesson (scorecard-logged).** Three external reviewers were dispatched on the same
+delta. gpt-5.5 and glm-5.2 (both lanes) **timed out at pi's 10-minute wall producing nothing**;
+minimax-m3 returned truncated but usable output (its `automaticSync`-vs-`AsyncSerialGate` concern
+is now an audit note on bead `hwi`). This is a TASK-SHAPE failure, not a capability verdict:
+open-ended tool-loop repo spelunking does not fit a 10-minute one-shot. **External panel reviews
+must be pre-digested** — inline the diff/spec into the prompt, no tool loop — which is exactly how
+the same models were then used successfully to review the gateway spec.
+
+## 2026-07-09 — ADR: credits gateway = subscription allowance on a Cloudflare Worker (realizes ADR-2's keyless tier)
+
+**Context.** ADR-2 (2026-07-01) killed Fly-era server enforcement, made local StoreKit 2 the only
+`isPro` truth, and named a future "credits-gateway tier on a small non-Fly endpoint" for keyless
+users. `AITier.creditsGateway` exists in `ProviderRouter` and nothing serves it. Keyless users
+have no cloud AI at all.
+
+**Decisions (product half locked by the user 2026-07-09).**
+- **Subscription with a monthly AI allowance**, reusing the existing `simmersmith.pro.monthly` /
+  `.annual` products — not consumable credit packs. The D1 ledger supports packs later (a pack is
+  a `balances.credits +=` fulfillment); shipping one product type keeps the App Review story and
+  the fulfillment path single.
+- **One-time trial grant** for keyless users, keyed on App Attest, with a self-reported
+  private-plane `trialClaimed` marker as an honesty check. Gives App Review a working keyless AI
+  path; prices in bounded reinstall fraud rather than building account infrastructure to stop it.
+- **Cloudflare Worker + D1.** Deliberately not Fly (ADR-2), not a new always-on VM.
+- **Identity = `appAccountToken`**, a UUID minted once per iCloud user and persisted in the
+  CloudKit private plane (survives reinstall, syncs across the user's devices), set on every
+  StoreKit purchase. This also finally activates the F23/F24 rebind check the Fly era left open.
+- **JWS verification validates the x5c chain to Apple Root CA**, not just the embedded leaf — the
+  F22 lesson, carried forward into the new gateway rather than re-learned.
+
+**Architecture consequence worth stating.** The gateway is modeled as one more
+`ProviderDescriptor` against an OpenAI-compatible endpoint, so `chatWithToolsOpenModels` /
+`streamWithToolsOpenModels` / the tool loop / Keychain plumbing are reused with **zero new
+transport code** — the same move that made the Ollama/NeuralWatt swap a descriptor change. What
+the descriptor abstraction does *not* express (metering, 402→paywall, session refresh) is
+confined to session acquisition beside `SubscriptionStore` and a `creditsAvailable` router input.
+
+**Spec:** `phases/credits-gateway-spec.md`. Panel-reviewed (qwen3.7-max / glm-5.2 / minimax-m3).
+Post-launch: nothing here blocks submission; the privacy-policy addendum for proxied prompt
+content is an **activation** gate, not a launch gate.
+
+## 2026-07-09 — ADR: the structural track's real product is a test host, not tidier files
+
+**Context.** `AppState` measures 8,228 lines across 19 extension files. Epic `z69` has sat as an
+untouched "post-launch structural" umbrella since 2026-07-02, framed as decomposition + protocol
+seams + app-target tests.
+
+**Decision.** Sequence it as S1 coordinator extraction → S2 protocol seams + fakes → **S3
+app-target unit-test host** → S4 per-domain extraction wave (fan-out) / S6 ToolRegistry capability
+boundary, with S5 (debug-view split) free-floating. Beads `z69.1`–`z69.6`, dependency-chained;
+S1 is blocked on `glw` because they touch the same files.
+
+**Why this order, and why S3 is the point.** The track's value is not aesthetic. Two arguments
+decide it:
+1. **The bugs cluster where ownership is diffuse.** `0gf` (boot races), `v89` (mid-wire teardown),
+   `glw` (scheduler outlives session) are all the same shape: session lifecycle spread across
+   `AppState+Recipes`, `AppState+Sharing`, and loose `AppState` fields. S1 gives that class one
+   auditable home.
+2. **Nothing app-side is testable, and that is why policy bugs ship.** `qrt`'s sync-status
+   derivation and `ioj`'s failure-clearing policy both shipped untested because only the packages
+   have test targets. S3 is the single highest-leverage bead in the repo: it makes app-side work
+   **command-verifiable for the first time**, which is precisely what converts a bead from
+   "in-session Lead work" into "ralph/pi-loop dispatchable."
+
+**The dispatch corollary.** After S1–S3, each S4 domain bead owns exactly one `AppState+X.swift`
+plus its new service file — **file-disjoint by construction**. That retires the hand-written
+collision map this repo currently needs for every parallel lane (bd memory `parallel-lanes-build`).
+The structural track is therefore an investment in cheap-model throughput, not in beauty.
+
+## 2026-07-09 — ADR: no conversational onboarding interview (bead exc)
+
+**Context.** The orphaned Fly-era preference interview was deleted in `mm1` (`416840f`); nothing
+read its outputs. Bead `exc` reads "design the AI preference interview conversation flow," and the
+obvious build is a chat that asks twenty questions.
+
+**Decision.** Don't build it. Onboarding is **deterministic and keyless-safe**: a four-screen
+non-AI flow capturing household size, hard avoids/allergies (writing real `IngredientPreference`
+rows), cuisines, and week-start/timezone. Zero AI calls. AI deepening is offered **later** — once
+a key exists or gateway credits are granted — as a pre-seeded assistant thread using the existing
+tool loop and existing preference tables. No new interview engine, no new record types.
+
+**Rationale.** (1) A keyless user cannot run a conversational interview at all, so it would be the
+first thing a new user hits and the first thing that fails — and it is on App Review's reviewer
+path. (2) The app already learns preferences from `PreferenceSignal` scores, ingredient
+avoid/allergy flags, and meal feedback; that data beats a cold interview's. (3) The interview's
+real job is cold-start, and cold-start needs about five facts, not a conversation.
+
+**Success metric for the spec:** a first-run user with no key reaches a plannable week without
+hitting an AI dead-end — the same manual path that mitigates guideline 4.2.
