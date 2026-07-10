@@ -268,8 +268,16 @@ final class HouseholdSession {
     /// token (which would mis-key the change feed against the new zone). The session
     /// object itself is released by AppState after this call; this only clears the
     /// on-disk token. Idempotent — no-op if the file is already gone.
+    ///
+    /// simmersmith-glw: also deactivates `repairScheduler` — this is a plain (non-async)
+    /// `@MainActor` func and cannot `await` a pass draining, so it uses the sync
+    /// `deactivate()` (gates future signals, cancels any not-yet-fired run, and requests
+    /// abort of an in-flight one at its next sub-pass boundary) rather than blocking here.
+    /// Without this, an in-flight destructive pass outlives teardown, still strongly
+    /// retaining `engine`/`store` and issuing CKModifyRecords after this session is gone.
     func clearState() {
         try? FileManager.default.removeItem(at: stateURL)
+        repairScheduler.deactivate()
         engine.onStoreChanged = nil
         engine.onSyncError = nil
     }
@@ -277,7 +285,11 @@ final class HouseholdSession {
     /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
     /// used when swapping an owner session out for a participant (adopt): the parked owner
     /// zone + its sync token must survive for a future un-adopt. ARC then releases the session.
+    ///
+    /// simmersmith-glw: also deactivates `repairScheduler` (see `clearState()`'s note — same
+    /// sync/fire-and-forget-safe reasoning applies to the adopt-swap's detach call site).
     func detach() {
+        repairScheduler.deactivate()
         engine.onStoreChanged = nil
         engine.onSyncError = nil
     }

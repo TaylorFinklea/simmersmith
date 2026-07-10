@@ -350,3 +350,111 @@ private final class ConcurrencyTracker: @unchecked Sendable {
     #expect(callCount.value == 2)         // exactly one follow-up pass ran
     #expect(tracker.maxConcurrent == 1)   // never overlapped
 }
+
+// simmersmith-glw: the core fix under test — `deactivate()` used to have zero production
+// call sites, so a `signal()`-triggered pass always ran to completion even after the session
+// that started it was torn down (sign-out, the owner->participant adopt-swap, factory
+// reset). `abortRequested` must be checked at the sub-pass boundary BETWEEN `nonDestructive`
+// and `destructive` so a `deactivate()` landing mid-pass stops the drain before the
+// destructive (delete/re-parent) sub-pass ever runs — the load-bearing half of the fix, since
+// a destructive save racing a CloudKit zone wipe is what resurrects the deleted zone.
+@Test func deactivateDuringInFlightPassAbortsBeforeDestructiveSubPass() async {
+    let nonDestructiveCount = Counter()
+    let destructiveCount = Counter()
+    let started = Gate()
+    let proceed = Gate()
+
+    let passes = RepairScheduler.Passes(
+        nonDestructive: {
+            nonDestructiveCount.increment()
+            started.open()
+            await proceed.wait()   // block here so the test can deactivate() mid-pass
+        },
+        destructive: {
+            destructiveCount.increment()
+        }
+    )
+    let scheduler = RepairScheduler(ownsZone: true, debounceNanoseconds: 15_000_000, passes: passes)
+    scheduler.activate()
+    scheduler.signal()
+    await started.wait()   // nonDestructive is running, blocked BEFORE destructive ever fires
+
+    scheduler.deactivate()   // requests abort while mid-pass
+    proceed.open()           // let the blocked nonDestructive call return
+
+    await scheduler.awaitIdle()   // wait for the drain loop to actually stop
+
+    #expect(nonDestructiveCount.value == 1)   // the already-started sub-pass ran to completion
+    #expect(destructiveCount.value == 0)      // aborted at the boundary BEFORE destructive
+}
+
+// simmersmith-glw: `quiesce()` is the async, wait-for-completion counterpart to `deactivate()`
+// that factory reset needs — it must not return until the in-flight pass has actually
+// stopped, so the caller can safely proceed to delete CloudKit zones without racing a
+// still-running pass's saves.
+@Test func quiesceReturnsOnlyAfterInFlightPassStops() async {
+    let started = Gate()
+    let proceed = Gate()
+    let quiesceReturned = Counter()
+
+    let passes = RepairScheduler.Passes(
+        nonDestructive: {
+            started.open()
+            await proceed.wait()
+        },
+        destructive: { }
+    )
+    let scheduler = RepairScheduler(ownsZone: true, debounceNanoseconds: 15_000_000, passes: passes)
+    scheduler.activate()
+    scheduler.signal()
+    await started.wait()   // pass is now running, blocked mid-nonDestructive
+
+    let quiesceTask = Task {
+        await scheduler.quiesce()
+        quiesceReturned.increment()
+    }
+
+    // Give quiesce() time to actually reach its await — it must NOT have returned yet, since
+    // the in-flight pass is still blocked on `proceed`.
+    try? await Task.sleep(nanoseconds: 80_000_000)
+    #expect(quiesceReturned.value == 0)
+
+    proceed.open()   // let the blocked pass finish
+    await quiesceTask.value
+    #expect(quiesceReturned.value == 1)
+}
+
+// simmersmith-glw: a `signal()` arriving right after a MID-PASS `deactivate()` (as opposed to
+// `deactivateCancelsPendingAndGatesSignals`'s "nothing was running yet" case) must stay inert
+// too — the scheduler is still gated (`activated == false`), so the signal is buffered, not
+// scheduled, and no new pass runs.
+@Test func signalAfterMidPassDeactivateStaysInert() async {
+    let nonDestructiveCount = Counter()
+    let destructiveCount = Counter()
+    let started = Gate()
+    let proceed = Gate()
+
+    let passes = RepairScheduler.Passes(
+        nonDestructive: {
+            nonDestructiveCount.increment()
+            started.open()
+            await proceed.wait()
+        },
+        destructive: {
+            destructiveCount.increment()
+        }
+    )
+    let scheduler = RepairScheduler(ownsZone: true, debounceNanoseconds: 15_000_000, passes: passes)
+    scheduler.activate()
+    scheduler.signal()
+    await started.wait()
+
+    scheduler.deactivate()
+    proceed.open()
+    await scheduler.awaitIdle()
+
+    scheduler.signal()   // must be dropped: scheduler is inactive again
+    try? await Task.sleep(nanoseconds: 60_000_000)   // well past the debounce window
+    #expect(nonDestructiveCount.value == 1)   // unchanged since the abort — no new pass ran
+    #expect(destructiveCount.value == 0)
+}

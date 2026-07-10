@@ -126,6 +126,15 @@ extension AppState {
         startFreshState = .running(progress: "Erasing CloudKit households…")
         let privateStore = householdSession?.privateStore
 
+        // simmersmith-glw: quiesce the repair scheduler BEFORE the zone wipe. Unlike the
+        // sync `deactivate()` used by sign-out/adopt teardown (`HouseholdSession.clearState()`
+        // /`detach()`), this flow IS async and can afford to actually wait — `quiesce()`
+        // deactivates AND awaits any in-flight pass stopping at its next sub-pass boundary.
+        // Without this, a repair pass's mid-flight save can hit `.zoneNotFound` right after
+        // `deleteAllHouseholdZones()` below, and `HouseholdSyncEngine.handleFailedSave`'s
+        // owner-path zone RE-CREATION resurrects the zone this step is about to delete.
+        await householdSession?.repairScheduler.quiesce()
+
         let provisioner = HouseholdZoneProvisioner()
         do {
             result.deletedHouseholdIDs = try await provisioner.deleteAllHouseholdZones()
