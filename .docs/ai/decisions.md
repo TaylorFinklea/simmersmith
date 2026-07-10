@@ -1573,7 +1573,17 @@ that logic died with it. Something must replace it.
 **Decision.** Keep it simple enough to reason about and test at the boundaries:
 - A meal rating writes signals for **both** the recipe name and the meal's cuisine, as separate
   `signalType`s.
-- `score += sentiment` (sentiment ∈ {−1, 0, +1}), clamped to `[−3, +3]`.
+- `score += sentiment`, clamped to `[−3, +3]`.
+
+  **Correction (same day, found at backstop).** I originally wrote "sentiment ∈ {−1, 0, +1}".
+  That is not what the UI emits. `FeedbackComposerView` has a five-way picker:
+  `Avoid = −2 · Bad = −1 · Neutral = 0 · Good = +1 · Great = +2`. So a single **Great** lands
+  on score 2 — which *is* the `strongLike` threshold — and a single **Avoid** lands on −2, the
+  dislike threshold. **Keep that behavior**: "Great" and "Avoid" are emphatic, one-tap
+  statements and should count as one; "Good"/"Bad" are the incremental signals that need
+  repetition. But say so out loud, clamp the *input* to `[−2, +2]` so no caller can leapfrog
+  the thresholds, and test the ±2 path — the first implementation tested only ±1, i.e. only
+  the values the UI never sends.
 - `strongLikes` = recipe signals with `score ≥ 2`; `likedCuisines` = cuisine signals `≥ 2`;
   `dislikedCuisines` = cuisine signals `≤ −2`.
 - Thresholds are constants in `SimmerSmithKit`, host-tested at the boundaries.
