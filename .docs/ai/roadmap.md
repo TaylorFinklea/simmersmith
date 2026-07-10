@@ -319,23 +319,24 @@ backend suite + live smoke all green.
 - [x] Upload to TestFlight
 - [x] Privacy policy URL
 
-## M1: AI Planning Excellence (**REGRESSED by the CloudKit cutover — see `b9z`**)
+## M1: AI Planning Excellence (regressed by the CloudKit cutover; **restored 2026-07-09** by `b9z`)
 
-Make the AI the star of the app. Built on Fly; the planner used preference signals, meal history,
+Make the AI the star of the app. Built on Fly; the planner uses preference signals, meal history,
 staples, and feedback to generate personalized plans.
 
-> **2026-07-09 correction.** Two of these were marked complete and are **not running** on the
-> shipping CloudKit architecture. They were true on Fly and died silently in the cutover — the
-> checkboxes are exactly why nobody noticed. Do not trust a `[x]` here as evidence a feature runs;
-> `b9z` restores the loop. This entry is left visible rather than quietly edited, as the record of
-> how a completed-milestone claim outlived the feature.
+> **What happened, kept as the record.** Two of these were marked `[x]` complete and were **not
+> running** on the shipping CloudKit architecture. They were true on Fly and died silently in the
+> cutover; two architecture reviews (80 agents, then 114) trusted the checkboxes instead of the
+> code, and it took a *product-proposal* fleet — whose critics had to check whether the features
+> their proposals built on were real — to notice. Do not read a `[x]` here as evidence a feature
+> runs. Both are genuinely restored now, with a runnable end-to-end test (`6bc28a5`).
 
-- [ ] **Preference-aware week planning** — `WeekGenContextGatherer` hard-codes `strongLikes` /
-      `likedCuisines` / `dislikedCuisines` to `[]`. The prompt still renders the sections; they are
-      always empty. (`b9z`)
+- [x] **Preference-aware week planning** — restored `6bc28a5`. `WeekGenContextGatherer` derives
+      `strongLikes` / `likedCuisines` / `dislikedCuisines` from stored signals.
 - [x] History-aware deduplication (pass recent 2-3 weeks of meals, avoid repeats)
-- [ ] **Feedback loop** — rating a meal posts to the dead Fly backend;
-      `PreferenceRepository.upsertSignal` has zero production callers. Nothing is learned. (`b9z`)
+- [x] **Feedback loop** — restored `6bc28a5`. Rating a meal writes recipe + cuisine
+      `PrivatePreferenceSignal` rows (private plane, per-user scope) that reach the planner.
+      Grocery-item feedback is still dead by deliberate scope cut — bead `32i`.
 - [x] Staple awareness (tell AI what's in the pantry to leverage)
 - [x] Post-generation quality scoring (score_meal_candidate on each recipe)
 - [x] Deduplication guardrails (max 3 reuses per recipe per week)
