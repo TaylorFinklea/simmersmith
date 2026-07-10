@@ -14,34 +14,65 @@ Active items. Trim as completed.
 
 ### Now
 
-**App Store launch (bead epic `0lm`) — the only active track (2026-07-03).**
+**App Store launch (bead epic `0lm`) — the only active track.**
 The definition of done is `phases/launch-runbook.md` (Gates 0–4: data safety → product truth →
 compliance → submission). Execution order + lane rules: `phases/arch-v2-execution-plan.md`.
 The actionable queue lives in beads (`bd ready`), NOT here. Loop state: `current-state.md`.
-Acting Lead while Opus/Fable are rate-limit-unavailable: **Sonnet 5** (bd memories
-`delegation-method` + `lead-succession`).
-Status: Gate 1 code landed except `pr9`; Gate 2 started (`7pr`/`962` in); Gates 3–4 open;
-runtime proof = device beads (`6uj`, `a97`, …) on the next TestFlight build (cut = human).
+**Lead: Fable** (resumed 2026-07-09; the Sonnet-5 succession ended — bd memory `lead-succession`).
+Status: Gate-1 code complete; Gate 2 started (`7pr`/`962`/`ebu` in); Gates 3–4 open; runtime proof
+= device beads (`6uj`, `a97`, …) on the next TestFlight build (cut = human).
+
+**Launch-blocking delta-review findings (arch-v3, 2026-07-09)** — `glw` (P1: repair pass outlives
+session teardown; factory reset can resurrect the wiped zone) · `ioj` (P1: permanent sync failures
+self-clear, so the qrt banner never fires) · `44q`/`bnh`/`gd5` (P2). `c57` fixed (`02b1974`).
+Fold `glw` + `ioj` into Gate 1 before the cut — both are data-safety/observability class.
 
 **Completed track history (details in decisions.md ADRs + phases/* reports):**
 - SP-A CloudKit data plane — COMPLETE 2026-06-18 (household zone, CKShare, merge, migration runner).
 - SP-C full app cutover — COMPLETE 2026-06-22 on `main` (CloudKit data + BYO-key AI; no central
   server). Remaining Fly-backed stragglers = SP-D port beads under epic `990`.
-- Sharing v1 / Backup & Restore / voice planning / open-models→OpenRouter / token streaming —
-  shipped 2026-06-28..30; device gates beaded.
+- Sharing v1 / Backup & Restore / voice planning / open-models providers / token streaming —
+  shipped 2026-06-28..07-09; device gates beaded. Open models = Ollama Cloud + NeuralWatt
+  (OpenRouter retired 2026-07-09, `5890cc8`).
 - Architecture reviews v1+v2 (2026-07-01/02) rebuilt the backlog in beads; arch-v2 P1 data-safety
-  wave landed 2026-07-02.
+  wave landed 2026-07-02. **arch-v3 (2026-07-09)** = delta review of the post-v2 commits + forward
+  track architecture (below).
 - SP-D (Fly retirement) = post-launch tail (launch does NOT wait for it); SP-B (on-device AFM
   tiering) waits for iOS 27 GA (bead `95h`).
 
 ### Awaiting User / External
 
-All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut TestFlight 148+
+All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut TestFlight
 (`scripts/release-ios.sh` — release stays human) · device gates `6uj` (Gate-1 regression), `a97`
-(sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · build-147
-product test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
+(sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
+test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
 (CloudKit Dashboard ops) · ASC privacy nutrition label (rides `5w8`). Ongoing: TestFlight dogfood
 (Taylor + Savanne).
+
+**New user decision when monetization activates:** Pro products must ship with Family Sharing
+**off** (`isFamilyShareable = false`) — see decisions.md 2026-07-09; enabling it without
+per-member identity is a data-integrity regression, not a growth lever.
+
+### Post-launch tracks (architected 2026-07-09; each has a spec + beads)
+
+Ordered by dependency, not appeal. None may be pulled forward before submission.
+
+1. **Fly retirement (epic `990`)** — schema for `990.4` (RecipeMemory) **signed**; ports
+   `990.4.x` / `990.5.x`, then the retirement chain `990.8`–`.12`. Gate-2 rule stands: land the
+   ports OR hide the surfaces; visible-but-broken is not shippable.
+2. **Credits gateway (`bx1` → `98v`)** — `phases/credits-gateway-spec.md`. Keyless users get
+   cloud AI via a Cloudflare Worker + D1 + per-subject Durable Object, funded by the Pro
+   subscription's monthly allowance plus a one-time starter grant. Panel-reviewed; two criticals
+   (Family Sharing identity, D1 double-spend) folded in. Children `gw-1`–`gw-7` file when the
+   ADR is accepted.
+3. **Structural (`z69.1`–`z69.6`)** — `phases/structural-track-spec.md`. AppState is 8,228 lines
+   across 19 files. S1 coordinator → S2 seams → **S3 app-target test host** (the point: app-side
+   work becomes command-verifiable, hence cheap-model dispatchable) → S4 domain fan-out / S6 tool
+   capability boundary. `z69.1` is blocked on `glw` (same files).
+4. **AI & product features** — `phases/ai-feature-track-spec.md`. Wave 1 hygiene (`nt2`, `fbn`,
+   `3pa`, `h2h`) is dispatchable now. Wave 2 (assistant depth: `2d1`, `a0a`, `3sf`) is gated on S6
+   and on keyless users being able to reach it at all. Wave 3 (`95h`, `zyp`, `exc`) is iOS-27 /
+   product-gated. `exc` is settled: **no conversational onboarding interview** (decisions.md).
 
 ### Next (committed milestones — specced 2026-05-14)
 
@@ -724,11 +755,17 @@ APNs permission prompt fires automatically once after first sign-in.
   - **Verify**: `swift test --package-path SimmerSmithKit` exits 0 with the PrivatePlaneStore tests either passing (entitled host) or explicitly skipped — no `signal code 5`.
   - **tier_floor**: senior · **complexity**: M
 
-## Constraints (updated 2026-07-01)
+## Constraints (updated 2026-07-09)
 
 - AI is the primary interaction model
 - Do not silently persist AI-generated content
-- Apple-only stack: CloudKit data plane; BYO-key AI; no central server (Fly retiring under SP-D)
+- Apple-only stack: CloudKit data plane; BYO-key AI; no central server (Fly retiring under SP-D).
+  The post-launch credits gateway is a **stateless metering proxy**, not a return to a backend —
+  it holds no user content and no household data.
 - CloudKit schema is additive-only — recordName policy + field tables are irreversible
-- Household = owner + one partner via zone-wide CKShare (MCP dropped; no forced payment)
+- Household = owner + one partner via zone-wide CKShare (MCP dropped; no forced payment).
+  The household is NOT the Apple family group — Pro products ship Family-Sharing-off.
 - iOS 26.0 deployment floor (intentional — FoundationModels; user-confirmed 2026-07-01)
+- **Keyless users are a first-class path, not a degraded one.** Every feature must answer "what
+  does a user with no API key see?" — it is also App Review's path. Until the gateway or iOS-27
+  AFM lands, that answer is "manual + on-device," and a feature that dead-ends there is a bug.
