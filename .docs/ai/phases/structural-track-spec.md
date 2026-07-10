@@ -51,14 +51,25 @@ the protocols; concrete types conform with zero body changes. Add `SimmerSmithTe
 targets in project.yml) holding in-memory fakes that satisfy the protocols.
 Verify: app build + a smoke test constructing each fake.
 
-### S3 — App-target unit-test host · senior · M
-A real `SimmerSmithTests` unit-test target wired via project.yml (xcodegen regen; commit the
-regenerated pbxproj WITH project.yml per repo rule), runnable headless:
-`xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=<sim-UDID> -only-testing:SimmerSmithTests`.
-Seed tests that exercise the seams built in S1/S2 and the policy logic that shipped untested
-this cycle: SyncStatusCenter clear policy (ioj), ToolRegistry dispatch/branching, coordinator
-boot-epoch staleness. The entitled-host PrivatePlane tests (bead aeu) ride this scheme.
-Verify: the xcodebuild test command exits 0 with the seed tests green.
+### S3 — App-target test coverage · senior · M
+
+**Correction (2026-07-09, found while implementing `b9z`): the host already exists.**
+`project.yml:61` declares a `SimmerSmithTests` target, and it already holds
+`SimmerSmithTests.swift` + `ToolRegistryDecodeTests.swift` with an established
+`@testable import SimmerSmith` pattern. An earlier draft of this spec asserted "zero app-target
+tests"; that was wrong, and the wrong premise nearly justified an XL phase to build something
+that ships today. The real gap is **usage, not existence** — the `qrt`/`ioj` policy bugs shipped
+untested because nobody *wrote* the test, not because they couldn't.
+
+So S3 is smaller than it looked:
+1. Confirm the target runs headless and make that command a bead-level `verify_cmd`:
+   `xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=<sim-UDID> -only-testing:SimmerSmithTests`
+2. Seed the coverage the recent bug wave proves is missing: `SyncStatusCenter` clear policy
+   (`ioj` — see bead `zrr`), coordinator boot-epoch staleness (after S1), `ToolRegistry`
+   dispatch/branching (extend the existing file).
+3. The entitled-host PrivatePlane tests (bead `aeu`) ride this scheme.
+
+Verify: the `xcodebuild test` command exits 0 with the seed tests green.
 
 ### S4 — Domain extraction wave (repeatable; one bead per domain) · senior · M each
 With seams + tests in place, extract per-domain logic from `AppState+X` into domain services
