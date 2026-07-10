@@ -31,10 +31,11 @@ paid-for and ignored, through submission.
       (`94b4231`) · eky (`a907de6`) landed 2026-07-02, suites green (Kit 155 / CK 436 / app builds).
 - [x] pr9 CKRecord defensive copies (`23efe83`, 2026-07-07) — store copy-in/copy-out + merger/rebase
       copy-before-mutate; CK 449 green.
-- [ ] Fresh TestFlight build (148+): device regression — two-device edit storm converges (no lost
-      fields), backup→recover round-trip, and the NEW cold-launch check: relaunch → full week
-      visible immediately → a backup taken right after relaunch contains the FULL household.
-      (Beaded: `6uj` regression bundle + `a97` sharing-gate remainder.)
+- [ ] Fresh TestFlight build (148+): **build 150 uploaded 2026-07-10; await processing and device
+      proof.** Verify two-device edit-storm convergence (no lost fields), backup→recover round-trip,
+      and the NEW cold-launch check: relaunch → full week visible immediately → a backup taken right
+      after relaunch contains the FULL household. (Beaded: `6uj` regression bundle + `a97`
+      sharing-gate remainder.)
 - [x] qrt sync-status surface (`4aa4f06`, 2026-07-07) — derivation + center + onSyncError wiring +
       join progress + Settings row/banner. GATE-1 CODE COMPLETE: tree is cuttable as build 148
       (13j `ca0cb5f` empty-backup fix must be in the cut — see 6uj note).

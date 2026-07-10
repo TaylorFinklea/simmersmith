@@ -5,8 +5,8 @@ Branch: main
 - (empty — arch-v3 complete, incl. `b9z`. Lead = Fable; the Sonnet-5 succession has ended.)
 
 ## User-gated (details in roadmap Awaiting User + the beads)
-- CUT A BUILD. 150 predates five fixes: `c57` (02b1974) · `glw` (d54b6c3) · `nt2` (d01e672) ·
-  `ioj` (d7db0c8) · `3pa` (0be97a0) · `b9z` (6bc28a5, the planner now actually learns).
+- Build 150 uploaded to TestFlight 2026-07-10 (`scripts/release-ios.sh` archive + export succeeded); await processing,
+  then run device gates — `6uj` (Gate-1 regression incl. c57/glw/ioj), `a97` (sharing), `nli` (voice), `3hn`/`3sf`/`cnx`.
 - hdeck `simmersmith/arch-v3-2026-07-09` is **awaiting-review**: pick which surviving product
   proposal(s) become beads (the bugs it surfaced are already filed).
 - Device gates open: `6uj` `a97` `nli` `3hn` `3sf` `cnx`. Dashboard ops: `9wr` `pb8`.
