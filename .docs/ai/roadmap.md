@@ -319,16 +319,30 @@ backend suite + live smoke all green.
 - [x] Upload to TestFlight
 - [x] Privacy policy URL
 
-## M1: AI Planning Excellence (complete)
+## M1: AI Planning Excellence (**REGRESSED by the CloudKit cutover — see `b9z`**)
 
-Make the AI the star of the app. The planner now uses preference signals, meal history, staples, and feedback to generate personalized plans.
+Make the AI the star of the app. Built on Fly; the planner used preference signals, meal history,
+staples, and feedback to generate personalized plans.
 
-- [x] Preference-aware week planning (feed PreferenceSignal scores into AI prompt)
+> **2026-07-09 correction.** Two of these were marked complete and are **not running** on the
+> shipping CloudKit architecture. They were true on Fly and died silently in the cutover — the
+> checkboxes are exactly why nobody noticed. Do not trust a `[x]` here as evidence a feature runs;
+> `b9z` restores the loop. This entry is left visible rather than quietly edited, as the record of
+> how a completed-milestone claim outlived the feature.
+
+- [ ] **Preference-aware week planning** — `WeekGenContextGatherer` hard-codes `strongLikes` /
+      `likedCuisines` / `dislikedCuisines` to `[]`. The prompt still renders the sections; they are
+      always empty. (`b9z`)
 - [x] History-aware deduplication (pass recent 2-3 weeks of meals, avoid repeats)
-- [x] Feedback loop (deprioritize poorly-rated meals/cuisines via signal scores)
+- [ ] **Feedback loop** — rating a meal posts to the dead Fly backend;
+      `PreferenceRepository.upsertSignal` has zero production callers. Nothing is learned. (`b9z`)
 - [x] Staple awareness (tell AI what's in the pantry to leverage)
 - [x] Post-generation quality scoring (score_meal_candidate on each recipe)
 - [x] Deduplication guardrails (max 3 reuses per recipe per week)
+
+**Still live** (do not conflate): the ingredient avoid/allergy path *is* wired —
+`WeekGenContextGatherer.swift:46-60` merges allergies into `hard_avoids` and emits the emphasized
+allergy prompt line.
 
 ## M2: Store-Specific Grocery Pricing (complete)
 
