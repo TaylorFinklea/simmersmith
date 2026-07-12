@@ -1190,6 +1190,10 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/ingredients/\(baseIngredientID)")
     }
 
+    public func fetchIngredientMigrationExport() async throws -> IngredientMigrationExport {
+        try await request(path: "/api/ingredients/migration/export")
+    }
+
     public func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
         try await request(path: "/api/ingredients/\(baseIngredientID)/variations")
     }

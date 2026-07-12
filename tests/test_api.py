@@ -457,6 +457,280 @@ def test_ingredient_search_hides_product_like_rows_by_default_but_can_include_th
     assert any(item["normalized_name"] == "classic yellow mustard" for item in included_payload)
 
 
+def test_ingredient_migration_export_is_complete_owned_and_lossless(client, db_session) -> None:
+    from app.config import get_settings
+    from app.models import BaseIngredient, IngredientVariation
+    from app.services.households import get_household_id
+
+    owned_household_id = get_household_id(db_session, get_settings().local_user_id)
+    created_at = datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC)
+    updated_at = datetime(2025, 2, 3, 4, 5, 6, tzinfo=UTC)
+    archived_at = datetime(2025, 3, 4, 5, 6, 7, tzinfo=UTC)
+
+    for index in range(205):
+        db_session.add(
+            BaseIngredient(
+                id=f"owned-{index:03d}",
+                name=f"Owned ingredient {index:03d}",
+                normalized_name=f"owned ingredient {index:03d}",
+                household_id=owned_household_id,
+                submission_status="household_only",
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        )
+
+    merge_target = BaseIngredient(
+        id="owned-merge-target",
+        name="Mustard",
+        normalized_name="mustard",
+        household_id=owned_household_id,
+        submission_status="approved",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    db_session.add(merge_target)
+    db_session.flush()
+
+    product_source = BaseIngredient(
+        id="owned-product-source",
+        name="2 x 12 oz Example Mustard Bottles",
+        normalized_name="2 x 12 oz example mustard bottles",
+        household_id=owned_household_id,
+        submission_status="rejected",
+        category="Condiments",
+        default_unit="bottle",
+        notes="legacy household product",
+        source_name="Open Food Facts",
+        source_record_id="0123456789012",
+        source_url="https://example.test/product",
+        source_payload_json='{"brands":"Example","code":"0123456789012"}',
+        override_payload_json='{"category":"Condiments"}',
+        provisional=True,
+        active=False,
+        archived_at=archived_at,
+        merged_into_id=merge_target.id,
+        nutrition_reference_amount=12.5,
+        nutrition_reference_unit="g",
+        calories=99.5,
+        protein_g=1.25,
+        carbs_g=2.5,
+        fat_g=3.75,
+        fiber_g=4.5,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    submitted = BaseIngredient(
+        id="owned-submitted",
+        name="Submitted ingredient",
+        normalized_name="submitted ingredient",
+        household_id=owned_household_id,
+        submission_status="submitted",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    global_base = BaseIngredient(
+        id="global-base",
+        name="Global ingredient",
+        normalized_name="global ingredient",
+        household_id=None,
+        submission_status="approved",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    foreign_base = BaseIngredient(
+        id="foreign-base",
+        name="Foreign ingredient",
+        normalized_name="foreign ingredient",
+        household_id="foreign-household",
+        submission_status="household_only",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    db_session.add_all([product_source, submitted, global_base, foreign_base])
+    db_session.flush()
+
+    variation_target = IngredientVariation(
+        id="owned-variation-target",
+        base_ingredient_id=merge_target.id,
+        name="Target mustard",
+        normalized_name="target mustard",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    db_session.add(variation_target)
+    db_session.flush()
+    variation_source = IngredientVariation(
+        id="owned-variation-source",
+        base_ingredient_id=product_source.id,
+        name="Example mustard 12 oz",
+        normalized_name="example mustard 12 oz",
+        brand="Example",
+        upc="0123456789012",
+        package_size_amount=12.0,
+        package_size_unit="oz",
+        count_per_package=2.0,
+        product_url="https://example.test/variation",
+        retailer_hint="Example Market",
+        notes="archived product variation",
+        source_name="Open Food Facts",
+        source_record_id="variation-record",
+        source_url="https://example.test/source",
+        source_payload_json='{"serving":"12 oz"}',
+        override_payload_json='{"brand":"Example"}',
+        active=False,
+        archived_at=archived_at,
+        merged_into_id=variation_target.id,
+        nutrition_reference_amount=30.0,
+        nutrition_reference_unit="g",
+        calories=110.0,
+        protein_g=5.0,
+        carbs_g=6.0,
+        fat_g=7.0,
+        fiber_g=8.0,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    global_variation = IngredientVariation(
+        id="global-variation",
+        base_ingredient_id=global_base.id,
+        name="Global variation",
+        normalized_name="global variation",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    foreign_variation = IngredientVariation(
+        id="foreign-variation",
+        base_ingredient_id=foreign_base.id,
+        name="Foreign variation",
+        normalized_name="foreign variation",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    db_session.add_all([variation_source, global_variation, foreign_variation])
+    db_session.commit()
+
+    response = client.get("/api/ingredients/migration/export")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 1
+    bases = payload["base_ingredients"]
+    variations = payload["ingredient_variations"]
+    assert payload["base_ingredient_count"] == 208
+    assert payload["ingredient_variation_count"] == 2
+    assert len(bases) == 208
+    assert len(variations) == 2
+    assert [row["base_ingredient_id"] for row in bases] == sorted(
+        row["base_ingredient_id"] for row in bases
+    )
+    assert [
+        (row["base_ingredient_id"], row["ingredient_variation_id"]) for row in variations
+    ] == sorted(
+        (row["base_ingredient_id"], row["ingredient_variation_id"]) for row in variations
+    )
+    assert {row["submission_status"] for row in bases} == {
+        "approved",
+        "household_only",
+        "rejected",
+        "submitted",
+    }
+    assert "global-base" not in {row["base_ingredient_id"] for row in bases}
+    assert "foreign-base" not in {row["base_ingredient_id"] for row in bases}
+    assert "global-variation" not in {
+        row["ingredient_variation_id"] for row in variations
+    }
+    assert "foreign-variation" not in {
+        row["ingredient_variation_id"] for row in variations
+    }
+
+    exported_base = next(
+        row for row in bases if row["base_ingredient_id"] == product_source.id
+    )
+    assert exported_base == {
+        "base_ingredient_id": product_source.id,
+        "name": product_source.name,
+        "normalized_name": product_source.normalized_name,
+        "submission_status": "rejected",
+        "category": "Condiments",
+        "default_unit": "bottle",
+        "notes": "legacy household product",
+        "source_name": "Open Food Facts",
+        "source_record_id": "0123456789012",
+        "source_url": "https://example.test/product",
+        "source_payload_json": '{"brands":"Example","code":"0123456789012"}',
+        "override_payload_json": '{"category":"Condiments"}',
+        "provisional": True,
+        "active": False,
+        "archived_at": archived_at.replace(tzinfo=None).isoformat(),
+        "merged_into_id": merge_target.id,
+        "nutrition_reference_amount": 12.5,
+        "nutrition_reference_unit": "g",
+        "calories": 99.5,
+        "protein_g": 1.25,
+        "carbs_g": 2.5,
+        "fat_g": 3.75,
+        "fiber_g": 4.5,
+        "created_at": created_at.replace(tzinfo=None).isoformat(),
+        "updated_at": updated_at.replace(tzinfo=None).isoformat(),
+    }
+
+    exported_variation = next(
+        row
+        for row in variations
+        if row["ingredient_variation_id"] == variation_source.id
+    )
+    assert exported_variation == {
+        "ingredient_variation_id": variation_source.id,
+        "base_ingredient_id": product_source.id,
+        "name": "Example mustard 12 oz",
+        "normalized_name": "example mustard 12 oz",
+        "brand": "Example",
+        "upc": "0123456789012",
+        "package_size_amount": 12.0,
+        "package_size_unit": "oz",
+        "count_per_package": 2.0,
+        "product_url": "https://example.test/variation",
+        "retailer_hint": "Example Market",
+        "notes": "archived product variation",
+        "source_name": "Open Food Facts",
+        "source_record_id": "variation-record",
+        "source_url": "https://example.test/source",
+        "source_payload_json": '{"serving":"12 oz"}',
+        "override_payload_json": '{"brand":"Example"}',
+        "active": False,
+        "archived_at": archived_at.replace(tzinfo=None).isoformat(),
+        "merged_into_id": variation_target.id,
+        "nutrition_reference_amount": 30.0,
+        "nutrition_reference_unit": "g",
+        "calories": 110.0,
+        "protein_g": 5.0,
+        "carbs_g": 6.0,
+        "fat_g": 7.0,
+        "fiber_g": 8.0,
+        "created_at": created_at.replace(tzinfo=None).isoformat(),
+        "updated_at": updated_at.replace(tzinfo=None).isoformat(),
+    }
+
+
+def test_ingredient_migration_export_requires_auth_when_auth_is_configured(
+    client, monkeypatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("SIMMERSMITH_API_TOKEN", "migration-secret")
+    get_settings.cache_clear()
+
+    unauthorized = client.get("/api/ingredients/migration/export")
+    authorized = client.get(
+        "/api/ingredients/migration/export",
+        headers={"Authorization": "Bearer migration-secret"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
+
+
 def test_recipe_lifecycle_and_library_edits_do_not_change_planned_meals(client) -> None:
     metadata_response = client.get("/api/recipes/metadata")
     assert metadata_response.status_code == 200

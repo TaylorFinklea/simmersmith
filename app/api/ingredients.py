@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, get_current_user
 from app.db import get_session
-from app.models import IngredientVariation
+from app.models import BaseIngredient, IngredientVariation
 from app.schemas import (
     BaseIngredientDetailOut,
     BaseIngredientOut,
     BaseIngredientPayload,
+    IngredientMigrationExportOut,
     IngredientMergeRequest,
     IngredientPreferenceOut,
     IngredientPreferencePayload,
@@ -157,6 +159,70 @@ def _variation_payload(item) -> dict[str, object]:
     }
 
 
+def _migration_base_payload(item: BaseIngredient) -> dict[str, object]:
+    return {
+        "base_ingredient_id": item.id,
+        "name": item.name,
+        "normalized_name": item.normalized_name,
+        "submission_status": item.submission_status,
+        "category": item.category,
+        "default_unit": item.default_unit,
+        "notes": item.notes,
+        "source_name": item.source_name,
+        "source_record_id": item.source_record_id,
+        "source_url": item.source_url,
+        "source_payload_json": item.source_payload_json,
+        "override_payload_json": item.override_payload_json,
+        "provisional": item.provisional,
+        "active": item.active,
+        "archived_at": item.archived_at,
+        "merged_into_id": item.merged_into_id,
+        "nutrition_reference_amount": item.nutrition_reference_amount,
+        "nutrition_reference_unit": item.nutrition_reference_unit,
+        "calories": item.calories,
+        "protein_g": item.protein_g,
+        "carbs_g": item.carbs_g,
+        "fat_g": item.fat_g,
+        "fiber_g": item.fiber_g,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
+def _migration_variation_payload(item: IngredientVariation) -> dict[str, object]:
+    return {
+        "ingredient_variation_id": item.id,
+        "base_ingredient_id": item.base_ingredient_id,
+        "name": item.name,
+        "normalized_name": item.normalized_name,
+        "brand": item.brand,
+        "upc": item.upc,
+        "package_size_amount": item.package_size_amount,
+        "package_size_unit": item.package_size_unit,
+        "count_per_package": item.count_per_package,
+        "product_url": item.product_url,
+        "retailer_hint": item.retailer_hint,
+        "notes": item.notes,
+        "source_name": item.source_name,
+        "source_record_id": item.source_record_id,
+        "source_url": item.source_url,
+        "source_payload_json": item.source_payload_json,
+        "override_payload_json": item.override_payload_json,
+        "active": item.active,
+        "archived_at": item.archived_at,
+        "merged_into_id": item.merged_into_id,
+        "nutrition_reference_amount": item.nutrition_reference_amount,
+        "nutrition_reference_unit": item.nutrition_reference_unit,
+        "calories": item.calories,
+        "protein_g": item.protein_g,
+        "carbs_g": item.carbs_g,
+        "fat_g": item.fat_g,
+        "fiber_g": item.fiber_g,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
 def _preference_payload(item) -> dict[str, object]:
     return {
         "preference_id": item.id,
@@ -198,6 +264,40 @@ def list_ingredients_route(
     )
     counts_map = ingredient_counts_bulk(session, [item.id for item in items])
     return [_base_payload(session, item, counts_map.get(item.id)) for item in items]
+
+
+@router.get("/migration/export", response_model=IngredientMigrationExportOut)
+def export_ingredient_migration_route(
+    session: Session = Depends(get_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    base_ingredients = list(
+        session.scalars(
+            select(BaseIngredient)
+            .where(BaseIngredient.household_id == current_user.household_id)
+            .order_by(BaseIngredient.id)
+        ).all()
+    )
+    ingredient_variations = list(
+        session.scalars(
+            select(IngredientVariation)
+            .join(
+                BaseIngredient,
+                IngredientVariation.base_ingredient_id == BaseIngredient.id,
+            )
+            .where(BaseIngredient.household_id == current_user.household_id)
+            .order_by(IngredientVariation.base_ingredient_id, IngredientVariation.id)
+        ).all()
+    )
+    return {
+        "schema_version": 1,
+        "base_ingredient_count": len(base_ingredients),
+        "ingredient_variation_count": len(ingredient_variations),
+        "base_ingredients": [_migration_base_payload(item) for item in base_ingredients],
+        "ingredient_variations": [
+            _migration_variation_payload(item) for item in ingredient_variations
+        ],
+    }
 
 
 @router.get("/{base_ingredient_id}", response_model=BaseIngredientDetailOut)

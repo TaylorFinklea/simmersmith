@@ -2104,6 +2104,12 @@ private struct StartFreshSection: View {
             }
             .font(SMFont.caption)
 
+            LabeledContent("Ingredients") {
+                Text(result.ingredientsImported ? "Imported" : "Not imported")
+                    .foregroundStyle(result.ingredientsImported ? SMColor.success : SMColor.textTertiary)
+            }
+            .font(SMFont.caption)
+
             LabeledContent("Recipes") {
                 Text(result.recipesImported ? "Imported" : "Not imported")
                     .foregroundStyle(result.recipesImported ? SMColor.success : SMColor.textTertiary)

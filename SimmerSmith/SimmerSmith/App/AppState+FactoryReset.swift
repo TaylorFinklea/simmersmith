@@ -35,6 +35,8 @@ extension AppState {
         var deletedHouseholdIDs: [String]
         /// The fresh household id minted after the wipe.
         var newHouseholdID: String?
+        /// True when the `migrated:ingredients` receipt is present after the import.
+        var ingredientsImported: Bool
         /// True when the `migrated:recipes` receipt is present after the import (recipes ran).
         var recipesImported: Bool
         /// True when the `migrated:weeks` receipt is present after the import.
@@ -49,6 +51,7 @@ extension AppState {
         init(
             deletedHouseholdIDs: [String] = [],
             newHouseholdID: String? = nil,
+            ingredientsImported: Bool = false,
             recipesImported: Bool = false,
             weeksImported: Bool = false,
             eventsImported: Bool = false,
@@ -57,6 +60,7 @@ extension AppState {
         ) {
             self.deletedHouseholdIDs = deletedHouseholdIDs
             self.newHouseholdID = newHouseholdID
+            self.ingredientsImported = ingredientsImported
             self.recipesImported = recipesImported
             self.weeksImported = weeksImported
             self.eventsImported = eventsImported
@@ -81,7 +85,7 @@ extension AppState {
     ///  3. WIPE LOCAL — `teardownHouseholdSession()` (engine token file + repos) + `clearLocalCache()`.
     ///  4. MINT FRESH — `ensureHouseholdSession()`; discovery finds zero zones → mints one clean
     ///     household. Aborts if it doesn't reach `.ready`.
-    ///  5. RE-IMPORT (with the JWT'd client, into the fresh session): recipes → weeks → events →
+    ///  5. RE-IMPORT (with the JWT'd client, into the fresh session): ingredients → recipes → weeks → events →
     ///     pantry-profile. The fresh household has no receipts, so each loader runs. Per-feature
     ///     receipts are confirmed to report what landed.
     ///  6. DISCARD the JWT — the everyday client returns to unauthenticated (no flow reads Fly).
@@ -218,12 +222,16 @@ extension AppState {
         _ = privateStore
 
         // 5. RE-IMPORT under the JWT'd client, into the fresh session, in order. The fresh
-        //    household has no receipts, so each loader runs. The recipe loader is run EXPLICITLY
+        //    household has no receipts, so each loader runs. The ingredient and recipe loaders are run EXPLICITLY
         //    here for parity / belt-and-suspenders: `ensureHouseholdSession` (step 4) ALSO calls
         //    `migrateRecipesIfNeeded` with this JWT (the apiClient reads its token from settingsStore
         //    per-request, and step 1 wrote it there), so by here the recipes receipt is usually
         //    already stamped and this call is a receipt-gated no-op. Keeping it explicit guards against
         //    a future refactor that drops the recipe migration from the launch path.
+        startFreshState = .running(progress: "Importing ingredients…")
+        await migrateIngredientsIfNeeded(session: session, apiClient: apiClient)
+        result.ingredientsImported = hasReceipt(scope: "ingredients", session: session)
+
         startFreshState = .running(progress: "Importing recipes…")
         await migrateRecipesIfNeeded(session: session, apiClient: apiClient)
         result.recipesImported = hasReceipt(scope: "recipes", session: session)

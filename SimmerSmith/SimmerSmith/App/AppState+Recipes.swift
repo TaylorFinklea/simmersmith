@@ -88,6 +88,10 @@ extension AppState {
         let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
         await session.start()
 
+        // Import household-owned catalog rows before recipes so any preserved
+        // ingredient links already have canonical targets when recipes hydrate.
+        await migrateIngredientsIfNeeded(session: session, apiClient: apiClient)
+
         // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
         // Receipt-gated (idempotent) — safe to call every launch. Runs after
         // session.start() (zone provisioned + first fetch done) and before

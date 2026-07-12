@@ -734,6 +734,204 @@ public struct IngredientResolution: Codable, Hashable, Sendable {
     public let resolutionStatus: String
 }
 
+public struct IngredientMigrationExport: Codable, Hashable, Sendable {
+    public let schemaVersion: Int
+    public let baseIngredientCount: Int
+    public let ingredientVariationCount: Int
+    public let baseIngredients: [BaseIngredientMigrationRow]
+    public let ingredientVariations: [IngredientVariationMigrationRow]
+
+    public init(
+        schemaVersion: Int,
+        baseIngredientCount: Int,
+        ingredientVariationCount: Int,
+        baseIngredients: [BaseIngredientMigrationRow],
+        ingredientVariations: [IngredientVariationMigrationRow]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.baseIngredientCount = baseIngredientCount
+        self.ingredientVariationCount = ingredientVariationCount
+        self.baseIngredients = baseIngredients
+        self.ingredientVariations = ingredientVariations
+    }
+}
+
+public struct BaseIngredientMigrationRow: Codable, Hashable, Sendable {
+    public let baseIngredientId: String
+    public let name: String
+    public let normalizedName: String
+    public let submissionStatus: String
+    public let category: String
+    public let defaultUnit: String
+    public let notes: String
+    public let sourceName: String
+    public let sourceRecordId: String
+    public let sourceUrl: String
+    public let sourcePayloadJson: String
+    public let overridePayloadJson: String
+    public let provisional: Bool
+    public let active: Bool
+    public let archivedAt: Date?
+    public let mergedIntoId: String?
+    public let nutritionReferenceAmount: Double?
+    public let nutritionReferenceUnit: String
+    public let calories: Double?
+    public let proteinG: Double?
+    public let carbsG: Double?
+    public let fatG: Double?
+    public let fiberG: Double?
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public init(
+        baseIngredientId: String,
+        name: String,
+        normalizedName: String,
+        submissionStatus: String,
+        category: String,
+        defaultUnit: String,
+        notes: String,
+        sourceName: String,
+        sourceRecordId: String,
+        sourceUrl: String,
+        sourcePayloadJson: String,
+        overridePayloadJson: String,
+        provisional: Bool,
+        active: Bool,
+        archivedAt: Date?,
+        mergedIntoId: String?,
+        nutritionReferenceAmount: Double?,
+        nutritionReferenceUnit: String,
+        calories: Double?,
+        proteinG: Double?,
+        carbsG: Double?,
+        fatG: Double?,
+        fiberG: Double?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.baseIngredientId = baseIngredientId
+        self.name = name
+        self.normalizedName = normalizedName
+        self.submissionStatus = submissionStatus
+        self.category = category
+        self.defaultUnit = defaultUnit
+        self.notes = notes
+        self.sourceName = sourceName
+        self.sourceRecordId = sourceRecordId
+        self.sourceUrl = sourceUrl
+        self.sourcePayloadJson = sourcePayloadJson
+        self.overridePayloadJson = overridePayloadJson
+        self.provisional = provisional
+        self.active = active
+        self.archivedAt = archivedAt
+        self.mergedIntoId = mergedIntoId
+        self.nutritionReferenceAmount = nutritionReferenceAmount
+        self.nutritionReferenceUnit = nutritionReferenceUnit
+        self.calories = calories
+        self.proteinG = proteinG
+        self.carbsG = carbsG
+        self.fatG = fatG
+        self.fiberG = fiberG
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct IngredientVariationMigrationRow: Codable, Hashable, Sendable {
+    public let ingredientVariationId: String
+    public let baseIngredientId: String
+    public let name: String
+    public let normalizedName: String
+    public let brand: String
+    public let upc: String
+    public let packageSizeAmount: Double?
+    public let packageSizeUnit: String
+    public let countPerPackage: Double?
+    public let productUrl: String
+    public let retailerHint: String
+    public let notes: String
+    public let sourceName: String
+    public let sourceRecordId: String
+    public let sourceUrl: String
+    public let sourcePayloadJson: String
+    public let overridePayloadJson: String
+    public let active: Bool
+    public let archivedAt: Date?
+    public let mergedIntoId: String?
+    public let nutritionReferenceAmount: Double?
+    public let nutritionReferenceUnit: String
+    public let calories: Double?
+    public let proteinG: Double?
+    public let carbsG: Double?
+    public let fatG: Double?
+    public let fiberG: Double?
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    public init(
+        ingredientVariationId: String,
+        baseIngredientId: String,
+        name: String,
+        normalizedName: String,
+        brand: String,
+        upc: String,
+        packageSizeAmount: Double?,
+        packageSizeUnit: String,
+        countPerPackage: Double?,
+        productUrl: String,
+        retailerHint: String,
+        notes: String,
+        sourceName: String,
+        sourceRecordId: String,
+        sourceUrl: String,
+        sourcePayloadJson: String,
+        overridePayloadJson: String,
+        active: Bool,
+        archivedAt: Date?,
+        mergedIntoId: String?,
+        nutritionReferenceAmount: Double?,
+        nutritionReferenceUnit: String,
+        calories: Double?,
+        proteinG: Double?,
+        carbsG: Double?,
+        fatG: Double?,
+        fiberG: Double?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.ingredientVariationId = ingredientVariationId
+        self.baseIngredientId = baseIngredientId
+        self.name = name
+        self.normalizedName = normalizedName
+        self.brand = brand
+        self.upc = upc
+        self.packageSizeAmount = packageSizeAmount
+        self.packageSizeUnit = packageSizeUnit
+        self.countPerPackage = countPerPackage
+        self.productUrl = productUrl
+        self.retailerHint = retailerHint
+        self.notes = notes
+        self.sourceName = sourceName
+        self.sourceRecordId = sourceRecordId
+        self.sourceUrl = sourceUrl
+        self.sourcePayloadJson = sourcePayloadJson
+        self.overridePayloadJson = overridePayloadJson
+        self.active = active
+        self.archivedAt = archivedAt
+        self.mergedIntoId = mergedIntoId
+        self.nutritionReferenceAmount = nutritionReferenceAmount
+        self.nutritionReferenceUnit = nutritionReferenceUnit
+        self.calories = calories
+        self.proteinG = proteinG
+        self.carbsG = carbsG
+        self.fatG = fatG
+        self.fiberG = fiberG
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct IngredientPreference: Codable, Identifiable, Hashable, Sendable {
     public let preferenceId: String
     public let baseIngredientId: String

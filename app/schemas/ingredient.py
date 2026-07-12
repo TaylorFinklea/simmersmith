@@ -74,6 +74,74 @@ class IngredientVariationOut(IngredientVariationPayload):
     updated_at: datetime
 
 
+class IngredientMigrationBaseOut(BaseModel):
+    base_ingredient_id: str
+    name: str
+    normalized_name: str
+    submission_status: str
+    category: str
+    default_unit: str
+    notes: str
+    source_name: str
+    source_record_id: str
+    source_url: str
+    source_payload_json: str
+    override_payload_json: str
+    provisional: bool
+    active: bool
+    archived_at: datetime | None = None
+    merged_into_id: str | None = None
+    nutrition_reference_amount: float | None = None
+    nutrition_reference_unit: str
+    calories: float | None = None
+    protein_g: float | None = None
+    carbs_g: float | None = None
+    fat_g: float | None = None
+    fiber_g: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IngredientMigrationVariationOut(BaseModel):
+    ingredient_variation_id: str
+    base_ingredient_id: str
+    name: str
+    normalized_name: str
+    brand: str
+    upc: str
+    package_size_amount: float | None = None
+    package_size_unit: str
+    count_per_package: float | None = None
+    product_url: str
+    retailer_hint: str
+    notes: str
+    source_name: str
+    source_record_id: str
+    source_url: str
+    source_payload_json: str
+    override_payload_json: str
+    active: bool
+    archived_at: datetime | None = None
+    merged_into_id: str | None = None
+    nutrition_reference_amount: float | None = None
+    nutrition_reference_unit: str
+    calories: float | None = None
+    protein_g: float | None = None
+    carbs_g: float | None = None
+    fat_g: float | None = None
+    fiber_g: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IngredientMigrationExportOut(BaseModel):
+    schema_version: Literal[1] = 1
+    base_ingredient_count: int
+    ingredient_variation_count: int
+    base_ingredients: list[IngredientMigrationBaseOut] = Field(default_factory=list)
+    ingredient_variations: list[IngredientMigrationVariationOut] = Field(default_factory=list)
+
+
 class IngredientUsageSummaryOut(BaseModel):
     linked_recipe_ids: list[str] = Field(default_factory=list)
     linked_recipe_names: list[str] = Field(default_factory=list)
