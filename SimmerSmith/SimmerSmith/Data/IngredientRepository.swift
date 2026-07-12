@@ -148,6 +148,18 @@ final class IngredientRepository {
             }
     }
 
+    func ingredientVariation(ingredientVariationID: String) -> IngredientVariation? {
+        let recordID = CKRecord.ID(recordName: ingredientVariationID, zoneID: session.zoneID)
+        guard let record = session.store.record(for: recordID),
+              record.recordType == HouseholdRecordType.ingredientVariation.recordTypeName,
+              isActive(record) else {
+            return nil
+        }
+        return decodeIngredientVariation(
+            HouseholdRecordCodec.decode(record, as: .ingredientVariation)
+        )
+    }
+
     func fetchBaseIngredientDetail(baseIngredientID: String) throws -> BaseIngredientDetail {
         let recordID = CKRecord.ID(recordName: baseIngredientID, zoneID: session.zoneID)
         guard let record = session.store.record(for: recordID),

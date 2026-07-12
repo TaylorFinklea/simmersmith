@@ -364,7 +364,81 @@ extension AppState {
     }
 
     func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
-        try await apiClient.resolveIngredient(ingredient)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository,
+              let session = householdSession else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        let catalog = session.catalog
+        let coordinator = IngredientResolutionCoordinator(
+            sources: .init(
+                publicBaseByID: { recordName in
+                    guard let row = await catalog.resolveBaseIngredient(recordName: recordName) else {
+                        return nil
+                    }
+                    return IngredientRepository.publicBaseIngredient(from: row)
+                },
+                publicBaseByNormalizedName: { normalizedName in
+                    guard let row = await catalog.resolveBaseIngredient(normalizedName: normalizedName) else {
+                        return nil
+                    }
+                    return IngredientRepository.publicBaseIngredient(from: row)
+                },
+                householdBaseByID: { baseID in
+                    try? repository.fetchBaseIngredientDetail(baseIngredientID: baseID).ingredient
+                },
+                householdBaseByNormalizedName: { normalizedName in
+                    repository.searchBaseIngredients(
+                        query: normalizedName,
+                        limit: 200,
+                        includeProductLike: true
+                    ).first {
+                        $0.active && $0.archivedAt == nil && $0.normalizedName == normalizedName
+                    }
+                },
+                variationByID: { variationID in
+                    if let householdVariation = repository.ingredientVariation(
+                        ingredientVariationID: variationID
+                    ), let base = try? repository.fetchBaseIngredientDetail(
+                        baseIngredientID: householdVariation.baseIngredientId
+                    ).ingredient, base.active, base.archivedAt == nil {
+                        return householdVariation
+                    }
+                    guard let row = await catalog.resolveIngredientVariation(recordName: variationID),
+                          let variation = IngredientRepository.publicIngredientVariation(from: row),
+                          await catalog.resolveBaseIngredient(
+                            recordName: variation.baseIngredientId
+                          ) != nil else {
+                        return nil
+                    }
+                    return variation
+                },
+                mintHouseholdBase: { ingredient, normalizedName in
+                    try repository.createBaseIngredient(
+                        name: ingredient.ingredientName,
+                        normalizedName: normalizedName,
+                        category: ingredient.category,
+                        defaultUnit: ingredient.unit,
+                        notes: ingredient.notes,
+                        provisional: true
+                    )
+                },
+                variations: { baseID in
+                    if (try? repository.fetchBaseIngredientDetail(baseIngredientID: baseID)) != nil {
+                        return repository.fetchIngredientVariations(baseIngredientID: baseID)
+                    }
+                    return await catalog.fetchIngredientVariations(
+                        baseIngredientID: baseID,
+                        limit: 200
+                    ).compactMap(IngredientRepository.publicIngredientVariation(from:))
+                },
+                preferences: { self.preferenceRepository?.preferences ?? [] }
+            )
+        )
+        return try await coordinator.resolve(ingredient)
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     // SP-C slice 5 — ingredient preferences now route through PreferenceRepository
@@ -393,39 +467,36 @@ extension AppState {
     ) async throws -> IngredientPreference {
         #if canImport(CloudKit)
         if let repo = preferenceRepository {
-            // Build a transient IngredientPreference via JSON round-trip
-            // (IngredientPreference has no memberwise init — decoder-only).
-            let prefID = preferenceID ?? ""
-            var dict: [String: Any] = [
-                "preferenceId": prefID,
-                "baseIngredientId": baseIngredientID,
-                "baseIngredientName": "",
-                "preferredBrand": preferredBrand,
-                "choiceMode": choiceMode,
-                "active": active,
-                "notes": notes,
-                "rank": rank,
-                "updatedAt": ISO8601DateFormatter().string(from: Date()),
-            ]
-            if let varID = preferredVariationID { dict["preferredVariationId"] = varID }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            guard
-                let data = try? JSONSerialization.data(withJSONObject: dict),
-                let preference = try? decoder.decode(IngredientPreference.self, from: data)
-            else {
-                throw NSError(
-                    domain: "SimmerSmith.PreferenceRepository",
-                    code: 422,
-                    userInfo: [NSLocalizedDescriptionKey: "Could not build preference object."]
-                )
+            let baseIngredientName: String
+            if let household = try? ingredientRepository?.fetchBaseIngredientDetail(
+                baseIngredientID: baseIngredientID
+            ).ingredient {
+                baseIngredientName = household.name
+            } else if let session = householdSession,
+                      let row = await session.catalog.resolveBaseIngredient(recordName: baseIngredientID) {
+                baseIngredientName = row.name
+            } else {
+                throw IngredientRepositoryError.baseIngredientNotFound
             }
-            let mintedID = repo.upsert(preference)
+            let prefID = preferenceID ?? ""
+            let preference = IngredientPreference(
+                preferenceId: prefID,
+                baseIngredientId: baseIngredientID,
+                baseIngredientName: baseIngredientName,
+                preferredVariationId: preferredVariationID,
+                preferredBrand: preferredBrand,
+                choiceMode: choiceMode,
+                active: active,
+                notes: notes,
+                rank: rank,
+                updatedAt: Date()
+            )
+            guard let mintedID = repo.upsert(preference) else {
+                throw PreferenceRepositoryError.storeUnavailable
+            }
             repo.reload()
             ingredientPreferences = repo.preferences
-            // Return the upserted preference with the minted ID, or the transient one.
-            let finalID = mintedID ?? prefID
-            return repo.preferences.first(where: { $0.preferenceId == finalID }) ?? preference
+            return repo.preferences.first(where: { $0.preferenceId == mintedID }) ?? preference
         }
         #endif
         throw IngredientRepositoryError.baseIngredientNotFound

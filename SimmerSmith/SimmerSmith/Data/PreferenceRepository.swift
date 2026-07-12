@@ -18,12 +18,9 @@ import SimmerSmithKit
 //     WeekGenContextGatherer can derive strongLikes/likedCuisines/dislikedCuisines from
 //     them — not a Settings list, just the scoring path's read side.
 //
-// The private plane stores only the fields it owns (preferenceId / baseIngredientID /
-// choiceMode / rank / active / brand / variation). The display NAMES
-// (baseIngredientName / preferredVariationName) live in the catalog, not here — the
-// projection leaves them empty for AppState's rewire to enrich from the catalog façade
-// (out of scope for this slice; the household repository pattern's "names come from a
-// separate read" idiom). `variation` ↔ preferredVariationId, `brand` ↔ preferredBrand.
+// The private plane stores the base ingredient's human-readable name with the ID so the
+// allergy hard-gate can evaluate preferences without a catalog round-trip. Variation display
+// names remain catalog-derived. `variation` ↔ preferredVariationId, `brand` ↔ preferredBrand.
 //
 // Reactivity: fetch-on-demand + reload-after-write (spec §3 — low-frequency Settings reads).
 
@@ -31,8 +28,7 @@ import SimmerSmithKit
 @Observable
 final class PreferenceRepository {
 
-    /// Ingredient preferences, sorted by rank ascending (rank=1 first). Names are empty —
-    /// AppState enriches them from the catalog on its rewire pass.
+    /// Ingredient preferences, sorted by rank ascending (rank=1 first).
     private(set) var preferences: [IngredientPreference] = []
 
     /// Preference signals (recipe + cuisine), unsorted — feeds
@@ -171,37 +167,23 @@ final class PreferenceRepository {
 
     // MARK: - Mapping
 
-    /// Project a private-plane row into the app's `IngredientPreference` value via JSON
-    /// round-trip (the value is decoder-only). `baseIngredientName` is taken from the stored
-    /// row (written at upsert-time from the caller's catalog name) — this is what the
-    /// allergy hard-gate reads. notes is empty (not stored on the private plane).
+    /// Project a private-plane row into the app's `IngredientPreference` value.
+    /// `baseIngredientName` is written from the catalog at upsert time so the allergy
+    /// hard-gate can read it without another catalog lookup.
     private static func ingredientPreference(from row: PrivateIngredientPreference) -> IngredientPreference? {
-        var dict: [String: Any] = [
-            "preferenceId": row.recordKey,
-            "baseIngredientId": row.baseIngredientID,
-            "baseIngredientName": row.baseIngredientName,
-            "preferredBrand": row.brand,
-            "choiceMode": row.choiceMode,
-            "active": row.active,
-            "notes": "",
-            "rank": row.rank,
-            "updatedAt": ISO8601DateFormatter().string(from: row.updatedAt),
-        ]
-        if !row.variation.isEmpty {
-            dict["preferredVariationId"] = row.variation
-        }
-        guard
-            let data = try? JSONSerialization.data(withJSONObject: dict),
-            let decoded = try? Self.decoder.decode(IngredientPreference.self, from: data)
-        else { return nil }
-        return decoded
+        IngredientPreference(
+            preferenceId: row.recordKey,
+            baseIngredientId: row.baseIngredientID,
+            baseIngredientName: row.baseIngredientName,
+            preferredVariationId: row.variation.isEmpty ? nil : row.variation,
+            preferredBrand: row.brand,
+            choiceMode: row.choiceMode,
+            active: row.active,
+            notes: "",
+            rank: row.rank,
+            updatedAt: row.updatedAt
+        )
     }
-
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
 
     /// Project a private-plane signal row into the app's `PreferenceSignal` value — a
     /// direct field copy (no catalog enrichment needed, unlike ingredient preferences).
