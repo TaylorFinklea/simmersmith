@@ -732,6 +732,34 @@ public struct IngredientResolution: Codable, Hashable, Sendable {
     public let ingredientVariationId: String?
     public let ingredientVariationName: String?
     public let resolutionStatus: String
+
+    public init(
+        ingredientName: String,
+        normalizedName: String,
+        quantity: Double? = nil,
+        unit: String = "",
+        prep: String = "",
+        category: String = "",
+        notes: String = "",
+        baseIngredientId: String? = nil,
+        baseIngredientName: String? = nil,
+        ingredientVariationId: String? = nil,
+        ingredientVariationName: String? = nil,
+        resolutionStatus: String = "unresolved"
+    ) {
+        self.ingredientName = ingredientName
+        self.normalizedName = normalizedName
+        self.quantity = quantity
+        self.unit = unit
+        self.prep = prep
+        self.category = category
+        self.notes = notes
+        self.baseIngredientId = baseIngredientId
+        self.baseIngredientName = baseIngredientName
+        self.ingredientVariationId = ingredientVariationId
+        self.ingredientVariationName = ingredientVariationName
+        self.resolutionStatus = resolutionStatus
+    }
 }
 
 public struct IngredientMigrationExport: Codable, Hashable, Sendable {
@@ -950,6 +978,32 @@ public struct IngredientPreference: Codable, Identifiable, Hashable, Sendable {
     public let updatedAt: Date
 
     public var id: String { preferenceId }
+
+    public init(
+        preferenceId: String,
+        baseIngredientId: String,
+        baseIngredientName: String,
+        preferredVariationId: String? = nil,
+        preferredVariationName: String? = nil,
+        preferredBrand: String = "",
+        choiceMode: String = "preferred",
+        active: Bool = true,
+        notes: String = "",
+        rank: Int = 1,
+        updatedAt: Date
+    ) {
+        self.preferenceId = preferenceId
+        self.baseIngredientId = baseIngredientId
+        self.baseIngredientName = baseIngredientName
+        self.preferredVariationId = preferredVariationId
+        self.preferredVariationName = preferredVariationName
+        self.preferredBrand = preferredBrand
+        self.choiceMode = choiceMode
+        self.active = active
+        self.notes = notes
+        self.rank = rank
+        self.updatedAt = updatedAt
+    }
 
     enum CodingKeys: String, CodingKey {
         case preferenceId, baseIngredientId, baseIngredientName,
