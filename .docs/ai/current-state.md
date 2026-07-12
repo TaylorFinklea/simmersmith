@@ -2,29 +2,18 @@
 Branch: main
 
 ## Plan
-- (empty — milestone `990.4` Recipe Memories → CloudKit CLOSED 2026-07-12, all children + umbrella;
-  `ppp` closed en route. Product test: RecipeMemoriesProductFlowTests on the real stack + clean sim
-  launch. Landmines for next session: plain `xcodebuild build` never compiles SimmerSmithTests (use
-  `test`); old sim UDID 386E369A in bead verify_cmds is stale → iPhone 17 Pro FDDFB511-272B-40DD-8927-5E71311E96BA;
-  `xcodebuild` needs `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` — xcode-select points at CLT.)
-
-## User-gated (details in roadmap Awaiting User + the beads)
-- Memories on-device drive (add/list/photo/delete in the real UI) rides the next build's device
-  gates — sim has no iCloud account, so the app correctly halts at setup there. Prod schema deploy
-  of RecipeMemory/RecipeMemoryImage rides `pb8`.
-- Build 150 uploaded to TestFlight 2026-07-10 (`scripts/release-ios.sh` archive + export succeeded); await processing,
-  then run device gates — `6uj` (Gate-1 regression incl. c57/glw/ioj), `a97` (sharing), `nli` (voice), `3hn`/`3sf`/`cnx`.
-- hdeck `simmersmith/arch-v3-2026-07-09` is **awaiting-review**: pick which surviving product
-  proposal(s) become beads (the bugs it surfaced are already filed).
-- Device gates open: `6uj` `a97` `nli` `3hn` `3sf` `cnx`. Dashboard ops: `9wr` `pb8`.
-- `5w8` privacy draft awaits review: phases/privacy-policy-cloudkit-draft.md (+ asc-label-notes).
-- When monetization activates: Pro products must ship `isFamilyShareable = false` (decisions.md).
+- [ ] 990.5.1-A PUBLIC identity/search/reference reads + headless tests; read revised spec + bead. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithCloudKit`
+- [ ] 990.5.1-B household IngredientRepository CRUD/detail + signed app tests; mirror Pantry/Recipe repos. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests/IngredientRepositoryTests`
+- [ ] 990.5.1-C household-local base merge/repoint/cycle tests; no PUBLIC mutation. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests/IngredientRepositoryTests`
+- [ ] 990.5.1-D lifecycle/AppState/UI/grocery-link rewire + ownership gating; zero live ingredient apiClient calls. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA CODE_SIGNING_ALLOWED=NO`
+- [ ] 990.5.1-E receipt-gated complete owned-ingredient Fly migration + tests. tier_floor: senior · complexity: M · Verify: `.venv/bin/pytest -q tests/test_api.py -k ingredient && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests/IngredientMigrationTests`
+- [ ] 990.5.2-A pure resolver + public constructor + precedence tests in SimmerSmithKit. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithKit`
+- [ ] 990.5.2-B bind resolver to PUBLIC/household/private repos; persist preference display names. tier_floor: senior · complexity: M · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests/IngredientResolverIntegrationTests`
+- [ ] 990.5.3 delete the full obsolete nutrition-match slice; preserve NutritionSummary/calculator. tier_floor: senior · complexity: S · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithKit && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA CODE_SIGNING_ALLOWED=NO`
+- [ ] 990.5 product-flow test + phase report/device checklist; do not close beads before Lead backstop. tier_floor: senior · complexity: S · Verify: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -quiet -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests/IngredientsProductFlowTests`
 
 ## Blockers
-- none. (`990.8` is unblocked: phases/fly-call-inventory.md is the authoritative table —
-  21 live-and-broken / 73 guarded-dead / 46 ported-already. Strip only guarded-dead.)
+- none; execute Plan strictly top-to-bottom; app-target tests run serially and never with `CODE_SIGNING_ALLOWED=NO`.
 
 ## Open Questions
-- `4ii` (P2): port Plan Shopping as a local projection, or hide it? Lead call.
-- `32i` (P2, blocked on 990.5.1): port grocery-item feedback, or drop it as redundant with the
-  existing avoid/allergy flags? Prefer drop.
+- none; Lead corrections recorded in revised spec + decisions.md. Ralph workers do not close beads.

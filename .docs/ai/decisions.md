@@ -1627,3 +1627,24 @@ this made (2)'s 404 branch unreachable — my spec bug, prescribed from the sibl
 grepping the actual decode path. Contract now pinned by `RecipeMemoriesNotFoundTests` over a
 stubbed `URLSession` (first URLProtocol stub in the Kit tests; reuse it for future endpoint
 contracts).
+
+## 2026-07-12 — Ingredient resolution identifies a base before applying private preference
+
+**Context.** The original `990.5` spike ordered resolution as locked variation → private
+preference → PUBLIC → household → mint. Grounding before implementation found that private
+preferences are keyed by base ID, not normalized name; `PublicCatalogReader` also lacked record-ID
+and variation-by-base reads. A literal implementation would need a second preference index or
+would silently skip preferences. The same pass found the manifest transform existed but no
+production loader fetched Fly ingredient rows.
+
+**Decision.** Locked links still short-circuit. Otherwise establish a base candidate first
+(existing link → PUBLIC exact match → household exact match → household provisional mint), then
+overlay an active preferred variation/brand for that identified base. Stale, inactive, avoidance,
+or unresolved preferences preserve the candidate. Add read-only PUBLIC identity/reference/search
+capabilities; never write PUBLIC. Migrate the complete household-owned Fly ingredient set through
+a receipt-gated typed loader before switching reads; global approved rows remain PUBLIC.
+
+**Why.** This preserves the product meaning—an explicit user preference wins—without duplicating
+private-plane indexing or smuggling catalog ownership into the preference store. The migration
+correction prevents a green CRUD port from silently abandoning existing household-only rows. Both
+choices are reversible implementation policy over existing record types; no schema is added.
