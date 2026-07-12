@@ -14,9 +14,11 @@ final class IngredientRepository {
     private(set) var lastSyncError: Error?
 
     private let session: HouseholdSession
+    private var clock: SyncClock
 
     init(session: HouseholdSession) {
         self.session = session
+        self.clock = Int(Date().timeIntervalSince1970)
     }
 
     @ObservationIgnored
@@ -157,6 +159,73 @@ final class IngredientRepository {
             preference: nil,
             usage: usage
         )
+    }
+
+    @discardableResult
+    func mergeBaseIngredient(sourceID: String, targetID: String) throws -> BaseIngredient {
+        guard sourceID != targetID else { throw IngredientRepositoryError.mergeWouldCreateCycle }
+        let sourceRecordID = CKRecord.ID(recordName: sourceID, zoneID: session.zoneID)
+        let targetRecordID = CKRecord.ID(recordName: targetID, zoneID: session.zoneID)
+        guard let sourceRecord = session.store.record(for: sourceRecordID),
+              sourceRecord.recordType == HouseholdRecordType.baseIngredient.recordTypeName,
+              let targetRecord = session.store.record(for: targetRecordID),
+              targetRecord.recordType == HouseholdRecordType.baseIngredient.recordTypeName else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        guard isActive(sourceRecord), isActive(targetRecord) else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        guard !mergeChainContains(sourceID: sourceID, startingAt: targetID) else {
+            throw IngredientRepositoryError.mergeWouldCreateCycle
+        }
+
+        repointBaseUsage(sourceID: sourceID, targetID: targetID)
+        let sourceVariations = session.store.records(
+            ofType: HouseholdRecordType.ingredientVariation.recordTypeName
+        )
+            .filter { refName($0["baseIngredient"]) == sourceID }
+            .sorted { $0.recordID.recordName < $1.recordID.recordName }
+        for variation in sourceVariations {
+            let value = HouseholdRecordCodec.decode(variation, as: .ingredientVariation)
+            let normalizedName = scalarString(value, "normalizedName") ?? ""
+            variation["baseIngredient"] = CKRecord.Reference(
+                recordID: targetRecordID,
+                action: .deleteSelf
+            )
+            if let duplicate = activeVariation(
+                baseIngredientID: targetID,
+                normalizedName: normalizedName,
+                excluding: variation.recordID.recordName
+            ) {
+                repointVariationUsage(
+                    sourceID: variation.recordID.recordName,
+                    targetID: duplicate.recordID.recordName,
+                    baseIngredientID: targetID
+                )
+                variation["active"] = 0 as CKRecordValue
+                variation["archivedAt"] = Date() as CKRecordValue
+                variation["mergedIntoID"] = duplicate.recordID.recordName as CKRecordValue
+            } else {
+                repointVariationUsage(
+                    sourceID: variation.recordID.recordName,
+                    targetID: variation.recordID.recordName,
+                    baseIngredientID: targetID
+                )
+            }
+            variation["updatedAt"] = Date() as CKRecordValue
+            session.engine.save(variation)
+        }
+
+        let now = Date()
+        sourceRecord["active"] = 0 as CKRecordValue
+        sourceRecord["archivedAt"] = now as CKRecordValue
+        sourceRecord["mergedIntoID"] = targetID as CKRecordValue
+        sourceRecord["updatedAt"] = now as CKRecordValue
+        targetRecord["updatedAt"] = now as CKRecordValue
+        session.engine.save(sourceRecord)
+        session.engine.save(targetRecord)
+        finishWrite()
+        return try fetchBaseIngredientDetail(baseIngredientID: targetID).ingredient
     }
 
     @discardableResult
@@ -597,6 +666,96 @@ final class IngredientRepository {
         )
     }
 
+    private func repointBaseUsage(sourceID: String, targetID: String) {
+        let recordTypes = [
+            HouseholdRecordType.recipeIngredient.recordTypeName,
+            HouseholdRecordType.eventMealIngredient.recordTypeName,
+            GroceryCodec.recordType,
+            EventGroceryCodec.recordType,
+        ]
+        for recordType in recordTypes {
+            for record in session.store.records(ofType: recordType)
+                where record["baseIngredientID"] as? String == sourceID {
+                record["baseIngredientID"] = targetID as CKRecordValue
+                if record["resolutionStatus"] as? String == "unresolved" {
+                    record["resolutionStatus"] = "resolved" as CKRecordValue
+                }
+                refreshUsageClock(record)
+                session.engine.save(record)
+            }
+        }
+    }
+
+    private func repointVariationUsage(sourceID: String, targetID: String, baseIngredientID: String) {
+        let recordTypes = [
+            HouseholdRecordType.recipeIngredient.recordTypeName,
+            HouseholdRecordType.eventMealIngredient.recordTypeName,
+            GroceryCodec.recordType,
+            EventGroceryCodec.recordType,
+        ]
+        for recordType in recordTypes {
+            for record in session.store.records(ofType: recordType)
+                where record["ingredientVariationID"] as? String == sourceID {
+                record["ingredientVariationID"] = targetID as CKRecordValue
+                record["baseIngredientID"] = baseIngredientID as CKRecordValue
+                refreshUsageClock(record)
+                session.engine.save(record)
+            }
+        }
+    }
+
+    private func activeVariation(
+        baseIngredientID: String,
+        normalizedName: String,
+        excluding variationID: String
+    ) -> CKRecord? {
+        session.store.records(ofType: HouseholdRecordType.ingredientVariation.recordTypeName)
+            .filter { record in
+                guard record.recordID.recordName != variationID,
+                      refName(record["baseIngredient"]) == baseIngredientID,
+                      isActive(record) else { return false }
+                let value = HouseholdRecordCodec.decode(record, as: .ingredientVariation)
+                return scalarString(value, "normalizedName") == normalizedName
+            }
+            .sorted { $0.recordID.recordName < $1.recordID.recordName }
+            .first
+    }
+
+    private func mergeChainContains(sourceID: String, startingAt targetID: String) -> Bool {
+        var currentID = targetID
+        var visited: Set<String> = []
+        for _ in 0..<32 {
+            guard visited.insert(currentID).inserted else { return true }
+            if currentID == sourceID { return true }
+            guard let record = session.store.record(for: CKRecord.ID(recordName: currentID, zoneID: session.zoneID)),
+                  let nextID = record["mergedIntoID"] as? String,
+                  !nextID.isEmpty else {
+                return false
+            }
+            currentID = nextID
+        }
+        return true
+    }
+
+    private func refName(_ value: Any?) -> String {
+        (value as? CKRecord.Reference)?.recordID.recordName ?? ""
+    }
+
+    private func refreshUsageClock(_ record: CKRecord) {
+        switch record.recordType {
+        case HouseholdRecordType.recipeIngredient.recordTypeName,
+             HouseholdRecordType.eventMealIngredient.recordTypeName:
+            let previous = record["updatedAt"] as? Date ?? .distantPast
+            record["updatedAt"] = max(Date(), previous.addingTimeInterval(0.001)) as CKRecordValue
+        case GroceryCodec.recordType, EventGroceryCodec.recordType:
+            let previous = record["modifiedAtClock"] as? Int ?? 0
+            clock = max(clock + 1, Int(Date().timeIntervalSince1970), previous + 1)
+            record["modifiedAtClock"] = clock as CKRecordValue
+        default:
+            break
+        }
+    }
+
     private func usageCounts(records: [CKRecord], refKey: String) -> [String: Int] {
         var result: [String: Int] = [:]
         for record in records {
@@ -768,5 +927,6 @@ enum IngredientRepositoryError: Error, Equatable {
     case emptyName
     case baseIngredientNotFound
     case ingredientVariationNotFound
+    case mergeWouldCreateCycle
 }
 #endif

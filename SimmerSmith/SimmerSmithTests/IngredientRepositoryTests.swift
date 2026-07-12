@@ -190,6 +190,228 @@ struct IngredientRepositoryTests {
     }
 
     @Test
+    func householdBaseMergeRepointsUsageAndVariationsWithoutTouchingOtherZones() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let source = try repository.createBaseIngredient(name: "Legacy Pepper")
+        let target = try repository.createBaseIngredient(name: "Sweet Pepper")
+        let sourceVariation = try repository.createIngredientVariation(
+            baseIngredientID: source.id,
+            name: "Market Pepper"
+        )
+        seedMergeUsageRecords(
+            baseIngredientID: source.id,
+            ingredientVariationID: sourceVariation.id,
+            prefix: "merge",
+            session: session
+        )
+
+        let merged = try repository.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+
+        #expect(merged.id == target.id)
+        #expect(merged.active)
+        #expect(repository.fetchIngredientVariations(baseIngredientID: target.id).map(\.id) == [sourceVariation.id])
+
+        let sourceDetail = try repository.fetchBaseIngredientDetail(baseIngredientID: source.id)
+        #expect(sourceDetail.ingredient.active == false)
+        #expect(sourceDetail.ingredient.mergedIntoId == target.id)
+
+        let recipeRecord = try #require(storedRecord("merge-recipe", session: session))
+        #expect(recipeRecord["baseIngredientID"] as? String == target.id)
+        #expect(recipeRecord["ingredientVariationID"] as? String == sourceVariation.id)
+        #expect(recipeRecord["resolutionStatus"] as? String == "resolved")
+        #expect(recipeRecord["notes"] as? String == "preserve-merge")
+        #expect((recipeRecord["updatedAt"] as? Date) ?? .distantPast > Date(timeIntervalSince1970: 10))
+
+        let eventRecord = try #require(storedRecord("merge-event", session: session))
+        #expect(eventRecord["baseIngredientID"] as? String == target.id)
+        #expect(eventRecord["ingredientVariationID"] as? String == sourceVariation.id)
+        #expect(eventRecord["resolutionStatus"] as? String == "resolved")
+        #expect(eventRecord["notes"] as? String == "preserve-merge")
+        #expect((eventRecord["updatedAt"] as? Date) ?? .distantPast > Date(timeIntervalSince1970: 11))
+
+        let groceryRecord = try #require(storedRecord("merge-grocery", session: session))
+        #expect(groceryRecord["baseIngredientID"] as? String == target.id)
+        #expect(groceryRecord["ingredientVariationID"] as? String == sourceVariation.id)
+        #expect(groceryRecord["resolutionStatus"] as? String == "resolved")
+        #expect(groceryRecord["notes"] as? String == "preserve-merge")
+        #expect((groceryRecord["modifiedAtClock"] as? Int) ?? 0 > 41)
+
+        let eventGroceryRecord = try #require(storedRecord("merge-event-grocery", session: session))
+        #expect(eventGroceryRecord["baseIngredientID"] as? String == target.id)
+        #expect(eventGroceryRecord["ingredientVariationID"] as? String == sourceVariation.id)
+        #expect(eventGroceryRecord["resolutionStatus"] as? String == "resolved")
+        #expect(eventGroceryRecord["notes"] as? String == "preserve-merge")
+        #expect((eventGroceryRecord["modifiedAtClock"] as? Int) ?? 0 > 42)
+
+        let variationRecord = try #require(session.store.record(for: CKRecord.ID(
+            recordName: sourceVariation.id,
+            zoneID: session.zoneID
+        )))
+        let parent = try #require(variationRecord["baseIngredient"] as? CKRecord.Reference)
+        #expect(parent.recordID.recordName == target.id)
+        #expect(parent.action == .deleteSelf)
+    }
+
+    @Test
+    func householdBaseMergeRejectsSelfMergeAndCycles() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-cycle-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let source = try repository.createBaseIngredient(name: "Source Pepper")
+        let target = try repository.createBaseIngredient(name: "Target Pepper")
+
+        #expect(throws: IngredientRepositoryError.mergeWouldCreateCycle) {
+            _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: source.id)
+        }
+
+        let bridge = try repository.createBaseIngredient(name: "Bridge Pepper")
+        let targetRecord = try #require(storedRecord(target.id, session: session))
+        targetRecord["mergedIntoID"] = bridge.id as CKRecordValue
+        session.engine.save(targetRecord)
+        let bridgeRecord = try #require(storedRecord(bridge.id, session: session))
+        bridgeRecord["mergedIntoID"] = source.id as CKRecordValue
+        session.engine.save(bridgeRecord)
+
+        #expect(throws: IngredientRepositoryError.mergeWouldCreateCycle) {
+            _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+        }
+    }
+
+    @Test
+    func householdBaseMergeCoalescesDuplicateVariationAndRepointsAllUsageDeterministically() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-duplicate-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let source = try repository.createBaseIngredient(name: "Legacy Tomato")
+        let target = try repository.createBaseIngredient(name: "Tomato")
+        let sourceVariation = try repository.createIngredientVariation(
+            baseIngredientID: source.id,
+            name: "Canned Tomato",
+            normalizedName: "canned tomato"
+        )
+        seedVariation(
+            id: "target-variation-z",
+            baseIngredientID: target.id,
+            normalizedName: "canned tomato",
+            session: session
+        )
+        seedVariation(
+            id: "target-variation-a",
+            baseIngredientID: target.id,
+            normalizedName: "canned tomato",
+            session: session
+        )
+        seedMergeUsageRecords(
+            baseIngredientID: source.id,
+            ingredientVariationID: sourceVariation.id,
+            prefix: "duplicate",
+            session: session
+        )
+
+        _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+
+        for recordName in ["duplicate-recipe", "duplicate-event", "duplicate-grocery", "duplicate-event-grocery"] {
+            let record = try #require(storedRecord(recordName, session: session))
+            #expect(record["baseIngredientID"] as? String == target.id)
+            #expect(record["ingredientVariationID"] as? String == "target-variation-a")
+            #expect(record["notes"] as? String == "preserve-duplicate")
+        }
+        let sourceVariationRecord = try #require(storedRecord(sourceVariation.id, session: session))
+        #expect((sourceVariationRecord["active"] as? Int) == 0)
+        #expect(sourceVariationRecord["archivedAt"] as? Date != nil)
+        #expect(sourceVariationRecord["mergedIntoID"] as? String == "target-variation-a")
+        let parent = try #require(sourceVariationRecord["baseIngredient"] as? CKRecord.Reference)
+        #expect(parent.recordID.recordName == target.id)
+        #expect(parent.action == .deleteSelf)
+
+        let unselected = try #require(storedRecord("target-variation-z", session: session))
+        #expect((unselected["active"] as? Int) == 1)
+        #expect(unselected["mergedIntoID"] == nil)
+    }
+
+    @Test
+    func householdBaseMergeChoosesLowestRecordIDWhenSourceHasDuplicateVariations() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-source-order-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let source = try repository.createBaseIngredient(name: "Legacy Beans")
+        let target = try repository.createBaseIngredient(name: "Beans")
+        let variationIDs = (0..<16).map { String(format: "source-variation-%02d", $0) }
+        for variationID in variationIDs.reversed() {
+            seedVariation(
+                id: variationID,
+                baseIngredientID: source.id,
+                normalizedName: "canned beans",
+                session: session
+            )
+        }
+        seedMergeUsageRecords(
+            baseIngredientID: source.id,
+            ingredientVariationID: variationIDs.last!,
+            prefix: "source-order",
+            session: session
+        )
+
+        _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+
+        #expect(repository.fetchIngredientVariations(baseIngredientID: target.id).map(\.id) == [variationIDs[0]])
+        for recordName in ["source-order-recipe", "source-order-event", "source-order-grocery", "source-order-event-grocery"] {
+            let record = try #require(storedRecord(recordName, session: session))
+            #expect(record["ingredientVariationID"] as? String == variationIDs[0])
+        }
+        for variationID in variationIDs.dropFirst() {
+            let record = try #require(storedRecord(variationID, session: session))
+            #expect((record["active"] as? Int) == 0)
+            #expect(record["mergedIntoID"] as? String == variationIDs[0])
+        }
+    }
+
+    @Test
+    func householdBaseMergeRejectsMissingAndInactiveEndpoints() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-endpoints-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let active = try repository.createBaseIngredient(name: "Active")
+        let inactiveSource = try repository.createBaseIngredient(name: "Inactive Source")
+        let inactiveTarget = try repository.createBaseIngredient(name: "Inactive Target")
+        _ = try repository.archiveBaseIngredient(baseIngredientID: inactiveSource.id)
+        _ = try repository.archiveBaseIngredient(baseIngredientID: inactiveTarget.id)
+
+        #expect(throws: IngredientRepositoryError.baseIngredientNotFound) {
+            _ = try repository.mergeBaseIngredient(sourceID: "missing", targetID: active.id)
+        }
+        #expect(throws: IngredientRepositoryError.baseIngredientNotFound) {
+            _ = try repository.mergeBaseIngredient(sourceID: active.id, targetID: "missing")
+        }
+        #expect(throws: IngredientRepositoryError.baseIngredientNotFound) {
+            _ = try repository.mergeBaseIngredient(sourceID: inactiveSource.id, targetID: active.id)
+        }
+        #expect(throws: IngredientRepositoryError.baseIngredientNotFound) {
+            _ = try repository.mergeBaseIngredient(sourceID: active.id, targetID: inactiveTarget.id)
+        }
+    }
+
+    @Test
+    func householdBaseMergeRejectsTargetChainBeyondDepthCap() throws {
+        let session = HouseholdSession(householdID: "ingredient-merge-depth-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let source = try repository.createBaseIngredient(name: "Depth Source")
+        for index in 0...32 {
+            seedBaseIngredient(
+                id: "depth-\(index)",
+                normalizedName: "depth-\(index)",
+                session: session
+            )
+        }
+        for index in 0..<32 {
+            let record = try #require(storedRecord("depth-\(index)", session: session))
+            record["mergedIntoID"] = "depth-\(index + 1)" as CKRecordValue
+            session.engine.save(record)
+        }
+
+        #expect(throws: IngredientRepositoryError.mergeWouldCreateCycle) {
+            _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: "depth-0")
+        }
+    }
+
+    @Test
     func tiedBaseAndVariationNamesSortByStableRecordID() throws {
         let baseSession = HouseholdSession(householdID: "ingredient-base-order-\(UUID().uuidString)")
         let baseRepository = IngredientRepository(session: baseSession)
@@ -316,6 +538,73 @@ struct IngredientRepositoryTests {
         #expect(throws: IngredientRepositoryError.ingredientVariationNotFound) {
             _ = try repository.archiveIngredientVariation(ingredientVariationID: "missing-variation")
         }
+    }
+
+    private func seedMergeUsageRecords(
+        baseIngredientID: String,
+        ingredientVariationID: String,
+        prefix: String,
+        session: HouseholdSession
+    ) {
+        let recipeIngredient = HouseholdRecordValue(
+            type: .recipeIngredient,
+            recordName: "\(prefix)-recipe",
+            scalars: [
+                "ingredientName": .string("Legacy Ingredient"),
+                "normalizedName": .string("legacy ingredient"),
+                "notes": .string("preserve-\(prefix)"),
+                "resolutionStatus": .string("unresolved"),
+                "createdAt": .date(Date(timeIntervalSince1970: 10)),
+                "updatedAt": .date(Date(timeIntervalSince1970: 10)),
+            ],
+            refs: [
+                "recipe": "\(prefix)-recipe-parent",
+                "baseIngredientID": baseIngredientID,
+                "ingredientVariationID": ingredientVariationID,
+            ]
+        )
+        let eventIngredient = HouseholdRecordValue(
+            type: .eventMealIngredient,
+            recordName: "\(prefix)-event",
+            scalars: [
+                "ingredientName": .string("Legacy Ingredient"),
+                "normalizedName": .string("legacy ingredient"),
+                "notes": .string("preserve-\(prefix)"),
+                "resolutionStatus": .string("unresolved"),
+                "createdAt": .date(Date(timeIntervalSince1970: 11)),
+                "updatedAt": .date(Date(timeIntervalSince1970: 11)),
+            ],
+            refs: [
+                "eventMeal": "\(prefix)-event-parent",
+                "baseIngredientID": baseIngredientID,
+                "ingredientVariationID": ingredientVariationID,
+            ]
+        )
+        let grocery = GroceryItem(
+            recordName: "\(prefix)-grocery",
+            baseIngredientID: baseIngredientID,
+            ingredientVariationID: ingredientVariationID,
+            resolutionStatus: "unresolved",
+            notes: "preserve-\(prefix)",
+            modifiedAt: 41
+        )
+        let eventGrocery = EventGroceryItem(
+            recordName: "\(prefix)-event-grocery",
+            baseIngredientID: baseIngredientID,
+            ingredientVariationID: ingredientVariationID,
+            notes: "preserve-\(prefix)",
+            resolutionStatus: "unresolved",
+            modifiedAt: 42
+        )
+
+        session.engine.save(HouseholdRecordCodec.encode(recipeIngredient, zoneID: session.zoneID))
+        session.engine.save(HouseholdRecordCodec.encode(eventIngredient, zoneID: session.zoneID))
+        session.engine.save(GroceryCodec.makeRecord(grocery, zoneID: session.zoneID))
+        session.engine.save(EventGroceryCodec.makeRecord(eventGrocery, zoneID: session.zoneID))
+    }
+
+    private func storedRecord(_ recordName: String, session: HouseholdSession) -> CKRecord? {
+        session.store.record(for: CKRecord.ID(recordName: recordName, zoneID: session.zoneID))
     }
 
     private func seedUsageRecords(baseIngredientID: String, session: HouseholdSession) {
