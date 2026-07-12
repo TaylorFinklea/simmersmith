@@ -16,8 +16,14 @@ final class SimmerSmithAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         // M22.1: register the BGAppRefreshTask handler before launch
-        // returns. iOS rejects late registration with a runtime warning.
-        Task { @MainActor in
+        // returns. simmersmith-ppp: the old Task { @MainActor } wrapper deferred
+        // registration until AFTER this method returned — Apple requires it before
+        // launch finishes, and a scheduleNext() submit racing ahead of the deferred
+        // registration raises NSInternalInconsistencyException ("No launch handler
+        // registered"). UIKit delivers didFinishLaunching on the main thread, so
+        // assumeIsolated hops onto the main actor synchronously (same idiom as
+        // didReceiveRemoteNotification below).
+        MainActor.assumeIsolated {
             BackgroundSyncService.shared.registerLaunchHandler()
         }
         return true
