@@ -1600,3 +1600,30 @@ irreversible part — where signals live — is already settled by the private-p
 
 **If the rule stalls:** hiding the rating affordance remains a legitimate scope cut (option (b) on
 the bead). What is *not* acceptable is the status quo: a visible control that does nothing.
+
+## 2026-07-12 — Recipe memories port (990.4.2/.3): three boundary contracts
+
+**Context.** Closing milestone `990.4` (Recipe Memories → CloudKit). Three small design calls with
+long shadows, locked here so 990.8's fallback-strip and any future memories work inherit them.
+
+**1. The UI keeps consuming `RecipeMemory`; the repository's `RecipeMemoryEntry` is mapped at the
+AppState boundary.** `photoUrl` becomes a `ckmem:<id>` sentinel iff `hasPhoto` — the UI provably
+uses it only as an existence flag + `.task(id:)` cache-buster, never as a URL. Repo order
+(oldest→newest) is reversed once at the boundary to the section's newest-first contract, pinned by
+`RecipeMemoryMappingTests`. Rationale: zero churn in four UI files; mirrors how every other ported
+domain surfaces Kit DTOs. When 990.8 strips Fly, the sentinel can be revisited (or the DTO swapped)
+in one place.
+
+**2. Migration: memory TEXT is receipt-blocking; photos are best-effort.** Unlike images
+("recoverable by re-attaching", per the recipe-image precedent), memory text is family cook-history
+with no other copy. A real fetch failure saves what it got, drains, and withholds the "recipes"
+receipt so the next launch retries (idempotent via PK-preserving upserts). 404 counts as "no
+memories", not failure — otherwise a pre-M15 server would re-run the whole migration every launch
+forever.
+
+**3. `fetchRecipeMemories` surfaces 404 as `.notFound`, aligned with its M15 siblings.** The
+generic `decodeResponse` folds 404 into `.server(...)`; the adversarial verify panel caught that
+this made (2)'s 404 branch unreachable — my spec bug, prescribed from the sibling's shape without
+grepping the actual decode path. Contract now pinned by `RecipeMemoriesNotFoundTests` over a
+stubbed `URLSession` (first URLProtocol stub in the Kit tests; reuse it for future endpoint
+contracts).
