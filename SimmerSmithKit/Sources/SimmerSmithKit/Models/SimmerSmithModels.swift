@@ -686,6 +686,18 @@ public struct IngredientUsageSummary: Codable, Hashable, Sendable {
     public let linkedRecipeNames: [String]
     public let linkedGroceryItemIds: [String]
     public let linkedGroceryNames: [String]
+
+    public init(
+        linkedRecipeIds: [String],
+        linkedRecipeNames: [String],
+        linkedGroceryItemIds: [String],
+        linkedGroceryNames: [String]
+    ) {
+        self.linkedRecipeIds = linkedRecipeIds
+        self.linkedRecipeNames = linkedRecipeNames
+        self.linkedGroceryItemIds = linkedGroceryItemIds
+        self.linkedGroceryNames = linkedGroceryNames
+    }
 }
 
 public struct BaseIngredientDetail: Codable, Hashable, Sendable {
@@ -693,6 +705,18 @@ public struct BaseIngredientDetail: Codable, Hashable, Sendable {
     public let variations: [IngredientVariation]
     public let preference: IngredientPreference?
     public let usage: IngredientUsageSummary
+
+    public init(
+        ingredient: BaseIngredient,
+        variations: [IngredientVariation],
+        preference: IngredientPreference?,
+        usage: IngredientUsageSummary
+    ) {
+        self.ingredient = ingredient
+        self.variations = variations
+        self.preference = preference
+        self.usage = usage
+    }
 }
 
 public struct IngredientResolution: Codable, Hashable, Sendable {
