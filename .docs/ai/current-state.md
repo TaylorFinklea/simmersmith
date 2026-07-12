@@ -5,7 +5,7 @@ Branch: main
 Milestone: `990.4` Recipe Memories → CloudKit (ultracode session 2026-07-12; .1 landed 1556cc0)
 - [x] `990.4.2` rewire AppState+UI memories off apiClient onto RecipeRepository (+ restore-copy photo-exclusion note). Verify: `swift test --package-path SimmerSmithCloudKit && swift test --package-path SimmerSmithKit && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination id=FDDFB511-272B-40DD-8927-5E71311E96BA -only-testing:SimmerSmithTests` (665 pkg tests + 13 app-target tests green; NOTE: plain `build` never compiles SimmerSmithTests — use `test`/`build-for-testing`)
 - [x] (discovered) `ppp` BGTask register-before-return — deterministic test-host launch crash on fresh sim; fixed e5efddf
-- [ ] `990.4.3` RecipeMigrationLoader memories loop (mirror image task-group; photos best-effort). Verify: `swift test --package-path SimmerSmithCloudKit`
+- [x] `990.4.3` RecipeMigrationLoader memories loop (mirror image task-group; photos best-effort; text is receipt-blocking). Verify: `swift test --package-path SimmerSmithCloudKit` (verify panel caught a spec bug: fetchRecipeMemories 404 surfaced as .server not .notFound — fixed in Kit + pinned by RecipeMemoriesNotFoundTests)
 - [ ] Product test: drive memories add/list/delete in the iPhone 17 Pro sim (screenshots); suite 3-5x (asset-staging rule)
 
 ## User-gated (details in roadmap Awaiting User + the beads)

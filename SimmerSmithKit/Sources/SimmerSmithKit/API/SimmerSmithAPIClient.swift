@@ -1500,8 +1500,23 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
 
     // MARK: - Recipe memories (M15)
 
+    /// 404 maps to `notFound`, matching the other memory endpoints below —
+    /// the migration loader (990.4.3) relies on it to distinguish "no memories
+    /// route / vanished recipe" (safe to treat as an empty list) from a real
+    /// failure that must block its receipt. The generic `decodeResponse` folds
+    /// 404 into `.server(...)`, so the status is intercepted here.
     public func fetchRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
-        try await request(path: "/api/recipes/\(recipeID)/memories")
+        let request = try buildRequest(
+            path: "/api/recipes/\(recipeID)/memories",
+            method: "GET",
+            requiresAuth: true,
+            bodyData: nil
+        )
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 404 {
+            throw SimmerSmithAPIError.notFound
+        }
+        return try decodeResponse(data: data, response: response)
     }
 
     public func createRecipeMemory(

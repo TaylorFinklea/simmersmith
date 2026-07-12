@@ -9,8 +9,9 @@ import SimmerSmithKit
 // SP-C Task 6 — first-launch recipe migration Fly→CloudKit.
 //
 // Pulls all recipes (+ ingredients/steps), metadata (cuisines/tags/units as
-// ManagedListItems), and per-recipe images from the Fly backend and writes them
-// into the household CloudKit zone via the sync engine. Idempotent: a
+// ManagedListItems), per-recipe images, and per-recipe memories (the per-cook
+// log, Fly table recipe_memories) from the Fly backend and writes them into
+// the household CloudKit zone via the sync engine. Idempotent: a
 // `MigrationReceipt` stamped under scope "recipes" short-circuits every
 // subsequent call — safe to call on every launch.
 //
@@ -31,7 +32,10 @@ import SimmerSmithKit
 //  3. Images are migrated in parallel (up to 6 concurrent fetches) using
 //     withTaskGroup. The fetch + decode is I/O; the engine.save calls happen
 //     on the MainActor after all bytes land. Receipt is stamped AFTER images.
-//  4. After all saves: engine.sendUntilDrained() pushes to CloudKit.
+//  4. Recipe memories migrate after images: text rows are receipt-blocking
+//     (a failed fetch withholds the receipt so the next launch retries);
+//     memory photos are best-effort like recipe images.
+//  5. After all saves: engine.sendUntilDrained() pushes to CloudKit.
 
 private let recipeMigrationScope = "recipes"
 private let imageFetchConcurrency = 6
@@ -54,6 +58,21 @@ private func detectMime(_ data: Data) -> String {
         return "image/jpeg"
     }
     return "image/jpeg"
+}
+
+// MARK: - Memory row construction
+
+/// Build the CloudKit row for one migrated Fly memory. Shape mirrors
+/// `RecipeRepository.addMemory`: the manifest namePolicy for `.recipeMemory`
+/// is `.pk`, so the legacy Fly UUID is carried verbatim as the recordName.
+/// Internal (not private) so the app-target test can pin the shape.
+func recipeMemoryMigrationRow(recipeID: String, memory: RecipeMemory) -> HouseholdRecordValue {
+    HouseholdRecordValue(
+        type: .recipeMemory,
+        recordName: memory.id,
+        scalars: ["body": .string(memory.body), "createdAt": .date(memory.createdAt)],
+        refs: ["recipe": recipeID]
+    )
 }
 
 // MARK: - Migration entry point
@@ -191,6 +210,145 @@ func migrateRecipesIfNeeded(
             }
             session.engine.save(imageRecord)
         }
+    }
+
+    // Migrate recipe memories (the per-cook log, Fly table recipe_memories).
+    // Fetches run in a bounded task group mirroring the image group above.
+    // A 404 (pre-M15 server or vanished recipe) means "no memories" and maps
+    // to .success([]); any other error is a real failure and is tracked so the
+    // receipt can be withheld below.
+    var memoriesFetchFailed = false
+    var fetchedMemories: [(recipeID: String, memory: RecipeMemory)] = []
+    if !recipes.isEmpty {
+        let memoryResults: [(String, Result<[RecipeMemory], any Error>)] = await withTaskGroup(
+            of: (String, Result<[RecipeMemory], any Error>).self
+        ) { group in
+            var inFlight = 0
+            var iterator = recipes.makeIterator()
+            var results: [(String, Result<[RecipeMemory], any Error>)] = []
+
+            // Seed initial batch.
+            while inFlight < imageFetchConcurrency, let recipe = iterator.next() {
+                let id = recipe.recipeId
+                group.addTask {
+                    do {
+                        return (id, .success(try await apiClient.fetchRecipeMemories(recipeID: id)))
+                    } catch SimmerSmithAPIError.notFound {
+                        return (id, .success([]))
+                    } catch {
+                        return (id, .failure(error))
+                    }
+                }
+                inFlight += 1
+            }
+
+            // Drain group; replenish from iterator as slots free up.
+            for await result in group {
+                inFlight -= 1
+                results.append(result)
+                if let next = iterator.next() {
+                    let id = next.recipeId
+                    group.addTask {
+                        do {
+                            return (id, .success(try await apiClient.fetchRecipeMemories(recipeID: id)))
+                        } catch SimmerSmithAPIError.notFound {
+                            return (id, .success([]))
+                        } catch {
+                            return (id, .failure(error))
+                        }
+                    }
+                    inFlight += 1
+                }
+            }
+            return results
+        }
+
+        // Save memory text rows on MainActor (engine is not Sendable). Raw
+        // engine.save, not RecipeRepository — this file deliberately bypasses
+        // repositories (see header doc).
+        for (recipeID, result) in memoryResults {
+            switch result {
+            case .success(let memories):
+                for memory in memories {
+                    let row = recipeMemoryMigrationRow(recipeID: recipeID, memory: memory)
+                    session.engine.save(HouseholdRecordCodec.encode(row, zoneID: session.zoneID))
+                    fetchedMemories.append((recipeID: recipeID, memory: memory))
+                }
+            case .failure:
+                memoriesFetchFailed = true
+            }
+        }
+
+        // Memory photos: best-effort, second bounded task group (same shape).
+        let memoriesWithPhotos = fetchedMemories.filter { $0.memory.photoUrl != nil }
+        if !memoriesWithPhotos.isEmpty {
+            let photoPairs: [(memory: RecipeMemory, data: Data)] = await withTaskGroup(
+                of: (RecipeMemory, Data)?.self
+            ) { group in
+                var inFlight = 0
+                var iterator = memoriesWithPhotos.makeIterator()
+                var results: [(RecipeMemory, Data)] = []
+
+                // Seed initial batch.
+                while inFlight < imageFetchConcurrency, let item = iterator.next() {
+                    let recipeID = item.recipeID
+                    let memory = item.memory
+                    group.addTask {
+                        guard let bytes = try? await apiClient.fetchRecipeMemoryPhotoBytes(
+                            recipeID: recipeID, memoryID: memory.id
+                        ), !bytes.isEmpty else { return nil }
+                        return (memory, bytes)
+                    }
+                    inFlight += 1
+                }
+
+                // Drain group; replenish from iterator as slots free up.
+                for await result in group {
+                    inFlight -= 1
+                    if let pair = result {
+                        results.append(pair)
+                    }
+                    if let next = iterator.next() {
+                        let recipeID = next.recipeID
+                        let memory = next.memory
+                        group.addTask {
+                            guard let bytes = try? await apiClient.fetchRecipeMemoryPhotoBytes(
+                                recipeID: recipeID, memoryID: memory.id
+                            ), !bytes.isEmpty else { return nil }
+                            return (memory, bytes)
+                        }
+                        inFlight += 1
+                    }
+                }
+                return results
+            }
+
+            // Save memory photo records on MainActor.
+            for (memory, bytes) in photoPairs {
+                let mime = detectMime(bytes)
+                let image = RecipeMemoryImage(
+                    memoryID: memory.id,
+                    mimeType: mime,
+                    createdAt: memory.createdAt,  // the memory's own timestamp — honest provenance
+                    imageData: bytes
+                )
+                guard let record = try? RecipeMemoryImageCodec.makeRecord(image, zoneID: session.zoneID) else {
+                    continue
+                }
+                session.engine.save(record)
+            }
+        }
+    }
+
+    // RECEIPT-BLOCKING RULE (deliberately different from images): memory TEXT
+    // is family cook-history and unrecoverable, unlike photos. If any
+    // per-recipe memories fetch failed, everything fetched above is still
+    // saved and drained, but the receipt is NOT stamped — the next launch
+    // retries the whole migration (idempotent per the crash-safety note
+    // below). Photos stay pure best-effort and never block the receipt.
+    if memoriesFetchFailed {
+        try? await session.engine.sendUntilDrained()
+        return
     }
 
     // Stamp the receipt LAST — mirrors HouseholdMigrationRunner.migrate() crash-safety

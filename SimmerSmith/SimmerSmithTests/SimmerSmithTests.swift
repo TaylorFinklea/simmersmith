@@ -2,6 +2,11 @@ import Foundation
 import Testing
 import SimmerSmithKit
 
+#if canImport(CloudKit)
+import CloudKit
+import HouseholdRecords
+#endif
+
 @testable import SimmerSmith
 
 struct SimmerSmithTests {
@@ -100,6 +105,58 @@ struct RecipeMemoryMappingTests {
         #expect(mapped.first?.id == "m1")
         #expect(mapped.first?.body == "Grandma's trick")
         #expect(mapped.first?.createdAt == createdAt)
+    }
+}
+
+/// Bead simmersmith-990.4.3 — recipeMemoryMigrationRow pins the row shape the
+/// Fly→CloudKit memories migration writes (mirrors RecipeRepository.addMemory:
+/// legacy Fly UUID verbatim as recordName, body/createdAt scalars, recipe ref).
+struct RecipeMemoryMigrationRowTests {
+    @Test
+    func rowCarriesManifestShape() {
+        let fixed = Date(timeIntervalSince1970: 1_750_000_000)
+        let memory = RecipeMemory(id: "m1", body: "note", createdAt: fixed, photoUrl: nil)
+
+        let row = recipeMemoryMigrationRow(recipeID: "r1", memory: memory)
+
+        #expect(row.type == .recipeMemory)
+        #expect(row.recordName == "m1")
+        #expect(row.scalars["body"] == .string("note"))
+        #expect(row.scalars["createdAt"] == .date(fixed))
+        #expect(row.refs == ["recipe": "r1"])
+    }
+
+    @Test
+    func rowRoundTripsThroughHouseholdRecordCodec() {
+        let fixed = Date(timeIntervalSince1970: 1_750_000_001)
+        let memory = RecipeMemory(id: "mig-rt-m2", body: "roundtrip body", createdAt: fixed, photoUrl: nil)
+        let zoneID = CKRecordZone.ID(zoneName: "z", ownerName: "o")
+
+        let row = recipeMemoryMigrationRow(recipeID: "mig-rt-r2", memory: memory)
+        let record = HouseholdRecordCodec.encode(row, zoneID: zoneID)
+        let decoded = HouseholdRecordCodec.decode(record, as: .recipeMemory)
+
+        #expect(decoded.recordName == "mig-rt-m2")
+        #expect(decoded.scalars["body"] == .string("roundtrip body"))
+        #expect(decoded.scalars["createdAt"] == .date(fixed))
+        #expect(decoded.refs == ["recipe": "mig-rt-r2"])
+    }
+
+    @Test
+    func photoUrlDoesNotLeakIntoRow() {
+        let fixed = Date(timeIntervalSince1970: 1_750_000_002)
+        let memory = RecipeMemory(
+            id: "mig-photo-m3",
+            body: "with photo",
+            createdAt: fixed,
+            photoUrl: "/api/recipes/mig-photo-r3/memories/mig-photo-m3/photo?v=1"
+        )
+
+        let row = recipeMemoryMigrationRow(recipeID: "mig-photo-r3", memory: memory)
+
+        // The photo travels as a RecipeMemoryImage record, never a scalar.
+        #expect(Set(row.scalars.keys) == ["body", "createdAt"])
+        #expect(row.refs == ["recipe": "mig-photo-r3"])
     }
 }
 #endif
