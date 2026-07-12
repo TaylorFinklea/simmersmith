@@ -1462,6 +1462,13 @@ public struct RecipeMemory: Codable, Identifiable, Hashable, Sendable {
         case createdAt
         case photoUrl = "photoUrl"
     }
+
+    public init(id: String, body: String, createdAt: Date, photoUrl: String?) {
+        self.id = id
+        self.body = body
+        self.createdAt = createdAt
+        self.photoUrl = photoUrl
+    }
 }
 
 // MARK: - Pairings (M12)

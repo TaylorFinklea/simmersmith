@@ -1162,10 +1162,36 @@ extension AppState {
 
     // MARK: - Recipe memories log (M15)
 
+    #if canImport(CloudKit)
+    /// Map repository memory entries onto the RecipeMemory DTO the memories UI consumes.
+    /// The repository returns oldest→newest; the UI contract (RecipeMemoriesSection) is
+    /// newest-first, so the list is reversed. A photo is signalled by the `ckmem:<id>`
+    /// sentinel in `photoUrl` — the view layer fetches bytes via
+    /// `fetchRecipeMemoryPhotoBytes`, never the URL itself.
+    /// Internal (not private) so the app-target test can exercise the mapping.
+    static func memoryDTOs(from entries: [RecipeMemoryEntry]) -> [RecipeMemory] {
+        entries.reversed().map { entry in
+            RecipeMemory(
+                id: entry.id,
+                body: entry.body,
+                createdAt: entry.createdAt,
+                photoUrl: entry.hasPhoto ? "ckmem:\(entry.id)" : nil
+            )
+        }
+    }
+    #endif
+
     /// Refresh + cache the memory log for one recipe. Returns the
     /// fresh list so callers can use it directly. Caches by recipeID
     /// so navigating away/back doesn't refetch immediately.
     func refreshRecipeMemories(recipeID: String) async throws -> [RecipeMemory] {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            let memories = Self.memoryDTOs(from: repo.memories(forRecipe: recipeID))
+            recipeMemories[recipeID] = memories
+            return memories
+        }
+        #endif
         let memories = try await apiClient.fetchRecipeMemories(recipeID: recipeID)
         recipeMemories[recipeID] = memories
         return memories
@@ -1181,6 +1207,31 @@ extension AppState {
         imageData: Data? = nil,
         mimeType: String? = nil
     ) async throws -> RecipeMemory {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            let memoryId = repo.addMemory(recipeID, body: body)
+            if let imageData {
+                repo.setMemoryPhoto(memoryId, imageData, mime: mimeType ?? "image/jpeg")
+            }
+            // Read back after setMemoryPhoto so hasPhoto (→ photoUrl sentinel) is correct.
+            let memory: RecipeMemory
+            if let entry = repo.memories(forRecipe: recipeID).first(where: { $0.id == memoryId }),
+               let mapped = Self.memoryDTOs(from: [entry]).first {
+                memory = mapped
+            } else {
+                memory = RecipeMemory(
+                    id: memoryId,
+                    body: body,
+                    createdAt: Date(),
+                    photoUrl: imageData != nil ? "ckmem:\(memoryId)" : nil
+                )
+            }
+            var current = recipeMemories[recipeID] ?? []
+            current.insert(memory, at: 0)
+            recipeMemories[recipeID] = current
+            return memory
+        }
+        #endif
         let memory = try await apiClient.createRecipeMemory(
             recipeID: recipeID,
             body: body,
@@ -1197,13 +1248,32 @@ extension AppState {
         recipeID: String,
         memoryID: String
     ) async throws -> Data {
-        try await apiClient.fetchRecipeMemoryPhotoBytes(
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            if let data = await repo.memoryPhotoBytes(memoryID) {
+                return data
+            }
+            throw NSError(
+                domain: "SimmerSmith.RecipeRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Memory photo not found in the local store."]
+            )
+        }
+        #endif
+        return try await apiClient.fetchRecipeMemoryPhotoBytes(
             recipeID: recipeID,
             memoryID: memoryID
         )
     }
 
     func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {
+        #if canImport(CloudKit)
+        if let repo = recipeRepository {
+            repo.deleteMemory(memoryID)
+            recipeMemories[recipeID] = (recipeMemories[recipeID] ?? []).filter { $0.id != memoryID }
+            return
+        }
+        #endif
         try await apiClient.deleteRecipeMemory(recipeID: recipeID, memoryID: memoryID)
         recipeMemories[recipeID] = (recipeMemories[recipeID] ?? []).filter { $0.id != memoryID }
     }

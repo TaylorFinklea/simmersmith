@@ -108,8 +108,8 @@ struct BackupRestoreSection: View {
             Button("Cancel", role: .cancel) { pendingRestore = nil }
         } message: {
             Text(appState.isParticipant
-                 ? "This recovers the SHARED household, so it affects everyone in it. It re-adds anything missing and overwrites changed items back to this backup — it won't delete newer changes."
-                 : "Re-adds anything missing and overwrites changed items back to this backup. It won't delete newer changes.")
+                 ? "This recovers the SHARED household, so it affects everyone in it. It re-adds anything missing and overwrites changed items back to this backup — it won't delete newer changes. Memory photos aren't included in backups, so they won't come back."
+                 : "Re-adds anything missing and overwrites changed items back to this backup. It won't delete newer changes. Memory photos aren't included in backups, so they won't come back.")
         }
         .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json, defaultFilename: exportName) { result in
             switch result {
