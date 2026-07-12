@@ -14,6 +14,22 @@ struct MemoryPhotoView: View {
 
     @Environment(AppState.self) private var appState
     @State private var imageData: Data?
+    /// Last-started-wins guard: overlapping retries (a sync burst bumps the
+    /// generation several times) must not let an OLDER in-flight load resume
+    /// last and stomp a just-loaded image back to nil.
+    @State private var loadEpoch = 0
+
+    /// Bumps on every household-store change; nil on the Fly path (no repository).
+    /// simmersmith-zgt: the `ckmem:<id>` cacheBuster is deterministic, so on a
+    /// participant device whose CKAsset lands after first render nothing else
+    /// re-triggers `load()` — the placeholder stuck until view teardown.
+    private var storeGeneration: Int? {
+        #if canImport(CloudKit)
+        appState.recipeRepository?.storeGeneration
+        #else
+        nil
+        #endif
+    }
 
     var body: some View {
         ZStack {
@@ -27,15 +43,27 @@ struct MemoryPhotoView: View {
         .task(id: cacheBuster ?? memoryID) {
             await load()
         }
+        .onChange(of: storeGeneration) {
+            // Retry only while empty: a store change can mean the missing
+            // asset just arrived. Once bytes are shown, later changes are
+            // irrelevant (a memory photo is set once at compose time).
+            guard imageData == nil else { return }
+            Task { await load() }
+        }
     }
 
     private func load() async {
+        loadEpoch += 1
+        let epoch = loadEpoch
         do {
-            imageData = try await appState.fetchRecipeMemoryPhotoBytes(
+            let bytes = try await appState.fetchRecipeMemoryPhotoBytes(
                 recipeID: recipeID,
                 memoryID: memoryID
             )
+            guard epoch == loadEpoch else { return }
+            imageData = bytes
         } catch {
+            guard epoch == loadEpoch else { return }
             imageData = nil
         }
     }
