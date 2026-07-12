@@ -159,4 +159,62 @@ struct RecipeMemoryMigrationRowTests {
         #expect(row.refs == ["recipe": "mig-photo-r3"])
     }
 }
+
+/// Milestone 990.4 product-flow test — the memories feature end-to-end on the
+/// REAL assembled stack: AppState (the methods the UI calls) → RecipeRepository
+/// → a real HouseholdSession (real local store, real sync engine, real CKAsset
+/// staging on disk). No iCloud account is needed: `engine.save` writes the
+/// local store synchronously before enqueueing, which is exactly the
+/// offline-first behavior the shipping app relies on. Only the network push is
+/// absent — everything the UI observes is exercised for real.
+@MainActor
+struct RecipeMemoriesProductFlowTests {
+    @Test
+    func memoriesAddListPhotoDeleteOnTheRealStack() async throws {
+        let container = try makeSimmerSmithModelContainer(inMemory: true)
+        let suite = "ProductFlow-\(UUID().uuidString)"
+        let settings = ConnectionSettingsStore(
+            defaults: UserDefaults(suiteName: suite)!,
+            keychain: KeychainStore(service: suite)
+        )
+        let appState = AppState(modelContainer: container, settingsStore: settings)
+        let session = HouseholdSession(householdID: "prodflow-\(UUID().uuidString)")
+        appState.recipeRepository = RecipeRepository(session: session)
+
+        let recipeID = "prodflow-recipe-1"
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array("prodflow-taco-night".utf8))
+
+        // ADD with a photo — what MemoryComposeSheet.save() calls.
+        let created = try await appState.createRecipeMemory(
+            recipeID: recipeID,
+            body: "Taco night — kids approved",
+            imageData: jpeg,
+            mimeType: "image/jpeg"
+        )
+        #expect(created.photoUrl == "ckmem:\(created.id)")
+
+        // LIST — what RecipeMemoriesSection.load() calls.
+        let listed = try await appState.refreshRecipeMemories(recipeID: recipeID)
+        #expect(listed.map(\.id) == [created.id])
+        #expect(listed.first?.body == "Taco night — kids approved")
+
+        // PHOTO — what MemoryPhotoView.load() calls; round-trips the staged CKAsset.
+        let bytes = try await appState.fetchRecipeMemoryPhotoBytes(
+            recipeID: recipeID, memoryID: created.id
+        )
+        #expect(bytes == jpeg)
+
+        // DELETE — what the section's confirm dialog calls; cascades the photo record.
+        try await appState.deleteRecipeMemory(recipeID: recipeID, memoryID: created.id)
+        let afterDelete = try await appState.refreshRecipeMemories(recipeID: recipeID)
+        #expect(afterDelete.isEmpty)
+
+        // The cascade also removed the photo: a re-fetch must now throw not-found.
+        await #expect(throws: (any Error).self) {
+            _ = try await appState.fetchRecipeMemoryPhotoBytes(
+                recipeID: recipeID, memoryID: created.id
+            )
+        }
+    }
+}
 #endif
