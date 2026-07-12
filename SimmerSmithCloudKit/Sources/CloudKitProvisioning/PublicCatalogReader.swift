@@ -11,8 +11,19 @@ import Foundation
 // (most-recently-updated wins). Only `normalizedName` (+ RecipeTemplate.builtIn) is queryable, so
 // `submissionStatus`/`active` are filtered CLIENT-SIDE. No write path exists here, by construction.
 
+/// A reference projected from a PUBLIC CKRecord without retaining CloudKit's non-Sendable value.
+public struct CatalogReference: Sendable, Equatable {
+    public let recordName: String
+    public let zoneName: String
+
+    init(_ reference: CKRecord.Reference) {
+        recordName = reference.recordID.recordName
+        zoneName = reference.recordID.zoneID.zoneName
+    }
+}
+
 /// A catalog row projected from a PUBLIC CKRecord. Sendable (carries no CKRecordValue) so it crosses
-/// the cache-actor boundary cleanly: identity + the catalog's string, numeric, and date fields.
+/// the cache-actor boundary cleanly: identity + the catalog's string, numeric, date, and reference fields.
 public struct CatalogRow: Sendable, Equatable {
     public let recordName: String
     public let recordType: String
@@ -21,6 +32,7 @@ public struct CatalogRow: Sendable, Equatable {
     public let strings: [String: String]
     public let numbers: [String: Double]   // INT64 (incl. Bool 0/1) + DOUBLE
     public let dates: [String: Date]
+    public let references: [String: CatalogReference]
 
     init(_ record: CKRecord) {
         recordName = record.recordID.recordName
@@ -30,17 +42,20 @@ public struct CatalogRow: Sendable, Equatable {
         var s: [String: String] = [:]
         var n: [String: Double] = [:]
         var d: [String: Date] = [:]
+        var r: [String: CatalogReference] = [:]
         for key in record.allKeys() {
-            if let v = record[key] as? String { s[key] = v }
+            if let v = record[key] as? CKRecord.Reference { r[key] = CatalogReference(v) }
+            else if let v = record[key] as? String { s[key] = v }
             else if let v = record[key] as? Date { d[key] = v }
             else if let v = record[key] as? Double { n[key] = v }
             else if let v = record[key] as? Int { n[key] = Double(v) }
         }
-        strings = s; numbers = n; dates = d
+        strings = s; numbers = n; dates = d; references = r
     }
     public func string(_ key: String) -> String? { strings[key] }
     public func number(_ key: String) -> Double? { numbers[key] }
     public func date(_ key: String) -> Date? { dates[key] }
+    public func reference(_ key: String) -> CatalogReference? { references[key] }
 }
 
 /// The per-reference nutrition fields a PUBLIC catalog row may carry (SP-C AI-3). Mirrors the
@@ -135,10 +150,26 @@ private actor CatalogCache {
 }
 
 public struct PublicCatalogReader: Sendable {
-    private let database: CKDatabase
+    typealias QueryRows = @Sendable (String, NSPredicate) async -> [CatalogRow]
+    typealias FetchRow = @Sendable (CKRecord.ID) async throws -> CatalogRow
+
+    private let queryRows: QueryRows
+    private let fetchRow: FetchRow
     private let cache = CatalogCache()
 
-    public init(database: CKDatabase) { self.database = database }
+    public init(database: CKDatabase) {
+        queryRows = { recordType, predicate in
+            await Self.query(database: database, recordType: recordType, predicate: predicate)
+        }
+        fetchRow = { recordID in
+            CatalogRow(try await database.record(for: recordID))
+        }
+    }
+
+    init(queryRows: @escaping QueryRows, fetchRow: @escaping FetchRow) {
+        self.queryRows = queryRows
+        self.fetchRow = fetchRow
+    }
 
     private static let baseType = "BaseIngredient"
     private static let variationType = "IngredientVariation"
@@ -155,10 +186,23 @@ public struct PublicCatalogReader: Sendable {
         let chunk = 50
         for start in stride(from: 0, to: unique.count, by: chunk) {
             let slice = Array(unique[start..<min(start + chunk, unique.count)])
-            let rows = await query(Self.baseType, NSPredicate(format: "normalizedName IN %@", slice))
+            let rows = await queryRows(Self.baseType, NSPredicate(format: "normalizedName IN %@", slice))
                 .filter(Self.isApprovedActive)
             await cache.insert(rows)
         }
+    }
+
+    /// Browse approved, active BaseIngredients using the indexed normalizedName field.
+    public func browseBaseIngredients(limit: Int = 20) async -> [CatalogRow] {
+        await searchBaseIngredients(query: "", limit: limit)
+    }
+
+    /// Search approved, active BaseIngredients by normalized-name prefix. An empty query browses the
+    /// catalog through the same indexed field, avoiding an unindexed full-table PUBLIC query.
+    public func searchBaseIngredients(query: String = "", limit: Int = 20) async -> [CatalogRow] {
+        guard limit > 0 else { return [] }
+        let rows = await queryRows(Self.baseType, Self.baseSearchPredicate(query: query))
+        return Self.approvedActiveBaseRows(rows, limit: limit)
     }
 
     /// Resolve a canonical approved+active BaseIngredient by normalized name. cache → PUBLIC CKQuery → nil.
@@ -166,10 +210,35 @@ public struct PublicCatalogReader: Sendable {
         await resolve(type: Self.baseType, normalizedName: normalizedName, filter: Self.isApprovedActive)
     }
 
+    /// Resolve a canonical approved+active BaseIngredient by its PUBLIC record name.
+    public func resolveBaseIngredient(recordName: String) async -> CatalogRow? {
+        await resolve(recordType: Self.baseType, recordName: recordName, filter: Self.isApprovedActive)
+    }
+
     /// Resolve a global active IngredientVariation by normalized name (variations have no submission
     /// gate, but archived/merged-away rows must not be served as the canonical match).
     public func resolveIngredientVariation(normalizedName: String) async -> CatalogRow? {
         await resolve(type: Self.variationType, normalizedName: normalizedName, filter: Self.isActive)
+    }
+
+    /// Resolve a global active IngredientVariation by its PUBLIC record name.
+    public func resolveIngredientVariation(recordName: String) async -> CatalogRow? {
+        await resolve(recordType: Self.variationType, recordName: recordName, filter: Self.isActive)
+    }
+
+    /// Find active variations whose baseIngredient reference points to the supplied PUBLIC row.
+    public func fetchIngredientVariations(baseIngredientID: String, limit: Int = 100) async -> [CatalogRow] {
+        guard !baseIngredientID.isEmpty, limit > 0 else { return [] }
+        guard await resolveBaseIngredient(recordName: baseIngredientID) != nil else { return [] }
+        let baseID = CKRecord.ID(recordName: baseIngredientID)
+        let baseReference = CKRecord.Reference(recordID: baseID, action: .none)
+        let rows = await queryRows(
+            Self.variationType,
+            NSPredicate(format: "baseIngredient == %@", baseReference)
+        )
+        .filter(Self.isActive)
+        .sorted(by: Self.catalogOrder)
+        return Array(rows.prefix(limit))
     }
 
     /// SP-C AI-3 — resolve an ingredient's nutrition macros from the PUBLIC catalog by normalized
@@ -192,16 +261,48 @@ public struct PublicCatalogReader: Sendable {
                          filter: @Sendable (CatalogRow) -> Bool) async -> CatalogRow? {
         guard !normalizedName.isEmpty else { return nil }
         if let cached = await cache.row(type: type, name: normalizedName) { return cached }
-        let rows = await query(type, NSPredicate(format: "normalizedName == %@", normalizedName)).filter(filter)
+        let rows = await queryRows(type, NSPredicate(format: "normalizedName == %@", normalizedName)).filter(filter)
         await cache.insert(rows)
         return await cache.row(type: type, name: normalizedName)
+    }
+
+    private func resolve(recordType: String, recordName: String,
+                         filter: @Sendable (CatalogRow) -> Bool) async -> CatalogRow? {
+        guard !recordName.isEmpty else { return nil }
+        do {
+            let row = try await fetchRow(CKRecord.ID(recordName: recordName))
+            guard row.recordType == recordType else { return nil }
+            guard filter(row) else { return nil }
+            await cache.insert([row])
+            return row
+        } catch {
+            return nil
+        }
+    }
+
+    private static func catalogOrder(_ lhs: CatalogRow, _ rhs: CatalogRow) -> Bool {
+        if lhs.normalizedName != rhs.normalizedName { return lhs.normalizedName < rhs.normalizedName }
+        return lhs.recordName < rhs.recordName
+    }
+
+    static func baseSearchPredicate(query: String) -> NSPredicate {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedQuery.isEmpty {
+            return NSPredicate(format: "normalizedName != %@", "")
+        }
+        return NSPredicate(format: "normalizedName BEGINSWITH %@", normalizedQuery)
+    }
+
+    static func approvedActiveBaseRows(_ rows: [CatalogRow], limit: Int) -> [CatalogRow] {
+        guard limit > 0 else { return [] }
+        return Array(rows.filter(isApprovedActive).sorted(by: catalogOrder).prefix(limit))
     }
 
     /// The built-in RecipeTemplates (cached after the first NON-EMPTY fetch — an empty/failed result
     /// is never cached, so a transient error doesn't poison the session).
     public func recipeTemplates() async -> [CatalogRow] {
         if let cached = await cache.cachedTemplates() { return cached }
-        let rows = await query(Self.templateType, NSPredicate(format: "builtIn == 1"))
+        let rows = await queryRows(Self.templateType, NSPredicate(format: "builtIn == 1"))
         if !rows.isEmpty { await cache.setTemplates(rows) }
         return rows
     }
@@ -215,7 +316,11 @@ public struct PublicCatalogReader: Sendable {
     /// One defensive PUBLIC query → projected rows, FOLLOWING the cursor (CloudKit pages at ~200, so
     /// discarding it would silently truncate large result sets). Any thrown error (network,
     /// not-queryable, rate-limit, permission) degrades to whatever pages already arrived (or []).
-    private func query(_ recordType: String, _ predicate: NSPredicate) async -> [CatalogRow] {
+    private static func query(
+        database: CKDatabase,
+        recordType: String,
+        predicate: NSPredicate
+    ) async -> [CatalogRow] {
         var out: [CatalogRow] = []
         do {
             var page = try await database.records(matching: CKQuery(recordType: recordType, predicate: predicate))
