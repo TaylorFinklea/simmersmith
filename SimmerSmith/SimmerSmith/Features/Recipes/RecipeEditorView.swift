@@ -1,6 +1,65 @@
 import SwiftUI
 import SimmerSmithKit
 
+enum RecipeEditorIngredientPolicy {
+    static func seedingMissingIngredientIDs(
+        in draft: RecipeDraft,
+        generateID: () -> String = { UUID().uuidString }
+    ) -> RecipeDraft {
+        var seeded = draft
+        seeded.ingredients = seeded.ingredients.map { ingredient in
+            guard ingredient.ingredientId?.isEmpty != false else { return ingredient }
+            var seededIngredient = ingredient
+            seededIngredient.ingredientId = generateID()
+            return seededIngredient
+        }
+        return seeded
+    }
+
+    static func selecting(
+        _ baseIngredient: BaseIngredient,
+        for ingredient: RecipeIngredient
+    ) -> RecipeIngredient {
+        var selected = ingredient
+        selected.ingredientName = baseIngredient.name
+        selected.normalizedName = baseIngredient.normalizedName
+        selected.baseIngredientId = baseIngredient.baseIngredientId
+        selected.baseIngredientName = baseIngredient.name
+        selected.ingredientVariationId = nil
+        selected.ingredientVariationName = nil
+        selected.resolutionStatus = "resolved"
+        return selected
+    }
+
+    static func updatingName(
+        _ ingredient: RecipeIngredient,
+        to name: String
+    ) -> RecipeIngredient {
+        var updated = ingredient
+        updated.ingredientName = name
+        let hasCanonicalMapping = updated.baseIngredientId != nil
+            || updated.ingredientVariationId != nil
+            || updated.resolutionStatus != "unresolved"
+        guard hasCanonicalMapping, updated.baseIngredientName != name else { return updated }
+        updated.normalizedName = nil
+        updated.baseIngredientId = nil
+        updated.baseIngredientName = nil
+        updated.ingredientVariationId = nil
+        updated.ingredientVariationName = nil
+        updated.resolutionStatus = "unresolved"
+        return updated
+    }
+
+    static func preservingIdentity(
+        of ingredient: RecipeIngredient,
+        whenReplacingWith replacement: RecipeIngredient
+    ) -> RecipeIngredient {
+        var replacement = replacement
+        replacement.ingredientId = ingredient.ingredientId
+        return replacement
+    }
+}
+
 private enum ManagedRecipeField: String, Identifiable {
     case cuisine
     case tag
@@ -78,19 +137,20 @@ struct RecipeEditorView: View {
         initialDraft: RecipeDraft,
         onSaved: @escaping (RecipeSummary) -> Void
     ) {
+        let seededDraft = RecipeEditorIngredientPolicy.seedingMissingIngredientIDs(in: initialDraft)
         self.title = title
-        self.initialDraft = initialDraft
+        self.initialDraft = seededDraft
         self.onSaved = onSaved
-        _draft = State(initialValue: initialDraft)
-        _servingsText = State(initialValue: initialDraft.servings.map { $0.formatted() } ?? "")
-        _prepMinutesText = State(initialValue: initialDraft.prepMinutes.map(String.init) ?? "")
-        _cookMinutesText = State(initialValue: initialDraft.cookMinutes.map(String.init) ?? "")
-        _nutritionSummary = State(initialValue: initialDraft.nutritionSummary)
+        _draft = State(initialValue: seededDraft)
+        _servingsText = State(initialValue: seededDraft.servings.map { $0.formatted() } ?? "")
+        _prepMinutesText = State(initialValue: seededDraft.prepMinutes.map(String.init) ?? "")
+        _cookMinutesText = State(initialValue: seededDraft.cookMinutes.map(String.init) ?? "")
+        _nutritionSummary = State(initialValue: seededDraft.nutritionSummary)
         // Build 85: seed picker from server-supplied iconKey if it
         // came in on the draft, fall back to .auto otherwise.
         // .onAppear still consults RecipeIconOverrides as a local
         // fallback for picks that haven't synced to server yet.
-        let initialIcon = MealIcon(rawValue: initialDraft.iconKey) ?? .auto
+        let initialIcon = MealIcon(rawValue: seededDraft.iconKey) ?? .auto
         _pickedIcon = State(initialValue: initialIcon)
     }
 
@@ -236,6 +296,10 @@ struct RecipeEditorView: View {
                                 TextField("Ingredient", text: $ingredient.ingredientName)
                                     .multilineTextAlignment(.trailing)
                                     .onChange(of: ingredient.ingredientName) { _, newValue in
+                                        ingredient = RecipeEditorIngredientPolicy.updatingName(
+                                            ingredient,
+                                            to: newValue
+                                        )
                                         focusedIngredientID = ingredient.id
                                         searchIngredients(query: newValue)
                                     }
@@ -246,8 +310,10 @@ struct RecipeEditorView: View {
                                     HStack(spacing: 8) {
                                         ForEach(ingredientSuggestions) { suggestion in
                                             Button {
-                                                ingredient.ingredientName = suggestion.name
-                                                ingredient.baseIngredientId = suggestion.baseIngredientId
+                                                ingredient = RecipeEditorIngredientPolicy.selecting(
+                                                    suggestion,
+                                                    for: ingredient
+                                                )
                                                 ingredientSuggestions = []
                                                 focusedIngredientID = nil
                                             } label: {
@@ -576,9 +642,10 @@ struct RecipeEditorView: View {
 
     private func replaceIngredient(id ingredientID: String, with updatedIngredient: RecipeIngredient) {
         guard let index = draft.ingredients.firstIndex(where: { $0.id == ingredientID }) else { return }
-        var ingredient = updatedIngredient
-        ingredient.ingredientId = draft.ingredients[index].ingredientId
-        draft.ingredients[index] = ingredient
+        draft.ingredients[index] = RecipeEditorIngredientPolicy.preservingIdentity(
+            of: draft.ingredients[index],
+            whenReplacingWith: updatedIngredient
+        )
     }
 
     private func addTag(_ tag: String) {
@@ -666,13 +733,6 @@ struct RecipeEditorView: View {
 
     private func searchIngredients(query: String) {
         ingredientSearchTask?.cancel()
-        // SP-C review finding D: ingredient autocomplete resolves via the Fly catalog
-        // (no token → 401) in CloudKit-only mode. Skip the lookup; manual free-text
-        // ingredient entry still works (and the saved recipe round-trips via CloudKit).
-        guard !appState.isCloudKitOnly else {
-            ingredientSuggestions = []
-            return
-        }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else {
             ingredientSuggestions = []

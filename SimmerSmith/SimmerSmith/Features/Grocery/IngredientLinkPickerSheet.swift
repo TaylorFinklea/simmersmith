@@ -4,9 +4,8 @@ import SimmerSmithKit
 /// Search-and-link sheet — surfaces base ingredients from the catalog
 /// so the user can attach a free-typed grocery row (e.g. "almond
 /// flour") to a canonical entry. Saving PATCHes the grocery item with
-/// the chosen `base_ingredient_id`; the server flips
-/// `resolution_status` to "locked" and clears the review_flag so
-/// smart-merge regen can match it consistently.
+/// the chosen canonical identity; CloudKit stores the link as locked
+/// so smart-merge regeneration can match it consistently.
 ///
 /// Triggered from:
 /// - Review queue's "Link to Ingredient" button
@@ -63,7 +62,7 @@ struct IngredientLinkPickerSheet: View {
                         ContentUnavailableView(
                             "No matches",
                             systemImage: "magnifyingglass",
-                            description: Text("Add it as a new ingredient — it'll be private to your household until you submit it for global adoption.")
+                            description: Text("Add it as a new ingredient for your household.")
                         )
                         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
@@ -110,7 +109,7 @@ struct IngredientLinkPickerSheet: View {
                                 }
                                 .disabled(isCreatingNew)
                             } footer: {
-                                Text("Saved as private to your household. Submit for global adoption from Settings → Ingredients.")
+                                Text("Saved privately to your household.")
                             }
                         }
                     }
@@ -183,18 +182,11 @@ struct IngredientLinkPickerSheet: View {
     }
 
     private func createNew(named trimmed: String) async {
-        guard let weekID = appState.currentWeek?.weekId else { return }
         isCreatingNew = true
         defer { isCreatingNew = false }
         errorMessage = nil
         do {
-            // 1. Create the new BaseIngredient as household_only.
-            let created = try await appState.apiClient.createBaseIngredient(
-                name: trimmed,
-                submissionStatus: "household_only"
-            )
-            // 2. Link the grocery item to it (same path as tapping a
-            // matching row).
+            let created = try await appState.createBaseIngredient(name: trimmed)
             await link(to: created)
         } catch {
             errorMessage = "Couldn't add ingredient: \(error.localizedDescription)"
@@ -202,20 +194,15 @@ struct IngredientLinkPickerSheet: View {
     }
 
     private func link(to base: BaseIngredient) async {
-        guard let weekID = appState.currentWeek?.weekId else { return }
         savingID = base.baseIngredientId
         defer { savingID = nil }
         errorMessage = nil
-        var body = SimmerSmithAPIClient.GroceryItemPatchBody()
-        body.baseIngredientId = .set(base.baseIngredientId)
         do {
-            let updated = try await appState.apiClient.patchGroceryItem(
-                weekID: weekID,
+            let updated = try await appState.linkGroceryItemToIngredient(
                 itemID: item.groceryItemId,
-                body: body
+                baseIngredientID: base.baseIngredientId,
+                canonicalName: base.name
             )
-            appState.replaceGroceryItemInCurrentWeek(updated)
-            await appState.syncGroceryToReminders()
             onLinked?(updated)
             dismiss()
         } catch {

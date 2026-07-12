@@ -1,5 +1,6 @@
 #if canImport(CloudKit)
 import CloudKit
+import CloudKitProvisioning
 import Foundation
 import GroceryMerge
 import HouseholdRecords
@@ -10,6 +11,22 @@ import SimmerSmithKit
 @MainActor
 @Observable
 final class IngredientRepository {
+    struct UsageSnapshot {
+        let summary: IngredientUsageSummary
+        let recipeRowCount: Int
+        let groceryRowCount: Int
+    }
+
+    struct MergePreview {
+        let source: BaseIngredient
+        let target: BaseIngredient
+        let variationIDMap: [String: String]
+    }
+
+    struct MergeResult {
+        let ingredient: BaseIngredient
+        let variationIDMap: [String: String]
+    }
     private(set) var baseIngredients: [BaseIngredient] = []
     private(set) var lastSyncError: Error?
 
@@ -139,44 +156,85 @@ final class IngredientRepository {
         }
 
         let variations = fetchIngredientVariations(baseIngredientID: baseIngredientID)
-        let usage = ingredientUsage(baseIngredientID: baseIngredientID)
-        let recipeUsageCount = usageCounts(
-            records: session.store.records(ofType: HouseholdRecordType.recipeIngredient.recordTypeName),
-            refKey: "baseIngredientID"
-        )[baseIngredientID, default: 0]
-        let groceryUsageCount = session.store.records(ofType: GroceryCodec.recordType)
-            .filter { ($0["baseIngredientID"] as? String) == baseIngredientID }
-            .count
+        let usage = ingredientUsageSnapshot(baseIngredientID: baseIngredientID)
         let ingredient = decodeBaseIngredient(
             HouseholdRecordCodec.decode(record, as: .baseIngredient),
             variationCount: variations.count,
-            recipeUsageCount: recipeUsageCount,
-            groceryUsageCount: groceryUsageCount
+            recipeUsageCount: usage.recipeRowCount,
+            groceryUsageCount: usage.groceryRowCount
         )
         return BaseIngredientDetail(
             ingredient: ingredient,
             variations: variations,
             preference: nil,
-            usage: usage
+            usage: usage.summary
         )
     }
 
     @discardableResult
     func mergeBaseIngredient(sourceID: String, targetID: String) throws -> BaseIngredient {
+        try mergeBaseIngredientWithVariationMap(sourceID: sourceID, targetID: targetID).ingredient
+    }
+
+    func previewBaseIngredientMerge(sourceID: String, targetID: String) throws -> MergePreview {
         guard sourceID != targetID else { throw IngredientRepositoryError.mergeWouldCreateCycle }
         let sourceRecordID = CKRecord.ID(recordName: sourceID, zoneID: session.zoneID)
         let targetRecordID = CKRecord.ID(recordName: targetID, zoneID: session.zoneID)
         guard let sourceRecord = session.store.record(for: sourceRecordID),
               sourceRecord.recordType == HouseholdRecordType.baseIngredient.recordTypeName,
               let targetRecord = session.store.record(for: targetRecordID),
-              targetRecord.recordType == HouseholdRecordType.baseIngredient.recordTypeName else {
-            throw IngredientRepositoryError.baseIngredientNotFound
-        }
-        guard isActive(sourceRecord), isActive(targetRecord) else {
+              targetRecord.recordType == HouseholdRecordType.baseIngredient.recordTypeName,
+              isActive(sourceRecord), isActive(targetRecord) else {
             throw IngredientRepositoryError.baseIngredientNotFound
         }
         guard !mergeChainContains(sourceID: sourceID, startingAt: targetID) else {
             throw IngredientRepositoryError.mergeWouldCreateCycle
+        }
+
+        var canonicalByNormalizedName: [String: String] = [:]
+        let targetVariations = session.store.records(
+            ofType: HouseholdRecordType.ingredientVariation.recordTypeName
+        ).filter { refName($0["baseIngredient"]) == targetID && isActive($0) }
+            .sorted { $0.recordID.recordName < $1.recordID.recordName }
+        for variation in targetVariations {
+            let value = HouseholdRecordCodec.decode(variation, as: .ingredientVariation)
+            let normalizedName = scalarString(value, "normalizedName") ?? ""
+            if canonicalByNormalizedName[normalizedName] == nil {
+                canonicalByNormalizedName[normalizedName] = variation.recordID.recordName
+            }
+        }
+
+        var variationIDMap: [String: String] = [:]
+        let sourceVariations = session.store.records(
+            ofType: HouseholdRecordType.ingredientVariation.recordTypeName
+        ).filter { refName($0["baseIngredient"]) == sourceID }
+            .sorted { $0.recordID.recordName < $1.recordID.recordName }
+        for variation in sourceVariations {
+            let value = HouseholdRecordCodec.decode(variation, as: .ingredientVariation)
+            let normalizedName = scalarString(value, "normalizedName") ?? ""
+            if let canonical = canonicalByNormalizedName[normalizedName] {
+                variationIDMap[variation.recordID.recordName] = canonical
+            } else {
+                variationIDMap[variation.recordID.recordName] = variation.recordID.recordName
+                if isActive(variation) {
+                    canonicalByNormalizedName[normalizedName] = variation.recordID.recordName
+                }
+            }
+        }
+        return MergePreview(
+            source: try fetchBaseIngredientDetail(baseIngredientID: sourceID).ingredient,
+            target: try fetchBaseIngredientDetail(baseIngredientID: targetID).ingredient,
+            variationIDMap: variationIDMap
+        )
+    }
+
+    func mergeBaseIngredientWithVariationMap(sourceID: String, targetID: String) throws -> MergeResult {
+        let preview = try previewBaseIngredientMerge(sourceID: sourceID, targetID: targetID)
+        let sourceRecordID = CKRecord.ID(recordName: sourceID, zoneID: session.zoneID)
+        let targetRecordID = CKRecord.ID(recordName: targetID, zoneID: session.zoneID)
+        guard let sourceRecord = session.store.record(for: sourceRecordID),
+              let targetRecord = session.store.record(for: targetRecordID) else {
+            throw IngredientRepositoryError.baseIngredientNotFound
         }
 
         repointBaseUsage(sourceID: sourceID, targetID: targetID)
@@ -186,25 +244,21 @@ final class IngredientRepository {
             .filter { refName($0["baseIngredient"]) == sourceID }
             .sorted { $0.recordID.recordName < $1.recordID.recordName }
         for variation in sourceVariations {
-            let value = HouseholdRecordCodec.decode(variation, as: .ingredientVariation)
-            let normalizedName = scalarString(value, "normalizedName") ?? ""
             variation["baseIngredient"] = CKRecord.Reference(
                 recordID: targetRecordID,
                 action: .deleteSelf
             )
-            if let duplicate = activeVariation(
-                baseIngredientID: targetID,
-                normalizedName: normalizedName,
-                excluding: variation.recordID.recordName
-            ) {
+            let canonicalID = preview.variationIDMap[variation.recordID.recordName]
+                ?? variation.recordID.recordName
+            if canonicalID != variation.recordID.recordName {
                 repointVariationUsage(
                     sourceID: variation.recordID.recordName,
-                    targetID: duplicate.recordID.recordName,
+                    targetID: canonicalID,
                     baseIngredientID: targetID
                 )
                 variation["active"] = 0 as CKRecordValue
                 variation["archivedAt"] = Date() as CKRecordValue
-                variation["mergedIntoID"] = duplicate.recordID.recordName as CKRecordValue
+                variation["mergedIntoID"] = canonicalID as CKRecordValue
             } else {
                 repointVariationUsage(
                     sourceID: variation.recordID.recordName,
@@ -225,7 +279,10 @@ final class IngredientRepository {
         session.engine.save(sourceRecord)
         session.engine.save(targetRecord)
         finishWrite()
-        return try fetchBaseIngredientDetail(baseIngredientID: targetID).ingredient
+        return MergeResult(
+            ingredient: try fetchBaseIngredientDetail(baseIngredientID: targetID).ingredient,
+            variationIDMap: preview.variationIDMap
+        )
     }
 
     @discardableResult
@@ -576,6 +633,146 @@ final class IngredientRepository {
         return HouseholdRecordValue(type: .ingredientVariation, recordName: recordName, scalars: scalars, refs: refs)
     }
 
+    static func publicBaseIngredient(
+        from row: CatalogRow,
+        variationCount: Int = 0,
+        preferenceCount: Int = 0,
+        recipeUsageCount: Int = 0,
+        groceryUsageCount: Int = 0
+    ) -> BaseIngredient? {
+        guard row.recordType == "BaseIngredient", !row.recordName.isEmpty else { return nil }
+        let sourceName = row.string("sourceName") ?? row.string("source_name") ?? ""
+        return BaseIngredient(
+            baseIngredientId: row.recordName,
+            name: row.name,
+            normalizedName: row.normalizedName,
+            category: row.string("category") ?? "",
+            defaultUnit: row.string("defaultUnit") ?? row.string("default_unit") ?? "",
+            notes: row.string("notes") ?? "",
+            sourceName: sourceName,
+            sourceRecordId: row.string("sourceRecordID") ?? row.string("source_record_id") ?? "",
+            sourceUrl: row.string("sourceURL") ?? row.string("source_url") ?? "",
+            provisional: (row.number("provisional") ?? 0) != 0,
+            active: (row.number("active") ?? 1) != 0,
+            nutritionReferenceAmount: row.number("nutritionReferenceAmount") ?? row.number("nutrition_reference_amount"),
+            nutritionReferenceUnit: row.string("nutritionReferenceUnit") ?? row.string("nutrition_reference_unit") ?? "",
+            calories: row.number("calories"),
+            archivedAt: row.date("archivedAt") ?? row.date("archived_at"),
+            mergedIntoId: row.reference("mergedIntoID")?.recordName ?? row.string("mergedIntoID"),
+            variationCount: variationCount,
+            preferenceCount: preferenceCount,
+            recipeUsageCount: recipeUsageCount,
+            groceryUsageCount: groceryUsageCount,
+            productLike: sourceName == "Open Food Facts",
+            householdId: nil,
+            submissionStatus: row.string("submissionStatus") ?? row.string("submission_status") ?? "approved",
+            updatedAt: row.date("updatedAt") ?? row.date("updated_at") ?? .distantPast
+        )
+    }
+
+    static func publicIngredientVariation(from row: CatalogRow) -> IngredientVariation? {
+        guard row.recordType == "IngredientVariation",
+              let baseID = row.reference("baseIngredient")?.recordName else { return nil }
+        return IngredientVariation(
+            ingredientVariationId: row.recordName,
+            baseIngredientId: baseID,
+            name: row.name,
+            normalizedName: row.normalizedName,
+            brand: row.string("brand") ?? "",
+            upc: row.string("upc") ?? "",
+            packageSizeAmount: row.number("packageSizeAmount") ?? row.number("package_size_amount"),
+            packageSizeUnit: row.string("packageSizeUnit") ?? row.string("package_size_unit") ?? "",
+            countPerPackage: row.number("countPerPackage") ?? row.number("count_per_package"),
+            productUrl: row.string("productURL") ?? row.string("product_url") ?? "",
+            retailerHint: row.string("retailerHint") ?? row.string("retailer_hint") ?? "",
+            notes: row.string("notes") ?? "",
+            sourceName: row.string("sourceName") ?? row.string("source_name") ?? "",
+            sourceRecordId: row.string("sourceRecordID") ?? row.string("source_record_id") ?? "",
+            sourceUrl: row.string("sourceURL") ?? row.string("source_url") ?? "",
+            active: (row.number("active") ?? 1) != 0,
+            nutritionReferenceAmount: row.number("nutritionReferenceAmount") ?? row.number("nutrition_reference_amount"),
+            nutritionReferenceUnit: row.string("nutritionReferenceUnit") ?? row.string("nutrition_reference_unit") ?? "",
+            calories: row.number("calories"),
+            archivedAt: row.date("archivedAt") ?? row.date("archived_at"),
+            mergedIntoId: row.reference("mergedIntoID")?.recordName ?? row.string("mergedIntoID"),
+            updatedAt: row.date("updatedAt") ?? row.date("updated_at") ?? .distantPast
+        )
+    }
+
+    static func composeSearchResults(
+        household: [BaseIngredient],
+        publicCatalog: [BaseIngredient],
+        preferences: [IngredientPreference],
+        query: String,
+        limit: Int,
+        provisionalOnly: Bool,
+        withPreferences: Bool,
+        withVariations: Bool,
+        includeProductLike: Bool
+    ) -> [BaseIngredient] {
+        guard limit > 0 else { return [] }
+        let activePreferenceCounts = Dictionary(grouping: preferences.filter(\.active), by: \.baseIngredientId)
+            .mapValues(\.count)
+        var byID = Dictionary(uniqueKeysWithValues: publicCatalog.map { ($0.id, $0) })
+        for ingredient in household { byID[ingredient.id] = ingredient }
+        let normalizedQuery = GroceryNormalize.name(query)
+        var rows = byID.values.map {
+            copy($0, preferenceCount: activePreferenceCounts[$0.id, default: 0])
+        }.filter {
+            (!provisionalOnly || $0.provisional)
+                && (!withPreferences || $0.preferenceCount > 0)
+                && (!withVariations || $0.variationCount > 0)
+                && (includeProductLike || !$0.productLike)
+        }
+        if normalizedQuery.isEmpty {
+            rows.sort {
+                if $0.provisional != $1.provisional { return !$0.provisional }
+                if $0.name.count != $1.name.count { return $0.name.count < $1.name.count }
+                let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                if order != .orderedSame { return order == .orderedAscending }
+                return $0.id < $1.id
+            }
+        } else {
+            rows.sort {
+                let lhs = searchRank($0, normalizedQuery: normalizedQuery)
+                let rhs = searchRank($1, normalizedQuery: normalizedQuery)
+                return lhs < rhs
+            }
+        }
+        return Array(rows.prefix(min(limit, 200)))
+    }
+
+    private static func copy(_ value: BaseIngredient, preferenceCount: Int) -> BaseIngredient {
+        BaseIngredient(
+            baseIngredientId: value.id, name: value.name, normalizedName: value.normalizedName,
+            category: value.category, defaultUnit: value.defaultUnit, notes: value.notes,
+            sourceName: value.sourceName, sourceRecordId: value.sourceRecordId, sourceUrl: value.sourceUrl,
+            provisional: value.provisional, active: value.active,
+            nutritionReferenceAmount: value.nutritionReferenceAmount,
+            nutritionReferenceUnit: value.nutritionReferenceUnit, calories: value.calories,
+            archivedAt: value.archivedAt, mergedIntoId: value.mergedIntoId,
+            variationCount: value.variationCount, preferenceCount: preferenceCount,
+            recipeUsageCount: value.recipeUsageCount, groceryUsageCount: value.groceryUsageCount,
+            productLike: value.productLike, householdId: value.householdId,
+            submissionStatus: value.submissionStatus, updatedAt: value.updatedAt
+        )
+    }
+
+    private static func searchRank(
+        _ ingredient: BaseIngredient,
+        normalizedQuery: String
+    ) -> (Int, Int, Int, Int, String, String) {
+        let normalizedName = ingredient.normalizedName
+        return (
+            normalizedName == normalizedQuery ? 0 : 1,
+            normalizedName.hasPrefix(normalizedQuery) ? 0 : 1,
+            normalizedName.contains(normalizedQuery) ? 0 : 1,
+            normalizedName.count,
+            normalizedName,
+            ingredient.id
+        )
+    }
+
     private func decodeBaseIngredient(
         _ value: HouseholdRecordValue,
         variationCount: Int,
@@ -638,32 +835,68 @@ final class IngredientRepository {
         )
     }
 
-    private func ingredientUsage(baseIngredientID: String) -> IngredientUsageSummary {
+    func ingredientUsageSnapshot(baseIngredientID: String) -> UsageSnapshot {
+        ingredientUsageSnapshots(baseIngredientIDs: [baseIngredientID])[baseIngredientID]
+            ?? UsageSnapshot(
+                summary: IngredientUsageSummary(
+                    linkedRecipeIds: [], linkedRecipeNames: [],
+                    linkedGroceryItemIds: [], linkedGroceryNames: []
+                ),
+                recipeRowCount: 0,
+                groceryRowCount: 0
+            )
+    }
+
+    func ingredientUsageSnapshots(baseIngredientIDs: Set<String>) -> [String: UsageSnapshot] {
+        guard !baseIngredientIDs.isEmpty else { return [:] }
         let recipeNames = Dictionary(uniqueKeysWithValues: session.store
             .records(ofType: HouseholdRecordType.recipe.recordTypeName)
             .map { ($0.recordID.recordName, $0["name"] as? String ?? "") })
-        var recipes: [(id: String, name: String)] = []
-        var seenRecipeIDs: Set<String> = []
+        var recipeCounts: [String: Int] = [:]
+        var recipeSamples: [String: [String: String]] = [:]
         for record in session.store.records(ofType: HouseholdRecordType.recipeIngredient.recordTypeName) {
             let value = HouseholdRecordCodec.decode(record, as: .recipeIngredient)
-            guard value.refs["baseIngredientID"] == baseIngredientID,
-                  let recipeID = value.refs["recipe"],
-                  seenRecipeIDs.insert(recipeID).inserted else { continue }
-            recipes.append((recipeID, recipeNames[recipeID] ?? ""))
+            guard let baseID = value.refs["baseIngredientID"], baseIngredientIDs.contains(baseID) else { continue }
+            recipeCounts[baseID, default: 0] += 1
+            if let recipeID = value.refs["recipe"] {
+                recipeSamples[baseID, default: [:]][recipeID] = recipeNames[recipeID] ?? ""
+            }
         }
-        recipes.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        var groceryCounts: [String: Int] = [:]
+        var grocerySamples: [String: [String: String]] = [:]
+        for record in session.store.records(ofType: GroceryCodec.recordType) {
+            guard let baseID = record["baseIngredientID"] as? String,
+                  baseIngredientIDs.contains(baseID) else { continue }
+            groceryCounts[baseID, default: 0] += 1
+            grocerySamples[baseID, default: [:]][record.recordID.recordName]
+                = record["ingredientName"] as? String ?? ""
+        }
 
-        let groceries = session.store.records(ofType: GroceryCodec.recordType)
-            .filter { ($0["baseIngredientID"] as? String) == baseIngredientID }
-            .map { (id: $0.recordID.recordName, name: $0["ingredientName"] as? String ?? "") }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return Dictionary(uniqueKeysWithValues: baseIngredientIDs.map { baseID in
+            let recipes = (recipeSamples[baseID] ?? [:]).map { (id: $0.key, name: $0.value) }
+                .sorted(by: usageSampleOrder)
+            let groceries = (grocerySamples[baseID] ?? [:]).map { (id: $0.key, name: $0.value) }
+                .sorted(by: usageSampleOrder)
+            return (baseID, UsageSnapshot(
+                summary: IngredientUsageSummary(
+                    linkedRecipeIds: recipes.map(\.id),
+                    linkedRecipeNames: recipes.map(\.name),
+                    linkedGroceryItemIds: groceries.map(\.id),
+                    linkedGroceryNames: groceries.map(\.name)
+                ),
+                recipeRowCount: recipeCounts[baseID, default: 0],
+                groceryRowCount: groceryCounts[baseID, default: 0]
+            ))
+        })
+    }
 
-        return IngredientUsageSummary(
-            linkedRecipeIds: recipes.map { $0.id },
-            linkedRecipeNames: recipes.map { $0.name },
-            linkedGroceryItemIds: groceries.map { $0.id },
-            linkedGroceryNames: groceries.map { $0.name }
-        )
+    private func usageSampleOrder(
+        _ lhs: (id: String, name: String),
+        _ rhs: (id: String, name: String)
+    ) -> Bool {
+        let order = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+        if order != .orderedSame { return order == .orderedAscending }
+        return lhs.id < rhs.id
     }
 
     private func repointBaseUsage(sourceID: String, targetID: String) {
@@ -702,23 +935,6 @@ final class IngredientRepository {
                 session.engine.save(record)
             }
         }
-    }
-
-    private func activeVariation(
-        baseIngredientID: String,
-        normalizedName: String,
-        excluding variationID: String
-    ) -> CKRecord? {
-        session.store.records(ofType: HouseholdRecordType.ingredientVariation.recordTypeName)
-            .filter { record in
-                guard record.recordID.recordName != variationID,
-                      refName(record["baseIngredient"]) == baseIngredientID,
-                      isActive(record) else { return false }
-                let value = HouseholdRecordCodec.decode(record, as: .ingredientVariation)
-                return scalarString(value, "normalizedName") == normalizedName
-            }
-            .sorted { $0.recordID.recordName < $1.recordID.recordName }
-            .first
     }
 
     private func mergeChainContains(sourceID: String, startingAt targetID: String) -> Bool {

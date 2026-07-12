@@ -56,7 +56,13 @@ struct BaseIngredientMergeSheet: View {
     }
 
     private var filteredCandidates: [BaseIngredient] {
-        candidates.filter { $0.baseIngredientId != baseIngredientID }
+        candidates.filter {
+            $0.baseIngredientId != baseIngredientID
+                && IngredientOwnershipPolicy.canManage(
+                    $0,
+                    currentHouseholdID: appState.householdSession?.householdID
+                )
+        }
     }
 
     private var searchSection: some View {
@@ -96,7 +102,10 @@ struct BaseIngredientMergeSheet: View {
             selectedTargetID = ingredient.baseIngredientId
         } label: {
             HStack {
-                IngredientCatalogRow(ingredient: ingredient)
+                IngredientCatalogRow(
+                    ingredient: ingredient,
+                    currentHouseholdID: appState.householdSession?.householdID
+                )
                 Spacer()
                 if selectedTargetID == ingredient.baseIngredientId {
                     Image(systemName: "checkmark.circle.fill")

@@ -93,6 +93,46 @@ extension AppState {
         }
     }
 
+    func linkGroceryItemToIngredient(
+        itemID: String,
+        baseIngredientID: String,
+        canonicalName: String
+    ) async throws -> GroceryItem {
+        #if canImport(CloudKit)
+        guard let weekID = currentWeek?.weekId,
+              let groceryRepository,
+              groceryRepository.linkIngredient(
+                weekID: weekID,
+                itemID: itemID,
+                baseIngredientID: baseIngredientID,
+                canonicalName: canonicalName
+              ) != nil else {
+            throw NSError(
+                domain: "SimmerSmith.GroceryRepository",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Grocery item not found."]
+            )
+        }
+        weekRepository?.reload()
+        mirrorWeekFromRepository()
+        await syncGroceryToReminders()
+        guard let updated = currentWeek?.groceryItems.first(where: { $0.id == itemID }) else {
+            throw NSError(
+                domain: "SimmerSmith.GroceryRepository",
+                code: 500,
+                userInfo: [NSLocalizedDescriptionKey: "Linked grocery item could not be reloaded."]
+            )
+        }
+        return updated
+        #else
+        throw NSError(
+            domain: "SimmerSmith.GroceryRepository",
+            code: 501,
+            userInfo: [NSLocalizedDescriptionKey: "Ingredient linking requires CloudKit."]
+        )
+        #endif
+    }
+
     // MARK: - DATA: remove / restore
 
     /// Soft-remove a grocery item.

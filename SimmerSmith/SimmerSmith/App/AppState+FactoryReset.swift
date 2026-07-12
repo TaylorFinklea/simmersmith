@@ -300,6 +300,7 @@ extension AppState {
         await refreshRecipes()
 
         weekRepository?.reload()
+        ingredientRepository?.reload()
         guestRepository?.reload()
         eventRepository?.reload()
         pantryRepository?.reload()

@@ -45,15 +45,48 @@ private final class PublicCatalogStub: @unchecked Sendable {
 
     func query(recordType: String, predicate: NSPredicate) -> [CatalogRow] {
         let rows = rowsByType[recordType] ?? []
-        guard recordType == "BaseIngredient" else { return rows }
-        return rows.filter {
-            predicate.evaluate(with: ["normalizedName": $0.normalizedName])
+        if recordType == "BaseIngredient" {
+            return rows.filter {
+                predicate.evaluate(with: ["normalizedName": $0.normalizedName])
+            }
         }
+        if recordType == "IngredientVariation" {
+            return rows.filter { row in
+                guard let base = row.reference("baseIngredient") else { return false }
+                let reference = CKRecord.Reference(
+                    recordID: CKRecord.ID(recordName: base.recordName), action: .none
+                )
+                return predicate.evaluate(with: ["baseIngredient": reference])
+            }
+        }
+        return rows
     }
 
     func fetch(recordID: CKRecord.ID) throws -> CatalogRow {
         guard let row = rowsByID[recordID.recordName] else { throw StubError.missingRecord }
         return row
+    }
+}
+
+private actor PublicCatalogCallRecorder {
+    struct QueryCall: Equatable {
+        let recordType: String
+        let limit: Int
+    }
+
+    private(set) var queries: [QueryCall] = []
+    private(set) var fetchIDs: [String] = []
+
+    func recordQuery(recordType: String, limit: Int) {
+        queries.append(QueryCall(recordType: recordType, limit: limit))
+    }
+
+    func recordFetch(_ recordID: CKRecord.ID) {
+        fetchIDs.append(recordID.recordName)
+    }
+
+    func snapshot() -> (queries: [QueryCall], fetchIDs: [String]) {
+        (queries, fetchIDs)
     }
 }
 
@@ -138,9 +171,16 @@ func searchesAndBrowsesWithInjectedTransport() async {
         publicBaseRow(recordName: "onion", normalizedName: "onion"),
         publicBaseRow(recordName: "private", normalizedName: "olive salt", submissionStatus: "household_only"),
     ])
+    let recorder = PublicCatalogCallRecorder()
     let reader = PublicCatalogReader(
-        queryRows: { type, predicate in stub.query(recordType: type, predicate: predicate) },
-        fetchRow: { id in try stub.fetch(recordID: id) }
+        queryRows: { type, predicate, limit in
+            await recorder.recordQuery(recordType: type, limit: limit)
+            return Array(stub.query(recordType: type, predicate: predicate).prefix(limit))
+        },
+        fetchRow: { id in
+            await recorder.recordFetch(id)
+            return try stub.fetch(recordID: id)
+        }
     )
 
     let search = await reader.searchBaseIngredients(query: "olive", limit: 20)
@@ -148,10 +188,16 @@ func searchesAndBrowsesWithInjectedTransport() async {
 
     #expect(search.map(\.recordName) == ["olive"])
     #expect(browse.map(\.recordName) == ["olive"])
+    let calls = await recorder.snapshot()
+    #expect(calls.queries == [
+        .init(recordType: "BaseIngredient", limit: 40),
+        .init(recordType: "BaseIngredient", limit: 2),
+    ])
+    #expect(calls.fetchIDs.isEmpty)
 }
 
 @Test("PUBLIC reader resolves record IDs and lists only active variations")
-func resolvesIDsAndListsVariationsWithInjectedTransport() async {
+func resolvesIDsAndListsVariationsWithInjectedTransport() async throws {
     let stub = PublicCatalogStub(rows: [
         publicBaseRow(recordName: "base-olive", normalizedName: "olive oil"),
         publicVariationRow(
@@ -164,17 +210,73 @@ func resolvesIDsAndListsVariationsWithInjectedTransport() async {
             recordName: "variation-dead", normalizedName: "olive oil c", baseIngredientID: "base-olive", active: false
         ),
     ])
+    let recorder = PublicCatalogCallRecorder()
     let reader = PublicCatalogReader(
-        queryRows: { type, predicate in stub.query(recordType: type, predicate: predicate) },
-        fetchRow: { id in try stub.fetch(recordID: id) }
+        queryRows: { type, predicate, limit in
+            await recorder.recordQuery(recordType: type, limit: limit)
+            return Array(stub.query(recordType: type, predicate: predicate).prefix(limit))
+        },
+        fetchRow: { id in
+            await recorder.recordFetch(id)
+            return try stub.fetch(recordID: id)
+        }
     )
 
     let base = await reader.resolveBaseIngredient(recordName: "base-olive")
     let variation = await reader.resolveIngredientVariation(recordName: "variation-a")
+    let beforeVariations = await recorder.snapshot()
     let variations = await reader.fetchIngredientVariations(baseIngredientID: "base-olive", limit: 10)
+    let afterVariations = await recorder.snapshot()
+    let trustedVariations = await reader.fetchIngredientVariations(
+        approvedActiveBase: try #require(base), limit: 10
+    )
+    let afterTrustedVariations = await recorder.snapshot()
 
     #expect(base?.recordName == "base-olive")
     #expect(variation?.recordName == "variation-a")
     #expect(variations.map(\.recordName) == ["variation-a", "variation-b"])
+    #expect(afterVariations.fetchIDs == beforeVariations.fetchIDs + ["base-olive"])
+    #expect(afterVariations.queries.last == .init(recordType: "IngredientVariation", limit: 20))
+    #expect(trustedVariations.map(\.recordName) == ["variation-a", "variation-b"])
+    #expect(afterTrustedVariations.fetchIDs == afterVariations.fetchIDs)
+}
+
+@Test("PUBLIC variation lookup rejects inactive and unapproved parent IDs")
+func variationLookupGuardsParentVisibility() async {
+    let stub = PublicCatalogStub(rows: [
+        publicBaseRow(recordName: "inactive-base", normalizedName: "inactive", active: false),
+        publicBaseRow(
+            recordName: "private-base", normalizedName: "private",
+            submissionStatus: "household_only"
+        ),
+        publicVariationRow(
+            recordName: "inactive-variation", normalizedName: "inactive variation",
+            baseIngredientID: "inactive-base"
+        ),
+        publicVariationRow(
+            recordName: "private-variation", normalizedName: "private variation",
+            baseIngredientID: "private-base"
+        ),
+    ])
+    let recorder = PublicCatalogCallRecorder()
+    let reader = PublicCatalogReader(
+        queryRows: { type, predicate, limit in
+            await recorder.recordQuery(recordType: type, limit: limit)
+            return Array(stub.query(recordType: type, predicate: predicate).prefix(limit))
+        },
+        fetchRow: { id in
+            await recorder.recordFetch(id)
+            return try stub.fetch(recordID: id)
+        }
+    )
+
+    let inactive = await reader.fetchIngredientVariations(baseIngredientID: "inactive-base")
+    let unapproved = await reader.fetchIngredientVariations(baseIngredientID: "private-base")
+    let calls = await recorder.snapshot()
+
+    #expect(inactive.isEmpty)
+    #expect(unapproved.isEmpty)
+    #expect(calls.fetchIDs == ["inactive-base", "private-base"])
+    #expect(calls.queries.isEmpty)
 }
 #endif

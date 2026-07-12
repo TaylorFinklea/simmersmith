@@ -40,10 +40,26 @@ final class PreferenceRepository {
     /// derivation (bead simmersmith-b9z).
     private(set) var signals: [PreferenceSignal] = []
 
-    private let session: HouseholdSession
+    private enum StoreSource {
+        case session(HouseholdSession)
+        case fixed(PrivatePlaneStore?)
+    }
+
+    private let storeSource: StoreSource
+
+    private var store: PrivatePlaneStore? {
+        switch storeSource {
+        case .session(let session): session.privateStore
+        case .fixed(let store): store
+        }
+    }
 
     init(session: HouseholdSession) {
-        self.session = session
+        self.storeSource = .session(session)
+    }
+
+    init(store: PrivatePlaneStore?) {
+        self.storeSource = .fixed(store)
     }
 
     // MARK: - Read
@@ -52,7 +68,7 @@ final class PreferenceRepository {
     /// sorted by rank. A nil private store (pre-boot / iCloud unavailable) yields an empty
     /// list rather than throwing.
     func reload() {
-        guard let store = session.privateStore else {
+        guard let store else {
             preferences = []
             signals = []
             return
@@ -76,7 +92,7 @@ final class PreferenceRepository {
     /// hard-gate can match by name without a catalog round-trip.
     @discardableResult
     func upsert(_ preference: IngredientPreference) -> String? {
-        guard let store = session.privateStore else { return nil }
+        guard let store else { return nil }
         let preferenceID = preference.preferenceId.isEmpty ? UUID().uuidString : preference.preferenceId
         do {
             try store.upsertIngredientPreference(
@@ -100,7 +116,7 @@ final class PreferenceRepository {
 
     /// Delete an ingredient preference by id, persist, and refresh.
     func delete(_ preferenceID: String) {
-        guard let store = session.privateStore else { return }
+        guard let store else { return }
         do {
             if let row = try store.ingredientPreference(preferenceID: preferenceID) {
                 store.context.delete(row)
@@ -112,13 +128,32 @@ final class PreferenceRepository {
         }
     }
 
+    func repointAfterIngredientMerge(
+        sourceBaseIngredientID: String,
+        sourceBaseIngredientName: String,
+        targetBaseIngredientID: String,
+        targetBaseIngredientName: String,
+        variationIDMap: [String: String]
+    ) throws {
+        guard let store else { throw PreferenceRepositoryError.storeUnavailable }
+        try store.repointIngredientPreferences(
+            sourceBaseIngredientID: sourceBaseIngredientID,
+            sourceBaseIngredientName: sourceBaseIngredientName,
+            targetBaseIngredientID: targetBaseIngredientID,
+            targetBaseIngredientName: targetBaseIngredientName,
+            variationIDMap: variationIDMap
+        )
+        try store.save()
+        reload()
+    }
+
     // MARK: - Preference signal writes
 
     /// Upsert a preference signal (det-keyed on signalType + normalizedName), persist,
     /// and refresh `signals` so a subsequent read (a back-to-back recipe+cuisine write,
     /// or the next planning-context gather) sees the write immediately.
     func upsertSignal(signalType: String, name: String, normalizedName: String, score: Double, active: Bool) {
-        guard let store = session.privateStore else { return }
+        guard let store else { return }
         do {
             try store.upsertPreferenceSignal(
                 signalType: signalType,
@@ -180,5 +215,9 @@ final class PreferenceRepository {
             updatedAt: row.updatedAt
         )
     }
+}
+
+enum PreferenceRepositoryError: Error, Equatable {
+    case storeUnavailable
 }
 #endif

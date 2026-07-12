@@ -68,6 +68,7 @@ final class AppState {
     // SP-C slice 3: week + grocery CloudKit repos.
     @ObservationIgnored var weekRepository: WeekRepository?
     @ObservationIgnored var groceryRepository: GroceryRepository?
+    @ObservationIgnored var ingredientRepository: IngredientRepository?
     // SP-C slice 4: event + guest CloudKit repos.
     @ObservationIgnored var eventRepository: EventRepository?
     @ObservationIgnored var guestRepository: GuestRepository?
@@ -538,19 +539,16 @@ final class AppState {
             // refreshAssistantThreads() is called after ensureHouseholdSession() wires the
             // repository; the Fly fetchAssistantThreads() call is retired.
             await refreshAssistantThreads()
-            // SP-C slice 5: ingredient preferences come from PreferenceRepository (private
-            // plane) when the CloudKit session is active; fall back to Fly pre-session.
+            // Ingredient preferences are private-plane only in the CloudKit build.
             #if canImport(CloudKit)
             if let prefRepo = preferenceRepository {
                 prefRepo.reload()
                 ingredientPreferences = prefRepo.preferences
-            } else if let preferences = try? await apiClient.fetchIngredientPreferences() {
-                ingredientPreferences = preferences
+            } else {
+                ingredientPreferences = []
             }
             #else
-            if let preferences = try? await apiClient.fetchIngredientPreferences() {
-                ingredientPreferences = preferences
-            }
+            ingredientPreferences = []
             #endif
             await refreshAIModels(for: aiDirectProviderDraft)
 

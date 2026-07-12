@@ -144,6 +144,31 @@ final class GroceryRepository {
         finishWrite()
     }
 
+    @discardableResult
+    func linkIngredient(
+        weekID: String,
+        itemID: String,
+        baseIngredientID: String,
+        canonicalName: String
+    ) -> GroceryMerge.GroceryItem? {
+        guard !baseIngredientID.isEmpty,
+              var item = item(weekID: weekID, itemID: itemID) else { return nil }
+        guard item.weekID == weekID else { return nil }
+        let cleanedName = canonicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedName.isEmpty else { return nil }
+        clock = max(clock, item.modifiedAt)
+        item.baseIngredientID = baseIngredientID
+        item.ingredientVariationID = nil
+        item.resolutionStatus = "locked"
+        item.reviewFlag = ""
+        item.normalizedName = GroceryNormalize.name(cleanedName)
+        if !item.isUserAdded { item.ingredientName = cleanedName }
+        item.modifiedAt = nextClock()
+        saveItem(item)
+        finishWrite()
+        return item
+    }
+
     /// Soft-remove (tombstone) a row — `isUserRemoved=true`, monotonic. Regen never resurrects it.
     func removeItem(weekID: String, itemID: String) {
         guard var item = item(weekID: weekID, itemID: itemID) else { return }

@@ -3,6 +3,7 @@ import SimmerSmithKit
 
 struct IngredientVariationManagementSection: View {
     let variations: [IngredientVariation]
+    let canManage: Bool
     let onCreateVariation: () -> Void
     let onEditVariation: (IngredientVariation) -> Void
     let onArchiveVariation: (IngredientVariation) -> Void
@@ -16,14 +17,17 @@ struct IngredientVariationManagementSection: View {
                 ForEach(variations) { variation in
                     IngredientVariationRow(
                         variation: variation,
+                        canManage: canManage,
                         onEdit: { onEditVariation(variation) },
                         onArchive: { onArchiveVariation(variation) }
                     )
                 }
             }
 
-            Button(action: onCreateVariation) {
-                Label("Add Product Variation", systemImage: "plus.circle")
+            if canManage {
+                Button(action: onCreateVariation) {
+                    Label("Add Product Variation", systemImage: "plus.circle")
+                }
             }
         }
     }
@@ -31,33 +35,42 @@ struct IngredientVariationManagementSection: View {
 
 private struct IngredientVariationRow: View {
     let variation: IngredientVariation
+    let canManage: Bool
     let onEdit: () -> Void
     let onArchive: () -> Void
 
     var body: some View {
-        Button(action: onEdit) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(variation.brand.isEmpty ? variation.name : "\(variation.brand) • \(variation.name)")
-                    .foregroundStyle(.primary)
-                HStack(spacing: 8) {
-                    if let amount = variation.packageSizeAmount, !variation.packageSizeUnit.isEmpty {
-                        Text("\(amount.formatted(.number.precision(.fractionLength(0...2)))) \(variation.packageSizeUnit)")
-                    }
-                    if let count = variation.countPerPackage {
-                        Text("\(count.formatted(.number.precision(.fractionLength(0...2)))) per pack")
-                    }
-                    if !variation.upc.isEmpty {
-                        Text("UPC \(variation.upc)")
-                    }
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        if canManage {
+            Button(action: onEdit) {
+                rowContent
             }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button("Edit", action: onEdit)
+                Button("Archive", role: .destructive, action: onArchive)
+            }
+        } else {
+            rowContent
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("Edit", action: onEdit)
-            Button("Archive", role: .destructive, action: onArchive)
+    }
+
+    private var rowContent: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(variation.brand.isEmpty ? variation.name : "\(variation.brand) • \(variation.name)")
+                .foregroundStyle(.primary)
+            HStack(spacing: 8) {
+                if let amount = variation.packageSizeAmount, !variation.packageSizeUnit.isEmpty {
+                    Text("\(amount.formatted(.number.precision(.fractionLength(0...2)))) \(variation.packageSizeUnit)")
+                }
+                if let count = variation.countPerPackage {
+                    Text("\(count.formatted(.number.precision(.fractionLength(0...2)))) per pack")
+                }
+                if !variation.upc.isEmpty {
+                    Text("UPC \(variation.upc)")
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
         }
     }
 }

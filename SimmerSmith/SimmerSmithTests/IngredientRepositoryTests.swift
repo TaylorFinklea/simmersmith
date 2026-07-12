@@ -1,7 +1,10 @@
 import CloudKit
+import CloudKitProvisioning
 import GroceryMerge
 import HouseholdRecords
 import HouseholdSync
+import SimmerSmithKit
+import SwiftData
 import Testing
 
 @testable import SimmerSmith
@@ -9,6 +12,444 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct IngredientRepositoryTests {
+    @Test
+    func publicUsageProjectionCountsRawLinksButDedupesSamples() throws {
+        let session = HouseholdSession(householdID: "public-usage-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        seedDuplicateUsageRecords(baseIngredientID: "public-pepper", session: session)
+
+        let usage = repository.ingredientUsageSnapshot(baseIngredientID: "public-pepper")
+        #expect(usage.recipeRowCount == 2)
+        #expect(usage.groceryRowCount == 1)
+        #expect(usage.summary.linkedRecipeIds == ["recipe-usage"])
+        #expect(usage.summary.linkedRecipeNames == ["Pepper Pasta"])
+
+        let row = CatalogRow(
+            recordName: "public-pepper",
+            recordType: "BaseIngredient",
+            normalizedName: "pepper",
+            name: "Pepper"
+        )
+        let projected = try #require(IngredientRepository.publicBaseIngredient(
+            from: row,
+            recipeUsageCount: usage.recipeRowCount,
+            groceryUsageCount: usage.groceryRowCount
+        ))
+        let search = IngredientRepository.composeSearchResults(
+            household: [], publicCatalog: [projected], preferences: [], query: "pepper", limit: 1,
+            provisionalOnly: false, withPreferences: false, withVariations: false,
+            includeProductLike: false
+        )
+        #expect(search.first?.recipeUsageCount == 2)
+        #expect(search.first?.groceryUsageCount == 1)
+    }
+
+    @Test
+    func ownershipPolicyOnlyAllowsCurrentHouseholdIngredientMutations() {
+        let currentHousehold = BaseIngredient(
+            baseIngredientId: "mine",
+            name: "Mine",
+            normalizedName: "mine",
+            householdId: "household-1",
+            submissionStatus: "household_only",
+            updatedAt: .distantPast
+        )
+        let publicIngredient = BaseIngredient(
+            baseIngredientId: "public",
+            name: "Public",
+            normalizedName: "public",
+            householdId: nil,
+            submissionStatus: "approved",
+            updatedAt: .distantPast
+        )
+        let foreignHousehold = BaseIngredient(
+            baseIngredientId: "foreign",
+            name: "Foreign",
+            normalizedName: "foreign",
+            householdId: "household-2",
+            submissionStatus: "household_only",
+            updatedAt: .distantPast
+        )
+
+        #expect(IngredientOwnershipPolicy.canManage(currentHousehold, currentHouseholdID: "household-1"))
+        #expect(!IngredientOwnershipPolicy.canManage(publicIngredient, currentHouseholdID: "household-1"))
+        #expect(!IngredientOwnershipPolicy.canManage(foreignHousehold, currentHouseholdID: "household-1"))
+        #expect(!IngredientOwnershipPolicy.canManage(currentHousehold, currentHouseholdID: nil))
+    }
+
+    @Test
+    func publicCatalogProjectionAndUnionPreserveOwnershipFiltersAndDeterministicOrder() throws {
+        let publicPepper = CatalogRow(
+            recordName: "public-pepper",
+            recordType: "BaseIngredient",
+            normalizedName: "pepper",
+            name: "Pepper",
+            strings: [
+                "category": "Produce",
+                "defaultUnit": "each",
+                "submissionStatus": "approved",
+            ],
+            numbers: ["active": 1],
+            dates: ["updatedAt": Date(timeIntervalSince1970: 10)]
+        )
+        let projected = try #require(IngredientRepository.publicBaseIngredient(from: publicPepper))
+        #expect(projected.id == "public-pepper")
+        #expect(projected.householdId == nil)
+        #expect(projected.submissionStatus == "approved")
+
+        let householdCollision = BaseIngredient(
+            baseIngredientId: "public-pepper",
+            name: "Household Pepper",
+            normalizedName: "pepper",
+            householdId: "household-1",
+            submissionStatus: "household_only",
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let publicSalt = BaseIngredient(
+            baseIngredientId: "public-salt",
+            name: "Salt",
+            normalizedName: "salt",
+            variationCount: 1,
+            preferenceCount: 1,
+            updatedAt: Date(timeIntervalSince1970: 5)
+        )
+        let preference = try makePreference(
+            id: "pref-salt",
+            baseID: publicSalt.id,
+            baseName: publicSalt.name,
+            rank: 1
+        )
+
+        let results = IngredientRepository.composeSearchResults(
+            household: [householdCollision],
+            publicCatalog: [projected, publicSalt],
+            preferences: [preference],
+            query: "",
+            limit: 10,
+            provisionalOnly: false,
+            withPreferences: false,
+            withVariations: false,
+            includeProductLike: false
+        )
+        #expect(results.map(\.id) == ["public-salt", "public-pepper"])
+        #expect(results.last?.name == "Household Pepper")
+        #expect(results.last?.householdId == "household-1")
+
+        let preferredWithVariations = IngredientRepository.composeSearchResults(
+            household: [householdCollision],
+            publicCatalog: [projected, publicSalt],
+            preferences: [preference],
+            query: "",
+            limit: 10,
+            provisionalOnly: false,
+            withPreferences: true,
+            withVariations: true,
+            includeProductLike: false
+        )
+        #expect(preferredWithVariations.map(\.id) == [publicSalt.id])
+    }
+
+    @Test
+    func groceryLinkLocksCanonicalIdentityAndPreservesStickyFields() throws {
+        let session = HouseholdSession(householdID: "ingredient-grocery-link-\(UUID().uuidString)")
+        let repository = GroceryRepository(session: session)
+        let original = GroceryMerge.GroceryItem(
+            recordName: "grocery-link",
+            weekID: "week-1",
+            baseIngredientID: "old-base",
+            ingredientVariationID: "old-variation",
+            resolutionStatus: "resolved",
+            unit: "lb",
+            quantityText: "two",
+            normalizedName: "old peppers",
+            ingredientName: "Old Peppers",
+            category: "Produce",
+            totalQuantity: 2,
+            notes: "keep notes",
+            sourceMeals: "Dinner",
+            reviewFlag: "review",
+            storeLabel: "Aldi",
+            isUserAdded: false,
+            isUserRemoved: true,
+            quantityOverride: 3,
+            unitOverride: "bag",
+            notesOverride: "keep override",
+            check: CheckState(isChecked: true, at: 44, by: "person"),
+            eventQuantity: 1,
+            createdAt: 10,
+            modifiedAt: 20
+        )
+        session.engine.save(GroceryCodec.makeRecord(original, zoneID: session.zoneID))
+
+        let linked = try #require(repository.linkIngredient(
+            weekID: "week-1",
+            itemID: original.recordName,
+            baseIngredientID: "canonical-base",
+            canonicalName: "Bell Peppers"
+        ))
+
+        #expect(linked.baseIngredientID == "canonical-base")
+        #expect(linked.ingredientVariationID == nil)
+        #expect(linked.resolutionStatus == "locked")
+        #expect(linked.reviewFlag.isEmpty)
+        #expect(linked.normalizedName == "bell peppers")
+        #expect(linked.ingredientName == "Bell Peppers")
+        #expect(linked.modifiedAt > original.modifiedAt)
+        #expect(linked.totalQuantity == original.totalQuantity)
+        #expect(linked.unit == original.unit)
+        #expect(linked.quantityText == original.quantityText)
+        #expect(linked.category == original.category)
+        #expect(linked.notes == original.notes)
+        #expect(linked.sourceMeals == original.sourceMeals)
+        #expect(linked.storeLabel == original.storeLabel)
+        #expect(linked.quantityOverride == original.quantityOverride)
+        #expect(linked.unitOverride == original.unitOverride)
+        #expect(linked.notesOverride == original.notesOverride)
+        #expect(linked.check == original.check)
+        #expect(linked.isUserRemoved == original.isUserRemoved)
+        #expect(linked.eventQuantity == original.eventQuantity)
+        #expect(linked.createdAt == original.createdAt)
+
+        var userAdded = original
+        userAdded = GroceryMerge.GroceryItem(
+            recordName: "grocery-user-link",
+            weekID: userAdded.weekID,
+            ingredientName: "My special peppers",
+            isUserAdded: true,
+            modifiedAt: 30
+        )
+        session.engine.save(GroceryCodec.makeRecord(userAdded, zoneID: session.zoneID))
+        let linkedUser = try #require(repository.linkIngredient(
+            weekID: "week-1",
+            itemID: userAdded.recordName,
+            baseIngredientID: "canonical-base",
+            canonicalName: "Bell Peppers"
+        ))
+        #expect(linkedUser.ingredientName == "My special peppers")
+        #expect(linkedUser.normalizedName == "bell peppers")
+
+        let wrongWeek = GroceryMerge.GroceryItem(
+            recordName: "grocery-wrong-week",
+            weekID: "week-2",
+            baseIngredientID: "old-base",
+            ingredientName: "Wrong Week",
+            modifiedAt: 50
+        )
+        session.engine.save(GroceryCodec.makeRecord(wrongWeek, zoneID: session.zoneID))
+        #expect(repository.linkIngredient(
+            weekID: "week-1",
+            itemID: wrongWeek.recordName,
+            baseIngredientID: "canonical-base",
+            canonicalName: "Bell Peppers"
+        ) == nil)
+        let unchanged = try #require(storedRecord(wrongWeek.recordName, session: session))
+        #expect(unchanged["baseIngredientID"] as? String == "old-base")
+    }
+
+    @Test
+    func privatePreferenceRepointPreservesTargetCollisionAndRewritesVariationIDs() throws {
+        let container = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+        let store = PrivatePlaneStore(context: container.mainContext)
+        try store.upsertIngredientPreference(
+            preferenceID: "target-rank-1",
+            baseIngredientID: "target-base",
+            baseIngredientName: "Target Beans",
+            choiceMode: "preferred",
+            rank: 1,
+            active: true,
+            brand: "",
+            variation: "",
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "source-rank-1-z",
+            baseIngredientID: "source-base",
+            baseIngredientName: "Legacy Beans",
+            choiceMode: "preferred",
+            rank: 1,
+            active: true,
+            brand: "Zed",
+            variation: "source-variation-z",
+            updatedAt: Date(timeIntervalSince1970: 21)
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "source-rank-1",
+            baseIngredientID: "source-base",
+            baseIngredientName: "Legacy Beans",
+            choiceMode: "preferred",
+            rank: 1,
+            active: true,
+            brand: "Acme",
+            variation: "source-variation",
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "target-rank-3",
+            baseIngredientID: "target-base",
+            baseIngredientName: "Target Beans",
+            choiceMode: "preferred",
+            rank: 3,
+            active: true,
+            brand: "Keep Brand",
+            variation: "target-stale-variation",
+            updatedAt: Date(timeIntervalSince1970: 35)
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "source-rank-2",
+            baseIngredientID: "source-base",
+            baseIngredientName: "Legacy Beans",
+            choiceMode: "preferred",
+            rank: 2,
+            active: true,
+            brand: "Backup",
+            variation: "source-variation-2",
+            updatedAt: Date(timeIntervalSince1970: 30)
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "source-rank-3",
+            baseIngredientID: "source-base",
+            baseIngredientName: "Legacy Beans",
+            choiceMode: "preferred",
+            rank: 3,
+            active: true,
+            brand: "Do Not Replace",
+            variation: "source-variation-3",
+            updatedAt: Date(timeIntervalSince1970: 36)
+        )
+
+        try store.repointIngredientPreferences(
+            sourceBaseIngredientID: "source-base",
+            sourceBaseIngredientName: "Legacy Beans",
+            targetBaseIngredientID: "target-base",
+            targetBaseIngredientName: "Target Beans",
+            variationIDMap: [
+                "source-variation": "target-variation",
+                "source-variation-2": "target-variation-2",
+                "source-variation-z": "target-variation-z",
+                "source-variation-3": "target-variation-3",
+                "target-stale-variation": "target-fresh-variation",
+            ],
+            updatedAt: Date(timeIntervalSince1970: 40)
+        )
+        try store.save()
+
+        let rows = try store.allIngredientPreferences().sorted { $0.rank < $1.rank }
+        #expect(rows.map(\.recordKey) == ["target-rank-1", "source-rank-2", "target-rank-3"])
+        #expect(rows.allSatisfy { $0.baseIngredientID == "target-base" })
+        #expect(rows.allSatisfy { $0.baseIngredientName == "Target Beans" })
+        #expect(rows[0].brand == "Acme")
+        #expect(rows[0].variation == "target-variation")
+        #expect(rows[1].brand == "Backup")
+        #expect(rows[1].variation == "target-variation-2")
+        #expect(rows[2].brand == "Keep Brand")
+        #expect(rows[2].variation == "target-fresh-variation")
+    }
+
+    @Test
+    func appStateMergePreflightsPrivateStoreAndRepointsBeforeHouseholdMutation() async throws {
+        let appState = try makeAppState()
+        let session = HouseholdSession(householdID: "app-merge-\(UUID().uuidString)")
+        let ingredients = IngredientRepository(session: session)
+        let source = try ingredients.createBaseIngredient(name: "Legacy Beans")
+        let target = try ingredients.createBaseIngredient(name: "Beans")
+        let sourceVariation = try ingredients.createIngredientVariation(
+            baseIngredientID: source.id, name: "Canned Beans"
+        )
+        let targetVariation = try ingredients.createIngredientVariation(
+            baseIngredientID: target.id, name: "Canned Beans"
+        )
+        appState.ingredientRepository = ingredients
+
+        appState.preferenceRepository = PreferenceRepository(store: nil)
+        await #expect(throws: PreferenceRepositoryError.storeUnavailable) {
+            _ = try await appState.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+        }
+        #expect(try ingredients.fetchBaseIngredientDetail(baseIngredientID: source.id).ingredient.active)
+
+        let privateContainer = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+        let privateStore = PrivatePlaneStore(context: privateContainer.mainContext)
+        try privateStore.upsertIngredientPreference(
+            preferenceID: "source-pref",
+            baseIngredientID: source.id,
+            baseIngredientName: source.name,
+            choiceMode: "preferred",
+            rank: 1,
+            active: true,
+            brand: "Acme",
+            variation: sourceVariation.id
+        )
+        try privateStore.save()
+        let preferences = PreferenceRepository(store: privateStore)
+        preferences.reload()
+        appState.preferenceRepository = preferences
+
+        let merged = try await appState.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+        #expect(merged.id == target.id)
+        let repaired = try #require(try privateStore.ingredientPreference(preferenceID: "source-pref"))
+        #expect(repaired.baseIngredientID == target.id)
+        #expect(repaired.baseIngredientName == target.name)
+        #expect(repaired.variation == targetVariation.id)
+        let archivedSource = try ingredients.fetchBaseIngredientDetail(baseIngredientID: source.id).ingredient
+        #expect(!archivedSource.active)
+    }
+
+    @Test
+    func detailSurfacesInactiveLowestRankPreferenceForEditing() async throws {
+        let appState = try makeAppState()
+        let session = HouseholdSession(householdID: "inactive-pref-\(UUID().uuidString)")
+        let ingredients = IngredientRepository(session: session)
+        let base = try ingredients.createBaseIngredient(name: "Peanuts")
+        appState.ingredientRepository = ingredients
+
+        let privateContainer = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+        let store = PrivatePlaneStore(context: privateContainer.mainContext)
+        try store.upsertIngredientPreference(
+            preferenceID: "inactive-primary",
+            baseIngredientID: base.id,
+            baseIngredientName: base.name,
+            choiceMode: "preferred",
+            rank: 1,
+            active: false,
+            brand: "Old Brand",
+            variation: ""
+        )
+        try store.upsertIngredientPreference(
+            preferenceID: "active-secondary",
+            baseIngredientID: base.id,
+            baseIngredientName: base.name,
+            choiceMode: "preferred",
+            rank: 2,
+            active: true,
+            brand: "Current Brand",
+            variation: ""
+        )
+        try store.save()
+        let preferences = PreferenceRepository(store: store)
+        preferences.reload()
+        appState.preferenceRepository = preferences
+
+        let detail = try await appState.fetchBaseIngredientDetail(baseIngredientID: base.id)
+        #expect(detail.preference?.id == "inactive-primary")
+        #expect(detail.ingredient.preferenceCount == 1)
+    }
+
+    @Test
+    func householdSearchMatchesVariationNameBrandAndUPC() throws {
+        let session = HouseholdSession(householdID: "ingredient-search-\(UUID().uuidString)")
+        let repository = IngredientRepository(session: session)
+        let base = try repository.createBaseIngredient(name: "Tomatoes")
+        _ = try repository.createIngredientVariation(
+            baseIngredientID: base.id,
+            name: "Fire Roasted",
+            brand: "Muir Glen",
+            upc: "7253422839"
+        )
+
+        #expect(repository.searchBaseIngredients(query: "fire roasted").map(\.id) == [base.id])
+        #expect(repository.searchBaseIngredients(query: "MUIR").map(\.id) == [base.id])
+        #expect(repository.searchBaseIngredients(query: "725342").map(\.id) == [base.id])
+    }
+
     @Test
     func baseIngredientCreateListDetailUpdateArchiveUsesTheHouseholdStore() throws {
         let session = HouseholdSession(householdID: "ingredient-base-\(UUID().uuidString)")
@@ -307,7 +748,7 @@ struct IngredientRepositoryTests {
             session: session
         )
 
-        _ = try repository.mergeBaseIngredient(sourceID: source.id, targetID: target.id)
+        let merge = try repository.mergeBaseIngredientWithVariationMap(sourceID: source.id, targetID: target.id)
 
         for recordName in ["duplicate-recipe", "duplicate-event", "duplicate-grocery", "duplicate-event-grocery"] {
             let record = try #require(storedRecord(recordName, session: session))
@@ -319,6 +760,7 @@ struct IngredientRepositoryTests {
         #expect((sourceVariationRecord["active"] as? Int) == 0)
         #expect(sourceVariationRecord["archivedAt"] as? Date != nil)
         #expect(sourceVariationRecord["mergedIntoID"] as? String == "target-variation-a")
+        #expect(merge.variationIDMap[sourceVariation.id] == "target-variation-a")
         let parent = try #require(sourceVariationRecord["baseIngredient"] as? CKRecord.Reference)
         #expect(parent.recordID.recordName == target.id)
         #expect(parent.action == .deleteSelf)
@@ -601,6 +1043,77 @@ struct IngredientRepositoryTests {
         session.engine.save(HouseholdRecordCodec.encode(eventIngredient, zoneID: session.zoneID))
         session.engine.save(GroceryCodec.makeRecord(grocery, zoneID: session.zoneID))
         session.engine.save(EventGroceryCodec.makeRecord(eventGrocery, zoneID: session.zoneID))
+    }
+
+    private func makePreference(
+        id: String,
+        baseID: String,
+        baseName: String,
+        rank: Int
+    ) throws -> IngredientPreference {
+        let object: [String: Any] = [
+            "preferenceId": id,
+            "baseIngredientId": baseID,
+            "baseIngredientName": baseName,
+            "preferredBrand": "",
+            "choiceMode": "preferred",
+            "active": true,
+            "notes": "",
+            "rank": rank,
+            "updatedAt": ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: 1)),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(IngredientPreference.self, from: data)
+    }
+
+    private func makeAppState() throws -> AppState {
+        let container = try makeSimmerSmithModelContainer(inMemory: true)
+        let suite = "IngredientRepositoryTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        return AppState(
+            modelContainer: container,
+            settingsStore: ConnectionSettingsStore(
+                defaults: defaults,
+                keychain: KeychainStore(service: suite)
+            )
+        )
+    }
+
+    private func seedDuplicateUsageRecords(baseIngredientID: String, session: HouseholdSession) {
+        let recipe = HouseholdRecordValue(
+            type: .recipe,
+            recordName: "recipe-usage",
+            scalars: [
+                "name": .string("Pepper Pasta"),
+                "createdAt": .date(.distantPast),
+                "updatedAt": .date(.distantPast),
+            ],
+            refs: [:]
+        )
+        session.engine.save(HouseholdRecordCodec.encode(recipe, zoneID: session.zoneID))
+        for index in 1...2 {
+            let ingredient = HouseholdRecordValue(
+                type: .recipeIngredient,
+                recordName: "recipe-usage-ingredient-\(index)",
+                scalars: [
+                    "ingredientName": .string("Peppers"),
+                    "normalizedName": .string("peppers"),
+                    "createdAt": .date(.distantPast),
+                    "updatedAt": .date(.distantPast),
+                ],
+                refs: ["recipe": recipe.recordName, "baseIngredientID": baseIngredientID]
+            )
+            session.engine.save(HouseholdRecordCodec.encode(ingredient, zoneID: session.zoneID))
+        }
+        let grocery = GroceryMerge.GroceryItem(
+            recordName: "grocery-usage",
+            weekID: "week-usage",
+            baseIngredientID: baseIngredientID,
+            ingredientName: "Peppers"
+        )
+        session.engine.save(GroceryCodec.makeRecord(grocery, zoneID: session.zoneID))
     }
 
     private func storedRecord(_ recordName: String, session: HouseholdSession) -> CKRecord? {

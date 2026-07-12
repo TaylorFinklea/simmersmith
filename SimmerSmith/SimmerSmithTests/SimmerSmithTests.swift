@@ -60,6 +60,99 @@ struct SimmerSmithTests {
     }
 }
 
+@Suite
+struct RecipeEditorIngredientPolicyTests {
+    @Test
+    func autocompleteSelectionStoresCompleteBaseIdentityAndClearsVariation() {
+        let ingredient = RecipeIngredient(
+            ingredientId: "ingredient-1",
+            ingredientName: "pep",
+            normalizedName: "old pepper",
+            baseIngredientId: "old-base",
+            baseIngredientName: "Old Pepper",
+            ingredientVariationId: "old-variation",
+            ingredientVariationName: "Old Brand",
+            resolutionStatus: "locked",
+            quantity: 2,
+            unit: "cup"
+        )
+        let base = BaseIngredient(
+            baseIngredientId: "base-pepper",
+            name: "Bell Pepper",
+            normalizedName: "bell pepper",
+            updatedAt: .distantPast
+        )
+
+        let selected = RecipeEditorIngredientPolicy.selecting(base, for: ingredient)
+
+        #expect(selected.ingredientId == "ingredient-1")
+        #expect(selected.ingredientName == "Bell Pepper")
+        #expect(selected.normalizedName == "bell pepper")
+        #expect(selected.baseIngredientId == "base-pepper")
+        #expect(selected.baseIngredientName == "Bell Pepper")
+        #expect(selected.ingredientVariationId == nil)
+        #expect(selected.ingredientVariationName == nil)
+        #expect(selected.resolutionStatus == "resolved")
+        #expect(selected.quantity == 2)
+        #expect(selected.unit == "cup")
+    }
+
+    @Test
+    func manualNameChangeInvalidatesCanonicalMapping() {
+        let selected = RecipeIngredient(
+            ingredientId: "ingredient-1",
+            ingredientName: "Bell Pepper",
+            normalizedName: "bell pepper",
+            baseIngredientId: "base-pepper",
+            baseIngredientName: "Bell Pepper",
+            ingredientVariationId: "variation-pepper",
+            ingredientVariationName: "Market Pepper",
+            resolutionStatus: "locked"
+        )
+
+        let renamed = RecipeEditorIngredientPolicy.updatingName(selected, to: "Red Pepper")
+
+        #expect(renamed.ingredientId == "ingredient-1")
+        #expect(renamed.ingredientName == "Red Pepper")
+        #expect(renamed.normalizedName == nil)
+        #expect(renamed.baseIngredientId == nil)
+        #expect(renamed.baseIngredientName == nil)
+        #expect(renamed.ingredientVariationId == nil)
+        #expect(renamed.ingredientVariationName == nil)
+        #expect(renamed.resolutionStatus == "unresolved")
+    }
+
+    @Test
+    func draftSeedsOnlyMissingIngredientIDsAndReplacementPreservesIdentity() {
+        let draft = RecipeDraft(
+            name: "Peppers",
+            ingredients: [
+                RecipeIngredient(ingredientName: "Red Pepper"),
+                RecipeIngredient(ingredientId: "existing-id", ingredientName: "Salt"),
+                RecipeIngredient(ingredientName: "Oil"),
+            ]
+        )
+        var generatedIDs = ["generated-1", "generated-2"]
+
+        let seeded = RecipeEditorIngredientPolicy.seedingMissingIngredientIDs(in: draft) {
+            generatedIDs.removeFirst()
+        }
+        let replacement = RecipeIngredient(
+            ingredientId: "replacement-id",
+            ingredientName: "Sweet Pepper"
+        )
+        let replaced = RecipeEditorIngredientPolicy.preservingIdentity(
+            of: seeded.ingredients[0],
+            whenReplacingWith: replacement
+        )
+
+        #expect(seeded.ingredients.map(\.ingredientId) == ["generated-1", "existing-id", "generated-2"])
+        #expect(seeded.ingredients.map(\.ingredientName) == ["Red Pepper", "Salt", "Oil"])
+        #expect(replaced.ingredientId == "generated-1")
+        #expect(replaced.ingredientName == "Sweet Pepper")
+    }
+}
+
 #if canImport(CloudKit)
 /// Bead simmersmith-990.4.2 — AppState.memoryDTOs maps repository RecipeMemoryEntry
 /// values (oldest→newest) onto the RecipeMemory DTO contract the memories UI expects

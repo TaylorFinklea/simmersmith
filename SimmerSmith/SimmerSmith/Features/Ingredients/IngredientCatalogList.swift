@@ -1,10 +1,21 @@
 import SwiftUI
 import SimmerSmithKit
 
+enum IngredientOwnershipPolicy {
+    static func canManage(
+        _ ingredient: BaseIngredient,
+        currentHouseholdID: String?
+    ) -> Bool {
+        guard let currentHouseholdID, !currentHouseholdID.isEmpty else { return false }
+        return ingredient.householdId == currentHouseholdID
+    }
+}
+
 struct IngredientCatalogList: View {
     let isLoading: Bool
     let ingredients: [BaseIngredient]
     let emptyStateMessage: String
+    let currentHouseholdID: String?
 
     var body: some View {
         Section {
@@ -26,7 +37,10 @@ struct IngredientCatalogList: View {
                     NavigationLink {
                         IngredientDetailView(baseIngredientID: ingredient.baseIngredientId)
                     } label: {
-                        IngredientCatalogRow(ingredient: ingredient)
+                        IngredientCatalogRow(
+                            ingredient: ingredient,
+                            currentHouseholdID: currentHouseholdID
+                        )
                     }
                 }
             }
@@ -42,6 +56,7 @@ struct IngredientCatalogList: View {
 
 struct IngredientCatalogRow: View {
     let ingredient: BaseIngredient
+    let currentHouseholdID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -50,26 +65,18 @@ struct IngredientCatalogRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                 Spacer()
-                // M25 lifecycle chips. Approved (default) gets no
-                // chip — it's the implicit baseline. Mine /
-                // Submitted / Rejected come from submission_status;
-                // Review and Product-like are pre-M25 markers that
-                // still apply.
-                switch ingredient.submissionStatus {
-                case "household_only":
+                if IngredientOwnershipPolicy.canManage(
+                    ingredient,
+                    currentHouseholdID: currentHouseholdID
+                ) {
                     IngredientBadge(title: "Mine", tint: .purple)
-                case "submitted":
-                    IngredientBadge(title: "Submitted", tint: .blue)
-                case "rejected":
-                    IngredientBadge(title: "Rejected", tint: .red)
-                default:
-                    if ingredient.provisional {
-                        IngredientBadge(title: "Review", tint: .orange)
-                    } else if ingredient.productLike {
-                        IngredientBadge(title: "Product-like", tint: .blue)
-                    } else if !ingredient.active {
-                        IngredientBadge(title: "Archived", tint: .secondary)
-                    }
+                }
+                if !ingredient.active {
+                    IngredientBadge(title: "Archived", tint: .secondary)
+                } else if ingredient.provisional {
+                    IngredientBadge(title: "Review", tint: .orange)
+                } else if ingredient.productLike {
+                    IngredientBadge(title: "Product-like", tint: .blue)
                 }
             }
 

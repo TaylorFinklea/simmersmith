@@ -20,6 +20,11 @@ public struct CatalogReference: Sendable, Equatable {
         recordName = reference.recordID.recordName
         zoneName = reference.recordID.zoneID.zoneName
     }
+
+    public init(recordName: String, zoneName: String = CKRecordZone.ID.defaultZoneName) {
+        self.recordName = recordName
+        self.zoneName = zoneName
+    }
 }
 
 /// A catalog row projected from a PUBLIC CKRecord. Sendable (carries no CKRecordValue) so it crosses
@@ -51,6 +56,27 @@ public struct CatalogRow: Sendable, Equatable {
             else if let v = record[key] as? Int { n[key] = Double(v) }
         }
         strings = s; numbers = n; dates = d; references = r
+    }
+
+
+    public init(
+        recordName: String,
+        recordType: String,
+        normalizedName: String,
+        name: String,
+        strings: [String: String] = [:],
+        numbers: [String: Double] = [:],
+        dates: [String: Date] = [:],
+        references: [String: CatalogReference] = [:]
+    ) {
+        self.recordName = recordName
+        self.recordType = recordType
+        self.normalizedName = normalizedName
+        self.name = name
+        self.strings = strings
+        self.numbers = numbers
+        self.dates = dates
+        self.references = references
     }
     public func string(_ key: String) -> String? { strings[key] }
     public func number(_ key: String) -> Double? { numbers[key] }
@@ -150,7 +176,7 @@ private actor CatalogCache {
 }
 
 public struct PublicCatalogReader: Sendable {
-    typealias QueryRows = @Sendable (String, NSPredicate) async -> [CatalogRow]
+    typealias QueryRows = @Sendable (String, NSPredicate, Int) async -> [CatalogRow]
     typealias FetchRow = @Sendable (CKRecord.ID) async throws -> CatalogRow
 
     private let queryRows: QueryRows
@@ -158,8 +184,8 @@ public struct PublicCatalogReader: Sendable {
     private let cache = CatalogCache()
 
     public init(database: CKDatabase) {
-        queryRows = { recordType, predicate in
-            await Self.query(database: database, recordType: recordType, predicate: predicate)
+        queryRows = { recordType, predicate, limit in
+            await Self.query(database: database, recordType: recordType, predicate: predicate, limit: limit)
         }
         fetchRow = { recordID in
             CatalogRow(try await database.record(for: recordID))
@@ -186,7 +212,11 @@ public struct PublicCatalogReader: Sendable {
         let chunk = 50
         for start in stride(from: 0, to: unique.count, by: chunk) {
             let slice = Array(unique[start..<min(start + chunk, unique.count)])
-            let rows = await queryRows(Self.baseType, NSPredicate(format: "normalizedName IN %@", slice))
+            let rows = await queryRows(
+                Self.baseType,
+                NSPredicate(format: "normalizedName IN %@", slice),
+                Self.boundedOverscan(limit: slice.count, multiplier: 2)
+            )
                 .filter(Self.isApprovedActive)
             await cache.insert(rows)
         }
@@ -201,7 +231,14 @@ public struct PublicCatalogReader: Sendable {
     /// catalog through the same indexed field, avoiding an unindexed full-table PUBLIC query.
     public func searchBaseIngredients(query: String = "", limit: Int = 20) async -> [CatalogRow] {
         guard limit > 0 else { return [] }
-        let rows = await queryRows(Self.baseType, Self.baseSearchPredicate(query: query))
+        // PUBLIC can return inactive/unapproved rows because those fields are not indexed.
+        // Fetch at most 2x the requested page (capped at 200) so client filtering has room
+        // without draining a large catalog for a 6/20-row picker.
+        let rows = await queryRows(
+            Self.baseType,
+            Self.baseSearchPredicate(query: query),
+            Self.boundedOverscan(limit: limit, multiplier: 2)
+        )
         return Self.approvedActiveBaseRows(rows, limit: limit)
     }
 
@@ -229,12 +266,27 @@ public struct PublicCatalogReader: Sendable {
     /// Find active variations whose baseIngredient reference points to the supplied PUBLIC row.
     public func fetchIngredientVariations(baseIngredientID: String, limit: Int = 100) async -> [CatalogRow] {
         guard !baseIngredientID.isEmpty, limit > 0 else { return [] }
-        guard await resolveBaseIngredient(recordName: baseIngredientID) != nil else { return [] }
-        let baseID = CKRecord.ID(recordName: baseIngredientID)
+        guard let base = await resolveBaseIngredient(recordName: baseIngredientID) else { return [] }
+        return await fetchIngredientVariations(approvedActiveBase: base, limit: limit)
+    }
+
+    /// Variation fan-out for a BaseIngredient row already returned by an approved+active reader
+    /// path (`searchBaseIngredients` / `resolveBaseIngredient`). The defensive gate prevents a
+    /// hand-built hidden row from bypassing visibility, while avoiding a redundant record fetch.
+    public func fetchIngredientVariations(
+        approvedActiveBase base: CatalogRow,
+        limit: Int = 100
+    ) async -> [CatalogRow] {
+        guard base.recordType == Self.baseType,
+              Self.isApprovedActive(base),
+              !base.recordName.isEmpty,
+              limit > 0 else { return [] }
+        let baseID = CKRecord.ID(recordName: base.recordName)
         let baseReference = CKRecord.Reference(recordID: baseID, action: .none)
         let rows = await queryRows(
             Self.variationType,
-            NSPredicate(format: "baseIngredient == %@", baseReference)
+            NSPredicate(format: "baseIngredient == %@", baseReference),
+            Self.boundedOverscan(limit: limit, multiplier: 2)
         )
         .filter(Self.isActive)
         .sorted(by: Self.catalogOrder)
@@ -261,7 +313,11 @@ public struct PublicCatalogReader: Sendable {
                          filter: @Sendable (CatalogRow) -> Bool) async -> CatalogRow? {
         guard !normalizedName.isEmpty else { return nil }
         if let cached = await cache.row(type: type, name: normalizedName) { return cached }
-        let rows = await queryRows(type, NSPredicate(format: "normalizedName == %@", normalizedName)).filter(filter)
+        let rows = await queryRows(
+            type,
+            NSPredicate(format: "normalizedName == %@", normalizedName),
+            10
+        ).filter(filter)
         await cache.insert(rows)
         return await cache.row(type: type, name: normalizedName)
     }
@@ -285,6 +341,11 @@ public struct PublicCatalogReader: Sendable {
         return lhs.recordName < rhs.recordName
     }
 
+    private static func boundedOverscan(limit: Int, multiplier: Int) -> Int {
+        let boundedLimit = min(max(limit, 1), 200)
+        return min(boundedLimit * multiplier, 200)
+    }
+
     static func baseSearchPredicate(query: String) -> NSPredicate {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalizedQuery.isEmpty {
@@ -302,7 +363,7 @@ public struct PublicCatalogReader: Sendable {
     /// is never cached, so a transient error doesn't poison the session).
     public func recipeTemplates() async -> [CatalogRow] {
         if let cached = await cache.cachedTemplates() { return cached }
-        let rows = await queryRows(Self.templateType, NSPredicate(format: "builtIn == 1"))
+        let rows = await queryRows(Self.templateType, NSPredicate(format: "builtIn == 1"), 200)
         if !rows.isEmpty { await cache.setTemplates(rows) }
         return rows
     }
@@ -319,22 +380,33 @@ public struct PublicCatalogReader: Sendable {
     private static func query(
         database: CKDatabase,
         recordType: String,
-        predicate: NSPredicate
+        predicate: NSPredicate,
+        limit: Int
     ) async -> [CatalogRow] {
+        guard limit > 0 else { return [] }
         var out: [CatalogRow] = []
         do {
-            var page = try await database.records(matching: CKQuery(recordType: recordType, predicate: predicate))
-            while true {
+            var page = try await database.records(
+                matching: CKQuery(recordType: recordType, predicate: predicate),
+                resultsLimit: limit
+            )
+            while out.count < limit {
                 for (_, result) in page.matchResults {
-                    if case .success(let record) = result { out.append(CatalogRow(record)) }
+                    if case .success(let record) = result {
+                        out.append(CatalogRow(record))
+                        if out.count == limit { break }
+                    }
                 }
-                guard let cursor = page.queryCursor else { break }
-                page = try await database.records(continuingMatchFrom: cursor)
+                guard out.count < limit, let cursor = page.queryCursor else { break }
+                page = try await database.records(
+                    continuingMatchFrom: cursor,
+                    resultsLimit: limit - out.count
+                )
             }
         } catch {
-            return out   // partial pages are still useful; a first-page failure → []
+            return Array(out.prefix(limit))   // partial pages are still useful; a first-page failure → []
         }
-        return out
+        return Array(out.prefix(limit))
     }
 }
 #endif

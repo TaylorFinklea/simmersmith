@@ -158,6 +158,49 @@ public struct PrivatePlaneStore {
         try context.fetch(FetchDescriptor<PrivateIngredientPreference>())
     }
 
+    public func repointIngredientPreferences(
+        sourceBaseIngredientID: String,
+        sourceBaseIngredientName: String,
+        targetBaseIngredientID: String,
+        targetBaseIngredientName: String,
+        variationIDMap: [String: String],
+        updatedAt: Date = .now
+    ) throws {
+        _ = sourceBaseIngredientName
+        let rows = try allIngredientPreferences().sorted {
+            if $0.rank != $1.rank { return $0.rank < $1.rank }
+            return $0.recordKey < $1.recordKey
+        }
+        for row in rows {
+            if let mapped = variationIDMap[row.variation] {
+                row.variation = mapped
+                row.updatedAt = updatedAt
+            }
+            if row.baseIngredientID == targetBaseIngredientID {
+                row.baseIngredientName = targetBaseIngredientName
+                row.updatedAt = updatedAt
+            }
+        }
+        let sources = rows.filter { $0.baseIngredientID == sourceBaseIngredientID }
+        for source in sources {
+            if let mapped = variationIDMap[source.variation] { source.variation = mapped }
+            let collision = rows.first {
+                $0.baseIngredientID == targetBaseIngredientID && $0.rank == source.rank
+            }
+            if let collision {
+                if collision.brand.isEmpty { collision.brand = source.brand }
+                if collision.variation.isEmpty { collision.variation = source.variation }
+                collision.baseIngredientName = targetBaseIngredientName
+                collision.updatedAt = updatedAt
+                context.delete(source)
+            } else {
+                source.baseIngredientID = targetBaseIngredientID
+                source.baseIngredientName = targetBaseIngredientName
+                source.updatedAt = updatedAt
+            }
+        }
+    }
+
     // MARK: Assistant threads + messages
 
     @discardableResult

@@ -120,6 +120,7 @@ extension AppState {
         let metadataRepo = MetadataRepository(session: session)
         let weekRepo = WeekRepository(session: session)
         let groceryRepo = GroceryRepository(session: session)
+        let ingredientRepo = IngredientRepository(session: session)
         let guestRepo = GuestRepository(session: session)
         let eventRepo = EventRepository(session: session, guests: guestRepo)
         let profileRepo = ProfileRepository(session: session)
@@ -134,6 +135,7 @@ extension AppState {
         metadataRepository = metadataRepo
         weekRepository = weekRepo
         groceryRepository = groceryRepo
+        ingredientRepository = ingredientRepo
         guestRepository = guestRepo
         eventRepository = eventRepo
         profileRepository = profileRepo
@@ -148,6 +150,7 @@ extension AppState {
         recipeRepo.startObserving()
         metadataRepo.startObserving()
         weekRepo.startObserving()
+        ingredientRepo.startObserving()
         guestRepo.startObserving()
         eventRepo.startObserving()
         pantryRepo.startObserving()
@@ -155,6 +158,7 @@ extension AppState {
         recipeRepo.reload()
         metadataRepo.reloadMetadata()
         weekRepo.reload()
+        ingredientRepo.reload()
         guestRepo.reload()
         eventRepo.reload()
         pantryRepo.reload()
@@ -353,6 +357,7 @@ extension AppState {
         metadataRepository = nil
         weekRepository = nil
         groceryRepository = nil
+        ingredientRepository = nil
         eventRepository = nil
         guestRepository = nil
         profileRepository = nil
@@ -1932,17 +1937,10 @@ extension AppState {
     /// `[BaseIngredientSummary]`, but no such type exists — the editor binds the result
     /// of `fetchBaseIngredients` to `[BaseIngredient]`, so the façade returns that.
     ///
-    /// NOTE (resolution path): `PublicCatalogReader` only exposes EXACT-`normalizedName`
-    /// resolve + batch prefetch (§8.2) — it has no substring/prefix search, which is what
-    /// the editor's live autocomplete needs. CloudKit-backed ingredient search is the
-    /// Ingredient slice's concern (spec §10), not recipe slice 1. During the transition
-    /// (Fly is up and holds the auth token) this delegates to Fly; SP-D / the Ingredient
-    /// slice rewires it to `session.catalog`. Closing the view→apiClient leak here means
-    /// that rewire happens in ONE place.
+    /// The ingredient slice owns the composed household + bounded PUBLIC prefix search;
+    /// this compatibility façade keeps recipe call sites on that single path.
     func fetchBaseIngredients(query: String, limit: Int) async throws -> [BaseIngredient] {
-        // CATALOG TRACK: rewire to session.catalog (PublicCatalogReader) when the
-        // Ingredient slice lands; substring search is out of scope for recipe slice 1.
-        try await apiClient.fetchBaseIngredients(query: query, limit: limit)
+        try await searchBaseIngredients(query: query, limit: limit)
     }
 
     /// How to apply an AI substitution: mutate the base recipe in place or

@@ -1,4 +1,5 @@
 import Foundation
+import CloudKitProvisioning
 import SimmerSmithKit
 
 extension AppState {
@@ -11,23 +12,145 @@ extension AppState {
         withVariations: Bool = false,
         includeProductLike: Bool = false
     ) async throws -> [BaseIngredient] {
-        try await apiClient.fetchBaseIngredients(
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository,
+              let session = householdSession else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        let household = repository.searchBaseIngredients(
+            query: query,
+            limit: 200,
+            includeArchived: includeArchived,
+            provisionalOnly: provisionalOnly,
+            withVariations: withVariations,
+            includeProductLike: includeProductLike
+        )
+        var publicIngredients: [BaseIngredient] = []
+        if !provisionalOnly {
+            // Household collisions plus private/product filters can consume some PUBLIC rows.
+            // A bounded 2x overscan preserves useful composition without draining the catalog.
+            let requestedLimit = min(max(limit, 1), 200)
+            let catalogLimit = min(requestedLimit * 2, 200)
+            let catalog = session.catalog
+            let rows = await catalog.searchBaseIngredients(query: query, limit: catalogLimit)
+            var variationCounts: [String: Int] = [:]
+            if withVariations {
+                // Bound CloudKit fan-out to eight concurrent variation queries per batch.
+                for start in stride(from: 0, to: rows.count, by: 8) {
+                    let batch = Array(rows[start..<min(start + 8, rows.count)])
+                    let batchCounts = await withTaskGroup(
+                        of: (String, Int).self,
+                        returning: [String: Int].self
+                    ) { group in
+                        for row in batch {
+                            group.addTask {
+                                let variations = await catalog.fetchIngredientVariations(
+                                    approvedActiveBase: row,
+                                    limit: 200
+                                )
+                                return (row.recordName, variations.count)
+                            }
+                        }
+                        var counts: [String: Int] = [:]
+                        for await (recordName, count) in group { counts[recordName] = count }
+                        return counts
+                    }
+                    variationCounts.merge(batchCounts) { _, incoming in incoming }
+                }
+            }
+            let usage = repository.ingredientUsageSnapshots(
+                baseIngredientIDs: Set(rows.map(\.recordName))
+            )
+            for row in rows {
+                let snapshot = usage[row.recordName]
+                if let ingredient = IngredientRepository.publicBaseIngredient(
+                    from: row,
+                    variationCount: variationCounts[row.recordName, default: 0],
+                    recipeUsageCount: snapshot?.recipeRowCount ?? 0,
+                    groceryUsageCount: snapshot?.groceryRowCount ?? 0
+                ) {
+                    publicIngredients.append(ingredient)
+                }
+            }
+        }
+        return IngredientRepository.composeSearchResults(
+            household: household,
+            publicCatalog: publicIngredients,
+            preferences: preferenceRepository?.preferences ?? [],
             query: query,
             limit: limit,
-            includeArchived: includeArchived,
             provisionalOnly: provisionalOnly,
             withPreferences: withPreferences,
             withVariations: withVariations,
             includeProductLike: includeProductLike
         )
+        #else
+        return []
+        #endif
     }
 
     func fetchIngredientVariations(baseIngredientID: String) async throws -> [IngredientVariation] {
-        try await apiClient.fetchIngredientVariations(baseIngredientID: baseIngredientID)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { return [] }
+        if (try? repository.fetchBaseIngredientDetail(baseIngredientID: baseIngredientID)) != nil {
+            return repository.fetchIngredientVariations(baseIngredientID: baseIngredientID)
+        }
+        guard let session = householdSession else { throw IngredientRepositoryError.baseIngredientNotFound }
+        return await session.catalog.fetchIngredientVariations(baseIngredientID: baseIngredientID, limit: 200)
+            .compactMap(IngredientRepository.publicIngredientVariation(from:))
+        #else
+        return []
+        #endif
     }
 
     func fetchBaseIngredientDetail(baseIngredientID: String) async throws -> BaseIngredientDetail {
-        try await apiClient.fetchBaseIngredientDetail(baseIngredientID: baseIngredientID)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        let preferences = preferenceRepository?.preferences ?? []
+        let preference = preferences.filter { $0.baseIngredientId == baseIngredientID }
+            .sorted {
+                if $0.rank != $1.rank { return $0.rank < $1.rank }
+                return $0.id < $1.id
+            }.first
+        if let household = try? repository.fetchBaseIngredientDetail(baseIngredientID: baseIngredientID) {
+            let ingredient = IngredientRepository.composeSearchResults(
+                household: [household.ingredient], publicCatalog: [], preferences: preferences,
+                query: "", limit: 1, provisionalOnly: false, withPreferences: false,
+                withVariations: false, includeProductLike: true
+            ).first ?? household.ingredient
+            return BaseIngredientDetail(
+                ingredient: ingredient,
+                variations: household.variations,
+                preference: preference,
+                usage: household.usage
+            )
+        }
+        guard let session = householdSession else { throw IngredientRepositoryError.baseIngredientNotFound }
+        guard let row = await session.catalog.resolveBaseIngredient(recordName: baseIngredientID) else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        let variationRows = await session.catalog.fetchIngredientVariations(
+            approvedActiveBase: row, limit: 200
+        )
+        let variations = variationRows.compactMap(IngredientRepository.publicIngredientVariation(from:))
+        let usage = repository.ingredientUsageSnapshot(baseIngredientID: baseIngredientID)
+        guard let ingredient = IngredientRepository.publicBaseIngredient(
+            from: row,
+            variationCount: variations.count,
+            preferenceCount: preferences.filter { $0.active && $0.baseIngredientId == baseIngredientID }.count,
+            recipeUsageCount: usage.recipeRowCount,
+            groceryUsageCount: usage.groceryRowCount
+        ) else {
+            throw IngredientRepositoryError.baseIngredientNotFound
+        }
+        return BaseIngredientDetail(
+            ingredient: ingredient, variations: variations, preference: preference, usage: usage.summary
+        )
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func createBaseIngredient(
@@ -45,14 +168,16 @@ extension AppState {
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
     ) async throws -> BaseIngredient {
-        try await apiClient.createBaseIngredient(
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.baseIngredientNotFound }
+        return try repository.createBaseIngredient(
             name: name,
             normalizedName: normalizedName,
             category: category,
             defaultUnit: defaultUnit,
             notes: notes,
             sourceName: sourceName,
-            sourceRecordId: sourceRecordID,
+            sourceRecordID: sourceRecordID,
             sourceURL: sourceURL,
             provisional: provisional,
             active: active,
@@ -60,6 +185,9 @@ extension AppState {
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func updateBaseIngredient(
@@ -78,7 +206,9 @@ extension AppState {
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
     ) async throws -> BaseIngredient {
-        try await apiClient.updateBaseIngredient(
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.baseIngredientNotFound }
+        return try repository.updateBaseIngredient(
             baseIngredientID: baseIngredientID,
             name: name,
             normalizedName: normalizedName,
@@ -86,7 +216,7 @@ extension AppState {
             defaultUnit: defaultUnit,
             notes: notes,
             sourceName: sourceName,
-            sourceRecordId: sourceRecordID,
+            sourceRecordID: sourceRecordID,
             sourceURL: sourceURL,
             provisional: provisional,
             active: active,
@@ -94,14 +224,38 @@ extension AppState {
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func archiveBaseIngredient(baseIngredientID: String) async throws -> BaseIngredient {
-        try await apiClient.archiveBaseIngredient(baseIngredientID: baseIngredientID)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.baseIngredientNotFound }
+        return try repository.archiveBaseIngredient(baseIngredientID: baseIngredientID)
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func mergeBaseIngredient(sourceID: String, targetID: String) async throws -> BaseIngredient {
-        try await apiClient.mergeBaseIngredient(sourceID: sourceID, targetID: targetID)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.baseIngredientNotFound }
+        guard let preferenceRepository else { throw PreferenceRepositoryError.storeUnavailable }
+        let preview = try repository.previewBaseIngredientMerge(sourceID: sourceID, targetID: targetID)
+        try preferenceRepository.repointAfterIngredientMerge(
+            sourceBaseIngredientID: sourceID,
+            sourceBaseIngredientName: preview.source.name,
+            targetBaseIngredientID: targetID,
+            targetBaseIngredientName: preview.target.name,
+            variationIDMap: preview.variationIDMap
+        )
+        let result = try repository.mergeBaseIngredientWithVariationMap(sourceID: sourceID, targetID: targetID)
+        mirrorPreferencesFromRepository()
+        return result.ingredient
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func createIngredientVariation(
@@ -124,7 +278,9 @@ extension AppState {
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
     ) async throws -> IngredientVariation {
-        try await apiClient.createIngredientVariation(
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.baseIngredientNotFound }
+        return try repository.createIngredientVariation(
             baseIngredientID: baseIngredientID,
             name: name,
             normalizedName: normalizedName,
@@ -137,13 +293,16 @@ extension AppState {
             retailerHint: retailerHint,
             notes: notes,
             sourceName: sourceName,
-            sourceRecordId: sourceRecordID,
+            sourceRecordID: sourceRecordID,
             sourceURL: sourceURL,
             active: active,
             nutritionReferenceAmount: nutritionReferenceAmount,
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+        #else
+        throw IngredientRepositoryError.baseIngredientNotFound
+        #endif
     }
 
     func updateIngredientVariation(
@@ -167,7 +326,9 @@ extension AppState {
         nutritionReferenceUnit: String = "",
         calories: Double? = nil
     ) async throws -> IngredientVariation {
-        try await apiClient.updateIngredientVariation(
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.ingredientVariationNotFound }
+        return try repository.updateIngredientVariation(
             ingredientVariationID: ingredientVariationID,
             baseIngredientID: baseIngredientID,
             name: name,
@@ -181,21 +342,25 @@ extension AppState {
             retailerHint: retailerHint,
             notes: notes,
             sourceName: sourceName,
-            sourceRecordId: sourceRecordID,
+            sourceRecordID: sourceRecordID,
             sourceURL: sourceURL,
             active: active,
             nutritionReferenceAmount: nutritionReferenceAmount,
             nutritionReferenceUnit: nutritionReferenceUnit,
             calories: calories
         )
+        #else
+        throw IngredientRepositoryError.ingredientVariationNotFound
+        #endif
     }
 
     func archiveIngredientVariation(ingredientVariationID: String) async throws -> IngredientVariation {
-        try await apiClient.archiveIngredientVariation(ingredientVariationID: ingredientVariationID)
-    }
-
-    func mergeIngredientVariation(sourceID: String, targetID: String) async throws -> IngredientVariation {
-        try await apiClient.mergeIngredientVariation(sourceID: sourceID, targetID: targetID)
+        #if canImport(CloudKit)
+        guard let repository = ingredientRepository else { throw IngredientRepositoryError.ingredientVariationNotFound }
+        return try repository.archiveIngredientVariation(ingredientVariationID: ingredientVariationID)
+        #else
+        throw IngredientRepositoryError.ingredientVariationNotFound
+        #endif
     }
 
     func resolveIngredient(_ ingredient: RecipeIngredient) async throws -> IngredientResolution {
@@ -203,8 +368,7 @@ extension AppState {
     }
 
     // SP-C slice 5 — ingredient preferences now route through PreferenceRepository
-    // (private plane, NSPCKC). The Fly path is retained as a pre-session fallback
-    // only; once the CloudKit session is active the repo is the source of truth.
+    // (private plane, NSPCKC).
 
     func refreshIngredientPreferences() async {
         #if canImport(CloudKit)
@@ -214,13 +378,7 @@ extension AppState {
             return
         }
         #endif
-        // Fly fallback (pre-CloudKit-session).
-        guard hasSavedConnection else { return }
-        do {
-            ingredientPreferences = try await apiClient.fetchIngredientPreferences()
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        ingredientPreferences = []
     }
 
     func upsertIngredientPreference(
@@ -270,29 +428,7 @@ extension AppState {
             return repo.preferences.first(where: { $0.preferenceId == finalID }) ?? preference
         }
         #endif
-        // Fly fallback (pre-CloudKit-session).
-        let preference = try await apiClient.upsertIngredientPreference(
-            preferenceID: preferenceID,
-            baseIngredientID: baseIngredientID,
-            preferredVariationID: preferredVariationID,
-            preferredBrand: preferredBrand,
-            choiceMode: choiceMode,
-            active: active,
-            notes: notes,
-            rank: rank
-        )
-        if let index = ingredientPreferences.firstIndex(where: { $0.preferenceId == preference.preferenceId }) {
-            ingredientPreferences[index] = preference
-        } else {
-            ingredientPreferences.append(preference)
-            // Sort by base ingredient name, then by rank (primary first).
-            ingredientPreferences.sort { lhs, rhs in
-                let nameOrder = lhs.baseIngredientName.localizedCaseInsensitiveCompare(rhs.baseIngredientName)
-                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-                return lhs.rank < rhs.rank
-            }
-        }
-        return preference
+        throw IngredientRepositoryError.baseIngredientNotFound
     }
 
     func saveIngredientNutritionMatch(

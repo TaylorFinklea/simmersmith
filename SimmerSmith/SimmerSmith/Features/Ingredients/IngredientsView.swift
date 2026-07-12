@@ -36,7 +36,8 @@ struct IngredientsView: View {
             IngredientCatalogList(
                 isLoading: isLoading,
                 ingredients: ingredients,
-                emptyStateMessage: emptyStateMessage
+                emptyStateMessage: emptyStateMessage,
+                currentHouseholdID: appState.householdSession?.householdID
             )
         }
         .listStyle(.insetGrouped)
@@ -126,7 +127,7 @@ struct IngredientDetailView: View {
         .navigationTitle(detail?.ingredient.name ?? "Ingredient")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let detail {
+            if let detail, canManage(detail.ingredient) {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu("Manage") {
                         Button("Edit") {
@@ -304,6 +305,7 @@ struct IngredientDetailView: View {
     private func productsSection(_ detail: BaseIngredientDetail) -> some View {
         IngredientVariationManagementSection(
             variations: detail.variations,
+            canManage: canManage(detail.ingredient),
             onCreateVariation: {
                 variationEditorContext = IngredientVariationEditorContext(
                     baseIngredient: detail.ingredient,
@@ -379,6 +381,13 @@ struct IngredientDetailView: View {
             return "Needs review"
         }
         return "Active"
+    }
+
+    private func canManage(_ ingredient: BaseIngredient) -> Bool {
+        IngredientOwnershipPolicy.canManage(
+            ingredient,
+            currentHouseholdID: appState.householdSession?.householdID
+        )
     }
 
     private func loadDetail() async {
@@ -475,10 +484,6 @@ struct BaseIngredientEditorSheet: View {
                     Toggle("Active", isOn: $active)
                 }
 
-                if let existing = context.ingredient {
-                    submissionSection(for: existing)
-                }
-
                 Section("Notes") {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
@@ -509,65 +514,6 @@ struct BaseIngredientEditorSheet: View {
                 }
             }
             .smithToolbar()
-        }
-    }
-
-    @ViewBuilder
-    private func submissionSection(for ingredient: BaseIngredient) -> some View {
-        Section {
-            LabeledContent("Submission status") {
-                Text(submissionStatusLabel(ingredient.submissionStatus))
-                    .foregroundStyle(.secondary)
-            }
-            if ingredient.submissionStatus == "household_only" {
-                Button {
-                    Task { await submitForAdoption(ingredient) }
-                } label: {
-                    Label("Submit for global adoption", systemImage: "paperplane")
-                }
-                .disabled(isSaving)
-            }
-            if ingredient.submissionStatus == "submitted" {
-                Text("Pending admin review. You can keep using it — once approved, every household will see it.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            if ingredient.submissionStatus == "rejected" {
-                Text("Admin declined this submission. The notes field above carries the reason.")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
-        } header: {
-            Text("Catalog visibility")
-        } footer: {
-            if ingredient.submissionStatus == "household_only" {
-                Text("Currently private to your household. Submit so other households can use it too.")
-            }
-        }
-    }
-
-    private func submissionStatusLabel(_ status: String) -> String {
-        switch status {
-        case "approved": return "Approved (global)"
-        case "submitted": return "Submitted (pending review)"
-        case "household_only": return "Mine only"
-        case "rejected": return "Rejected"
-        default: return status.capitalized
-        }
-    }
-
-    private func submitForAdoption(_ ingredient: BaseIngredient) async {
-        isSaving = true
-        defer { isSaving = false }
-        errorMessage = nil
-        do {
-            _ = try await appState.apiClient.submitIngredientForAdoption(
-                baseIngredientID: ingredient.baseIngredientId
-            )
-            // Bounce so the user reopens on the now-submitted row.
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
