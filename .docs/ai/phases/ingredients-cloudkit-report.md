@@ -1,6 +1,6 @@
 # Ingredients CloudKit Milestone Report
 
-Status: READY FOR TESTFLIGHT — ASC CREDENTIAL BLOCKED
+Status: TESTFLIGHT BUILD 151 VALID — READY FOR DEVICE TEST
 Date: 2026-07-12
 Human gate: `simmersmith-cel` (`user-verify`)
 
@@ -46,10 +46,11 @@ Human gate: `simmersmith-cel` (`user-verify`)
 
 ## TestFlight cut
 
-- Build 151 archive/upload requested 2026-07-12; no build uploaded.
-- Full Xcode path verified, but App Store Connect rejected API-key provisioning with HTTP 401 because `IOS_RELEASE_ISSUER_ID` is a 10-character key ID rather than the required 36-character issuer UUID.
-- The installed-profile fallback also cannot archive: automatic signing needs authenticated provisioning access.
-- Chrome recovery was explicitly approved, but the required Chrome-control runtime is unavailable in this harness; no alternate browser profile was used.
+- Release archive and manual App Store export PASS for version 1.0.0, build 151.
+- Exported IPA passes strict code-sign verification; `aps-environment=production`; `get-task-allow=false`.
+- Apple package validation: `VERIFY SUCCEEDED with no errors`.
+- Upload and processing: `VALID`, `APP_STORE_ELIGIBLE`, present in App Store Connect; delivery `af098ff8-9970-4e6f-9d4f-eae6a535ed4d`.
+- A new `SimmerSmith App Store Build 151` provisioning profile was created for the current distribution certificate; the older active profile was preserved.
 
 ## Device product-test checklist
 

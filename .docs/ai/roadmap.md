@@ -42,8 +42,8 @@ Fold `glw` + `ioj` into Gate 1 before the cut — both are data-safety/observabi
 
 ### Awaiting User / External
 
-All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut TestFlight
-(`scripts/release-ios.sh` — release stays human) · device gates `6uj` (Gate-1 regression), `a97`
+All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · build 151 TestFlight
+device gates `6uj` (Gate-1 regression), `a97`
 (sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
 test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
 (CloudKit Dashboard ops) · ASC privacy nutrition label (rides `5w8`). Ongoing: TestFlight dogfood

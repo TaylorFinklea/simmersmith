@@ -31,8 +31,8 @@ paid-for and ignored, through submission.
       (`94b4231`) · eky (`a907de6`) landed 2026-07-02, suites green (Kit 155 / CK 436 / app builds).
 - [x] pr9 CKRecord defensive copies (`23efe83`, 2026-07-07) — store copy-in/copy-out + merger/rebase
       copy-before-mutate; CK 449 green.
-- [ ] Fresh TestFlight build (148+): **build 150 uploaded 2026-07-10; await processing and device
-      proof.** Verify two-device edit-storm convergence (no lost fields), backup→recover round-trip,
+- [ ] Fresh TestFlight build (148+): **build 151 uploaded and processed VALID 2026-07-12; ready for
+      device proof.** Verify two-device edit-storm convergence (no lost fields), backup→recover round-trip,
       and the NEW cold-launch check: relaunch → full week visible immediately → a backup taken right
       after relaunch contains the FULL household. (Beaded: `6uj` regression bundle + `a97`
       sharing-gate remainder.)
@@ -47,7 +47,7 @@ paid-for and ignored, through submission.
       WeekRepository; restore path unchanged.
 - [ ] Recipe memories: 990.4.1–.3 landed, OR the section is HIDDEN for launch (visible-but-broken
       is not shippable; hiding is a legitimate scope cut — record it if taken).
-- [ ] Ingredients: 990.5.1–.3 landed, OR the link-picker/manage surfaces hidden (same rule).
+- [x] Ingredients: 990.5.1–.3 landed in build 151; device product proof is `simmersmith-cel`.
 - [ ] mm1 onboarding dead code deleted. Product-truth re-sweep (one Sonnet agent, the v2
       product-truth lens prompt) returns zero "dead backend" findings.
 
