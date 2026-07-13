@@ -49,6 +49,7 @@ Human gate: `simmersmith-cel` (`user-verify`)
 - Build 151 archive/upload requested 2026-07-12; no build uploaded.
 - Full Xcode path verified, but App Store Connect rejected API-key provisioning with HTTP 401 because `IOS_RELEASE_ISSUER_ID` is a 10-character key ID rather than the required 36-character issuer UUID.
 - The installed-profile fallback also cannot archive: automatic signing needs authenticated provisioning access.
+- Chrome recovery was explicitly approved, but the required Chrome-control runtime is unavailable in this harness; no alternate browser profile was used.
 
 ## Device product-test checklist
 
