@@ -65,6 +65,10 @@ xcodebuild \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination 'generic/platform=iOS' \
+    -allowProvisioningUpdates \
+    -authenticationKeyPath "$KEY_PATH" \
+    -authenticationKeyID "$IOS_RELEASE_KEY_ID" \
+    -authenticationKeyIssuerID "$IOS_RELEASE_ISSUER_ID" \
     archive
 
 echo "release-ios: exporting + uploading to App Store Connect"
