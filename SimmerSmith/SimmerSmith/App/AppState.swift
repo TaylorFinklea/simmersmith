@@ -109,6 +109,10 @@ final class AppState {
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?
+    /// simmersmith-224: release notes awaiting their once-per-update showing.
+    /// Set by `evaluatePendingReleaseNotes()` once the household is ready;
+    /// cleared when the sheet is dismissed. See `AppState+ReleaseNotes`.
+    var pendingReleaseNotes: ReleaseNotesPresentation?
 
     // Tracks the refresh task started by clearLocalCache() so that a
     // follow-up resetConnection() can cancel it before it races with the

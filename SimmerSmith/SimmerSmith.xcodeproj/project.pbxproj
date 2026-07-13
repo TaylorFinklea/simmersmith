@@ -8,10 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		00F86A1EDF7BE61EDC279626 /* RecipeEditorStepsEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */; };
+		02312245BE8CD2842358CC7F /* ReleaseNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE14A82CF64F3518509B5054 /* ReleaseNotesTests.swift */; };
 		03D302ED85DCDF03C2C21D40 /* IngredientRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A31049AA00BA6CF43BF389 /* IngredientRepository.swift */; };
 		043EE757025D560C56C9783C /* ProfileRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F8EB47D3C6DF82D0407A0A /* ProfileRepository.swift */; };
 		0533CA146A5F231B0D7D398E /* RecipeMemoryLiveUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2C91FE3339F625CF7121B6 /* RecipeMemoryLiveUpdateTests.swift */; };
 		053F4E60D3120A763E341304 /* InvitationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA391135FC54F682B62E86F /* InvitationSheet.swift */; };
+		08940EEFC9D6B363712F0D31 /* ReleaseNotesGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351610A1EE19B85DD1B50FF9 /* ReleaseNotesGate.swift */; };
 		097FB013DA02BB597480D9C3 /* AIFloatingButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C35592BA165B9889094B32 /* AIFloatingButton.swift */; };
 		0AE26B4ED00BCB6B935E0161 /* InSeasonStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A70D406D118627C375D6B64 /* InSeasonStrip.swift */; };
 		0C0DEE9132C86897847F7FFE /* WeekView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C73D583ED87BFE61E47C9D /* WeekView.swift */; };
@@ -21,6 +23,7 @@
 		0E81A9AC529997B1C13A07D9 /* LocalNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35EEF81A482382B24772C218 /* LocalNotificationService.swift */; };
 		0FF942A918598DDFAE82210E /* RecipeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62FF2F7396D8473E70FD3C30 /* RecipeEditorView.swift */; };
 		101DDAF6BD607A2286C9E460 /* DayNutritionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */; };
+		11F2249DA50AB7F297513D89 /* ReleaseNotesCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6EA129394BBD8599B7391A3 /* ReleaseNotesCatalog.swift */; };
 		13BA53C1033643416A1DA664 /* MealActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428FF67BEF93DC70F402D516 /* MealActionSheet.swift */; };
 		16D4428A0A3CE87A33C7E031 /* AppState+EventAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7D7FF638EBEFAA1C1932897 /* AppState+EventAI.swift */; };
 		1828EE7FD2AF2C30CA2F54AF /* RecipeEditorNutritionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD0A0E7CB70BAD5844AE9C /* RecipeEditorNutritionEditor.swift */; };
@@ -32,6 +35,7 @@
 		277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA42101A03628D82ADE249C /* SimmerSmithKit */; };
 		27B4ED92E78187ECF71E4FBA /* BaseIngredientMergeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C306CEEE372F046211BB6A2 /* BaseIngredientMergeSheet.swift */; };
 		27EBF0EFE7D5CD79CA9B557D /* SimmerSmithTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */; };
+		28FFAA9C8297D38EF1272E42 /* ReleaseNotesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B32B1CD96520C75B4DE0DDC /* ReleaseNotesSheet.swift */; };
 		29566C0588E6421779F8386A /* OnDeviceParseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1522879DCD4339D1B8CE17 /* OnDeviceParseService.swift */; };
 		29A9AC1DE5234183061C4F90 /* AIAssistantOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C1D5C19615FDB1970BD83E5 /* AIAssistantOverlay.swift */; };
 		2BD920CC9C3100D0F8C26062 /* WeekGenContextGatherer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D96F0D206E3B5B539936DCE /* WeekGenContextGatherer.swift */; };
@@ -39,6 +43,7 @@
 		2DA9EBFE63A7FC470500DAE7 /* AIAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66465170F1619913CD28CBBB /* AIAssistantSheetView.swift */; };
 		2E1B9FFB5BEA40BB24E62408 /* SmithToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F09E404CAA8E6D26BEE5B2B /* SmithToolbar.swift */; };
 		2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */; };
+		2E793B9082BDBBF722F22B80 /* AppState+ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B31AF3AF1169A88A794BC88 /* AppState+ReleaseNotes.swift */; };
 		3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */; };
 		30DBAAAB74B4D75C4D147B1E /* VoiceCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52086E84A5714DECD4E1229F /* VoiceCommandService.swift */; };
 		33B2B158AE35CE5A95414D5D /* GroceryTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D259DF81D5A9A31461E55E26 /* GroceryTabView.swift */; };
@@ -109,6 +114,7 @@
 		84CB1823F45C639649342CEA /* AppState+Assistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA104ABEEC718C1755D05534 /* AppState+Assistant.swift */; };
 		85083B241385537E729DD20E /* AppState+Household.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80D37100BDECCA31338BFE8 /* AppState+Household.swift */; };
 		87050B2E557B6BE57C6F599B /* AppState+Reminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = C652054355BDBBF8BDE59B41 /* AppState+Reminders.swift */; };
+		88B3A4F0DB4A8D667589B857 /* ReleaseNotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A802AD35323D3D5548683C2 /* ReleaseNotesStore.swift */; };
 		88F239CDAD71F97C9D630E3D /* RecipeWebSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E83DD73B6FB0A71D95C5302 /* RecipeWebSearchSheet.swift */; };
 		8ABB7D934E891BFDD6373316 /* IngredientResolverIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6695AFDEECB8F5C47DC339 /* IngredientResolverIntegrationTests.swift */; };
 		8B837F5F2F487DDF48A8A8A8 /* PantryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F280ACD08CECCD7EE691A5A /* PantryRepository.swift */; };
@@ -148,6 +154,7 @@
 		B4C0DF8D030F1CC6F96FF5F1 /* IngredientResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4068EDAF68A8CD3DE46AE8CE /* IngredientResolutionCoordinator.swift */; };
 		B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */; };
 		B71E3F8955708627C3102E72 /* GroceryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F2A8FAD850D02995516AE /* GroceryView.swift */; };
+		B75C4F08695BB78F2E73DEE5 /* ReleaseNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31D4C7E386B4978BD2A5376 /* ReleaseNote.swift */; };
 		B7B2F00406124D3054AA36E1 /* RecipeIconOverrides.swift in Sources */ = {isa = PBXBuildFile; fileRef = E07B8DC4C015FF1D7CD886E7 /* RecipeIconOverrides.swift */; };
 		B8EB31CE2056E70EA6A9EAF3 /* CompactRecipeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7332396128AF5CD988A1821 /* CompactRecipeCard.swift */; };
 		BAE7EEBED1663B060E79F9AF /* IngredientsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A10F1ED3FB047CF6466481 /* IngredientsView.swift */; };
@@ -257,12 +264,14 @@
 		26C4BC28BFE979A7E1858AC8 /* SyncStatusDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusDetailView.swift; sourceTree = "<group>"; };
 		27B617C15FBB7189BE5086D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		289B584B688BF106322CF223 /* Caveat-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Caveat-Variable.ttf"; sourceTree = "<group>"; };
+		2B32B1CD96520C75B4DE0DDC /* ReleaseNotesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesSheet.swift; sourceTree = "<group>"; };
 		2B8B5724B1A7C4874B4F1713 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2C1D5C19615FDB1970BD83E5 /* AIAssistantOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantOverlay.swift; sourceTree = "<group>"; };
 		2D7CDAF7CC440F6E5157D784 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		2F09E404CAA8E6D26BEE5B2B /* SmithToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithToolbar.swift; sourceTree = "<group>"; };
 		305DB39B05047967856041B5 /* AssistantToolCallCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantToolCallCard.swift; sourceTree = "<group>"; };
 		30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupRestoreSection.swift; sourceTree = "<group>"; };
+		351610A1EE19B85DD1B50FF9 /* ReleaseNotesGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesGate.swift; sourceTree = "<group>"; };
 		3537D9BBBEB3EF263877815A /* SimmerSmithAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimmerSmithAppDelegate.swift; sourceTree = "<group>"; };
 		35A9360C40FEFBCA8D1D5206 /* AssistantRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantRepository.swift; sourceTree = "<group>"; };
 		35EEF81A482382B24772C218 /* LocalNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationService.swift; sourceTree = "<group>"; };
@@ -308,6 +317,7 @@
 		66E66D6C949E92294D4B03EC /* PantryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryView.swift; sourceTree = "<group>"; };
 		6A44D5BA4D069FF59E10CA75 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitDebugView.swift; sourceTree = "<group>"; };
+		6B31AF3AF1169A88A794BC88 /* AppState+ReleaseNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+ReleaseNotes.swift"; sourceTree = "<group>"; };
 		6CD56BA601E455FD7458AD43 /* TopBarSparkleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopBarSparkleButton.swift; sourceTree = "<group>"; };
 		6ECB22E673210C0A5DD08ADF /* DayKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayKey.swift; sourceTree = "<group>"; };
 		708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
@@ -318,6 +328,7 @@
 		75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealQuickAddSheet.swift; sourceTree = "<group>"; };
 		7A419E4EFE8D2F7FB203823C /* InstrumentSerif-Italic.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSerif-Italic.ttf"; sourceTree = "<group>"; };
 		7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		7A802AD35323D3D5548683C2 /* ReleaseNotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesStore.swift; sourceTree = "<group>"; };
 		7AF03C5E2665BCEA0F29367E /* DayCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayCard.swift; sourceTree = "<group>"; };
 		7D2B9F4297ED6946313633D8 /* IngredientScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientScannerView.swift; sourceTree = "<group>"; };
 		7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSharingControllerView.swift; sourceTree = "<group>"; };
@@ -369,6 +380,7 @@
 		BD11DDCDD443B48083C9960E /* RecipeEditorStepsEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorStepsEditor.swift; sourceTree = "<group>"; };
 		BD53F7890D99F7C90C8BE440 /* TabPrimaryFAB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabPrimaryFAB.swift; sourceTree = "<group>"; };
 		BE0D113A630A4FD571A4A89C /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
+		BE14A82CF64F3518509B5054 /* ReleaseNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesTests.swift; sourceTree = "<group>"; };
 		BE844C8C8202A1B90F75D1C3 /* GuestRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestRepository.swift; sourceTree = "<group>"; };
 		C11195860BCA1B7B3A5B55E8 /* SimmerSmithCloudKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithCloudKit; path = ../SimmerSmithCloudKit; sourceTree = SOURCE_ROOT; };
 		C248B30B7556BFE5C10D1466 /* AssistantPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantPromptsView.swift; sourceTree = "<group>"; };
@@ -385,6 +397,7 @@
 		D518A1171D63ABFD56E8F391 /* AIAssistantCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantCoordinator.swift; sourceTree = "<group>"; };
 		D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPantrySupplementSheet.swift; sourceTree = "<group>"; };
 		D603B9AEBF7630A4E82C1FCC /* ShareSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSceneDelegate.swift; sourceTree = "<group>"; };
+		D6EA129394BBD8599B7391A3 /* ReleaseNotesCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesCatalog.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D6FED9D160DD2EC6B064E1F7 /* IngredientsProductFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsProductFlowTests.swift; sourceTree = "<group>"; };
 		D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreChip.swift; sourceTree = "<group>"; };
@@ -407,6 +420,7 @@
 		EF45A785CDE3A5D0755B138F /* AliasRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliasRepository.swift; sourceTree = "<group>"; };
 		F0B28F292F8748D3882C5639 /* FeedbackComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackComposerView.swift; sourceTree = "<group>"; };
 		F222A33C201808AF925C11C1 /* EventEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEditSheet.swift; sourceTree = "<group>"; };
+		F31D4C7E386B4978BD2A5376 /* ReleaseNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNote.swift; sourceTree = "<group>"; };
 		F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealNoteEditor.swift; sourceTree = "<group>"; };
 		F4DA130CC3CF01AC162AF455 /* SimmerSmithTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekGenContextGathererTests.swift; sourceTree = "<group>"; };
@@ -451,6 +465,7 @@
 				3A248CC4192B34E04AB0DA95 /* Ingredients */,
 				DE59617CC6B5167ED8E3A2CF /* Paywall */,
 				7EBADF07E0E6DB08A57494D0 /* Recipes */,
+				A4EDC670DC84F77CC9EF4B50 /* ReleaseNotes */,
 				AF385378308CFFCC95BB6B62 /* Settings */,
 				EE923BEF33AA4479174A71DE /* Shared */,
 				21EBD5C0DBC902F0BD90AF13 /* Vision */,
@@ -567,6 +582,7 @@
 				26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */,
 				3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */,
 				614AF4945E1DC7871A7C607E /* AppState+Recipes.swift */,
+				6B31AF3AF1169A88A794BC88 /* AppState+ReleaseNotes.swift */,
 				C652054355BDBBF8BDE59B41 /* AppState+Reminders.swift */,
 				7F1963D01B2C80B6EE4AAE5F /* AppState+Seasonal.swift */,
 				EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */,
@@ -722,6 +738,18 @@
 			path = SimmerSmithUITests;
 			sourceTree = "<group>";
 		};
+		A4EDC670DC84F77CC9EF4B50 /* ReleaseNotes */ = {
+			isa = PBXGroup;
+			children = (
+				F31D4C7E386B4978BD2A5376 /* ReleaseNote.swift */,
+				D6EA129394BBD8599B7391A3 /* ReleaseNotesCatalog.swift */,
+				351610A1EE19B85DD1B50FF9 /* ReleaseNotesGate.swift */,
+				2B32B1CD96520C75B4DE0DDC /* ReleaseNotesSheet.swift */,
+				7A802AD35323D3D5548683C2 /* ReleaseNotesStore.swift */,
+			);
+			path = ReleaseNotes;
+			sourceTree = "<group>";
+		};
 		AF385378308CFFCC95BB6B62 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -802,6 +830,7 @@
 				AB6695AFDEECB8F5C47DC339 /* IngredientResolverIntegrationTests.swift */,
 				D6FED9D160DD2EC6B064E1F7 /* IngredientsProductFlowTests.swift */,
 				1C2C91FE3339F625CF7121B6 /* RecipeMemoryLiveUpdateTests.swift */,
+				BE14A82CF64F3518509B5054 /* ReleaseNotesTests.swift */,
 				8E9FBFCFE9C5299D36712B26 /* SimmerSmithTests.swift */,
 				E8212BCB28C979E36992B399 /* ToolRegistryDecodeTests.swift */,
 				F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */,
@@ -1001,6 +1030,7 @@
 				8ABB7D934E891BFDD6373316 /* IngredientResolverIntegrationTests.swift in Sources */,
 				A020099204BC60B0BB65112B /* IngredientsProductFlowTests.swift in Sources */,
 				0533CA146A5F231B0D7D398E /* RecipeMemoryLiveUpdateTests.swift in Sources */,
+				02312245BE8CD2842358CC7F /* ReleaseNotesTests.swift in Sources */,
 				27EBF0EFE7D5CD79CA9B557D /* SimmerSmithTests.swift in Sources */,
 				41F9CBF40BCEBCAA38029143 /* ToolRegistryDecodeTests.swift in Sources */,
 				E2B89E1951A216A0F6C95B6C /* WeekGenContextGathererTests.swift in Sources */,
@@ -1045,6 +1075,7 @@
 				53333C9542C3853B332E9F9F /* AppState+Profile.swift in Sources */,
 				E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */,
 				60D02B3960EE9488001F3238 /* AppState+Recipes.swift in Sources */,
+				2E793B9082BDBBF722F22B80 /* AppState+ReleaseNotes.swift in Sources */,
 				87050B2E557B6BE57C6F599B /* AppState+Reminders.swift in Sources */,
 				D12795B0EA94A8B2B7D60BC5 /* AppState+Seasonal.swift in Sources */,
 				56361EF23CCD75F017B8AC57 /* AppState+Sharing.swift in Sources */,
@@ -1160,6 +1191,11 @@
 				88F239CDAD71F97C9D630E3D /* RecipeWebSearchSheet.swift in Sources */,
 				5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */,
 				53F641933C8BF1D51A467113 /* RecipesView.swift in Sources */,
+				B75C4F08695BB78F2E73DEE5 /* ReleaseNote.swift in Sources */,
+				11F2249DA50AB7F297513D89 /* ReleaseNotesCatalog.swift in Sources */,
+				08940EEFC9D6B363712F0D31 /* ReleaseNotesGate.swift in Sources */,
+				28FFAA9C8297D38EF1272E42 /* ReleaseNotesSheet.swift in Sources */,
+				88B3A4F0DB4A8D667589B857 /* ReleaseNotesStore.swift in Sources */,
 				E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */,
 				D6F565FBCB27395CEBE63D72 /* RemindersService.swift in Sources */,
 				364F923A2908430AB4FB39D5 /* RootView.swift in Sources */,
@@ -1235,7 +1271,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 150;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;
@@ -1352,7 +1388,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = SimmerSmith/SimmerSmith.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 150;
+				CURRENT_PROJECT_VERSION = 152;
 				DEVELOPMENT_TEAM = K7CBQW6MPG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SimmerSmith/Info.plist;

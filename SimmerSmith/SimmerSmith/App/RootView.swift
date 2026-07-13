@@ -37,6 +37,25 @@ struct RootView: View {
         .sheet(item: $appState.pendingPaywall) { reason in
             PaywallSheet(reason: reason)
         }
+        // simmersmith-224: What's New. `onDismiss` — not the presentation — is
+        // what records the notes as seen, so a sheet she never actually read
+        // (app killed, phone put down) comes back next launch.
+        .sheet(
+            item: $appState.pendingReleaseNotes,
+            onDismiss: { appState.markReleaseNotesSeen() }
+        ) { presentation in
+            ReleaseNotesSheet(notes: presentation.notes)
+        }
+        #if canImport(CloudKit)
+        // Only once the household is resolved — otherwise the sheet lands on top
+        // of the loading spinner or the "Sign in to iCloud" prompt. This also
+        // covers the user who signs into iCloud in Settings and comes back,
+        // which the app's `.task` (cold launch only) would miss.
+        .onChange(of: appState.householdLaunchPhase, initial: true) { _, phase in
+            guard phase == .ready else { return }
+            appState.evaluatePendingReleaseNotes()
+        }
+        #endif
     }
 
     // MARK: - Loading state

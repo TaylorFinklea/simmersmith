@@ -1648,3 +1648,32 @@ a receipt-gated typed loader before switching reads; global approved rows remain
 private-plane indexing or smuggling catalog ownership into the preference store. The migration
 correction prevents a green CRUD port from silently abandoning existing household-only rows. Both
 choices are reversible implementation policy over existing record types; no schema is added.
+
+## 2026-07-13 — Release notes key on the build number, not MARKETING_VERSION
+
+**Context.** Bead `simmersmith-224` specified a What's New catalog "keyed by MARKETING_VERSION",
+presenting the current version's notes once per install/update. The purpose of the feature is that
+a non-technical TestFlight tester learns what changed in each build she receives.
+`MARKETING_VERSION` has been `1.0.0` for 150+ TestFlight builds and stays there until launch;
+`CURRENT_PROJECT_VERSION` is what increments on every upload.
+
+**Decision.** Catalog entries are keyed on `CURRENT_PROJECT_VERSION`. `MARKETING_VERSION` is
+displayed alongside the build but never gates. Persist `lastSeenBuild` per-device in
+`UserDefaults` (`release_notes_last_seen_build`); show every catalog entry with
+`lastSeenBuild < build <= currentBuild` that has at least one item, newest first. An entry with
+all three item lists empty is the explicit "nothing user-visible this build" answer: it satisfies
+the release preflight and raises no sheet. `release-ios.sh` refuses to archive a build with no
+entry.
+
+**Why.** Keyed on the marketing version, the sheet would have fired exactly once and then stayed
+silent through every subsequent TestFlight build — failing the only thing the bead exists to do.
+The build number is additionally the sole monotonic release identity we ship, so it supplies the
+total order the "everything since you last opened the app" query needs for free; no separate
+sequence or date comparison is required. Reversible: the catalog is a Swift literal, and re-keying
+is a filter change plus a defaults migration.
+
+**Corollary worth keeping.** The gate is a pure function (`ReleaseNotesGate.unseen`) precisely so
+these policies are pinned by tests rather than implied by view code. The clean-install rule
+(`lastSeenBuild == nil` is treated as `currentBuild - 1`, not `0`) is load-bearing: reading a
+missing key with `UserDefaults.integer(forKey:)` yields `0`, which would dump the entire release
+history on every new install. That mistake is mutation-tested in `ReleaseNotesStoreTests`.

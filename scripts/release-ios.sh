@@ -91,6 +91,26 @@ fi
 ARCHIVE_PATH="/tmp/SimmerSmith-build${BUILD_NUMBER}.xcarchive"
 EXPORT_PATH="/tmp/SimmerSmith-build${BUILD_NUMBER}-export"
 
+# simmersmith-224 — no build ships without us having decided what to tell the
+# people using it. This runs before the archive so the failure costs seconds
+# rather than a full build + upload cycle.
+CATALOG="$REPO_ROOT/SimmerSmith/SimmerSmith/Features/ReleaseNotes/ReleaseNotesCatalog.swift"
+if [[ ! -f "$CATALOG" ]]; then
+    echo "release-ios: missing release-note catalog at $CATALOG" >&2
+    exit 1
+fi
+if ! grep -qE "^[[:space:]]*build:[[:space:]]*${BUILD_NUMBER},[[:space:]]*$" "$CATALOG"; then
+    echo "release-ios: no release-note entry for build ${BUILD_NUMBER}." >&2
+    echo >&2
+    echo "  Add a ReleaseNote(build: ${BUILD_NUMBER}, ...) to:" >&2
+    echo "    $CATALOG" >&2
+    echo >&2
+    echo "  A build with nothing user-visible to say still needs an entry —" >&2
+    echo "  leave new/improved/fixed empty and no What's New sheet is shown." >&2
+    exit 1
+fi
+echo "release-ios: release notes present for build ${BUILD_NUMBER}"
+
 echo "release-ios: regenerating Xcode project for build ${BUILD_NUMBER}"
 xcodegen generate --spec "$PROJECT_YML" >/dev/null
 

@@ -29,6 +29,17 @@ struct SettingsView: View {
     @State private var showingClearCacheConfirmation = false
     @State private var showingResetConnectionConfirmation = false
     @State private var showingSignOutConfirmation = false
+    /// simmersmith-224 — Settings shows the *whole* catalog, not just the
+    /// unseen slice the launch sheet shows. Nothing here marks notes as seen;
+    /// that is the launch sheet's job alone.
+    @State private var showingReleaseNotes = false
+
+    private var appVersionDisplay: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
+    }
 
     var body: some View {
         @Bindable var appState = appState
@@ -634,6 +645,25 @@ struct SettingsView: View {
             }
             #endif
 
+            // simmersmith-224: the durable way back to the release notes, and
+            // the only place the app states which build it is — the first thing
+            // any bug report needs.
+            Section {
+                Button {
+                    showingReleaseNotes = true
+                } label: {
+                    HStack {
+                        Label("What's New", systemImage: "sparkles")
+                        Spacer()
+                        Text(appVersionDisplay)
+                            .font(SMFont.caption)
+                            .foregroundStyle(SMColor.textSecondary)
+                    }
+                }
+            } header: {
+                SmithSectionHeader("about")
+            }
+
             if DebugGate.showsCloudKitChecks {
                 Section {
                     NavigationLink {
@@ -653,6 +683,9 @@ struct SettingsView: View {
             if appState.ingredientPreferences.isEmpty {
                 await appState.refreshIngredientPreferences()
             }
+        }
+        .sheet(isPresented: $showingReleaseNotes) {
+            ReleaseNotesSheet(notes: ReleaseNotesCatalog.all)
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)

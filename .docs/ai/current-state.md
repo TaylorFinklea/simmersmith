@@ -8,7 +8,10 @@ Branch: main
 - Device gates riding 151: `mmi` (memories 990.4 — never driven on a device; sim has no iCloud acct), `6uj` `a97` `nli` `3hn`.
 
 ## Notes
-- `project.pbxproj` stays dirty by convention (xcodegen regen of the 151 build number; `project.yml` is the committed source of truth). Not drift.
+- `project.pbxproj` is now COMMITTED in sync with `project.yml` at build **152** (the old 150-vs-151 drift is resolved; it is no longer "expected dirty"). A NEW source file still needs `xcodegen generate` + the pbxproj committed, or it vanishes from fresh clones.
+- Build 152 (unreleased) carries What's New (`224`). `release-ios.sh` now REFUSES to archive a build with no entry in `ReleaseNotesCatalog.swift` — empty new/improved/fixed is the valid "nothing user-visible" answer.
+- `224`'s launch trigger is NOT device-verified (sim iCloud needs re-auth → household never reaches `.ready`) → bead `f5e`.
+- The simulator UDID baked into 29 beads' `verify_cmd` DOES NOT EXIST → every one fails instantly → bead `1j0` (P1). Build verifies should use `-destination generic/platform=iOS`.
 - Release landmines → bd memory `testflight-cut-landmines`. Credential durability = `ana`; script cert/profile preflight = `qjx`.
 
 ## Open Questions
