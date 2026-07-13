@@ -456,26 +456,6 @@ public struct NutritionSummary: Codable, Hashable, Sendable {
     public let lastCalculatedAt: Date?
 }
 
-public struct NutritionItem: Codable, Identifiable, Hashable, Sendable {
-    public let itemId: String
-    public let name: String
-    public let normalizedName: String
-    public let referenceAmount: Double
-    public let referenceUnit: String
-    public let calories: Double
-    public let notes: String
-
-    public var id: String { itemId }
-}
-
-public struct IngredientNutritionMatch: Codable, Hashable, Sendable {
-    public let matchId: String
-    public let ingredientName: String
-    public let normalizedName: String
-    public let nutritionItem: NutritionItem
-    public let updatedAt: Date
-}
-
 public struct BaseIngredient: Codable, Identifiable, Hashable, Sendable {
     public let baseIngredientId: String
     public let name: String

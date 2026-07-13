@@ -61,20 +61,6 @@ class NutritionItemOut(BaseModel):
     notes: str = ""
 
 
-class IngredientNutritionMatchRequest(BaseModel):
-    ingredient_name: str
-    normalized_name: str | None = None
-    nutrition_item_id: str
-
-
-class IngredientNutritionMatchOut(BaseModel):
-    match_id: str
-    ingredient_name: str
-    normalized_name: str
-    nutrition_item: NutritionItemOut
-    updated_at: datetime
-
-
 class RecipeMetadataOut(BaseModel):
     updated_at: datetime | None = None
     cuisines: list[ManagedListItemOut] = Field(default_factory=list)

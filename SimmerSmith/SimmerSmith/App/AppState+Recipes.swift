@@ -1384,46 +1384,6 @@ extension AppState {
         return try await apiClient.estimateRecipeNutrition(draft)
     }
 
-    func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
-        // SP-C AI-3: catalog name search via PublicCatalogReader (deterministic, no LLM, no key).
-        // Searches BaseIngredient records by normalizedName prefix match in the PUBLIC catalog.
-        // Returns NutritionItem projections from the catalog's calorie fields (calories-only for
-        // now; full macros become available when the catalog publishes the macro columns).
-        #if canImport(CloudKit)
-        if let catalog = householdSession?.catalog {
-            let normalizedQuery = NutritionCalculator.normalizeName(query)
-            // CATALOG TRACK: substring search needs a catalog list/index. The server did a
-            // LIKE %query% (up to 20 rows), but the PUBLIC catalog (PublicCatalogReader) only
-            // exposes a point-lookup by `normalizedName` — PUBLIC indexes only
-            // `normalizedName`/`builtIn`, so a substring/LIKE predicate or an "iterate all
-            // rows" scan is not possible (CloudKit forbids unindexed full-table queries). So
-            // this returns at most ONE exact normalizedName match. A proper substring search
-            // becomes feasible once the curator publishes a queryable catalog list/index.
-            // The UI degrades sanely: an empty query and a no-hit query both yield [] (no crash).
-            guard !normalizedQuery.isEmpty else { return [] }
-            if let projection = await catalog.macros(forNormalizedName: normalizedQuery) {
-                // We got a catalog hit — build a NutritionItem from the projection via JSON
-                // round-trip (NutritionItem has no memberwise init — decoder-only).
-                let dict: [String: Any] = [
-                    "itemId": normalizedQuery,
-                    "name": query,
-                    "normalizedName": normalizedQuery,
-                    "referenceAmount": projection.referenceAmount ?? 100,
-                    "referenceUnit": projection.referenceUnit.isEmpty ? "g" : projection.referenceUnit,
-                    "calories": projection.calories ?? 0,
-                    "notes": "",
-                ]
-                if let data = try? JSONSerialization.data(withJSONObject: dict),
-                   let item = try? JSONDecoder().decode(NutritionItem.self, from: data) {
-                    return [item]
-                }
-            }
-            return []
-        }
-        #endif
-        return try await apiClient.searchNutritionItems(query: query, limit: limit)
-    }
-
     func importRecipeDraft(fromURL url: String) async throws -> RecipeDraft {
         // SP-C AI-2: deterministic JSON-LD first; LLM fallback when no Recipe node.
         // JSON-LD requires no API key; LLM fallback requires a key — the caller sees

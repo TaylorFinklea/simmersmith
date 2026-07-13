@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from app.models import BaseIngredient, IngredientNutritionMatch, IngredientVariation, NutritionItem
+from app.models import BaseIngredient, IngredientVariation, NutritionItem
 from app.services.grocery import normalize_name
 
 
@@ -289,47 +289,6 @@ def search_nutrition_items(session: Session, query: str, limit: int = 20) -> lis
     return list(session.scalars(statement).all())
 
 
-def save_ingredient_nutrition_match(
-    session: Session,
-    ingredient_name: str,
-    normalized_name: str | None,
-    nutrition_item_id: str,
-) -> IngredientNutritionMatch:
-    item = session.get(NutritionItem, nutrition_item_id)
-    if item is None:
-        raise ValueError("Nutrition item not found")
-    normalized_ingredient_name = normalize_name(normalized_name or ingredient_name)
-    if not normalized_ingredient_name:
-        raise ValueError("Ingredient name is required")
-    match = session.scalar(
-        select(IngredientNutritionMatch).where(
-            IngredientNutritionMatch.normalized_ingredient_name == normalized_ingredient_name
-        )
-    )
-    if match is None:
-        match = IngredientNutritionMatch(
-            ingredient_name=ingredient_name.strip() or normalized_ingredient_name,
-            normalized_ingredient_name=normalized_ingredient_name,
-            nutrition_item=item,
-        )
-        session.add(match)
-    else:
-        match.ingredient_name = ingredient_name.strip() or match.ingredient_name
-        match.nutrition_item = item
-    session.flush()
-    return match
-
-
-def ingredient_nutrition_match_payload(match: IngredientNutritionMatch) -> dict[str, object]:
-    return {
-        "match_id": match.id,
-        "ingredient_name": match.ingredient_name,
-        "normalized_name": match.normalized_ingredient_name,
-        "nutrition_item": nutrition_item_payload(match.nutrition_item),
-        "updated_at": match.updated_at,
-    }
-
-
 def _unit_group(unit: str) -> tuple[str, float] | None:
     normalized_unit = normalize_name(unit)
     if normalized_unit in MASS_UNIT_GRAMS:
@@ -527,13 +486,6 @@ def _lookup_nutrition_item(session: Session, ingredient_name: str, normalized_na
     normalized = normalize_name(normalized_name or ingredient_name)
     if not normalized:
         return None
-    match = session.scalar(
-        select(IngredientNutritionMatch)
-        .options(joinedload(IngredientNutritionMatch.nutrition_item))
-        .where(IngredientNutritionMatch.normalized_ingredient_name == normalized)
-    )
-    if match is not None:
-        return match.nutrition_item
     return session.scalar(select(NutritionItem).where(NutritionItem.normalized_name == normalized))
 
 

@@ -62,12 +62,6 @@ class NutritionItem(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
-    ingredient_matches: Mapped[list["IngredientNutritionMatch"]] = relationship(
-        back_populates="nutrition_item",
-        cascade="all, delete-orphan",
-    )
-
-
 class BaseIngredient(Base):
     __tablename__ = "base_ingredients"
 
@@ -218,19 +212,3 @@ class IngredientPreference(Base):
 
     base_ingredient: Mapped["BaseIngredient"] = relationship(back_populates="preferences")
     preferred_variation: Mapped["IngredientVariation | None"] = relationship(back_populates="preferences")
-
-
-class IngredientNutritionMatch(Base):
-    __tablename__ = "ingredient_nutrition_matches"
-    __table_args__ = (UniqueConstraint("normalized_ingredient_name", name="uq_ingredient_nutrition_match_name"),)
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    ingredient_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    normalized_ingredient_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    nutrition_item_id: Mapped[str] = mapped_column(ForeignKey("nutrition_items.id", ondelete="CASCADE"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
-    )
-
-    nutrition_item: Mapped["NutritionItem"] = relationship(back_populates="ingredient_matches")

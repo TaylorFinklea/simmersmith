@@ -5,7 +5,6 @@ struct NutritionEditor: View {
     let nutritionSummary: NutritionSummary?
     let isEstimatingNutrition: Bool
     let nutritionEstimateError: String?
-    let onSelectUnmatchedIngredient: (String) -> Void
 
     var body: some View {
         Section("Calories") {
@@ -40,24 +39,19 @@ struct NutritionEditor: View {
 
                 if !nutritionSummary.unmatchedIngredients.isEmpty {
                     ForEach(nutritionSummary.unmatchedIngredients, id: \.self) { ingredient in
-                        Button {
-                            onSelectUnmatchedIngredient(ingredient)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ingredient)
-                                        .foregroundStyle(.primary)
-                                    Text("Match this ingredient to improve the estimate")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(ingredient)
+                                    .foregroundStyle(.primary)
+                                Text("No catalog nutrition data yet")
                                     .font(.footnote)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
                             }
+                            Spacer()
+                            Image(systemName: "questionmark.circle")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             } else if isEstimatingNutrition {

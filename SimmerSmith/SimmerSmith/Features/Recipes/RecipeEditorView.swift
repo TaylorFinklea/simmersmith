@@ -116,7 +116,6 @@ struct RecipeEditorView: View {
     @State private var nutritionSummary: NutritionSummary?
     @State private var isEstimatingNutrition = false
     @State private var nutritionEstimateError: String?
-    @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var pendingManagedField: ManagedRecipeField?
@@ -409,8 +408,7 @@ struct RecipeEditorView: View {
                 NutritionEditor(
                     nutritionSummary: nutritionSummary,
                     isEstimatingNutrition: isEstimatingNutrition,
-                    nutritionEstimateError: nutritionEstimateError,
-                    onSelectUnmatchedIngredient: presentNutritionMatcher(for:)
+                    nutritionEstimateError: nutritionEstimateError
                 )
 
                 StepsEditor(
@@ -493,13 +491,6 @@ struct RecipeEditorView: View {
             }
             .task(id: nutritionEstimateSignature) {
                 await refreshNutritionEstimate()
-            }
-            .sheet(item: $nutritionMatchContext) { context in
-                RecipeNutritionMatchView(context: context) {
-                    Task {
-                        await refreshNutritionEstimate(force: true)
-                    }
-                }
             }
             .sheet(item: $ingredientResolutionContext) { context in
                 IngredientResolutionSheet(ingredient: context.ingredient) { updatedIngredient in
@@ -911,16 +902,6 @@ struct RecipeEditorView: View {
             nutritionEstimateError = error.localizedDescription
         }
         isEstimatingNutrition = false
-    }
-
-    private func presentNutritionMatcher(for ingredientName: String) {
-        let ingredient = draft.ingredients.first {
-            $0.ingredientName.localizedCaseInsensitiveCompare(ingredientName) == .orderedSame
-        }
-        nutritionMatchContext = RecipeNutritionMatchContext(
-            ingredientName: ingredientName,
-            normalizedName: ingredient?.normalizedName
-        )
     }
 
     private func substepLabel(for sortOrder: Int) -> String {

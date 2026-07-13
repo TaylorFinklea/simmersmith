@@ -26,8 +26,6 @@ from app.schemas import (
     PairingOptionOut,
     RecipeAIDraftOptionOut,
     RecipePairingsResponse,
-    IngredientNutritionMatchOut,
-    IngredientNutritionMatchRequest,
     IngredientSubstituteRequest,
     IngredientSubstituteResponse,
     ManagedListItemCreateRequest,
@@ -52,9 +50,7 @@ from app.services.ingredient_catalog import resolve_ingredient, reresolve_unreso
 from app.services.managed_lists import create_item, metadata_payload
 from app.services.nutrition import (
     calculate_recipe_nutrition,
-    ingredient_nutrition_match_payload,
     nutrition_item_payload,
-    save_ingredient_nutrition_match,
     search_nutrition_items,
 )
 from app.services.presenters import recipe_payload, recipes_payload
@@ -774,26 +770,6 @@ def nutrition_search_route(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, object]]:
     return [nutrition_item_payload(item) for item in search_nutrition_items(session, q, limit=limit)]
-
-
-@router.post("/nutrition/matches", response_model=IngredientNutritionMatchOut)
-def nutrition_match_route(
-    payload: IngredientNutritionMatchRequest,
-    session: Session = Depends(get_session),
-    current_user: CurrentUser = Depends(get_current_user),
-) -> dict[str, object]:
-    try:
-        match = save_ingredient_nutrition_match(
-            session,
-            ingredient_name=payload.ingredient_name,
-            normalized_name=payload.normalized_name,
-            nutrition_item_id=payload.nutrition_item_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.commit()
-    session.refresh(match)
-    return ingredient_nutrition_match_payload(match)
 
 
 @router.post("/{recipe_id}/archive", response_model=RecipeOut)

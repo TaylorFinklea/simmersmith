@@ -13,7 +13,6 @@ struct RecipeDetailView: View {
     @State private var editorContext: RecipeEditorSheetContext?
     @State private var assignmentContext: RecipeAssignmentSheetContext?
     @State private var companionContext: RecipeCompanionSheetContext?
-    @State private var nutritionMatchContext: RecipeNutritionMatchContext?
     @State private var substitutionContext: SubstitutionSheetContext?
     @State private var cookCheckContext: CookCheckSheetContext?
     // Transient toast shown after marking an ingredient avoid/allergy —
@@ -256,11 +255,6 @@ struct RecipeDetailView: View {
                 onSave: { _ in /* recipe upserts into appState.recipes */ }
             )
         }
-        .sheet(item: $nutritionMatchContext) { context in
-            RecipeNutritionMatchView(context: context) {
-                Task { await loadRecipe(forceRefresh: true) }
-            }
-        }
         .sheet(item: $substitutionContext) { context in
             SubstitutionSheetView(
                 recipe: context.recipe,
@@ -283,7 +277,7 @@ struct RecipeDetailView: View {
             if let recipe, let nutrition = recipe.nutritionSummary {
                 NavigationStack {
                     ScrollView {
-                        nutritionSection(recipe, nutritionSummary: nutrition)
+                        nutritionSection(nutrition)
                             .padding(.horizontal, SMSpacing.lg)
                             .padding(.vertical, SMSpacing.lg)
                     }
@@ -682,7 +676,7 @@ struct RecipeDetailView: View {
 
     // MARK: - Nutrition
 
-    private func nutritionSection(_ recipe: RecipeSummary, nutritionSummary: NutritionSummary) -> some View {
+    private func nutritionSection(_ nutritionSummary: NutritionSummary) -> some View {
         SMCard {
             VStack(alignment: .leading, spacing: SMSpacing.md) {
                 Text("Calories")
@@ -717,39 +711,25 @@ struct RecipeDetailView: View {
                     }
                 }
 
-                // SP-C review finding D: matching an unmatched ingredient opens the
-                // Fly-backed nutrition catalog search. Hide the affordance in
-                // CloudKit-only mode (the displayed estimate stays — it's stored data).
-                if !appState.isCloudKitOnly && !nutritionSummary.unmatchedIngredients.isEmpty {
+                if !nutritionSummary.unmatchedIngredients.isEmpty {
                     Divider()
                         .background(SMColor.divider)
 
                     ForEach(nutritionSummary.unmatchedIngredients, id: \.self) { ingredient in
-                        Button {
-                            let normalizedName = recipe.ingredients.first {
-                                $0.ingredientName.localizedCaseInsensitiveCompare(ingredient) == .orderedSame
-                            }?.normalizedName
-                            nutritionMatchContext = RecipeNutritionMatchContext(
-                                ingredientName: ingredient,
-                                normalizedName: normalizedName
-                            )
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ingredient)
-                                        .font(SMFont.body)
-                                        .foregroundStyle(SMColor.textPrimary)
-                                    Text("Match nutrition to improve this estimate")
-                                        .font(SMFont.caption)
-                                        .foregroundStyle(SMColor.textTertiary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12))
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(ingredient)
+                                    .font(SMFont.body)
+                                    .foregroundStyle(SMColor.textPrimary)
+                                Text("No catalog nutrition data yet")
+                                    .font(SMFont.caption)
                                     .foregroundStyle(SMColor.textTertiary)
                             }
+                            Spacer()
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 12))
+                                .foregroundStyle(SMColor.textTertiary)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }

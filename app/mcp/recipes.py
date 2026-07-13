@@ -11,7 +11,6 @@ from app.api.recipes import (
     estimate_recipe_nutrition_route,
     import_recipe_route,
     import_recipe_text_route,
-    nutrition_match_route,
     nutrition_search_route,
     recipe_companion_drafts_route,
     recipe_detail_route,
@@ -23,7 +22,6 @@ from app.api.recipes import (
 )
 from app.db import session_scope
 from app.schemas import (
-    IngredientNutritionMatchRequest,
     ManagedListItemCreateRequest,
     RecipeCompanionDraftRequest,
     RecipeImportRequest,
@@ -169,23 +167,6 @@ def recipes_nutrition_search(query: str = "", limit: int = 20) -> list[dict[str,
         return _call_route(
             lambda: nutrition_search_route(
                 q=query, limit=limit, session=session, current_user=_current_user(session)
-            )
-        )
-
-
-@mcp.tool(description="Save or update a nutrition-item match for an ingredient.")
-def recipes_nutrition_match(
-    ingredient_name: str, normalized_name: str | None, nutrition_item_id: str
-) -> dict[str, Any]:
-    with session_scope() as session:
-        payload = IngredientNutritionMatchRequest(
-            ingredient_name=ingredient_name,
-            normalized_name=normalized_name,
-            nutrition_item_id=nutrition_item_id,
-        )
-        return _call_route(
-            lambda: nutrition_match_route(
-                payload, session=session, current_user=_current_user(session)
             )
         )
 

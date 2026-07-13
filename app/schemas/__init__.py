@@ -87,8 +87,6 @@ from app.schemas.profile import (
     UsageSummaryOut,
 )
 from app.schemas.recipe import (
-    IngredientNutritionMatchOut,
-    IngredientNutritionMatchRequest,
     IngredientSubstituteRequest,
     IngredientSubstituteResponse,
     ManagedListItemCreateRequest,
@@ -207,8 +205,6 @@ __all__ = [
     "IngredientMigrationExportOut",
     "IngredientMigrationVariationOut",
     "IngredientMergeRequest",
-    "IngredientNutritionMatchOut",
-    "IngredientNutritionMatchRequest",
     "IngredientPreferenceOut",
     "IngredientPreferencePayload",
     "EventAttendeeOut",

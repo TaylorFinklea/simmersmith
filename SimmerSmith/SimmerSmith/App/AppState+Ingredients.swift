@@ -502,23 +502,4 @@ extension AppState {
         throw IngredientRepositoryError.baseIngredientNotFound
     }
 
-    func saveIngredientNutritionMatch(
-        ingredientName: String,
-        normalizedName: String?,
-        nutritionItemID: String
-    ) async throws -> IngredientNutritionMatch {
-        // CATALOG TRACK: storing a user's ingredient→nutrition-item match requires a small
-        // manifest record on the private or household plane (IngredientNutritionMatch is
-        // per-household). This is DEFERRED pending a schema decision: the match could ride
-        // the existing preference/private-plane store (a new IngredientNutritionMatch
-        // manifest type), or a lightweight household record. Flag this as a follow-up
-        // (the UI that calls this — RecipeNutritionMatchView — is gated behind
-        // `!isCloudKitOnly` already, so no CloudKit-only path is ever reached here).
-        // For now, fall through to the Fly path (pre-CloudKit-session devices only).
-        try await apiClient.saveIngredientNutritionMatch(
-            ingredientName: ingredientName,
-            normalizedName: normalizedName,
-            nutritionItemID: nutritionItemID
-        )
-    }
 }

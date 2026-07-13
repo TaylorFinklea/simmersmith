@@ -182,7 +182,6 @@
 		E2F4671C3E4F1338A7AF13C0 /* CloudKitDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */; };
 		E395F9237FD8F1D10B4A2113 /* AIPageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BAF92537028E47DF2B80C2 /* AIPageContext.swift */; };
 		E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */; };
-		E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */; };
 		E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */; };
 		E6E569431165A47479D5427D /* RecipeFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9935E945427DEAA0FE104C29 /* RecipeFilterSheet.swift */; };
 		EE566CA88D275034F52ABDDD /* VoicePlanningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37588626E6B1863A161B135A /* VoicePlanningCoordinator.swift */; };
@@ -368,7 +367,6 @@
 		BD53F7890D99F7C90C8BE440 /* TabPrimaryFAB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabPrimaryFAB.swift; sourceTree = "<group>"; };
 		BE0D113A630A4FD571A4A89C /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
 		BE844C8C8202A1B90F75D1C3 /* GuestRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestRepository.swift; sourceTree = "<group>"; };
-		C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeNutritionMatchView.swift; sourceTree = "<group>"; };
 		C11195860BCA1B7B3A5B55E8 /* SimmerSmithCloudKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithCloudKit; path = ../SimmerSmithCloudKit; sourceTree = SOURCE_ROOT; };
 		C248B30B7556BFE5C10D1466 /* AssistantPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantPromptsView.swift; sourceTree = "<group>"; };
 		C252D2A966E47B881B77F401 /* RecipeRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeRepository.swift; sourceTree = "<group>"; };
@@ -665,7 +663,6 @@
 				F9B7C710B194A7A3BDF6D722 /* RecipeImageOverrideSheet.swift */,
 				DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */,
 				74BEFEA67BE67E9376250739 /* RecipeMemoriesSection.swift */,
-				C0A35C98889BF2FD0A271316 /* RecipeNutritionMatchView.swift */,
 				0C7199A2250CBA7830AFF57E /* RecipePairingsCard.swift */,
 				A7308F46C3B2670F4FB20AAD /* RecipeSupport.swift */,
 				5D6F1198488A7EEFE6A848A3 /* RecipesView.swift */,
@@ -1147,7 +1144,6 @@
 				822CEF7F346BD614AEB07A6F /* RecipeListRow.swift in Sources */,
 				9029A70CD594DE5D545A3537 /* RecipeMemoriesSection.swift in Sources */,
 				912E9279290C36CA6C732A59 /* RecipeMigrationLoader.swift in Sources */,
-				E552B11304864EDBA77BD097 /* RecipeNutritionMatchView.swift in Sources */,
 				6DEB6FB3394993D202D2A101 /* RecipePairingsCard.swift in Sources */,
 				F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */,
 				20C1931388DA5FA1303903DB /* RecipeRepository.swift in Sources */,

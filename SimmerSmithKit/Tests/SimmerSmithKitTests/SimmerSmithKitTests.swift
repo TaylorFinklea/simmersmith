@@ -713,25 +713,10 @@ func decoderHandlesNutritionSummaryAndNutritionCatalogPayloads() throws {
     }
     """.data(using: .utf8)!
 
-    let itemJSON = """
-    {
-      "item_id": "nutrition-1",
-      "name": "Butter",
-      "normalized_name": "butter",
-      "reference_amount": 1,
-      "reference_unit": "tbsp",
-      "calories": 102,
-      "notes": ""
-    }
-    """.data(using: .utf8)!
-
     let recipe = try SimmerSmithJSONCoding.makeDecoder().decode(RecipeSummary.self, from: recipeJSON)
-    let item = try SimmerSmithJSONCoding.makeDecoder().decode(NutritionItem.self, from: itemJSON)
 
     #expect(recipe.nutritionSummary?.caloriesPerServing == 251.0)
     #expect(recipe.nutritionSummary?.coverageStatus == "complete")
-    #expect(item.referenceUnit == "tbsp")
-    #expect(item.calories == 102)
 }
 
 @Test

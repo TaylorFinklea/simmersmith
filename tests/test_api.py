@@ -2006,7 +2006,7 @@ def test_recipe_nutrition_summary_and_variation_recalculation(client) -> None:
     assert detail_response.json()["nutrition_summary"]["calories_per_serving"] == 103.0
 
 
-def test_recipe_nutrition_estimate_search_and_matching(client) -> None:
+def test_recipe_nutrition_estimate_and_search_have_no_manual_match_surface(client) -> None:
     payload = {
         "name": "Draft Estimate",
         "meal_type": "dinner",
@@ -2037,15 +2037,14 @@ def test_recipe_nutrition_estimate_search_and_matching(client) -> None:
             "nutrition_item_id": butter["item_id"],
         },
     )
-    assert match_response.status_code == 200
-    assert match_response.json()["nutrition_item"]["normalized_name"] == "butter"
+    assert match_response.status_code == 404
 
     matched_estimate_response = client.post("/api/recipes/nutrition/estimate", json=payload)
     assert matched_estimate_response.status_code == 200
     matched_estimate = matched_estimate_response.json()
-    assert matched_estimate["coverage_status"] == "complete"
-    assert matched_estimate["unmatched_ingredients"] == []
-    assert matched_estimate["calories_per_serving"] == 868.0
+    assert matched_estimate["coverage_status"] == "partial"
+    assert matched_estimate["unmatched_ingredients"] == ["Mystery Sauce"]
+    assert matched_estimate["calories_per_serving"] == 52.0
 
 
 def test_assistant_thread_lifecycle(client) -> None:

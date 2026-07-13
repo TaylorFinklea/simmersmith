@@ -164,12 +164,6 @@ private struct ManagedListItemBody: Encodable {
     let name: String
 }
 
-private struct IngredientNutritionMatchBody: Encodable {
-    let ingredientName: String
-    let normalizedName: String?
-    let nutritionItemId: String
-}
-
 private struct IngredientResolveBody: Encodable {
     let ingredientName: String
     let normalizedName: String?
@@ -1152,11 +1146,6 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
         try await request(path: "/api/recipes/nutrition/estimate", method: "POST", body: recipe)
     }
 
-    public func searchNutritionItems(query: String = "", limit: Int = 20) async throws -> [NutritionItem] {
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return try await request(path: "/api/recipes/nutrition/search?q=\(encodedQuery)&limit=\(limit)")
-    }
-
     public func fetchBaseIngredients(
         query: String = "",
         limit: Int = 20,
@@ -1450,22 +1439,6 @@ public final class SimmerSmithAPIClient: @unchecked Sendable {
                 active: active,
                 notes: notes,
                 rank: rank
-            )
-        )
-    }
-
-    public func saveIngredientNutritionMatch(
-        ingredientName: String,
-        normalizedName: String?,
-        nutritionItemID: String
-    ) async throws -> IngredientNutritionMatch {
-        try await request(
-            path: "/api/recipes/nutrition/matches",
-            method: "POST",
-            body: IngredientNutritionMatchBody(
-                ingredientName: ingredientName,
-                normalizedName: normalizedName,
-                nutritionItemId: nutritionItemID
             )
         )
     }

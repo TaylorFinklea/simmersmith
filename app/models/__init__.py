@@ -4,7 +4,6 @@ from app.models.aliases import HouseholdTermAlias
 from app.models.billing import ProcessedAppleNotification, Subscription, UsageCounter
 from app.models.catalog import (
     BaseIngredient,
-    IngredientNutritionMatch,
     IngredientPreference,
     IngredientVariation,
     ManagedListItem,
@@ -69,7 +68,6 @@ __all__ = [
     "HouseholdSetting",
     "HouseholdTermAlias",
     "ImageGenUsage",
-    "IngredientNutritionMatch",
     "IngredientPreference",
     "IngredientVariation",
     "ManagedListItem",
