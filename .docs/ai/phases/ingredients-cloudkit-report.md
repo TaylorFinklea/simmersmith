@@ -49,7 +49,7 @@ Human gate: `simmersmith-cel` (`user-verify`)
 - Release archive and manual App Store export PASS for version 1.0.0, build 151.
 - Exported IPA passes strict code-sign verification; `aps-environment=production`; `get-task-allow=false`.
 - Apple package validation: `VERIFY SUCCEEDED with no errors`.
-- Upload and processing: `VALID`, `APP_STORE_ELIGIBLE`, present in App Store Connect; delivery `af098ff8-9970-4e6f-9d4f-eae6a535ed4d`.
+- Upload and processing: `VALID`, `APP_STORE_ELIGIBLE`, `IN_BETA_TESTING`, present in App Store Connect; delivery `af098ff8-9970-4e6f-9d4f-eae6a535ed4d`.
 - A new `SimmerSmith App Store Build 151` provisioning profile was created for the current distribution certificate; the older active profile was preserved.
 
 ## Device product-test checklist
