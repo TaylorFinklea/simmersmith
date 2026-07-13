@@ -1,6 +1,6 @@
 # Ingredients CloudKit Milestone Report
 
-Status: READY FOR HUMAN DEVICE TEST
+Status: READY FOR TESTFLIGHT — ASC CREDENTIAL BLOCKED
 Date: 2026-07-12
 Human gate: `simmersmith-cel` (`user-verify`)
 
@@ -43,6 +43,12 @@ Human gate: `simmersmith-cel` (`user-verify`)
 - Signed XCUITest launch/tab-bar smoke PASS on the same simulator.
 - App reaches the Week surface without a crash or fatal log. The test account reports 13 harmless empty households left by earlier development builds.
 - The checklist below remains the human interaction gate; the host accessibility bridge is not authorized to drive Simulator UI in this harness.
+
+## TestFlight cut
+
+- Build 151 archive/upload requested 2026-07-12; no build uploaded.
+- Full Xcode path verified, but App Store Connect rejected API-key provisioning with HTTP 401 because `IOS_RELEASE_ISSUER_ID` is a 10-character key ID rather than the required 36-character issuer UUID.
+- The installed-profile fallback also cannot archive: automatic signing needs authenticated provisioning access.
 
 ## Device product-test checklist
 
