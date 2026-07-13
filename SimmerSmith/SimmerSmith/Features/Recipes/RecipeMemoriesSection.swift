@@ -19,6 +19,15 @@ struct RecipeMemoriesSection: View {
         appState.recipeMemoriesCached(recipeID: recipeID) ?? []
     }
 
+    /// Bumps on every household-store change; nil on the Fly path (no repository).
+    private var storeGeneration: Int? {
+        #if canImport(CloudKit)
+        appState.recipeRepository?.storeGeneration
+        #else
+        nil
+        #endif
+    }
+
     var body: some View {
         SMCard {
             VStack(alignment: .leading, spacing: SMSpacing.md) {
@@ -60,6 +69,13 @@ struct RecipeMemoriesSection: View {
         }
         .task(id: recipeID) {
             await load()
+        }
+        .onChange(of: storeGeneration) {
+            // simmersmith-zgt (sibling gap): a memory — or a photo record that
+            // flips hasPhoto — arriving from another device never refreshed the
+            // AppState cache this section renders from; it appeared only after
+            // leaving and re-entering the screen. Re-mirror on store changes.
+            Task { await load() }
         }
         .sheet(isPresented: $isComposing) {
             MemoryComposeSheet(recipeID: recipeID)

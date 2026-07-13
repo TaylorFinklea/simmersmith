@@ -58,6 +58,13 @@ final class RecipeRepository {
 
     private(set) var recipes: [RecipeSummary] = []
 
+    /// Bumped at the end of every `reload()` — i.e., on each household-store change
+    /// the revisionReloader observes (plus explicit CRUD reloads). Views that read
+    /// derived-but-not-mirrored store state key refreshes off this: a memory photo's
+    /// CKAsset arriving after first render never changes `recipes`, so observing it
+    /// is the only signal that a retry might now succeed. (simmersmith-zgt)
+    private(set) var storeGeneration = 0
+
     /// Set when `sendUntilDrained()` fails on any write path. Task 5 / the UI can
     /// observe this to surface a sync-error banner and retry button.
     private(set) var lastSyncError: Error?
@@ -197,6 +204,7 @@ final class RecipeRepository {
         // Sort by name (matches AppState.upsertRecipe's sort).
         result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         recipes = result
+        storeGeneration += 1
     }
 
     // MARK: - Write helpers
