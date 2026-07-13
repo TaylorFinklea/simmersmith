@@ -2,14 +2,25 @@
 #
 # release-ios.sh — archive + export + upload SimmerSmith to TestFlight.
 #
-# Reads the App Store Connect API key from .release-ios.env (gitignored,
-# lives in the repo root next to the AuthKey_*.p8 files). The .env file
-# must define:
+# App Store Connect API credentials resolve in this order:
+#   1. the environment (an already-exported IOS_RELEASE_* var wins),
+#   2. the macOS Keychain (the durable home — see bead simmersmith-ana),
+#   3. .release-ios.env (gitignored, repo root; legacy fallback).
+# Two values are needed:
 #   IOS_RELEASE_KEY_ID      — e.g. "6X83L5SG4J"; the AuthKey_<ID>.p8
 #                             file in the repo root must match.
-#   IOS_RELEASE_ISSUER_ID   — UUID from App Store Connect → Users and
-#                             Access → Integrations → App Store Connect
-#                             API.
+#   IOS_RELEASE_ISSUER_ID   — 36-char UUID from App Store Connect → Users
+#                             and Access → Integrations → App Store Connect
+#                             API. NOT the key ID: pasting the key ID here
+#                             yields a bare HTTP 401 (cost an evening on 151).
+# Seed the Keychain with:
+#   security add-generic-password -U -a "$USER" -s IOS_RELEASE_KEY_ID -w '<id>'
+#   security add-generic-password -U -a "$USER" -s IOS_RELEASE_ISSUER_ID -w '<uuid>'
+#
+# Why the Keychain: .release-ios.env is local-only, gitignored, and unbacked —
+# it silently vanished between builds 150 and 151, as did the Apple
+# Distribution certificate. The Keychain survives that; the .env path stays
+# as a fallback so existing checkouts keep working.
 #
 # Why this script exists: `xcodebuild -exportArchive` falls through to
 # Xcode-account auth when no `-authenticationKey*` flags are passed.
@@ -23,17 +34,42 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Keychain lookup; empty (not fatal) when the item is absent.
+keychain_value() {
+    security find-generic-password -a "$USER" -s "$1" -w 2>/dev/null || true
+}
+
+# Capture anything already exported BEFORE sourcing — `source` would otherwise
+# clobber the caller's values with the file's, inverting the precedence above.
+ENV_KEY_ID="${IOS_RELEASE_KEY_ID:-}"
+ENV_ISSUER_ID="${IOS_RELEASE_ISSUER_ID:-}"
+
 ENV_FILE="$REPO_ROOT/.release-ios.env"
-if [[ ! -f "$ENV_FILE" ]]; then
-    echo "release-ios: missing $ENV_FILE" >&2
-    echo "  Create it with IOS_RELEASE_KEY_ID and IOS_RELEASE_ISSUER_ID." >&2
+if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+fi
+
+IOS_RELEASE_KEY_ID="${ENV_KEY_ID:-${IOS_RELEASE_KEY_ID:-$(keychain_value IOS_RELEASE_KEY_ID)}}"
+IOS_RELEASE_ISSUER_ID="${ENV_ISSUER_ID:-${IOS_RELEASE_ISSUER_ID:-$(keychain_value IOS_RELEASE_ISSUER_ID)}}"
+
+if [[ -z "${IOS_RELEASE_KEY_ID}" || -z "${IOS_RELEASE_ISSUER_ID}" ]]; then
+    echo "release-ios: missing App Store Connect credentials." >&2
+    echo "  Store them in the Keychain (preferred):" >&2
+    echo "    security add-generic-password -U -a \"\$USER\" -s IOS_RELEASE_KEY_ID -w '<key-id>'" >&2
+    echo "    security add-generic-password -U -a \"\$USER\" -s IOS_RELEASE_ISSUER_ID -w '<issuer-uuid>'" >&2
+    echo "  ...or define both in $ENV_FILE." >&2
     exit 1
 fi
-# shellcheck disable=SC1090
-source "$ENV_FILE"
 
-: "${IOS_RELEASE_KEY_ID:?Set IOS_RELEASE_KEY_ID in .release-ios.env}"
-: "${IOS_RELEASE_ISSUER_ID:?Set IOS_RELEASE_ISSUER_ID in .release-ios.env}"
+# The issuer ID is a UUID. A key ID pasted here authenticates as a bare 401
+# with no hint of the cause, so fail loudly and early instead.
+if [[ ! "${IOS_RELEASE_ISSUER_ID}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    echo "release-ios: IOS_RELEASE_ISSUER_ID is not a UUID (got ${#IOS_RELEASE_ISSUER_ID} chars)." >&2
+    echo "  Expected the 36-char Issuer ID from App Store Connect → Users and Access →" >&2
+    echo "  Integrations, not the ${#IOS_RELEASE_KEY_ID}-char key ID." >&2
+    exit 1
+fi
 
 KEY_PATH="${IOS_RELEASE_KEY_PATH:-$REPO_ROOT/AuthKey_${IOS_RELEASE_KEY_ID}.p8}"
 if [[ ! -f "$KEY_PATH" ]]; then
