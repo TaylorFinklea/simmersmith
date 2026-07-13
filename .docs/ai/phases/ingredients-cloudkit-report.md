@@ -36,11 +36,13 @@ Human gate: `simmersmith-cel` (`user-verify`)
 - App unsigned simulator build PASS.
 - Changed Python files: Ruff PASS. Repo-wide Ruff: 21 pre-existing unused-import findings outside this milestone.
 
-## Simulator smoke
+## Signed iCloud simulator readiness
 
-- Installed + launched `app.simmersmith.ios` on booted iPhone 17 Pro simulator.
-- Launch reached first-run notification prompt; no crash/fatal log.
-- Simulator has no iCloud account; expected CloudKit `Not Authenticated` log prevents real catalog UI proof.
+- Rebuilt current `main` (build 151), installed, and launched `app.simmersmith.ios` on the iPhone 17 Pro / iOS 26.5 simulator.
+- iCloud authentication is live: no `Not Authenticated` event after launch; CKSyncEngine saved the private household zone and records with empty failure lists.
+- Signed XCUITest launch/tab-bar smoke PASS on the same simulator.
+- App reaches the Week surface without a crash or fatal log. The test account reports 13 harmless empty households left by earlier development builds.
+- The checklist below remains the human interaction gate; the host accessibility bridge is not authorized to drive Simulator UI in this harness.
 
 ## Device product-test checklist
 
