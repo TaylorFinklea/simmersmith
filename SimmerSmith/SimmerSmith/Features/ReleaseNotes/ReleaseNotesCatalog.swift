@@ -20,6 +20,29 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 155,
+            version: "1.0.0",
+            date: "July 14, 2026",
+            headline: "The assistant pays attention",
+            new: [
+                "The assistant now knows which week you're looking at. Flip to next week, ask it to swap Tuesday, and it changes next week — not this one.",
+                "It also knows your allergies. If you ask for something that contains one, it says no and tells you why, instead of quietly putting it on the menu.",
+                "Recipe nutrition estimates are back on — no API key needed, it does the math from the ingredient catalog.",
+                "Scan an ingredient with the camera, and swap any ingredient for a suggested substitute. Both were finished a while ago and accidentally left switched off.",
+            ],
+            improved: [
+                "Every AI action in the chat now shows what it actually did, with a real name and icon instead of a generic card.",
+                "When a key or model doesn't work, Settings tells you what the provider actually said, not just \"HTTP 400\".",
+            ],
+            fixed: [
+                "Edit something twice quickly and both edits stick. The second one used to be quietly thrown away.",
+                "Unlink a recipe from a side dish and it stays unlinked, instead of reappearing on the other phone.",
+                "Editing an event no longer deletes a guest your partner added while you had the sheet open — and their plus-ones survive too.",
+                "The Week screen no longer claims you're off your nutrition targets when it has no nutrition data at all.",
+                "Removed buttons that never worked: Plan Shopping, the grocery feedback swipe, and a handful of settings that did nothing.",
+            ]
+        ),
+        ReleaseNote(
             build: 154,
             version: "1.0.0",
             date: "July 14, 2026",
