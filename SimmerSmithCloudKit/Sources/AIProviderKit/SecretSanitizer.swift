@@ -5,7 +5,7 @@ import Foundation
 //
 // OpenAI 401 bodies echo the submitted key:
 //   "Incorrect API key provided: sk-proj-…"
-// A suffix of that string can reach the UI via aiErrorMessage (AppState+AI.swift).
+// A suffix of that string can reach the UI via AIError.errorDescription (AIProvider.swift).
 // The sanitizer replaces matching token prefixes with "sk-***" (or the appropriate
 // scheme prefix) so the key is never surfaced to the user or written to logs.
 //

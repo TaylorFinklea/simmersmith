@@ -93,6 +93,26 @@ public struct URLSessionTransport: HTTPTransport {
         return out
     }
 
+    /// Friendly provider id for a request's URL host, so a streaming non-200 surfaces as
+    /// "Openai rejected the API key" — matching the non-streaming `checkHTTP` chokepoint
+    /// (which passes `descriptor.id` / "openai" / "anthropic") instead of the raw
+    /// "Api.openai.com rejected…". Closed set: the BYO-key hosts (OpenAI, Anthropic, and
+    /// the open-model vendors). Falls back to the host itself for anything else.
+    static func providerID(forHost host: String?) -> String {
+        guard let host else { return "unknown" }
+        switch host {
+        case "api.openai.com": return "openai"
+        case "api.anthropic.com": return "anthropic"
+        case "ollama.com": return "ollama"
+        case "api.neuralwatt.com": return "neuralwatt"
+        case "api.z.ai": return "glm"
+        case "api.moonshot.ai": return "kimi"
+        case "api.minimax.io": return "minimax"
+        case "openrouter.ai": return "openrouter"
+        default: return host
+        }
+    }
+
     /// Real streaming override: `session.bytes(for:)`, splitting the raw byte stream into
     /// lines via `SSELineSplitter` (NOT `bytes.lines`) so the SSE blank-line separators are
     /// PRESERVED — `AsyncLineSequence` drops empty lines, which silently breaks SSE framing
@@ -115,7 +135,7 @@ public struct URLSessionTransport: HTTPTransport {
             // fallback (sk-…, AIza…, Bearer …) still runs after for any key that
             // doesn't appear in a recognised header.
             let body = SecretSanitizer.redact(rawBody, knownSecrets: Self.authSecrets(from: request))
-            throw AIError.httpError(provider: request.url?.host ?? "unknown", statusCode: http.statusCode, body: body)
+            throw AIError.httpError(provider: Self.providerID(forHost: request.url?.host), statusCode: http.statusCode, body: body)
         }
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {

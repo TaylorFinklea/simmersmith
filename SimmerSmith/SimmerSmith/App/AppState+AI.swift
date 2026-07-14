@@ -122,7 +122,7 @@ extension AppState {
         } catch let err as AIServiceError {
             return err.localizedDescription
         } catch let err as AIError {
-            return aiErrorMessage(err)
+            return err.errorDescription ?? "Key test failed."
         } catch {
             return "Key test failed: \(error.localizedDescription)"
         }
@@ -176,7 +176,7 @@ extension AppState {
     #if canImport(CloudKit)
     private func modelFetchErrorMessage(_ error: Error) -> String {
         if let svcErr = error as? AIServiceError { return svcErr.localizedDescription }
-        if let aiErr = error as? AIError { return aiErrorMessage(aiErr) }
+        if let aiErr = error as? AIError { return aiErr.errorDescription ?? "Couldn't load models." }
         return "Couldn't load models: \(error.localizedDescription)"
     }
     #endif
@@ -376,27 +376,4 @@ extension AppState {
         default: return nil
         }
     }
-
-    #if canImport(CloudKit)
-    private func aiErrorMessage(_ error: AIError) -> String {
-        switch error {
-        case .noKeyConfigured(let model):
-            return "No key configured for \(model.label)."
-        case .httpError(let provider, let code, _):
-            if code == 401 { return "\(provider.capitalized) key is invalid (401 Unauthorized)." }
-            if code == 429 { return "\(provider.capitalized) rate limit hit — try again later." }
-            return "\(provider.capitalized) returned HTTP \(code)."
-        case .malformedResponse(let provider):
-            return "\(provider.capitalized) returned an unexpected response."
-        case .noProviderAvailable(let feature):
-            return "No provider available for \(feature.rawValue)."
-        case .notWiredYet(let tier):
-            return "Provider tier not yet available: \(tier)."
-        case .webSearchUnsupported(let model):
-            return "Web search isn't available for \(model.label). Switch to a web-search-capable provider (OpenAI or Anthropic) in Settings → AI."
-        case .imageGenFailed(let provider, _, let detail):
-            return "\(provider.capitalized) image generation failed: \(detail)"
-        }
-    }
-    #endif
 }
