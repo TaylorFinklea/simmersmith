@@ -8,14 +8,26 @@
 	<string>K7CBQW6MPG</string>
 	<!-- MANUAL signing with the named distribution profile. The ASC API key can READ/download an
 	     existing profile but can NOT cloud-create one ("Cloud signing permission error"), so automatic
-	     signing fails. Once "SimmerSmith App Store" is regenerated in the Developer portal to include
-	     iCloud (the App ID has it), manual signing downloads that profile and the export succeeds. -->
+	     signing fails. The named profile must therefore already exist in the portal AND list this
+	     machine's Apple Distribution certificate.
+
+	     2026-07-13: a provisioning profile embeds an explicit ALLOWLIST of certificates, and a new Mac
+	     means a new Apple Distribution cert (new private key). The old "SimmerSmith App Store" profile
+	     lists only the previous machine's cert (8722C269…), so exportArchive failed on build 152 with
+	     "doesn't include signing certificate Apple Distribution: Taylor Finklea". Note the ARCHIVE
+	     still succeeds — it signs with a development identity; only the export re-signs for
+	     distribution, so this class of failure always surfaces at the very last step.
+
+	     "SimmerSmith App Store Build 151" is the profile regenerated on THIS machine: it lists the
+	     current cert (799756D6…), carries the full iCloud entitlement set, and is what shipped the
+	     live build 151. The build-specific name is a misnomer — a profile is not build-scoped — and
+	     should be consolidated back to a plain "SimmerSmith App Store" in the portal (bead filed). -->
 	<key>signingStyle</key>
 	<string>manual</string>
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>app.simmersmith.ios</key>
-		<string>SimmerSmith App Store</string>
+		<string>SimmerSmith App Store Build 151</string>
 	</dict>
 	<key>signingCertificate</key>
 	<string>Apple Distribution</string>
