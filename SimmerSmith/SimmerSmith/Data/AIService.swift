@@ -116,7 +116,20 @@ final class AIService {
     /// `static` (not per-instance) so it survives an `AIService` rebuild (a fresh
     /// instance is created each household-session boot) for the process lifetime;
     /// safe unguarded because every caller is `@MainActor` (this class's isolation).
+    ///
+    /// simmersmith-blv: because it is process-lifetime and keyed ONLY by
+    /// `region|year|month`, it must be CLEARED at household teardown — otherwise a
+    /// different iCloud account signing in on this device (or the same user after a
+    /// factory reset) is served the PREVIOUS household's AI output for the same
+    /// region/month. `AppState.teardownHouseholdSession()` calls `clearSeasonalCache()`
+    /// at the same choke point that resets `syncStatusCenter` and the leftover-household
+    /// lists, for exactly the same cross-household-bleed reason.
     private static var seasonalCache: [String: [SeasonalAIItem]] = [:]
+
+    /// Drop every cached seasonal answer. Called from the household-teardown choke point.
+    static func clearSeasonalCache() {
+        seasonalCache.removeAll()
+    }
 
     /// Fetch (or return the cached) in-season produce list for `region` in
     /// `year`/`month`. Builds the prompt via `SeasonalPrompt`, calls `generate()`,

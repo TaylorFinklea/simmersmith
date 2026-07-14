@@ -7,9 +7,9 @@ Wk1 wave → build 155. Lanes A-F run in-session (Workflow, file-disjoint); the 
 
 - [x] 154 SAFETY CUT — deh + eig fixed, uploaded to TestFlight 2026-07-14 (0317679).
 - [x] `simmersmith-dds` — Settings Test-Key/model-fetch formatter drops HTTP body; delete local aiErrorMessage, delegate to AIError.errorDescription; thread provider name into streaming transport error. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
-- [ ] `simmersmith-57d` — re-key AssistantToolCallCard title/icon/args to the 12 live ToolRegistry tool names. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
-- [ ] `simmersmith-blv` — clear AIService.seasonalCache at the teardown choke point. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
-- [ ] `simmersmith-5fm` — release-ios.sh polls ASC processing state after upload. Verify: bash -n scripts/release-ios.sh
+- [x] `simmersmith-57d` — re-key AssistantToolCallCard title/icon/args to the 13 live ToolRegistry tool names. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
+- [x] `simmersmith-blv` — clear AIService.seasonalCache at the teardown choke point. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
+- [x] `simmersmith-5fm` — release-ios.sh polls ASC processing state after upload. Verify: bash -n scripts/release-ios.sh
 
 ## Blockers
 - Device gates riding 153 (unchanged): mmi · 6uj · a97 · nli · 3hn · f5e · auc.

@@ -138,4 +138,53 @@ xcodebuild \
     -authenticationKeyID "$IOS_RELEASE_KEY_ID" \
     -authenticationKeyIssuerID "$IOS_RELEASE_ISSUER_ID"
 
-echo "release-ios: build ${BUILD_NUMBER} uploaded to TestFlight"
+echo "release-ios: build ${BUILD_NUMBER} accepted for processing by App Store Connect"
+
+# simmersmith-5fm: `xcodebuild -exportArchive` exiting 0 means the binary was ACCEPTED FOR
+# PROCESSING — not that it passed. A build can fail ASC's async validation minutes later while
+# this script has already printed success and exited 0 (build 153 shipped with its processing
+# state unconfirmed for exactly this reason). Poll until the build reaches a terminal state.
+poll_processing_state() {
+    local jwt exp iat header payload signature response state
+    # ES256 JWT for the ASC API, signed with the same .p8 the upload used.
+    iat=$(date +%s)
+    exp=$((iat + 600))
+    header=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$IOS_RELEASE_KEY_ID" |
+        openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
+    payload=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' \
+        "$IOS_RELEASE_ISSUER_ID" "$iat" "$exp" |
+        openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
+    signature=$(printf '%s.%s' "$header" "$payload" |
+        openssl dgst -sha256 -binary -sign "$KEY_PATH" |
+        openssl asn1parse -inform DER |
+        awk -F: '/INTEGER/ {printf "%s", $4}' | xxd -r -p |
+        openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
+    jwt="${header}.${payload}.${signature}"
+
+    for _ in $(seq 1 30); do   # ~10 minutes at 20s
+        sleep 20
+        response=$(curl -sS -H "Authorization: Bearer ${jwt}" \
+            "https://api.appstoreconnect.apple.com/v1/builds?filter%5Bversion%5D=${BUILD_NUMBER}&limit=1" 2>/dev/null) || continue
+        state=$(printf '%s' "$response" | grep -o '"processingState"[[:space:]]*:[[:space:]]*"[A-Z]*"' |
+            head -1 | sed 's/.*"\([A-Z]*\)"$/\1/')
+        [ -z "$state" ] && continue
+        case "$state" in
+            VALID)
+                echo "release-ios: build ${BUILD_NUMBER} processed — VALID (ready for TestFlight)"
+                return 0
+                ;;
+            INVALID|FAILED)
+                echo "release-ios: ERROR — build ${BUILD_NUMBER} processing state is ${state}." >&2
+                echo "release-ios: check App Store Connect for the rejection detail." >&2
+                return 1
+                ;;
+            *)
+                echo "release-ios: processing (${state})…"
+                ;;
+        esac
+    done
+    echo "release-ios: WARNING — build ${BUILD_NUMBER} still processing after ~10 min; check App Store Connect." >&2
+    return 0
+}
+
+poll_processing_state

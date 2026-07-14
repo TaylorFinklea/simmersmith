@@ -58,17 +58,19 @@ struct AssistantToolCallCard: View {
 
     private var displayTitle: String {
         switch call.name {
-        case "get_current_week": return "Read current week"
-        case "get_dietary_goal": return "Read dietary goal"
-        case "get_preferences_summary": return "Read preferences"
-        case "generate_week_plan": return "Plan the whole week"
-        case "add_meal": return "Add meal"
-        case "swap_meal": return "Swap meal"
-        case "remove_meal": return "Remove meal"
-        case "set_meal_approved": return "Approve meal"
-        case "rebalance_day": return "Rebalance a day"
-        case "fetch_pricing": return "Fetch Kroger prices"
-        case "set_dietary_goal": return "Set dietary goal"
+        case "recipes_list": return "List recipes"
+        case "recipes_get": return "Read recipe"
+        case "recipes_save": return "Save recipe"
+        case "weeks_get_current": return "Read current week"
+        case "weeks_get": return "Read week"
+        case "weeks_update_meals": return "Edit week meals"
+        case "weeks_apply_ai_draft": return "Plan the whole week"
+        case "weeks_regenerate_grocery": return "Regenerate grocery list"
+        case "recipes_suggestion_draft": return "Suggest a recipe"
+        case "recipes_variation_draft": return "Vary a recipe"
+        case "pantry_list": return "Read pantry"
+        case "grocery_get": return "Read grocery list"
+        case "preferences_get": return "Read preferences"
         default: return call.name.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -92,51 +94,58 @@ struct AssistantToolCallCard: View {
         return text.isEmpty ? nil : text
     }
 
+    /// Name of the recipe being saved, extracted from the nested `recipe`
+    /// object argument (`recipes_save`). Empty when absent.
+    private var recipeSaveName: String {
+        guard case .object(let recipe) = call.arguments["recipe"],
+              case .string(let name) = recipe["name"], !name.isEmpty
+        else { return "" }
+        return name
+    }
+
+    /// One-line summary of the first meal edit in a `weeks_update_meals`
+    /// call: "Recipe → Day Slot", or "Clearing Day Slot" when the slot is
+    /// being emptied. Empty when no meals are present.
+    private var firstMealEditContext: String {
+        guard case .array(let meals) = call.arguments["meals"],
+              let first = meals.first,
+              case .object(let fields) = first
+        else { return "" }
+        func field(_ key: String) -> String? {
+            guard case .string(let value) = fields[key], !value.isEmpty else { return nil }
+            return value
+        }
+        let recipe = field("recipe_name") ?? ""
+        let target = [field("day_name"), field("slot")]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .capitalized
+        if recipe.isEmpty { return target.isEmpty ? "" : "Clearing \(target)" }
+        return target.isEmpty ? recipe : "\(recipe) → \(target)"
+    }
+
     /// Short, human-readable context extracted from the tool arguments.
     /// Kept per-tool so each card tells the user what's actually happening
     /// instead of a generic progress label.
     private var argumentContext: String {
         switch call.name {
-        case "swap_meal":
-            // `swap_meal` carries either (day+slot) or meal_id plus the new
-            // recipe name. Day/slot is friendlier than a UUID.
-            let target = [argValue("day_name"), argValue("slot")]
-                .compactMap { $0 }
-                .joined(separator: " ")
-            let recipe = argValue("recipe_name") ?? ""
-            if !recipe.isEmpty && !target.isEmpty {
-                return "\(recipe) · \(target.capitalized)"
-            }
-            return recipe.isEmpty ? target.capitalized : recipe
-        case "add_meal":
-            let target = [argValue("day_name"), argValue("slot")]
-                .compactMap { $0 }
-                .joined(separator: " ")
-            let recipe = argValue("recipe_name") ?? ""
-            if !recipe.isEmpty && !target.isEmpty {
-                return "\(recipe) → \(target.capitalized)"
-            }
-            return recipe.isEmpty ? target.capitalized : recipe
-        case "remove_meal":
-            return [argValue("day_name"), argValue("slot")]
-                .compactMap { $0 }
-                .joined(separator: " ")
-                .capitalized
-        case "rebalance_day":
-            return argValue("day_name")?.capitalized ?? ""
-        case "set_meal_approved":
-            let approved = argValue("approved") ?? ""
-            return approved.contains("true") ? "Marking as approved" : "Marking as not approved"
-        case "set_dietary_goal":
-            let type = argValue("goal_type") ?? ""
-            let kcal = argValue("daily_calories") ?? ""
-            return [type.capitalized, kcal.isEmpty ? "" : "\(kcal) kcal"]
-                .filter { !$0.isEmpty }
-                .joined(separator: " · ")
-        case "fetch_pricing":
-            return "Getting current store prices"
-        case "generate_week_plan":
-            return "Building 21 meals"
+        case "recipes_list":
+            // Optional cuisine filter; tags/include_archived are less readable.
+            let cuisine = argValue("cuisine") ?? ""
+            return cuisine.isEmpty ? "" : "\(cuisine.capitalized) recipes"
+        case "recipes_save":
+            // The `recipe` arg is an object; surface its name when present.
+            return recipeSaveName
+        case "weeks_update_meals":
+            // `meals` is an array of (day_name, slot, recipe_name) edits.
+            // Summarize the first one — enough to tell the user what's moving.
+            return firstMealEditContext
+        case "weeks_apply_ai_draft":
+            return argValue("prompt") ?? ""
+        case "recipes_suggestion_draft":
+            return argValue("goal") ?? ""
+        case "recipes_variation_draft":
+            return argValue("goal") ?? ""
         default:
             return ""
         }
@@ -156,14 +165,17 @@ struct AssistantToolCallCard: View {
 
     private var iconName: String {
         switch call.name {
-        case "generate_week_plan", "rebalance_day": return "sparkles"
-        case "add_meal": return "plus.circle"
-        case "swap_meal": return "arrow.triangle.2.circlepath"
-        case "remove_meal": return "minus.circle"
-        case "set_meal_approved": return "checkmark.circle"
-        case "fetch_pricing": return "cart"
-        case "set_dietary_goal": return "target"
-        case "get_current_week", "get_dietary_goal": return "eye"
+        case "recipes_list", "recipes_get": return "book"
+        case "recipes_save": return "square.and.pencil"
+        case "weeks_get_current", "weeks_get": return "calendar"
+        case "weeks_update_meals": return "plus.circle"
+        case "weeks_apply_ai_draft": return "sparkles"
+        case "weeks_regenerate_grocery": return "arrow.clockwise"
+        case "recipes_suggestion_draft": return "wand.and.stars"
+        case "recipes_variation_draft": return "arrow.triangle.2.circlepath"
+        case "pantry_list": return "leaf"
+        case "grocery_get": return "cart"
+        case "preferences_get": return "heart"
         default: return "wand.and.stars"
         }
     }

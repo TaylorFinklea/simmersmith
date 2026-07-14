@@ -419,6 +419,10 @@ extension AppState {
         // (sign-out via `clearHouseholdContext` and factory reset) go through this single
         // teardown choke point, so resetting here covers both.
         syncStatusCenter.reset()
+        // simmersmith-blv: same cross-household-bleed hazard. The seasonal cache is
+        // process-lifetime and keyed only by region|year|month, so without this the NEXT
+        // household on this device gets the previous one's AI answer for the same month.
+        AIService.clearSeasonalCache()
         recipeRepository = nil
         metadataRepository = nil
         weekRepository = nil
