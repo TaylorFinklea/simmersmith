@@ -64,12 +64,17 @@ struct CloudKitDebugView: View {
                 Button("Phase 5d — grocery dedupe repair") {
                     runString { await runDedupeRepairCheck() }
                 }
+                // simmersmith-eig: the Phase 2c hierarchical test share is world-joinable
+                // (publicPermission .readWrite + a fixed-name PUBLIC handoff record). DEBUG-only —
+                // compiled out of TestFlight/App Store builds entirely.
+                #if DEBUG
                 Button("Phase 2c — OWNER: create + publish share") {
                     runString { await runShareOwnerCheck() }
                 }
                 Button("Phase 2c — PARTICIPANT: accept + read share") {
                     runString { await runShareParticipantCheck() }
                 }
+                #endif
                 Button("Phase 3 — recipe image (CKAsset) round-trip") {
                     runString { await runRecipeImageCheck() }
                 }
@@ -150,7 +155,7 @@ struct CloudKitDebugView: View {
         running = true
         output = "Running ALL checks…"
         Task {
-            let checks: [(String, () async -> String)] = [
+            var checks: [(String, () async -> String)] = [
                 ("Phase 0 — HouseholdProfile", {
                     do { return "✅ round-trip = \(try await HouseholdZoneProvisioner().verifyRoundTrip())" }
                     catch { return "❌ \(error)" }
@@ -159,7 +164,6 @@ struct CloudKitDebugView: View {
                 ("Phase 1 — private plane", { await runPrivatePlaneCheck() }),
                 ("Phase 2 — household sync", { await runHouseholdSyncCheck() }),
                 ("Phase 2b — typed records", { await runHouseholdRecordsCheck() }),
-                ("Phase 2c — OWNER share", { await runShareOwnerCheck() }),
                 ("Phase 3 — recipe image", { await runRecipeImageCheck() }),
                 ("Phase 4 — sticky grocery", { await runGroceryMergeCheck() }),
                 ("Phase 4b — event-grocery", { await runEventGroceryMergeCheck() }),
@@ -176,6 +180,11 @@ struct CloudKitDebugView: View {
                 ("Identity — discovery", { [activeZoneID = appState.householdSession?.zoneID] in await runIdentityDiscoveryCheck(activeZoneID: activeZoneID) }),
                 ("AI week-gen (dry)", { await runAIWeekGenDryCheck() }),
             ]
+            // simmersmith-eig: the world-joinable Phase 2c test flow is DEBUG-only; insert it back
+            // into the sweep after Phase 2b so dev-sim runs keep full coverage.
+            #if DEBUG
+            checks.insert(("Phase 2c — OWNER share", { await runShareOwnerCheck() }), at: 4)
+            #endif
             var lines: [String] = []
             var failures: [String] = []
             var passed = 0
@@ -234,7 +243,13 @@ private func expect(_ condition: Bool, _ message: String) throws {
 @MainActor
 func runPrivatePlaneCheck() async -> String {
     do {
-        let container = try makeSimmerSmithPrivatePlaneContainer()
+        // simmersmith-deh: MUST be ephemeral. The default (inMemory: false) opens the byte-identical
+        // CloudKit-synced store the real app uses — on builds ≤153 this check overwrote and then
+        // DELETED the user's real dietary goal, unit_system, and any 'cuisine:thai' taste signal
+        // (the goal fetch below has no predicate), and NSPCKC synced the deletions everywhere.
+        // An in-memory store keeps every assertion meaningful with zero blast radius (same pattern
+        // as the SP-C Pantry+Profile check).
+        let container = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
         let context = container.mainContext
         let store = PrivatePlaneStore(context: context)
         var log = ["CloudKit-backed private store loaded ✅"]
@@ -871,6 +886,10 @@ func runDedupeRepairCheck() async -> String {
     } catch { return "❌ \(error)" }
 }
 
+// simmersmith-eig: both Phase 2c check functions are DEBUG-only — their flow creates a
+// world-joinable share (publicPermission .readWrite) and a fixed-name PUBLIC handoff record.
+// The HouseholdShareFlow methods they call are equally #if DEBUG.
+#if DEBUG
 /// SP-A Phase 2c OWNER side (run on one sim): create a shareable household + publish the share URL.
 func runShareOwnerCheck() async -> String {
     do {
@@ -905,6 +924,7 @@ func runShareParticipantCheck() async -> String {
         return "✅ Phase 2c PARTICIPANT\n" + log.joined(separator: "\n")
     } catch { return "❌ \(error)" }
 }
+#endif
 
 /// SP-A Phase 3: a recipe header image stored as a CKAsset round-trips through the household
 /// CKSyncEngine — engine A writes the bytes, engine B downloads + decodes the asset, bytes match.

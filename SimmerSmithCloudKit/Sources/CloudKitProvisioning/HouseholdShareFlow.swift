@@ -34,7 +34,14 @@ public struct HouseholdShareFlow {
     }
 
     // MARK: Owner — create a shareable household + publish its URL
-
+    //
+    // simmersmith-eig: this ENTIRE hierarchical test flow (create/publish/fetch/accept-and-read)
+    // is DEBUG-only. It mints a WORLD-JOINABLE share (`publicPermission = .readWrite` — anyone
+    // with the link joins) and parks its URL in a fixed-name PUBLIC record. It exists solely for
+    // the two-simulator SP-A Phase 2c verification and must never ship in a distributable build.
+    // The production zone-wide flow below (`makeOrFetchZoneWideShare`, publicPermission .none)
+    // and the shared accept helpers (`fetchShareMetadata`/`acceptShare`) are NOT gated.
+    #if DEBUG
     public struct OwnerResult { public let url: URL; public let ownerStamp: String }
 
     public func createAndPublishShare(householdID: String, name: String) async throws -> OwnerResult {
@@ -102,6 +109,7 @@ public struct HouseholdShareFlow {
             ownerStamp: shared["ownerStamp"] as? String ?? "",
             householdName: shared["name"] as? String ?? "")
     }
+    #endif
 
     private func fetchShareMetadata(url: URL) async throws -> CKShare.Metadata {
         try await withCheckedThrowingContinuation { continuation in
