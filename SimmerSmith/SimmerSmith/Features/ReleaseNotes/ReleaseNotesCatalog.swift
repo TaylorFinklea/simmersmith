@@ -20,6 +20,17 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 153,
+            version: "1.0.0",
+            date: "July 13, 2026",
+            headline: "Housekeeping",
+            new: [],
+            improved: [],
+            fixed: [
+                "The “leftover empty household” warning is gone. SimmerSmith now clears out the empty leftovers older builds left behind, on its own — and it never touches a household with anything in it.",
+            ]
+        ),
+        ReleaseNote(
             build: 152,
             version: "1.0.0",
             date: "July 13, 2026",
