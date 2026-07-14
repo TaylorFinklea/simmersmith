@@ -112,3 +112,60 @@ func deleteAllTargetsOnlyHouseholdZones() {
     let zoneNames = ["household-a", "household-b", "_defaultZone", "catalog-public"]
     #expect(HouseholdZoneProvisioner.householdZoneIDsToDelete(from: zoneNames) == ["a", "b"])
 }
+
+// simmersmith-auc — AUTOMATIC leftover cleanup. Discovery picks the richest zone and lists
+// the rest in `ignoredHouseholdIDs`; cleanup deletes the ones it can PROVE are empty. The
+// census feeding it is `Int?`, and the `nil` (couldn't read the zone) case is the whole
+// point: ranking may treat an unreadable zone as 0 (fail-OPEN — it must never outrank a
+// readable data zone), but DELETION must not (fail-CLOSED — 0 is indistinguishable from
+// "provably empty", so a transient CloudKit failure would delete the user's recipes).
+// `classifyLeftovers` is the pure decision; the CloudKit delete itself is verified on-device.
+
+@Test("a leftover zone we could not read is NEVER deleted (fail-closed census)")
+func unreadableLeftoverIsNeverDeleted() {
+    // `mystery` censused nil — a transient fetch failure, NOT proof of emptiness. Under the
+    // old `Int` census it scored 0, satisfied `<= 1`, and would have been deleted.
+    let censused: [(id: String, count: Int?)] = [(id: "mystery", count: nil), (id: "empty", count: 1)]
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers(censused, keeping: "mine")
+    #expect(outcome.deletedHouseholdIDs == ["empty"])       // provably empty → goes
+    #expect(outcome.unreadableHouseholdIDs == ["mystery"])  // unproven → stays, retried next launch
+    #expect(outcome.dataBearingHouseholdIDs.isEmpty)        // not a fork — don't nag about it
+}
+
+@Test("the resolved household is never touched, even when it censuses empty or unreadable")
+func keepingIsNeverDeleted() {
+    let censused: [(id: String, count: Int?)] = [(id: "mine", count: 0), (id: "stale", count: 1)]
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers(censused, keeping: "mine")
+    #expect(outcome.deletedHouseholdIDs == ["stale"])
+    #expect(!outcome.unreadableHouseholdIDs.contains("mine"))
+    #expect(!outcome.dataBearingHouseholdIDs.contains("mine"))
+}
+
+@Test("a leftover holding real data is kept and reported as a fork, never deleted")
+func dataBearingLeftoverIsKeptAndReported() {
+    let censused: [(id: String, count: Int?)] = [(id: "fork", count: 40), (id: "empty", count: 1)]
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers(censused, keeping: "mine")
+    #expect(outcome.deletedHouseholdIDs == ["empty"])
+    #expect(outcome.dataBearingHouseholdIDs == ["fork"])
+}
+
+// Regression guard bolted to `tieBreaksLowestID` above: discovery scored `m:40, d:40, z:2`,
+// picked `d`, and put BOTH `m` (40 records!) and `z` into `ignoredHouseholdIDs`. "Ignored"
+// means "not chosen", NOT "empty" — so cleanup must re-census and spare them, never trust
+// that list. Deleting `ignoredHouseholdIDs` wholesale would destroy 42 records here.
+@Test("the tie-break loser holding 40 records survives cleanup (ignored != empty)")
+func tieBreakLoserSurvivesCleanup() {
+    let censused: [(id: String, count: Int?)] = [(id: "m", count: 40), (id: "z", count: 2)]
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers(censused, keeping: "d")
+    #expect(outcome.deletedHouseholdIDs.isEmpty)
+    #expect(outcome.dataBearingHouseholdIDs == ["m", "z"])
+}
+
+@Test("an empty leftover set is a clean no-op")
+func noLeftoversIsANoOp() {
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers([], keeping: "mine")
+    #expect(outcome.deletedHouseholdIDs.isEmpty)
+    #expect(outcome.dataBearingHouseholdIDs.isEmpty)
+    #expect(outcome.unreadableHouseholdIDs.isEmpty)
+    #expect(outcome.isEmpty)
+}

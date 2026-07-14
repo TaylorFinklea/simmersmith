@@ -140,6 +140,15 @@ final class AppState {
     /// Current household snapshot (M21). Loaded by `refreshHousehold()`
     /// during `refreshAll()`. Drives the Settings → Household section.
     var currentHousehold: HouseholdSnapshot?
+    /// simmersmith-auc: leftover `household-*` zones discovery saw but did not pick, handed
+    /// from `resolveHouseholdID()` to the post-launch cleanup pass. Plumbing, not UI — the
+    /// whole point is that the user never hears about the empty ones.
+    @ObservationIgnored var pendingLeftoverHouseholdIDs: [String] = []
+    /// simmersmith-auc: leftover households that survived cleanup because they hold REAL
+    /// records — a genuine fork, not build residue. Drives the Settings → Household notice.
+    /// Empty in every normal case (and for a zone we merely couldn't read: a transient
+    /// CloudKit failure must never masquerade as a fork).
+    var forkedHouseholdIDs: [String] = []
     /// M22.5: Reminders bridge state must be @Observable stored
     /// properties — UserDefaults-backed computed properties don't
     /// trigger SwiftUI re-renders, which is why the Settings →

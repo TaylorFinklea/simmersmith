@@ -149,7 +149,11 @@ public struct HouseholdZoneProvisioner {
         // distinguish them: the recipe zone has dozens, the mints have ≤1.
         var scored: [(id: String, count: Int)] = []
         for candidate in candidates {
-            let count = await recordCount(db: db, zoneID: candidate.zone.zoneID)
+            // Fail-OPEN on purpose (the opposite of the deletion path): an unreadable zone
+            // scores 0 so it can never outrank a readable data zone, and if NONE can be read
+            // the field falls to `isAmbiguous` instead of guessing. Deleting on a 0 we couldn't
+            // prove would be data loss — hence `recordCount`'s `Int?`.
+            let count = await recordCount(db: db, zoneID: candidate.zone.zoneID) ?? 0
             scored.append((candidate.id, count))
         }
         return Self.chooseRichestHousehold(scored)
@@ -176,11 +180,23 @@ public struct HouseholdZoneProvisioner {
 
     /// Count the records in a zone via `CKFetchRecordZoneChangesOperation` — needs NO queryable
     /// index (unlike `records(matching:)`), so it works for the CKSyncEngine-managed household
-    /// types. Fetches record IDs only (`desiredKeys = []`) to stay cheap. Returns 0 on any
-    /// failure: an unreadable zone is treated as empty for ranking, so it never beats a
-    /// readable data zone.
-    func recordCount(db: CKDatabase, zoneID: CKRecordZone.ID) async -> Int {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+    /// types. Fetches record IDs only (`desiredKeys = []`) to stay cheap.
+    ///
+    /// `nil` means COULD NOT READ the zone (the fetch failed, or a record in it wouldn't
+    /// decode) — NOT "zero records". The distinction is load-bearing, and the two callers take
+    /// deliberately OPPOSITE policies on it:
+    ///
+    ///   - RANKING (`discoverHouseholdResult`) is fail-OPEN: `?? 0`. An unreadable zone scores
+    ///     0 so it can never outrank a readable data zone, and an all-unreadable field falls to
+    ///     `isAmbiguous` rather than guessing.
+    ///   - DELETION (`deleteEmptyHouseholdZones`) is fail-CLOSED: `nil` → keep. Collapsing
+    ///     "couldn't read" into 0 would make it indistinguishable from "provably empty", so one
+    ///     transient CloudKit failure would delete a zone holding the user's recipes.
+    ///
+    /// That is why this returns `Int?` and not `Int`: the optional is the only thing carrying
+    /// "I don't know" across the boundary, and deletion is the caller that must not guess.
+    func recordCount(db: CKDatabase, zoneID: CKRecordZone.ID) async -> Int? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Int?, Never>) in
             let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
             config.desiredKeys = []
             let op = CKFetchRecordZoneChangesOperation(
@@ -188,36 +204,122 @@ public struct HouseholdZoneProvisioner {
                 configurationsByRecordZoneID: [zoneID: config])
             op.fetchAllChanges = true
             var count = 0
+            var unreadable = false
             op.recordWasChangedBlock = { _, result in
-                if case .success = result { count += 1 }
+                switch result {
+                case .success: count += 1
+                // A record we can see but can't decode still PROVES the zone is not empty.
+                case .failure: unreadable = true
+                }
             }
-            op.fetchRecordZoneChangesResultBlock = { _ in
-                continuation.resume(returning: count)
+            // A single-zone op can still report a per-zone failure here while the overall
+            // result succeeds — check both, or a partial failure reads as "empty".
+            op.recordZoneFetchResultBlock = { _, result in
+                if case .failure = result { unreadable = true }
+            }
+            op.fetchRecordZoneChangesResultBlock = { result in
+                if case .failure = result { unreadable = true }
+                continuation.resume(returning: unreadable ? nil : count)
             }
             db.add(op)
         }
     }
 
-    /// Maintenance (SP-C on-device cleanup): delete the empty/orphan `household-*` zones left
-    /// by earlier repeated minting — those holding ≤1 record (a bare HouseholdProfile or
-    /// nothing) — KEEPING the given household. Returns the ids deleted (sorted). Destructive
-    /// but safe: only provably-empty zones go, never one holding data, never `keeping`.
-    public func deleteEmptyHouseholdZones(keeping: String) async throws -> [String] {
-        let db = container.privateCloudDatabase
-        let zones = try await db.allRecordZones()
-        var toDelete: [CKRecordZone.ID] = []
-        var deletedIDs: [String] = []
-        for zone in zones {
-            guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName), id != keeping else { continue }
-            if await recordCount(db: db, zoneID: zone.zoneID) <= 1 {
-                toDelete.append(zone.zoneID)
-                deletedIDs.append(id)
+    /// What a cleanup pass did with the leftover (non-active) `household-*` zones. Returned by
+    /// `deleteEmptyHouseholdZones`, which THROWS if the delete itself fails — so an outcome in
+    /// hand means `deletedHouseholdIDs` really are gone.
+    public struct CleanupOutcome: Sendable, Equatable {
+        /// Proved empty (≤1 record — a bare `HouseholdProfile`, or nothing) and deleted.
+        public let deletedHouseholdIDs: [String]
+        /// Read fine, but hold REAL records (>1) — a genuine fork, not build residue. Kept, and
+        /// surfaced in Settings: the app opened the richest zone, but a second one has data.
+        public let dataBearingHouseholdIDs: [String]
+        /// Could not be censused this pass. Kept (fail-closed) and deliberately NOT surfaced —
+        /// a transient CloudKit failure must never masquerade as a fork. Retried next launch.
+        public let unreadableHouseholdIDs: [String]
+
+        public init(deletedHouseholdIDs: [String],
+                    dataBearingHouseholdIDs: [String],
+                    unreadableHouseholdIDs: [String]) {
+            self.deletedHouseholdIDs = deletedHouseholdIDs
+            self.dataBearingHouseholdIDs = dataBearingHouseholdIDs
+            self.unreadableHouseholdIDs = unreadableHouseholdIDs
+        }
+
+        public var isEmpty: Bool {
+            deletedHouseholdIDs.isEmpty && dataBearingHouseholdIDs.isEmpty && unreadableHouseholdIDs.isEmpty
+        }
+    }
+
+    /// The cleanup DECISION, pure and headlessly testable (the CloudKit delete it feeds is
+    /// verified on-device — same split as `chooseRichestHousehold`). Three-way, because a
+    /// two-way "empty or not" has nowhere to put "I couldn't read it":
+    ///
+    ///   census ≤ 1  → DELETE       (provably empty)
+    ///   census > 1  → keep, report (a real fork — the user should know)
+    ///   census nil  → keep, silent (unproven — retry next launch)
+    ///
+    /// `keeping` (the resolved household) is filtered out unconditionally, whatever it censused.
+    ///
+    /// Feed this a fresh census — NEVER `DiscoveryResult.ignoredHouseholdIDs`. "Ignored" means
+    /// "not chosen", not "empty": when two zones tie on record count the loser is ignored while
+    /// holding every one of its records (see `tieBreaksLowestID`), so deleting that list
+    /// wholesale would destroy live data.
+    static func classifyLeftovers(_ censused: [(id: String, count: Int?)],
+                                  keeping: String) -> CleanupOutcome {
+        var deleted: [String] = []
+        var dataBearing: [String] = []
+        var unreadable: [String] = []
+        for leftover in censused where leftover.id != keeping {
+            guard let count = leftover.count else {
+                unreadable.append(leftover.id)
+                continue
+            }
+            if count <= 1 {
+                deleted.append(leftover.id)
+            } else {
+                dataBearing.append(leftover.id)
             }
         }
+        return CleanupOutcome(deletedHouseholdIDs: deleted.sorted(),
+                              dataBearingHouseholdIDs: dataBearing.sorted(),
+                              unreadableHouseholdIDs: unreadable.sorted())
+    }
+
+    /// Maintenance (simmersmith-auc): delete the empty/orphan `household-*` zones left by
+    /// earlier repeated minting, KEEPING the given household. Runs automatically each launch
+    /// (see `AppState.cleanUpLeftoverHouseholds`), so it is destructive code running unattended
+    /// — every guard here is load-bearing:
+    ///
+    ///   - It takes its OWN fresh census rather than a caller-supplied count, so it cannot be
+    ///     handed stale numbers, and cannot be pointed at `ignoredHouseholdIDs` (which means
+    ///     "not chosen", NOT "empty").
+    ///   - An un-censusable zone is KEPT, not deleted (`recordCount` returns `nil`, not 0).
+    ///   - Zones are deleted by the exact `CKRecordZone.ID` we censused, not a reconstructed one.
+    ///
+    /// Throws if the delete fails, leaving every zone intact — the pass is idempotent, so the
+    /// caller's recovery is simply to try again next launch.
+    @discardableResult
+    public func deleteEmptyHouseholdZones(keeping: String) async throws -> CleanupOutcome {
+        let db = container.privateCloudDatabase
+        let zones = try await db.allRecordZones()
+
+        var censused: [(id: String, count: Int?)] = []
+        var zoneIDsByHousehold: [String: CKRecordZone.ID] = [:]
+        for zone in zones {
+            // Skipping `keeping` here spares a pointless fetch; `classifyLeftovers` filters it
+            // again as the tested safety net. Belt and braces on the destructive path.
+            guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName), id != keeping else { continue }
+            zoneIDsByHousehold[id] = zone.zoneID
+            censused.append((id, await recordCount(db: db, zoneID: zone.zoneID)))
+        }
+
+        let outcome = Self.classifyLeftovers(censused, keeping: keeping)
+        let toDelete = outcome.deletedHouseholdIDs.compactMap { zoneIDsByHousehold[$0] }
         if !toDelete.isEmpty {
             _ = try await db.modifyRecordZones(saving: [], deleting: toDelete)
         }
-        return deletedIDs.sorted()
+        return outcome
     }
 
     /// Factory reset (SP-C clean-slate, spec §2): the household ids whose zones a

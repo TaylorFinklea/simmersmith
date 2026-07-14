@@ -1515,6 +1515,26 @@ private struct HouseholdSection: View {
                 Text("Loading household…")
                     .foregroundStyle(SMColor.textTertiary)
             }
+
+            // simmersmith-auc: leftover EMPTY households from earlier builds are deleted
+            // silently on launch — the user never hears about them. One that holds REAL
+            // records is a different animal: a genuine fork, not build residue, so it
+            // survives cleanup and says so here. Absent in every normal case. No delete
+            // button — offering to destroy a zone whose contents the user cannot inspect is
+            // not a favor, and the data they can see is already the richest copy.
+            if !appState.forkedHouseholdIDs.isEmpty {
+                let count = appState.forkedHouseholdIDs.count
+                Label("Extra household data", systemImage: "square.stack.3d.up.fill")
+                    .foregroundStyle(SMColor.textSecondary)
+                Text("Your kitchen opened from the household holding the most data. "
+                    + "\(count) other CloudKit household\(count == 1 ? "" : "s") from an earlier "
+                    + "install still hold\(count == 1 ? "s" : "") records — nothing was deleted.")
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textSecondary)
+                Text(appState.forkedHouseholdIDs.joined(separator: ", "))
+                    .font(SMFont.caption)
+                    .foregroundStyle(SMColor.textTertiary)
+            }
         } header: {
             SmithSectionHeader("household")
         }

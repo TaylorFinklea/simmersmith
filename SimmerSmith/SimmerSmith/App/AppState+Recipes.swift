@@ -113,6 +113,11 @@ extension AppState {
         // SP-C identity slice (spec §1.3): signal RootView that the household is
         // resolved and the app is ready to show MainTabView.
         householdLaunchPhase = .ready
+
+        // simmersmith-auc: sweep the leftover empty households from earlier builds. Kicked
+        // AFTER .ready and detached — a destructive CloudKit pass must never be on the path
+        // that opens the kitchen. No-ops unless discovery actually saw extra zones.
+        scheduleLeftoverHouseholdCleanup(keeping: householdID)
     }
 
     /// Build + wire all repositories for a booted session (OWNER or PARTICIPANT) and flip
@@ -261,13 +266,15 @@ extension AppState {
         }
 
         // Multiple household zones — discovery picked the data-RICHEST (the zone holding your
-        // recipes/data); the rest are stale empty mints from earlier builds. Informational,
-        // not data loss. (If data ever looks wrong, Settings → Start Fresh from Fly re-imports clean.)
-        if !result.ignoredHouseholdIDs.isEmpty {
-            lastErrorMessage = "Your kitchen loaded fine. Found "
-                + "\(result.ignoredHouseholdIDs.count) leftover empty household(s) from earlier "
-                + "builds — harmless."
-        }
+        // recipes/data); the rest are stale mints from earlier builds' repeated minting.
+        //
+        // simmersmith-auc: these used to raise a banner ("Found N leftover empty household(s)
+        // — harmless") on `lastErrorMessage` — the ERROR channel, warning triangle and all —
+        // which is a nag, not a fix, and its copy was wrong besides: "ignored" means NOT CHOSEN,
+        // not empty (a tie-break loser is ignored while holding every one of its records). So
+        // hand the ids to the post-launch cleanup pass instead of to the user; it re-censuses
+        // each zone and deletes only the ones it can PROVE are empty.
+        pendingLeftoverHouseholdIDs = result.ignoredHouseholdIDs
 
         if let discovered = result.householdID, !discovered.isEmpty {
             // Finding G: a prior mint may have created the zone but failed the profile
@@ -370,6 +377,13 @@ extension AppState {
         aliasRepository = nil
         aiService = nil
         assistantRepository = nil
+        // simmersmith-auc, same hazard `syncStatusCenter.reset()` above guards against: both
+        // of these are keyed to the household that just went away. A surviving
+        // `forkedHouseholdIDs` would show the NEXT user (or the same user post-factory-reset)
+        // a fork notice about zones that aren't theirs, and a surviving pending list would
+        // point a destructive pass at the wrong household's leftovers.
+        pendingLeftoverHouseholdIDs = []
+        forkedHouseholdIDs = []
         // `sessionBootQueue` itself needs no draining (simmersmith-0gf): the
         // `sessionBootEpoch` bump above already makes every op queued or in-flight before
         // this teardown a no-op when it (eventually) runs; a subsequent boot request

@@ -193,6 +193,7 @@
 		E531A283EE00068A16D1F097 /* AppState+Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7E866734303B7A69FC7AA0 /* AppState+Push.swift */; };
 		E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */; };
 		E6E569431165A47479D5427D /* RecipeFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9935E945427DEAA0FE104C29 /* RecipeFilterSheet.swift */; };
+		E7E1D7ABAB4053FC3869C7BE /* AppState+HouseholdCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BFC08676B055C4E2EE1784 /* AppState+HouseholdCleanup.swift */; };
 		EE566CA88D275034F52ABDDD /* VoicePlanningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37588626E6B1863A161B135A /* VoicePlanningCoordinator.swift */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
@@ -400,6 +401,7 @@
 		D6EA129394BBD8599B7391A3 /* ReleaseNotesCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesCatalog.swift; sourceTree = "<group>"; };
 		D6ED1C25DB773F9DBF319A2F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D6FED9D160DD2EC6B064E1F7 /* IngredientsProductFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientsProductFlowTests.swift; sourceTree = "<group>"; };
+		D7BFC08676B055C4E2EE1784 /* AppState+HouseholdCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+HouseholdCleanup.swift"; sourceTree = "<group>"; };
 		D826DDCC58E3F67AF8A7B6E9 /* StoreChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreChip.swift; sourceTree = "<group>"; };
 		DAA5A5CF5A8521A76BBBD312 /* GenerableWeeklyPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerableWeeklyPlan.swift; sourceTree = "<group>"; };
 		DAA8CAD86110366F8DB2710D /* PreferenceRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferenceRepository.swift; sourceTree = "<group>"; };
@@ -577,6 +579,7 @@
 				521CBBF76636EEE29A70E84D /* AppState+FactoryReset.swift */,
 				A99F4CCC2130F15AC404F605 /* AppState+Grocery.swift */,
 				A80D37100BDECCA31338BFE8 /* AppState+Household.swift */,
+				D7BFC08676B055C4E2EE1784 /* AppState+HouseholdCleanup.swift */,
 				5DCB34ECB2740428AB771B5D /* AppState+Ingredients.swift */,
 				FDDF7B7C9AD00BE199D8CB3A /* AppState+Pantry.swift */,
 				26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */,
@@ -1070,6 +1073,7 @@
 				3DC0697FA76B051E1B5941F3 /* AppState+FactoryReset.swift in Sources */,
 				6EDBEB2CECDA59F00D71E08F /* AppState+Grocery.swift in Sources */,
 				85083B241385537E729DD20E /* AppState+Household.swift in Sources */,
+				E7E1D7ABAB4053FC3869C7BE /* AppState+HouseholdCleanup.swift in Sources */,
 				44BF20D40E9FB64EDCB02E35 /* AppState+Ingredients.swift in Sources */,
 				DF013B689CE654E21C864D22 /* AppState+Pantry.swift in Sources */,
 				53333C9542C3853B332E9F9F /* AppState+Profile.swift in Sources */,
