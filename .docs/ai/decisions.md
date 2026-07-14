@@ -1677,3 +1677,41 @@ these policies are pinned by tests rather than implied by view code. The clean-i
 (`lastSeenBuild == nil` is treated as `currentBuild - 1`, not `0`) is load-bearing: reading a
 missing key with `UserDefaults.integer(forKey:)` yields `0`, which would dump the entire release
 history on every new install. That mistake is mutation-tested in `ReleaseNotesStoreTests`.
+
+## 2026-07-13 — Leftover household zones are deleted automatically, on a fail-closed census
+
+**Context.** Earlier builds' repeated orphan-minting left empty `household-*` zones in the
+owner's private DB (13 on the reporting device). Discovery picks the data-richest zone and
+ignores the rest, so they were harmless — but the app announced them on every launch via
+`lastErrorMessage`, the *error* channel, warning triangle and all. Bead `simmersmith-auc`
+proposed either a Settings button or a pass on the discovery result.
+
+**Decision.** Cleanup runs **automatically**, detached, after `householdLaunchPhase = .ready`,
+deleting only the leftovers it can *prove* are empty. No banner. A leftover that holds real
+records survives and surfaces as a Settings row; one that merely couldn't be read stays silent
+and is retried next launch. `deleteEmptyHouseholdZones` takes its OWN census rather than
+accepting a caller-supplied count.
+
+**Why the census returns `Int?`.** `recordCount` used to discard the CloudKit operation's
+`Result` and return whatever it had tallied — `0` on failure. That is the *safe* direction for
+RANKING (an unreadable zone must never outrank a readable data zone; an all-unreadable field
+falls to `isAmbiguous` instead of guessing) and the *lethal* direction for DELETING, where `0`
+is indistinguishable from "provably empty" — one transient CloudKit failure would delete a zone
+full of recipes. The two callers therefore take deliberately opposite policies on the same
+value, which only works if the value can express "I don't know". Hence `Int?`: ranking keeps its
+fail-open `?? 0`; deletion is fail-closed and keeps anything it could not census. **Do not
+collapse `nil` to `0` in the delete path.**
+
+**The related trap.** `DiscoveryResult.ignoredHouseholdIDs` means *not chosen*, NOT *empty* — a
+tie-break loser is ignored while holding every one of its records (`tieBreaksLowestID` pins a
+loser with 40). The old banner's copy ("N leftover **empty** household(s)") was therefore wrong,
+and the tempting one-liner — delete that list — would have destroyed live data. Cleanup never
+trusts it; it re-censuses.
+
+**Why automatic rather than a Settings button.** The user's data is loaded from the richest zone
+either way, so there is no decision for them to make and nothing for them to inspect; a
+confirmation prompt would only ask them to rubber-stamp a fact they can't verify. Running it
+detached after `.ready` keeps a destructive CloudKit pass off the path that opens the kitchen,
+and the pass is idempotent, so "it threw — retry next launch" is a complete recovery strategy.
+The decision rule lives in a pure `classifyLeftovers` so the safety contract is unit-tested
+rather than implied by the I/O code — same split as `chooseRichestHousehold`.
