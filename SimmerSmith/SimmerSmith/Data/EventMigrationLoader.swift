@@ -4,6 +4,7 @@ import Foundation
 import GroceryMerge
 import HouseholdRecords
 import HouseholdSync
+import OSLog
 import SimmerSmithKit
 
 // SP-C Task 5 — one-time Fly→CloudKit migration of events + guests + event-grocery.
@@ -45,6 +46,14 @@ import SimmerSmithKit
 
 private let eventMigrationScope = "events"
 private let eventFetchConcurrency = 4
+private let log = Logger(subsystem: "app.simmersmith.cloud", category: "EventMigrationLoader")
+
+/// True when every expected event produced a detail fetch — the completeness check the
+/// RECEIPT-BLOCKING RULE (in `migrateEventsIfNeeded` below) gates the receipt stamp on.
+/// Internal (not private) so the app-target test can pin the contract.
+func eventMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
+    expectedCount == fetchedCount
+}
 
 // MARK: - Migration entry point
 
@@ -227,6 +236,19 @@ func migrateEventsIfNeeded(
             let ckRecord = EventGroceryCodec.makeRecord(mergeItem, zoneID: session.zoneID)
             session.engine.save(ckRecord)
         }
+    }
+
+    // RECEIPT-BLOCKING RULE (mirrors RecipeMigrationLoader / WeekMigrationLoader): any
+    // event whose detail fetch failed above is silently missing from fullEvents (the
+    // task group uses try?). Compare the fetched count against the expected count from
+    // summaries; on any drop, everything fetched is still saved (loop above already
+    // ran) and drained, but the receipt is withheld so the next launch retries the
+    // whole migration (idempotent — the engine's PK-preserving upserts dedupe re-writes).
+    let droppedEvents = summaries.count - fullEvents.count
+    guard eventMigrationIsComplete(expectedCount: summaries.count, fetchedCount: fullEvents.count) else {
+        log.error("event migration dropped \(droppedEvents, privacy: .public) of \(summaries.count, privacy: .public) events; receipt withheld for retry")
+        try? await session.engine.sendUntilDrained()
+        return
     }
 
     // Stamp the receipt LAST — mirrors the crash-safety invariant in WeekMigrationLoader

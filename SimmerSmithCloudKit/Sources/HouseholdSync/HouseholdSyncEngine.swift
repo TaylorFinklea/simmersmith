@@ -1,6 +1,7 @@
 #if canImport(CloudKit)
 import CloudKit
 import Foundation
+import HouseholdRecords
 import OSLog
 
 /// A save failure the engine gave up retrying automatically (or classified as permanent).
@@ -83,6 +84,47 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// wires it up — no behavioral change when unset.
     public var onRecordSaved: (@Sendable (String) -> Void)?
 
+    // simmersmith-dkj: per-record LOCAL MUTATION GENERATION. `save()` bumps a record's
+    // generation; `nextRecordZoneChangeBatch` stamps the generation each outgoing payload was
+    // built from. At the ack we compare: if the record's generation moved between the send and
+    // the ack, a second local edit interleaved and the acked payload is STALE — adopt the ack's
+    // system fields onto the store's newer record instead of blindly replacing it.
+    //
+    // A generation counter (not `updatedAt`) is deliberate: `updatedAt` cannot see the whole
+    // problem. GroceryItem/EventGroceryItem carry NO `updatedAt` at all (they use `createdAtClock`
+    // / `modifiedAtClock` Int logical clocks — see GroceryCodec), and the grocery check/uncheck
+    // double-tap is the highest-frequency edit surface in the app. `recipeMemory` and the
+    // manifest-external CKAsset image types are likewise date-less. The generation is
+    // type-agnostic and needs no schema field at all — it observes the STORE, not the payload.
+    private let generationLock = NSLock()
+    private var localGeneration: [CKRecord.ID: Int] = [:]
+    private var sentGeneration: [CKRecord.ID: Int] = [:]
+
+    private func bumpGeneration(_ id: CKRecord.ID) {
+        generationLock.lock(); defer { generationLock.unlock() }
+        localGeneration[id, default: 0] += 1
+    }
+
+    private func stampSentGeneration(_ id: CKRecord.ID) {
+        generationLock.lock(); defer { generationLock.unlock() }
+        sentGeneration[id] = localGeneration[id, default: 0]
+    }
+
+    /// True iff the local store's record for `id` was mutated AFTER the payload now being acked
+    /// was handed to CKSyncEngine. Consumes the send stamp (an ack resolves that send).
+    private func localChangedSinceSend(_ id: CKRecord.ID) -> Bool {
+        generationLock.lock(); defer { generationLock.unlock() }
+        guard let sent = sentGeneration.removeValue(forKey: id) else { return false }
+        return localGeneration[id, default: 0] != sent
+    }
+
+    /// Drop a record's generation bookkeeping (it no longer exists locally).
+    private func forgetGeneration(_ id: CKRecord.ID) {
+        generationLock.lock(); defer { generationLock.unlock() }
+        localGeneration[id] = nil
+        sentGeneration[id] = nil
+    }
+
     private let traceLock = NSLock()
     private var trace: [String] = []
     /// Diagnostic trace of sent/failed/fetched events (DEBUG round-trip uses it).
@@ -131,6 +173,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// zone is created lazily on the first save.
     public func save(_ record: CKRecord) {
         store.setRecord(record)
+        bumpGeneration(record.recordID)
         // simmersmith-c7r: `save()` can be called concurrently from multiple threads (the
         // class isn't actor-isolated), so the check-and-set of `zoneEnsured` must be atomic
         // — otherwise two racing first-saves could both observe `false` and double-enqueue
@@ -235,7 +278,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             context.options.scope.contains($0)
         }
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
-            self.store.record(for: recordID)
+            // simmersmith-dkj: stamp the generation the OUTGOING payload was built from. The ack
+            // for this batch compares against the store's generation at that later moment; an
+            // intervening `save()` will have bumped it, which is what tells us the ack is stale.
+            let record = self.store.record(for: recordID)
+            if record != nil { self.stampSentGeneration(recordID) }
+            return record
         }
     }
 
@@ -284,11 +332,27 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             onStoreChanged?()
 
         case .sentRecordZoneChanges(let sent):
-            // Replace local copies with the server-authoritative records (updated
-            // change tags) so the next edit bases on the right version.
+            // Adopt the server-authoritative record for each ack — guarding the seam
+            // (simmersmith-dkj): a `save()` for the SAME record landing while this send was in
+            // flight leaves the store holding a newer local edit than what's being acked here.
+            // A blind replace would silently erase that edit, and the resave `save()` already
+            // enqueued for it would then just resend the now-stale acked payload (the next batch
+            // pulls whatever the store currently holds). `rebaseAckedRecord` keeps the store's
+            // newer fields and only lifts the ack's system fields/change tag onto them.
             for saved in sent.savedRecords {
                 if Self.isShareRecord(saved) { continue }
-                store.setRecord(saved)
+                // Stale-ack guard: only rebase when the store's record actually changed AFTER
+                // this payload went out. The common case (no interleaved edit) still takes the
+                // server record verbatim, exactly as before.
+                let staleAck = localChangedSinceSend(saved.recordID)
+                let toStore: CKRecord
+                if staleAck, let current = store.record(for: saved.recordID) {
+                    toStore = Self.rebaseAckedRecord(acked: saved, current: current)
+                    note("stale ack rebased \(saved.recordID.recordName)")
+                } else {
+                    toStore = saved
+                }
+                store.setRecord(toStore)
                 note("saved \(saved.recordID.recordName)=\(saved["value"] as? String ?? "?")")
                 onRecordSaved?(saved.recordID.recordName)
             }
@@ -451,6 +515,56 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         }
     }
 
+    /// Ack-seam rebase for `sentRecordZoneChanges` (simmersmith-dkj). Called ONLY when the
+    /// generation bookkeeping proved the store's record was mutated after `acked`'s payload went
+    /// out — i.e. a second `save()` interleaved and `acked` reflects the older wire payload.
+    ///
+    /// Keeps `current`'s fields (the user's newer edit) and lifts only `acked`'s system
+    /// fields/change tag onto them (`CKRecord.copy()` preserves `changedKeys()` exactly —
+    /// `HouseholdLocalStoreCopyTests.changedKeysSurviveStoreBoundary`), so the resave already
+    /// pending for that interleaving `save()` carries the tag the server now expects.
+    ///
+    /// Field copy goes through `manifestKeys` and NOT `current.allKeys()` (simmersmith-t6t):
+    /// a deliberately CLEARED field is ABSENT from `allKeys()`, so an allKeys copy would leave
+    /// `acked`'s stale value in place and silently resurrect it — the exact class t6t exists to
+    /// kill, which this seam must not reintroduce.
+    static func rebaseAckedRecord(acked: CKRecord, current: CKRecord) -> CKRecord {
+        let rebased = acked.copy() as! CKRecord
+        applyFields(from: current, onto: rebased)
+        return rebased
+    }
+
+    /// Copy `source`'s field set onto `destination`, PROPAGATING CLEARS (simmersmith-t6t).
+    ///
+    /// The naive `for key in source.allKeys() { dest[key] = source[key] }` is wrong at every
+    /// local-wins seam: a deliberately CLEARED field (nil'd — e.g. `WeekRepository.updateMealSide`'s
+    /// `SidePatch.clear` nils `recipeName` AND the `recipe` reference) is ABSENT from `allKeys()`,
+    /// so the destination silently keeps the server's stale value and the user's clear resurrects.
+    ///
+    /// Key set:
+    /// - Manifest type → every manifest key (scalar `fields` + `refs`; they share one CKRecord key
+    ///   namespace). Writing them ALL from `source` means an absent key writes nil = an explicit
+    ///   clear, while a field this app's manifest doesn't know about (a NEWER build's addition,
+    ///   already on the server record) is left untouched rather than destroyed. That
+    ///   forward-compatibility property is why this enumerates the manifest instead of a key union
+    ///   for manifest types (see the mixed-version writer design bead).
+    /// - Manifest-EXTERNAL type (GroceryItem / EventGroceryItem via their own codecs, and the
+    ///   CKAsset image types) → the union of both records' keys, so a cleared key is still written
+    ///   as nil. These types genuinely carry clearable fields (a grocery `quantityOverride` the
+    ///   user removes), so `source.allKeys()` alone would resurrect those clears too.
+    static func applyFields(from source: CKRecord, onto destination: CKRecord) {
+        for key in fieldKeys(source: source, destination: destination) {
+            destination[key] = source[key]
+        }
+    }
+
+    static func fieldKeys(source: CKRecord, destination: CKRecord) -> [String] {
+        if let type = HouseholdRecordType(recordTypeName: source.recordType) {
+            return type.fields.map(\.name) + type.refs.map(\.name)
+        }
+        return Array(Set(source.allKeys()).union(destination.allKeys()))
+    }
+
     /// Pure record-level LWW rebase for non-merger types at the `serverRecordChanged` seam
     /// (simmersmith-6ce). Every manifest record type carries an `updatedAt` date; compare it
     /// on `local` (our attempted, now-rejected save) vs. `server` (the current server record,
@@ -460,17 +574,17 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// - Both present, server newer-or-equal (ties go to the server, since it's already the
     ///   record of truth) → SERVER wins: keep `server` as-is and do NOT re-save our stale copy.
     /// - Either `updatedAt` missing → fall back to the historical blanket local-wins behavior
-    ///   (copy local's keys onto `server`, re-save) since recency can't be judged.
+    ///   (copy local's manifest keys onto `server`, re-save) since recency can't be judged.
     static func rebaseNonMergerRecord(local: CKRecord, server: CKRecord) -> (record: CKRecord, reEnqueue: Bool) {
         guard let localDate = local["updatedAt"] as? Date,
               let serverDate = server["updatedAt"] as? Date else {
             let rebased = server.copy() as! CKRecord
-            for key in local.allKeys() { rebased[key] = local[key] }
+            applyFields(from: local, onto: rebased)
             return (rebased, true)
         }
         if localDate > serverDate {
             let rebased = server.copy() as! CKRecord
-            for key in local.allKeys() { rebased[key] = local[key] }
+            applyFields(from: local, onto: rebased)
             return (rebased, true)
         }
         return (server.copy() as! CKRecord, false)

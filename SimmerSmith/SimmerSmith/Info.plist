@@ -9,7 +9,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>SimmerSmith</string>
 	<key>NSCameraUsageDescription</key>
-	<string>SimmerSmith uses the camera to scan barcodes and ingredients to help you plan and shop.</string>
+	<string>SimmerSmith uses the camera to scan recipes so you can import them into your library.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SimmerSmith listens for "next" and "previous" so you can move through cooking steps without touching your phone.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

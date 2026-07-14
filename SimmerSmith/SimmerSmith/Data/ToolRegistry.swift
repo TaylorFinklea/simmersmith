@@ -34,8 +34,25 @@ final class ToolRegistry {
     /// Weak to avoid a retain cycle (AppState owns the assistant flow that owns this).
     private weak var appState: AppState?
 
-    init(appState: AppState) {
+    /// bead simmersmith-48y: the week the user is actually looking at when the turn
+    /// started — `pageContext?.weekId ?? browsedWeek?.weekId ?? currentWeek?.weekId`,
+    /// computed once by `AppState+Assistant.sendAssistantMessage` and threaded in here.
+    /// `weeks_get_current` (and `grocery_get`'s no-id default) resolve THIS id through
+    /// the repo instead of always defaulting to `appState.currentWeek`, so a turn
+    /// started while browsing "next week" reads/edits that week, not the current one.
+    private let activeWeekID: String?
+
+    init(appState: AppState, activeWeekID: String? = nil) {
         self.appState = appState
+        self.activeWeekID = activeWeekID
+    }
+
+    /// The resolved active week, exposed so the caller building the system prompt's
+    /// planning-context block (`AppState+Assistant.sendAssistantMessage`) can render
+    /// the SAME week the tools will act on, without duplicating the resolution logic.
+    func resolvedActiveWeek() -> WeekSnapshot? {
+        guard let appState else { return nil }
+        return resolveActiveWeek(appState)
     }
 
     // MARK: - Engine inputs
@@ -76,6 +93,7 @@ final class ToolRegistry {
         case "weeks_get":                return weeksGet(args, appState)
         case "pantry_list":              return pantryList(appState)
         case "grocery_get":              return groceryGet(args, appState)
+        case "preferences_get":          return preferencesGet(appState)
         // Writes
         case "recipes_save":             return await recipesSave(args, appState)
         case "weeks_update_meals":       return await weeksUpdateMeals(args, appState)
@@ -121,23 +139,32 @@ final class ToolRegistry {
         return success(encodeJSON(["recipe": recipe]))
     }
 
-    /// weeks_get_current — the active week. Ports `weeks.py::weeks_get_current`.
+    /// weeks_get_current — the ACTIVE week (bead simmersmith-48y: the week the user is
+    /// looking at, not unconditionally `appState.currentWeek`). Ports
+    /// `weeks.py::weeks_get_current`.
     private func weeksGetCurrent(_ appState: AppState) -> ToolRunResult {
-        guard let week = appState.currentWeek else {
+        guard let week = resolveActiveWeek(appState) else {
             return success(#"{"week":null}"#)
         }
-        // In CloudKit mode, only surface a week the repository can actually resolve —
-        // otherwise the model receives a week_id that every write tool rejects with
-        // "Week not found" (currentWeek can briefly hold a Fly-sourced / cached id not
-        // in this store). Return the repo's fresh snapshot. Fly-only mode (no repo)
-        // keeps the legacy behavior.
-        if let repo = appState.weekRepository {
-            guard let resolved = repo.week(forId: week.weekId) else {
-                return success(#"{"week":null}"#)
-            }
-            return success(encodeWeekResult(resolved))
-        }
         return success(encodeWeekResult(week))
+    }
+
+    /// Resolve the ACTIVE week — `activeWeekID` when the caller captured one, falling
+    /// back to `appState.currentWeek`'s id (matches the pre-fix default for a page that
+    /// carries no week context, e.g. Settings). ALWAYS resolves through the repo when
+    /// one exists, so a stale/Fly-sourced id never surfaces a DIFFERENT week no write
+    /// tool can act on — otherwise degrades to whichever in-memory snapshot
+    /// (`browsedWeek` / `currentWeek`) matches the id (Fly-only mode has no repo to
+    /// resolve an arbitrary id through). Shared by `weeksGetCurrent` and `groceryGet`'s
+    /// no-id default so both agree on what "the current week" means within one turn.
+    private func resolveActiveWeek(_ appState: AppState) -> WeekSnapshot? {
+        guard let targetID = activeWeekID ?? appState.currentWeek?.weekId else { return nil }
+        if let repo = appState.weekRepository {
+            return repo.week(forId: targetID)
+        }
+        if let browsed = appState.browsedWeek, browsed.weekId == targetID { return browsed }
+        if let current = appState.currentWeek, current.weekId == targetID { return current }
+        return appState.currentWeek
     }
 
     /// weeks_get — a week by id. Ports `weeks.py::weeks_get`.
@@ -158,21 +185,42 @@ final class ToolRegistry {
     }
 
     /// grocery_get — a week's live grocery list. Reads the snapshot's grocery rows
-    /// (WeekRepository assembles them); defaults to the current week when no id is given.
+    /// (WeekRepository assembles them); defaults to the ACTIVE week when no id is given.
+    /// bead simmersmith-48y: an unknown explicit `week_id` now ERRORS instead of
+    /// silently falling back to a DIFFERENT week's grocery.
     private func groceryGet(_ args: [String: Any], _ appState: AppState) -> ToolRunResult {
         let weekID = (args["week_id"] as? String) ?? ""
-        let week: WeekSnapshot?
+        let resolved: WeekSnapshot?
         if !weekID.isEmpty {
-            week = appState.weekRepository?.week(forId: weekID) ?? appState.currentWeek
+            guard let found = appState.weekRepository?.week(forId: weekID) else {
+                return Self.failure("Week \(weekID) not found.")
+            }
+            resolved = found
         } else {
-            week = appState.currentWeek
+            resolved = resolveActiveWeek(appState)
         }
-        guard let resolved = week else {
+        guard let week = resolved else {
             return Self.failure("No active week. Create one first.")
         }
         return success(encodeJSON([
-            "week_id": resolved.weekId,
-            "grocery_items": resolved.groceryItems,
+            "week_id": week.weekId,
+            "grocery_items": week.groceryItems,
+        ]))
+    }
+
+    /// preferences_get — the household's allergies/avoids/likes/cuisines (bead
+    /// simmersmith-48y): the assistant previously had no way to learn these except
+    /// through the system prompt's planningContext block, so it couldn't re-check
+    /// mid-conversation. Reuses `AppState.gatherWeekGenContext` — the SAME gather
+    /// week-gen's allergy hard-gate reads from.
+    private func preferencesGet(_ appState: AppState) -> ToolRunResult {
+        let context = appState.gatherWeekGenContext(excludeWeekId: nil)
+        return success(encodeJSON([
+            "allergies": context.allergies,
+            "avoids": context.hardAvoids,
+            "strong_likes": context.strongLikes,
+            "liked_cuisines": context.likedCuisines,
+            "disliked_cuisines": context.dislikedCuisines,
         ]))
     }
 
@@ -193,6 +241,16 @@ final class ToolRegistry {
             draft = try Self.decodeDraft(recipeObject)
         } catch {
             return Self.failure("Could not read the recipe payload: \(Self.decodeReason(error)).")
+        }
+        // THE ALLERGY HARD-GATE at the executor (bead simmersmith-48y): the system
+        // prompt steers the model away from allergens, but that's advisory — the
+        // assistant reaches this save path directly, so refuse fail-closed here too.
+        let allergens = householdAllergens(appState)
+        if !allergens.isEmpty {
+            let ingredientNames = draft.ingredients.flatMap { [$0.ingredientName, $0.normalizedName ?? ""] }
+            if let hit = Self.firstAllergenHit(name: draft.name, ingredientNames: ingredientNames, allergens: allergens) {
+                return Self.failure(Self.allergyRefusalMessage(recipe: draft.name, allergen: hit))
+            }
         }
         do {
             let saved = try await appState.saveRecipe(draft)
@@ -227,6 +285,14 @@ final class ToolRegistry {
             updates = try Self.decodeMeals(mealsRaw)
         } catch {
             return Self.failure("Could not read the meals payload: \(Self.decodeReason(error)).")
+        }
+        // THE ALLERGY HARD-GATE at the executor (bead simmersmith-48y): the system
+        // prompt steers weeks_update_meals as the preferred small-edit tool, but that's
+        // advisory — refuse fail-closed here so a household with a recorded allergy
+        // can't have it saved via chat. Checks only the INCOMING updates (what the
+        // assistant is actually writing this turn), not the whole merged week.
+        if let violation = firstAllergyViolation(inMeals: updates, appState: appState) {
+            return Self.failure(Self.allergyRefusalMessage(recipe: violation.recipe, allergen: violation.allergen))
         }
         guard let currentWeek = repo.week(forId: weekID) else {
             return Self.failure("Week \(weekID) not found.")
@@ -321,6 +387,83 @@ final class ToolRegistry {
         }
     }
 
+    // MARK: - Allergy hard-gate (executor — bead simmersmith-48y)
+    //
+    // week-gen's `MealPlanParser.enforceAllergyGate` runs on a COMPLETE, self-contained
+    // structured-output plan (every meal slot ships with its own recipe + ingredients),
+    // so an unresolvable slot is treated as a violation (fail closed on "unknown").
+    // The assistant's write tools don't have that luxury: `weeks_update_meals` sends
+    // only a recipe name/id (no ingredients — that's the whole point of the merge-only
+    // tool), so most calls with a brand-new recipe name are LEGITIMATELY unresolvable
+    // and must NOT be blocked just because the household has an allergy on file. The
+    // checks below reuse the SAME allergens source and the SAME case-insensitive
+    // substring match `MealPlanParser.check` uses, but only refuse when a match is
+    // actually found — the name is always checked, and ingredients are checked too
+    // whenever the write's recipe_id/name resolves to an already-saved recipe.
+
+    /// The household's active allergens (lowercased, trimmed, empty-filtered) — the
+    /// SAME source (`PlanningContext.allergies`, via `AppState.gatherWeekGenContext`)
+    /// week-gen's allergy hard-gate reads from. Empty when no allergy is recorded.
+    private func householdAllergens(_ appState: AppState) -> [String] {
+        appState.gatherWeekGenContext(excludeWeekId: nil).allergies
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Check a batch of `weeks_update_meals` writes against the household's allergens.
+    /// Returns the first offending (recipe name, matched allergen) pair, or nil when
+    /// clean / no allergy is recorded.
+    private func firstAllergyViolation(
+        inMeals meals: [MealUpdateRequest], appState: AppState
+    ) -> (recipe: String, allergen: String)? {
+        let allergens = householdAllergens(appState)
+        guard !allergens.isEmpty else { return nil }
+        for meal in meals {
+            let name = meal.recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }   // empty recipe_name clears the slot
+            let ingredientNames = resolvedRecipe(recipeId: meal.recipeId, name: name, in: appState)?
+                .ingredients.flatMap { [$0.ingredientName, $0.normalizedName ?? ""] } ?? []
+            if let hit = Self.firstAllergenHit(name: name, ingredientNames: ingredientNames, allergens: allergens) {
+                return (name, hit)
+            }
+        }
+        return nil
+    }
+
+    /// Resolve a recipe by id (preferred) or exact-then-case-insensitive name — mirrors
+    /// `MealPlanResult.recipe(for:)`'s lookup order — so an already-saved recipe's
+    /// ingredients feed the check above even when the tool call only passed a name.
+    private func resolvedRecipe(recipeId: String?, name: String, in appState: AppState) -> RecipeSummary? {
+        if let recipeId, let match = appState.recipes.first(where: { $0.recipeId == recipeId }) {
+            return match
+        }
+        if let exact = appState.recipes.first(where: { $0.name == name }) { return exact }
+        let key = name.lowercased()
+        return appState.recipes.first { $0.name.lowercased() == key }
+    }
+
+    /// Case-insensitive substring match against a recipe name + its ingredient names,
+    /// mirroring `MealPlanParser.check(recipe:against:)`'s matching rule exactly.
+    /// `allergens` must already be lowercased/trimmed/non-empty-filtered.
+    nonisolated private static func firstAllergenHit(
+        name: String, ingredientNames: [String], allergens: [String]
+    ) -> String? {
+        let lowerName = name.lowercased()
+        if let hit = allergens.first(where: { lowerName.contains($0) }) { return hit }
+        for ingredientName in ingredientNames where !ingredientName.isEmpty {
+            let lower = ingredientName.lowercased()
+            if let hit = allergens.first(where: { lower.contains($0) }) { return hit }
+        }
+        return nil
+    }
+
+    /// The user-facing refusal message: same fail-closed invariant as
+    /// `WeekGenError.allergyViolation` (refuse, name the recipe + allergen, save
+    /// nothing), phrased for a chat tool write rather than a full-week generation.
+    nonisolated private static func allergyRefusalMessage(recipe: String, allergen: String) -> String {
+        "Refused: \"\(recipe)\" contains \(allergen), which is on your allergy list. Nothing was saved."
+    }
+
     // MARK: - Encoding helpers
 
     /// Encode a `[String: Any]`-style payload into one JSON object. Encodable domain values
@@ -347,6 +490,7 @@ final class ToolRegistry {
         case let d as Double: return d
         case let b as Bool: return b
         case is NSNull: return NSNull()
+        case let arr as [String]: return arr
         case let arr as [WeekMeal]: return decodeFragment(arr)
         case let arr as [RecipeSummary]: return decodeFragment(arr)
         case let arr as [PantryItem]: return decodeFragment(arr)
@@ -541,6 +685,11 @@ final class ToolRegistry {
             parametersSchemaJSON: """
             {"type":"object","properties":{"week_id":{"type":"string"}}}
             """
+        ),
+        ToolSpec(
+            name: "preferences_get",
+            description: "Get the household's recorded allergies, avoids, strongly-liked ingredients, and liked/disliked cuisines. Call this if you're unsure whether an ingredient is safe or wanted before proposing or saving a recipe/meal.",
+            parametersSchemaJSON: #"{"type":"object","properties":{}}"#
         ),
     ]
 }

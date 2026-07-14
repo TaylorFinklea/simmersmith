@@ -212,8 +212,6 @@ struct SettingsView: View {
                     .font(.footnote)
             }
 
-            AIUsageSection()
-
             Section {
                 Text("New recipes get an AI-generated header image automatically. Pick the model that draws them — you can switch any time.")
                     .font(.footnote)
@@ -228,7 +226,7 @@ struct SettingsView: View {
                     Task { await appState.saveImageProvider(newValue) }
                 }
 
-                Text("Affects new recipes, regenerations, and the backfill below. Existing images stay unchanged until you regenerate them.")
+                Text("Affects new recipes. Existing images stay unchanged.")
                     .font(.footnote)
                     .foregroundStyle(SMColor.textSecondary)
 
@@ -274,23 +272,8 @@ struct SettingsView: View {
                     }
                 }
 
-                Button {
-                    Task { await runImageBackfill() }
-                } label: {
-                    HStack {
-                        if isBackfillingImages {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(isBackfillingImages ? "Generating…" : "Generate missing images")
-                    }
-                }
-                .disabled(isBackfillingImages)
-
-                if let imageBackfillToast {
-                    Text(imageBackfillToast)
-                        .font(.footnote)
-                        .foregroundStyle(SMColor.textSecondary)
-                }
+                // simmersmith-xwb stage 1: hidden — RecipeHeaderImage never renders a
+                // photo, so this bulk backfill wrote AI spend nobody could see.
             } header: {
                 SmithSectionHeader("recipe images")
             }
@@ -551,25 +534,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Button("Enable Meal Reminders") {
-                    Task {
-                        let granted = await NotificationManager.shared.requestPermission()
-                        if granted, let week = appState.currentWeek {
-                            NotificationManager.shared.scheduleMealReminders(for: week.meals)
-                            NotificationManager.shared.scheduleGroceryReminder(itemCount: week.groceryItems.count)
-                        }
-                    }
-                }
-
-                Button("Turn Off Reminders") {
-                    NotificationManager.shared.cancelAllReminders()
-                }
-                .foregroundStyle(SMColor.textSecondary)
-            } header: {
-                SmithSectionHeader("notifications")
-            }
-
-            Section {
                 Button("Clear Local Cache", role: .destructive) {
                     showingClearCacheConfirmation = true
                 }
@@ -797,79 +761,6 @@ private struct TopBarSection: View {
         } footer: {
             Text("Each tab's top-bar primary action. ✨ Ask the Smith always sits on the far right of every tab except Week.")
         }
-    }
-}
-
-// MARK: - AI Usage (Build 93)
-
-/// Build 93 — user-facing AI usage breakdown. Reads
-/// ``profile.usage`` which now accrues for every user (pro + trial
-/// + free) so the user can see real numbers regardless of paywall
-/// status. The list is sorted by `used` descending so the most-used
-/// action surfaces first.
-private struct AIUsageSection: View {
-    @Environment(AppState.self) private var appState
-
-    var body: some View {
-        Section {
-            if usageRows.isEmpty {
-                Text("No AI activity yet this month. Generating a week plan, importing a recipe, or rebalancing a day shows up here.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(usageRows, id: \.action) { row in
-                    LabeledContent(actionLabel(row.action)) {
-                        Text(usageText(for: row))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-            }
-        } header: {
-            SmithSectionHeader("ai usage (this month)")
-        } footer: {
-            // Reads the local-StoreKit-only `appState.isPro` (not the Fly-fetched
-            // `profile.isPro`/`.isTrial`, which the server can still set stale/true
-            // now that bead simmersmith-7f2 retired the Fly "beta trial" concept and
-            // made entitlement StoreKit-only) so this footer can't contradict the
-            // now-darkened Settings subscription section.
-            if appState.isPro {
-                Text("You're a SimmerSmith Pro subscriber. No caps; counts are tracked for visibility.")
-                    .font(.footnote)
-            } else {
-                Text("Free-tier limits reset on the first of the month.")
-                    .font(.footnote)
-            }
-        }
-    }
-
-    private var usageRows: [UsageSummary] {
-        (appState.profile?.usage ?? [])
-            .filter { $0.used > 0 || $0.limit > 0 }
-            .sorted { lhs, rhs in
-                if lhs.used != rhs.used { return lhs.used > rhs.used }
-                return lhs.action < rhs.action
-            }
-    }
-
-    private func actionLabel(_ action: String) -> String {
-        switch action {
-        case "ai_generate": return "AI plans"
-        case "pricing_fetch": return "Price fetches"
-        case "rebalance_day": return "Day rebalances"
-        case "recipe_import": return "Recipe imports"
-        default: return action.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private func usageText(for row: UsageSummary) -> String {
-        // Same StoreKit-only source as the footer above — avoids a stale
-        // server-reported `profile.isPro`/`.isTrial` showing "unlimited" counts
-        // that contradict the darkened paywall.
-        if appState.isPro {
-            return "\(row.used) used"
-        }
-        return "\(row.used) of \(row.limit)"
     }
 }
 
@@ -1579,22 +1470,6 @@ private struct GrocerySection: View {
 
     var body: some View {
         Section {
-            // Build 87 — Savanne/Taylor dogfood: the old "edit a meal,
-            // grocery list auto-rebuilds" behavior is OFF by default
-            // now. Adding meals leaves the list alone; the user opens
-            // the plan-shopping sheet (Week or Grocery → "Plan
-            // Shopping") and adds items they actually need. Flip this
-            // back on to restore the old auto-add.
-            Toggle("Auto-populate from meals", isOn: Binding(
-                get: { appState.autoGroceryFromMeals },
-                set: { newValue in
-                    Task { await appState.saveAutoGroceryFromMeals(newValue) }
-                }
-            ))
-            Text("When on, planning a meal automatically adds its ingredients to the grocery list. When off (the default), the list stays untouched — open Plan Shopping to add what you actually need.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             // Build 91 — explicit Connect / Disconnect buttons replace
             // the old Toggle. The toggle's binding round-trip (set
             // newValue → async permission grant → showingPicker = true

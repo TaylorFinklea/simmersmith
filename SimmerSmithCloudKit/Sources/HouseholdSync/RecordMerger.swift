@@ -79,7 +79,10 @@ public struct EventSyncMerger: RecordMerger {
         let localNewer = localMod > remoteMod
         if localNewer {
             // Local is the later write: its LWW fields win — copy onto the server-tagged record.
-            for key in local.allKeys() { result[key] = local[key] }
+            // Clear-propagating copy, not `local.allKeys()` (simmersmith-t6t): a deliberately
+            // cleared field is absent from `allKeys()`, which would silently leave the remote's
+            // stale value in place instead of propagating the clear.
+            HouseholdSyncEngine.applyFields(from: local, onto: result)
         }
         result["manuallyMerged"] = (pin ? 1 : 0) as CKRecordValue   // re-assert the sticky pin
         // Push back when we hold state the server lacks: a pin it doesn't have, or a newer record.

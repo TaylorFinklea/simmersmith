@@ -28,7 +28,7 @@ struct DayNutritionSheet: View {
 
                     summaryCard
 
-                    if let goal {
+                    if let goal, !totals.isEmpty {
                         targetsCard(goal: goal)
                     }
 

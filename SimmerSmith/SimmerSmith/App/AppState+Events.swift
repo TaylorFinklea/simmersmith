@@ -126,7 +126,8 @@ extension AppState {
         occasion: String = "other",
         attendeeCount: Int = 0,
         notes: String = "",
-        attendees: [(guestID: String, plusOnes: Int)] = []
+        attendees: [(guestID: String, plusOnes: Int)] = [],
+        knownGuestIDs: Set<String>? = nil
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
@@ -136,7 +137,8 @@ extension AppState {
                 occasion: occasion,
                 attendeeCount: attendeeCount,
                 notes: notes,
-                attendees: attendees
+                attendees: attendees,
+                knownGuestIDs: knownGuestIDs
             ) else {
                 throw NSError(
                     domain: "SimmerSmith.EventRepository",
@@ -170,7 +172,8 @@ extension AppState {
         attendeeCount: Int,
         notes: String,
         status: String,
-        attendees: [(guestID: String, plusOnes: Int)]
+        attendees: [(guestID: String, plusOnes: Int)],
+        knownGuestIDs: Set<String>? = nil
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
@@ -182,7 +185,8 @@ extension AppState {
                 attendeeCount: attendeeCount,
                 notes: notes,
                 status: status,
-                attendees: attendees
+                attendees: attendees,
+                knownGuestIDs: knownGuestIDs
             ) else {
                 throw NSError(
                     domain: "SimmerSmith.EventRepository",

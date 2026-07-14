@@ -690,6 +690,15 @@ private struct AttendeePickerSheet: View {
     let event: Event
 
     @State private var selected: Set<String> = []
+    /// simmersmith-f0s: the attendee set as it stood when this sheet OPENED — the guests the
+    /// user actually knew about. `selected` diverges as they tick boxes; `baseline` doesn't.
+    /// Only a guest the user both KNEW about and dropped may be deleted, so a partner's
+    /// concurrently-synced attendee (absent from `baseline`) survives this save.
+    @State private var baseline: Set<String> = []
+    /// simmersmith-f0s: prior plus-ones, so re-saving the picker no longer zeroes them
+    /// (this sheet tracks only guest ids, and used to hard-code `plusOnes: 0` on save —
+    /// silently degrading the headcount the event AI plans against).
+    @State private var plusOnesByGuest: [String: Int] = [:]
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -737,6 +746,11 @@ private struct AttendeePickerSheet: View {
             .smithToolbar()
             .onAppear {
                 selected = Set(event.attendees.map(\.guestId))
+                baseline = selected
+                plusOnesByGuest = Dictionary(
+                    event.attendees.map { ($0.guestId, $0.plusOnes) },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 if appState.guests.isEmpty {
                     Task { await appState.refreshGuests() }
                 }
@@ -756,7 +770,8 @@ private struct AttendeePickerSheet: View {
                 attendeeCount: event.attendeeCount,
                 notes: event.notes,
                 status: event.status,
-                attendees: selected.map { (guestID: $0, plusOnes: 0) }
+                attendees: selected.map { (guestID: $0, plusOnes: plusOnesByGuest[$0] ?? 0) },
+                knownGuestIDs: baseline
             )
             dismiss()
         } catch {

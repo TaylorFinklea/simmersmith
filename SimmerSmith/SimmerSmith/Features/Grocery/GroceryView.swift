@@ -79,17 +79,9 @@ struct GroceryView: View {
                     }
 
                     Section {
-                        if weekTotal > 0 {
-                            HStack {
-                                Label("Estimated Total", systemImage: "dollarsign.circle")
-                                    .font(SMFont.subheadline)
-                                    .foregroundStyle(SMColor.textPrimary)
-                                Spacer()
-                                Text(String(format: "$%.2f", weekTotal))
-                                    .font(SMFont.headline)
-                                    .foregroundStyle(SMColor.ember)
-                            }
-                        }
+                        // simmersmith-dac: "Estimated Total" removed — retailerPrices is
+                        // hardcoded [] in the CloudKit mapper (Kroger died 2026-06-02), so
+                        // this was permanently zero.
 
                         // Build 92 — Hide-completed filter. Shown
                         // only when there's at least one checked
@@ -112,32 +104,8 @@ struct GroceryView: View {
                             }
                         }
 
-                        // Build 87 — Plan Shopping entry. Replaces
-                        // the old auto-populate behavior; the user
-                        // taps here to see needed-but-not-yet-on-the-
-                        // list items and add only what they want.
-                        Button {
-                            showingPlanShopping = true
-                        } label: {
-                            HStack(spacing: SMSpacing.md) {
-                                Image(systemName: "cart.badge.plus")
-                                    .foregroundStyle(SMColor.ember)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Plan Shopping")
-                                        .font(SMFont.subheadline.weight(.semibold))
-                                        .foregroundStyle(SMColor.textPrimary)
-                                    Text("Add what you still need from this week's meals.")
-                                        .font(.caption)
-                                        .foregroundStyle(SMColor.textSecondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(SMColor.textTertiary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        // simmersmith-4ii: Plan Shopping entry hidden for launch —
+                        // it called the dead Fly `planShopping` projection.
                     }
 
                     ForEach(groupedItems(for: week), id: \.category) { section in
@@ -196,22 +164,8 @@ struct GroceryView: View {
                                         // "set store" when empty).
                                         StoreChip(item: item)
                                             .padding(.top, 2)
-                                        if let price = bestPrice(for: item) {
-                                            HStack(spacing: 4) {
-                                                Text(price.productName.isEmpty ? price.retailer.capitalized : price.productName)
-                                                    .lineLimit(1)
-                                                if let linePrice = price.linePrice {
-                                                    Text(String(format: "$%.2f", linePrice))
-                                                        .foregroundStyle(SMColor.primary)
-                                                }
-                                                if !price.packageSize.isEmpty {
-                                                    Text("(\(price.packageSize))")
-                                                        .foregroundStyle(SMColor.textTertiary)
-                                                }
-                                            }
-                                            .font(.caption)
-                                            .foregroundStyle(SMColor.textSecondary)
-                                        }
+                                        // simmersmith-dac: per-item price display removed —
+                                        // retailerPrices is hardcoded [] in the CloudKit mapper.
                                     }
                                     Spacer()
                                 }
@@ -221,10 +175,10 @@ struct GroceryView: View {
                                     Button("Remove", systemImage: "trash", role: .destructive) {
                                         Task { await appState.removeGroceryItem(id: item.groceryItemId) }
                                     }
-                                    Button("Feedback", systemImage: "bubble.left") {
-                                        selectedItem = item
-                                    }
-                                    .tint(.blue)
+                                    // simmersmith-32i: "Feedback" swipe hidden — it called
+                                    // the dead Fly submitGroceryFeedback sink. The live
+                                    // ingredient-link + brand-preference flows survive via
+                                    // the row's tap-to-edit sheet and the Ingredients tab.
                                 }
                                 .swipeActions(edge: .leading) {
                                     // Build 88 — Taylor: quick way to add a
@@ -412,18 +366,9 @@ struct GroceryView: View {
 
             VStack(spacing: SMSpacing.sm) {
                 if appState.currentWeek != nil && mealCount > 0 {
-                    // Build 87 — primary path is now plan-shopping,
-                    // not whole-list regeneration. Tap to review and
-                    // add only what you actually need.
-                    Button {
-                        showingPlanShopping = true
-                    } label: {
-                        Label("Plan Shopping", systemImage: "cart.badge.plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(SMColor.ember)
-
+                    // simmersmith-4ii: Plan Shopping's dead-Fly-sink CTA
+                    // replaced by the already-functional "regenerate from
+                    // meals" action as the real primary here.
                     Button {
                         Task { await regenerate() }
                     } label: {
@@ -433,7 +378,8 @@ struct GroceryView: View {
                         )
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(SMColor.ember)
                     .disabled(isRegenerating)
                 }
                 Button {
@@ -534,16 +480,6 @@ struct GroceryView: View {
         (appState.currentWeek?.groceryItems ?? []).filter { item in
             !item.reviewFlag.isEmpty || item.resolutionStatus == "unresolved" || item.resolutionStatus == "suggested"
         }.count
-    }
-
-    private func bestPrice(for item: GroceryItem) -> RetailerPrice? {
-        item.retailerPrices.first(where: { $0.status == "matched" && $0.linePrice != nil })
-    }
-
-    private var weekTotal: Double {
-        (appState.currentWeek?.groceryItems ?? []).compactMap { item in
-            bestPrice(for: item)?.linePrice
-        }.reduce(0, +)
     }
 
 }

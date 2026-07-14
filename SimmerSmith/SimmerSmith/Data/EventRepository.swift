@@ -299,7 +299,8 @@ final class EventRepository {
         occasion: String = "other",
         attendeeCount: Int = 0,
         notes: String = "",
-        attendees: [(guestID: String, plusOnes: Int)] = []
+        attendees: [(guestID: String, plusOnes: Int)] = [],
+        knownGuestIDs: Set<String>? = nil
     ) -> DomainEvent? {
         let eventID = UUID().uuidString
         var scalars: [String: ScalarValue] = [
@@ -314,7 +315,7 @@ final class EventRepository {
         if let eventDate { scalars["eventDate"] = .date(eventDate) }
         if !notes.isEmpty { scalars["notes"] = .string(notes) }
         upsertRecord(HouseholdRecordValue(type: .event, recordName: eventID, scalars: scalars, refs: [:]))
-        syncAttendees(eventID: eventID, attendees: attendees)
+        syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -330,7 +331,8 @@ final class EventRepository {
         attendeeCount: Int,
         notes: String,
         status: String,
-        attendees: [(guestID: String, plusOnes: Int)]
+        attendees: [(guestID: String, plusOnes: Int)],
+        knownGuestIDs: Set<String>? = nil
     ) -> DomainEvent? {
         guard let existing = session.store.record(
             for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return nil }
@@ -342,7 +344,7 @@ final class EventRepository {
         existing["status"] = status as CKRecordValue
         existing["updatedAt"] = Date() as CKRecordValue
         session.engine.save(existing)
-        syncAttendees(eventID: eventID, attendees: attendees)
+        syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -555,25 +557,52 @@ final class EventRepository {
     /// Reconcile the event's `.eventAttendee` children against the desired set. Det-keyed by
     /// `<eventID>_<guestID>`; upsert the desired, explicitly delete the removed (NOT cascade — an
     /// attendee is not a cascade parent).
-    private func syncAttendees(eventID: String, attendees: [(guestID: String, plusOnes: Int)]) {
-        let existingNames = Set(
-            session.store.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
+    ///
+    /// `knownGuestIDs` is the BASELINE-AWARE DELETE guard (simmersmith-f0s — mirrors
+    /// WeekRepository.saveWeekMeals/WeekMealDeletePolicy, simmersmith-eky): the guest ids present
+    /// in the caller's SOURCE snapshot. A store attendee is only ever a deletion candidate if the
+    /// caller both knew about it (in `knownGuestIDs`) and dropped it (not in `attendees`) — a
+    /// partner's concurrently-synced attendee add the caller's snapshot never saw is always kept.
+    /// `nil` preserves the pre-fix behavior (assume the caller knows about every attendee
+    /// currently in the store) for callers not yet threading a baseline through
+    /// createEvent/updateEvent.
+    private func syncAttendees(
+        eventID: String,
+        attendees: [(guestID: String, plusOnes: Int)],
+        knownGuestIDs: Set<String>? = nil
+    ) {
+        let existingRecords = Dictionary(
+            uniqueKeysWithValues: session.store.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
                 .filter { refName($0["event"]) == eventID }
-                .map { $0.recordID.recordName }
+                .map { ($0.recordID.recordName, $0) }
         )
+        let existingNames = Set(existingRecords.keys)
         var desiredNames = Set<String>()
         for attendee in attendees {
             let recordName = "\(eventID)_\(attendee.guestID)"
             desiredNames.insert(recordName)
+            var scalars: [String: ScalarValue] = [
+                "plusOnes": .int(attendee.plusOnes),
+                "updatedAt": .date(Date()),
+            ]
+            // Stamp createdAt only when minting a brand-new attendee row — an existing row's
+            // createdAt must survive every re-sync (this upsert used to rewrite it to Date() on
+            // every save, regardless of whether the attendee already existed).
+            if existingRecords[recordName] == nil {
+                scalars["createdAt"] = .date(Date())
+            }
             let value = HouseholdRecordValue(
                 type: .eventAttendee,
                 recordName: recordName,
-                scalars: ["plusOnes": .int(attendee.plusOnes), "createdAt": .date(Date())],
+                scalars: scalars,
                 refs: ["event": eventID, "guest": attendee.guestID]
             )
             upsertRecord(value)
         }
-        for name in existingNames.subtracting(desiredNames) {
+        // Baseline-aware delete: reuses WeekMealDeletePolicy.toDelete (simmersmith-eky) — the
+        // formula (existing − desired) ∩ known is domain-agnostic Set algebra, not meal-specific.
+        let known = knownGuestIDs.map { ids in Set(ids.map { "\(eventID)_\($0)" }) } ?? existingNames
+        for name in WeekMealDeletePolicy.toDelete(existing: existingNames, desired: desiredNames, known: known) {
             session.engine.delete(CKRecord.ID(recordName: name, zoneID: session.zoneID))
         }
     }

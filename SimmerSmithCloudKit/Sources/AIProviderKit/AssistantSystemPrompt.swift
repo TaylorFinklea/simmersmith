@@ -50,4 +50,66 @@ public enum AssistantSystemPrompt {
         \(planningContext)
         """
     }
+
+    /// Render a gathered `PlanningContext` into the `planningContext` block `build(...)`
+    /// appends verbatim. Bead simmersmith-48y: the assistant previously called `build`
+    /// with this left empty, so the model had no date, no allergies/avoids, and no idea
+    /// which week it was looking at — it could only discover a week id via
+    /// `weeks_get_current`, which itself defaulted to `appState.currentWeek`, so a turn
+    /// started while the user browsed "next week" silently edited the wrong one.
+    ///
+    /// Mirrors `WeekGenPrompt.buildSystemPrompt`'s "Preference signals" section
+    /// ordering — allergies FIRST and phrased as a hard constraint, ahead of the
+    /// generic avoids/likes/cuisines — so the assistant sees the same safety framing
+    /// week-gen does. This block is defense in depth for steering the model away from
+    /// a doomed write; the actual invariant is enforced at the `ToolRegistry` executor
+    /// (`weeks_update_meals` / `recipes_save`), not here.
+    ///
+    /// - Parameters:
+    ///   - context: the gathered household context (allergies/avoids/likes/cuisines).
+    ///   - activeWeekSummary: a short description of the week the user is currently
+    ///     looking at (id + a few key facts), or "" when none is resolvable yet.
+    ///   - todayISO: today's date as "yyyy-MM-dd", so the model can reason about
+    ///     relative requests ("push Tuesday's dinner to tomorrow") without a tool call.
+    public static func renderPlanningContext(
+        _ context: PlanningContext,
+        activeWeekSummary: String,
+        todayISO: String
+    ) -> String {
+        var sections: [String] = []
+
+        var prefLines: [String] = []
+        if !context.allergies.isEmpty {
+            prefLines.append(
+                "HARD ALLERGIES — NEVER include these or any dish containing them, and NEVER "
+                    + "save a recipe or meal containing them: " + context.allergies.joined(separator: ", ")
+            )
+        }
+        if !context.hardAvoids.isEmpty {
+            prefLines.append("MUST AVOID: " + context.hardAvoids.joined(separator: ", "))
+        }
+        if !context.strongLikes.isEmpty {
+            prefLines.append("Strongly likes: " + context.strongLikes.joined(separator: ", "))
+        }
+        if !context.brands.isEmpty {
+            prefLines.append("Preferred brands: " + context.brands.joined(separator: ", "))
+        }
+        if !context.likedCuisines.isEmpty {
+            prefLines.append("Liked cuisines: " + context.likedCuisines.joined(separator: ", "))
+        }
+        if !context.dislikedCuisines.isEmpty {
+            prefLines.append("Disliked cuisines: " + context.dislikedCuisines.joined(separator: ", "))
+        }
+        if !prefLines.isEmpty {
+            sections.append("Household preferences:\n" + prefLines.joined(separator: "\n"))
+        }
+
+        sections.append("Today: \(todayISO)")
+
+        if !activeWeekSummary.isEmpty {
+            sections.append(activeWeekSummary)
+        }
+
+        return sections.joined(separator: "\n\n")
+    }
 }

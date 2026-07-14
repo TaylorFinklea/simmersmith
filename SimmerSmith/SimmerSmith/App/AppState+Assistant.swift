@@ -184,12 +184,29 @@ extension AppState {
         let priorHistory = history.dropLast()
 
         // 4. Build the system prompt + ToolRegistry and run the engine.
+        //
+        // bead simmersmith-48y: the active week id is the page the user is LOOKING AT
+        // (pageContext, set on every `.onAppear`/browse change) over the app's browsed/
+        // current slots — so a turn started while browsing "next week" acts on that
+        // week, not silently `currentWeek`. Thread it into BOTH the ToolRegistry (so
+        // `weeks_get_current`/`grocery_get` resolve it through the repo) and the system
+        // prompt's planningContext block (so the model can act on the id directly
+        // without an extra `weeks_get_current` round-trip).
         let threadTitle = assistantThreadDetails[threadID]?.title ?? ""
+        let activeWeekID = resolveActiveWeekID(pageContext: pageContext)
+        let toolRegistry = ToolRegistry(appState: self, activeWeekID: activeWeekID)
+        let gatheredContext = gatherWeekGenContext(excludeWeekId: activeWeekID)
+        let activeWeekSummary = toolRegistry.resolvedActiveWeek().map(self.describeActiveWeekForAssistant) ?? ""
+        let planningContext = AssistantSystemPrompt.renderPlanningContext(
+            gatheredContext,
+            activeWeekSummary: activeWeekSummary,
+            todayISO: DayKey.local(Date())
+        )
         let systemPrompt = AssistantSystemPrompt.build(
             threadTitle: threadTitle,
+            planningContext: planningContext,
             unitSystem: unitSystemDraft == "metric" ? .metric : .us
         )
-        let toolRegistry = ToolRegistry(appState: self)
         let provider = try aiSvc.makeAssistantProvider()
 
         let engineStream = AssistantEngine.run(
@@ -275,6 +292,34 @@ extension AppState {
         #else
         throw AssistantRepositoryError.storeUnavailable
         #endif
+    }
+
+    // MARK: - Planning context (bead simmersmith-48y)
+
+    /// The week id the assistant should act on for THIS turn: the page the user is
+    /// LOOKING AT (`pageContext`, set on every screen's `.onAppear`/browse change)
+    /// takes priority over the app's browsed/current slots, so a turn started while
+    /// browsing "next week" acts on that week, not silently `currentWeek`.
+    func resolveActiveWeekID(pageContext: AIPageContext?) -> String? {
+        pageContext?.weekId ?? browsedWeek?.weekId ?? currentWeek?.weekId
+    }
+
+    /// A short natural-language summary of the active week for the assistant's
+    /// planning-context block — the meals it already knows about (id, dates, status,
+    /// what's planned) without an extra `weeks_get_current` round-trip.
+    private func describeActiveWeekForAssistant(_ week: WeekSnapshot) -> String {
+        var lines = [
+            "Active week — id: \(week.weekId), starts \(DayKey.server(week.weekStart)), status: \(week.status)."
+        ]
+        if week.meals.isEmpty {
+            lines.append("No meals planned yet.")
+        } else {
+            lines.append(contentsOf: week.meals.map { meal in
+                let name = meal.recipeName.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "- \(meal.dayName) \(meal.slot): \(name.isEmpty ? "(empty)" : name)"
+            })
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Stream event handler (unchanged — UI reads from this)

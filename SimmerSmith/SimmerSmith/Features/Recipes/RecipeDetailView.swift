@@ -176,28 +176,10 @@ struct RecipeDetailView: View {
                             ) {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
-                            Divider()
-                            // SP-C AI-4: image regen now routes through AIService (BYO key).
-                            // Available in CloudKit mode; surfaces a no-key error if no image
-                            // key is configured (shown via imageActionToast in regenerateImage).
-                            Button {
-                                Task { await regenerateImage(recipe) }
-                            } label: {
-                                Label("Regenerate image", systemImage: "sparkles")
-                            }
-                            .disabled(isRegeneratingImage)
-                            Button {
-                                isOverridingImage = true
-                            } label: {
-                                Label("Use my own photo", systemImage: "photo.on.rectangle.angled")
-                            }
-                            if recipe.imageUrl != nil {
-                                Button(role: .destructive) {
-                                    imageRemovalPending = true
-                                } label: {
-                                    Label("Remove image", systemImage: "trash")
-                                }
-                            }
+                            // simmersmith-xwb stage 1: Regenerate / Use my own photo / Remove
+                            // all write successfully but RecipeHeaderImage never renders a
+                            // photo — hiding these spend/write affordances until rendering
+                            // is restored (stage 2).
                             Divider()
                             if recipe.archived {
                                 Button {
@@ -836,40 +818,39 @@ struct RecipeDetailView: View {
                         }
 
                         // Per-ingredient AI menu: substitute, avoid, allergy.
-                        // SP-C review finding D: AI substitutions + preference upserts are
-                        // Fly-backed. Hide the whole menu in CloudKit-only mode.
-                        if !appState.isCloudKitOnly {
-                            Menu {
-                                Button {
-                                    substitutionContext = SubstitutionSheetContext(
-                                        recipe: recipe,
-                                        ingredient: ingredient
-                                    )
-                                } label: {
-                                    Label("Substitute…", systemImage: "arrow.triangle.2.circlepath")
-                                }
-
-                                if let baseID = ingredient.baseIngredientId, !baseID.isEmpty {
-                                    Divider()
-                                    Button {
-                                        Task { await markPreference(ingredient: ingredient, mode: "avoid") }
-                                    } label: {
-                                        Label("Never use this in my plans", systemImage: "nosign")
-                                    }
-                                    Button(role: .destructive) {
-                                        Task { await markPreference(ingredient: ingredient, mode: "allergy") }
-                                    } label: {
-                                        Label("I'm allergic to this", systemImage: "exclamationmark.triangle")
-                                    }
-                                }
+                        // SP-C AI-2/AI-3: substitutions are AIService-backed (BYO key,
+                        // ported 2026-07-02); preference upserts are CloudKit-native.
+                        // Un-gated — a missing key surfaces the standard clean AI error.
+                        Menu {
+                            Button {
+                                substitutionContext = SubstitutionSheetContext(
+                                    recipe: recipe,
+                                    ingredient: ingredient
+                                )
                             } label: {
-                                Image(systemName: "wand.and.stars")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(SMColor.ember.opacity(0.85))
-                                    .frame(width: 28, height: 28)
+                                Label("Substitute…", systemImage: "arrow.triangle.2.circlepath")
                             }
-                            .accessibilityLabel("Options for \(ingredient.ingredientName)")
+
+                            if let baseID = ingredient.baseIngredientId, !baseID.isEmpty {
+                                Divider()
+                                Button {
+                                    Task { await markPreference(ingredient: ingredient, mode: "avoid") }
+                                } label: {
+                                    Label("Never use this in my plans", systemImage: "nosign")
+                                }
+                                Button(role: .destructive) {
+                                    Task { await markPreference(ingredient: ingredient, mode: "allergy") }
+                                } label: {
+                                    Label("I'm allergic to this", systemImage: "exclamationmark.triangle")
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(SMColor.ember.opacity(0.85))
+                                .frame(width: 28, height: 28)
                         }
+                        .accessibilityLabel("Options for \(ingredient.ingredientName)")
                     }
                     .padding(.vertical, 8)
 

@@ -874,13 +874,6 @@ struct RecipeEditorView: View {
     }
 
     private func refreshNutritionEstimate(force: Bool = false) async {
-        // SP-C review finding D: AI nutrition estimation is Fly-backed. Skip it in
-        // CloudKit-only mode; the recipe still saves (just without an auto estimate).
-        guard !appState.isCloudKitOnly else {
-            nutritionSummary = nil
-            nutritionEstimateError = nil
-            return
-        }
         let estimateDraft = preparedDraft()
         let hasNamedIngredients = estimateDraft.ingredients.contains {
             !$0.ingredientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

@@ -4,6 +4,7 @@ import Foundation
 import GroceryMerge
 import HouseholdRecords
 import HouseholdSync
+import OSLog
 import SimmerSmithKit
 
 // NOTE: GroceryMerge is imported here (unlike WeekRepository, which avoids it).
@@ -51,6 +52,14 @@ import SimmerSmithKit
 
 private let weekMigrationScope = "weeks"
 private let weekFetchConcurrency = 4
+private let log = Logger(subsystem: "app.simmersmith.cloud", category: "WeekMigrationLoader")
+
+/// True when every expected week produced a detail fetch — the completeness check the
+/// RECEIPT-BLOCKING RULE (in `migrateWeeksIfNeeded` below) gates the receipt stamp on.
+/// Internal (not private) so the app-target test can pin the contract.
+func weekMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
+    expectedCount == fetchedCount
+}
 
 // MARK: - Migration entry point
 
@@ -194,6 +203,19 @@ func migrateWeeksIfNeeded(
             let ckRecord = GroceryCodec.makeRecord(mergeItem, zoneID: session.zoneID)
             session.engine.save(ckRecord)
         }
+    }
+
+    // RECEIPT-BLOCKING RULE (mirrors RecipeMigrationLoader): any week whose detail
+    // fetch failed above is silently missing from weekSnapshots (the task group
+    // uses try?). Compare the fetched count against the expected count from
+    // summaries; on any drop, everything fetched is still saved (loop above already
+    // ran) and drained, but the receipt is withheld so the next launch retries the
+    // whole migration (idempotent — the engine's PK-preserving upserts dedupe re-writes).
+    let droppedWeeks = summaries.count - weekSnapshots.count
+    guard weekMigrationIsComplete(expectedCount: summaries.count, fetchedCount: weekSnapshots.count) else {
+        log.error("week migration dropped \(droppedWeeks, privacy: .public) of \(summaries.count, privacy: .public) weeks; receipt withheld for retry")
+        try? await session.engine.sendUntilDrained()
+        return
     }
 
     // Stamp the receipt LAST — mirrors the crash-safety invariant in

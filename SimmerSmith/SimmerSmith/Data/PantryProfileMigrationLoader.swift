@@ -4,6 +4,7 @@ import CloudKitProvisioning
 import Foundation
 import HouseholdRecords
 import HouseholdSync
+import OSLog
 import SimmerSmithKit
 import SwiftData
 
@@ -49,6 +50,15 @@ import SwiftData
 // `ProfileRepository.nonAIKeys` constant is the authoritative list.
 
 private let pantryProfileMigrationScope = "pantry-profile"
+private let log = Logger(subsystem: "app.simmersmith.cloud", category: "PantryProfileMigrationLoader")
+
+/// True when no private-plane upsert was dropped during the migration write phase — the
+/// completeness check the RECEIPT-BLOCKING RULE (in `migratePantryProfileIfNeeded` below)
+/// gates the receipt stamp on. Internal (not private) so the app-target test can pin the
+/// contract.
+func pantryProfileMigrationIsComplete(droppedCount: Int) -> Bool {
+    droppedCount == 0
+}
 
 // MARK: - Migration entry point
 
@@ -182,24 +192,41 @@ func migratePantryProfileIfNeeded(
 
     // (3) Profile settings + dietary goal → private plane.
     // NON-AI keys only (ProfileRepository.nonAIKeys). Skip nil flyProfile gracefully.
+    // RECEIPT-BLOCKING RULE (mirrors RecipeMigrationLoader): count attempted vs
+    // succeeded per-item upserts in (3) and (4); any drop withholds the receipt below
+    // so the next launch retries (idempotent — every upsert here is fetch-by-key).
+    // Household writes in (1)/(2) use non-throwing engine.save and are not part of
+    // this count.
+    var attemptedPrivateUpserts = 0
+    var droppedPrivateUpserts = 0
     if let profile = flyProfile {
         let nonAIKeys = ProfileRepository.nonAIKeys
         for key in nonAIKeys {
             if let value = profile.settings[key] {
-                try? privateStore.upsertProfileSetting(key: key, value: value, updatedAt: profile.updatedAt ?? now)
+                attemptedPrivateUpserts += 1
+                do {
+                    try privateStore.upsertProfileSetting(key: key, value: value, updatedAt: profile.updatedAt ?? now)
+                } catch {
+                    droppedPrivateUpserts += 1
+                }
             }
         }
         if let goal = profile.dietaryGoal {
-            try? privateStore.upsertDietaryGoal(
-                goalType: goal.goalType.rawValue,
-                dailyCalories: goal.dailyCalories,
-                proteinG: goal.proteinG,
-                carbsG: goal.carbsG,
-                fatG: goal.fatG,
-                fiberG: goal.fiberG ?? 0,
-                notes: goal.notes,
-                updatedAt: goal.updatedAt ?? now
-            )
+            attemptedPrivateUpserts += 1
+            do {
+                try privateStore.upsertDietaryGoal(
+                    goalType: goal.goalType.rawValue,
+                    dailyCalories: goal.dailyCalories,
+                    proteinG: goal.proteinG,
+                    carbsG: goal.carbsG,
+                    fatG: goal.fatG,
+                    fiberG: goal.fiberG ?? 0,
+                    notes: goal.notes,
+                    updatedAt: goal.updatedAt ?? now
+                )
+            } catch {
+                droppedPrivateUpserts += 1
+            }
         }
         try? privateStore.save()
     }
@@ -208,17 +235,22 @@ func migratePantryProfileIfNeeded(
     // Pass baseIngredientName from the Fly response so the allergy hard-gate has a name
     // to match against without a catalog round-trip (C1 fix).
     for pref in ingredientPreferences {
-        try? privateStore.upsertIngredientPreference(
-            preferenceID: pref.preferenceId,
-            baseIngredientID: pref.baseIngredientId,
-            baseIngredientName: pref.baseIngredientName,
-            choiceMode: pref.choiceMode,
-            rank: pref.rank,
-            active: pref.active,
-            brand: pref.preferredBrand,
-            variation: pref.preferredVariationId ?? "",
-            updatedAt: pref.updatedAt
-        )
+        attemptedPrivateUpserts += 1
+        do {
+            try privateStore.upsertIngredientPreference(
+                preferenceID: pref.preferenceId,
+                baseIngredientID: pref.baseIngredientId,
+                baseIngredientName: pref.baseIngredientName,
+                choiceMode: pref.choiceMode,
+                rank: pref.rank,
+                active: pref.active,
+                brand: pref.preferredBrand,
+                variation: pref.preferredVariationId ?? "",
+                updatedAt: pref.updatedAt
+            )
+        } catch {
+            droppedPrivateUpserts += 1
+        }
     }
     if !ingredientPreferences.isEmpty {
         try? privateStore.save()
@@ -231,6 +263,14 @@ func migratePantryProfileIfNeeded(
     // the next launch retries the whole migration (idempotent via the engine's
     // PK-preserving upserts and the private plane's fetch-before-insert upserts).
     try? await session.engine.sendUntilDrained()
+
+    // RECEIPT-BLOCKING RULE: any dropped profile-setting / dietary-goal / ingredient-
+    // preference upsert withholds the receipt so the next launch retries the whole
+    // migration (idempotent — every private-plane upsert above is fetch-by-key).
+    guard pantryProfileMigrationIsComplete(droppedCount: droppedPrivateUpserts) else {
+        log.error("pantry-profile migration dropped \(droppedPrivateUpserts, privacy: .public) of \(attemptedPrivateUpserts, privacy: .public) private-plane upserts; receipt withheld for retry")
+        return
+    }
 
     // (6) Stamp the private-plane receipt LAST — crash-safety invariant (matches
     // WeekMigrationLoader). The receipt must be the final write so a crash before it

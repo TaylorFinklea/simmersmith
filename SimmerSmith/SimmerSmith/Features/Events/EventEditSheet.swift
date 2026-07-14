@@ -120,7 +120,12 @@ struct EventEditSheet: View {
                 attendeeCount: attendeeCount,
                 notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                 status: status,
-                attendees: currentAttendees
+                attendees: currentAttendees,
+                // simmersmith-f0s: the baseline is THIS SHEET'S snapshot — the attendees the
+                // user could actually see when they opened it. A partner's attendee added
+                // concurrently isn't in it, so it is never a deletion candidate and survives
+                // an unrelated edit here (name/date/notes).
+                knownGuestIDs: Set(event.attendees.map(\.guestId))
             )
             dismiss()
         } catch {

@@ -26,8 +26,17 @@ extension AppState {
     func ensureHouseholdSession() async {
         // Cheap outer fast path — already set up. Preserves the common case of not even
         // creating a Task when the session is already booted.
+        //
+        // simmersmith-7in: `wireHouseholdRepositories` commits `householdSession` BEFORE its
+        // single await (`ensureCurrentCloudKitWeek`), so this fast path can observe a non-nil
+        // session that belongs to ANOTHER boot still mid-wiring (phase still `.resolving`).
+        // Flipping to `.ready` here would be premature — RootView would show MainTabView
+        // before that boot's mirrors/current-week creation land. Only fast-path when nothing
+        // else is actively resolving.
         if householdSession != nil {
-            householdLaunchPhase = .ready
+            if householdLaunchPhase != .resolving {
+                householdLaunchPhase = .ready
+            }
             return
         }
         // simmersmith-0gf blocking-finding fix: capture the epoch AT REQUEST TIME, before
@@ -78,7 +87,7 @@ extension AppState {
         }
 
         // 1. Resolve the household id: discover first, mint only if none exists.
-        guard let householdID = await resolveHouseholdID() else {
+        guard let householdID = await resolveHouseholdID(requestEpoch: requestEpoch) else {
             // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
             // was already set inside resolveHouseholdID() before returning nil. Leave
             // the session unset so a later retry can call ensureHouseholdSession() again.
@@ -88,9 +97,24 @@ extension AppState {
         let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
         await session.start()
 
+        // simmersmith-7in: re-check after session.start() — a teardown mid-provisioning must
+        // not fall through into the migration writes below (they would land in the PRIOR
+        // user's household zone). Detach what start() built rather than migrating into it.
+        guard sessionBootEpoch == requestEpoch else {
+            session.detach()
+            return
+        }
+
         // Import household-owned catalog rows before recipes so any preserved
         // ingredient links already have canonical targets when recipes hydrate.
         await migrateIngredientsIfNeeded(session: session, apiClient: apiClient)
+
+        // simmersmith-7in: re-check between the two migrations — same hazard as above; a
+        // teardown during ingredient migration must not fall through into the recipe migration.
+        guard sessionBootEpoch == requestEpoch else {
+            session.detach()
+            return
+        }
 
         // SP-C Task 6: one-time first-launch recipe migration Fly→CloudKit.
         // Receipt-gated (idempotent) — safe to call every launch. Runs after
@@ -108,7 +132,12 @@ extension AppState {
             return
         }
 
-        await wireHouseholdRepositories(session: session)
+        await wireHouseholdRepositories(session: session, requestEpoch: requestEpoch)
+
+        // simmersmith-7in: wireHouseholdRepositories may have already aborted internally
+        // (stale epoch after its own await) — don't let this redundant flip resurrect .ready,
+        // and don't schedule the leftover-household sweep for a session we just tore down.
+        guard sessionBootEpoch == requestEpoch else { return }
 
         // SP-C identity slice (spec §1.3): signal RootView that the household is
         // resolved and the app is ready to show MainTabView.
@@ -124,7 +153,14 @@ extension AppState {
     /// the launch phase to .ready. Extracted from `ensureHouseholdSession` so the owner-boot
     /// and the participant-adopt paths wire identically. Owner-only steps (current-week
     /// creation) are gated on the session role so a participant adopts the owner's weeks.
-    func wireHouseholdRepositories(session: HouseholdSession) async {
+    ///
+    /// `requestEpoch` (simmersmith-7in): the caller's epoch snapshot, re-checked after this
+    /// function's one await (`ensureCurrentCloudKitWeek`) before flipping `householdLaunchPhase`
+    /// to `.ready` — a sign-out mid-await must not resurrect `.ready` over the teardown's
+    /// `.resolving`. `householdSession = session` below already commits synchronously (before
+    /// this await), so a stale request has nothing left to detach here — the guard's only job
+    /// is to stop the phase flip.
+    func wireHouseholdRepositories(session: HouseholdSession, requestEpoch: Int) async {
         let recipeRepo = RecipeRepository(session: session)
         let metadataRepo = MetadataRepository(session: session)
         let weekRepo = WeekRepository(session: session)
@@ -192,6 +228,12 @@ extension AppState {
         if session.role.isOwner {
             await ensureCurrentCloudKitWeek()
         }
+
+        // simmersmith-7in blocking-finding fix: re-check after this function's one await — a
+        // sign-out during ensureCurrentCloudKitWeek() clears householdSession/repos and sets
+        // .resolving; don't let this stale op overwrite that back to .ready.
+        guard sessionBootEpoch == requestEpoch else { return }
+
         mirrorEventsFromRepository()
         mirrorGuestsFromRepository()
         mirrorPantryFromRepository()
@@ -211,7 +253,7 @@ extension AppState {
     /// unavailable / transient CloudKit error — OR minting threw). The caller leaves the
     /// session unset so a later refresh retries; it must NOT fall through to minting on a
     /// discovery error, which would orphan an existing `household-<id>` zone (spec §7).
-    private func resolveHouseholdID() async -> String? {
+    private func resolveHouseholdID(requestEpoch: Int) async -> String? {
         let provisioner = HouseholdZoneProvisioner()
 
         // 0. PREFLIGHT the iCloud account status (review finding B/F). This is the
@@ -227,6 +269,10 @@ extension AppState {
             lastErrorMessage = "Couldn't check your iCloud account. Will retry."
             return nil
         }
+        // simmersmith-7in: re-check after the accountStatus await, before writing the launch
+        // phase below — a teardown during that await must not have this stale request flip
+        // .iCloudUnavailable back over the sign-out's .resolving.
+        guard sessionBootEpoch == requestEpoch else { return nil }
         guard accountStatus == .available else {
             householdLaunchPhase = .iCloudUnavailable
             lastErrorMessage = "Sign in to iCloud in Settings to use SimmerSmith."
@@ -243,6 +289,9 @@ extension AppState {
         do {
             result = try await discoverWithZeroZoneRetry()
         } catch {
+            // simmersmith-7in: re-check before writing the phase below — same hazard as the
+            // preflight guard above, and this await can run several seconds of internal backoff.
+            guard sessionBootEpoch == requestEpoch else { return nil }
             // Check whether this is an iCloud-not-signed-in error vs. a transient
             // network hiccup. CKError.notAuthenticated / accountTemporarilyUnavailable
             // map to .iCloudUnavailable (user must open Settings); other errors are
@@ -255,6 +304,9 @@ extension AppState {
             lastErrorMessage = "Couldn't reach CloudKit to find your household. Will retry."
             return nil
         }
+        // simmersmith-7in: re-check before the ambiguous check + pendingLeftoverHouseholdIDs
+        // write below — discoverWithZeroZoneRetry can run ~4.5s of backoff internally.
+        guard sessionBootEpoch == requestEpoch else { return nil }
 
         // Ambiguous: multiple household zones, none provably populated (finding A). Do NOT
         // alphabetical-guess into an unproven zone — surface an error and stay resolving so
@@ -293,6 +345,9 @@ extension AppState {
             _ = try await provisioner.ensureHouseholdProfile(householdID: newID, name: "My Household")
             return newID
         } catch {
+            // simmersmith-7in: re-check before writing the phase below — same hazard as the
+            // other catch blocks in this function.
+            guard sessionBootEpoch == requestEpoch else { return nil }
             if isICloudAuthError(error) {
                 householdLaunchPhase = .iCloudUnavailable
             }

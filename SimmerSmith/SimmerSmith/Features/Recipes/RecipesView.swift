@@ -416,16 +416,12 @@ struct RecipesView: View {
             } label: {
                 Label("Find recipe online", systemImage: "magnifyingglass.circle")
             }
-            // SP-C AI-2 review C3: "Identify ingredient" still calls Fly
-            // (`appState.identifyIngredient` → `apiClient`; vision is not rewired
-            // this slice) → 401 in CloudKit-only mode. Re-gate ONLY this button;
-            // the AIService-backed import / web-search items above stay un-gated.
-            if !appState.isCloudKitOnly {
-                Button {
-                    showingIngredientScanner = true
-                } label: {
-                    Label("Identify ingredient", systemImage: "viewfinder.circle")
-                }
+            // SP-C AI-2: "Identify ingredient" is rewired to aiSvc.generateVision
+            // (BYO key); un-gated like the import / web-search items above.
+            Button {
+                showingIngredientScanner = true
+            } label: {
+                Label("Identify ingredient", systemImage: "viewfinder.circle")
             }
             Divider()
             Button {

@@ -171,7 +171,11 @@ public enum HouseholdRecordType: String, CaseIterable, Equatable, Codable, Senda
                     F("autoMergeGrocery", .bool), F("manuallyMerged", .bool),
                     F("createdAt", .date), F("updatedAt", .date)]
         case .eventAttendee:
-            return [F("plusOnes", .int), F("createdAt", .date)]
+            // updatedAt added simmersmith-f0s (additive-only): without it, a concurrent
+            // eventAttendee edit fell into the engine's blanket local-wins rebase branch
+            // (HouseholdSyncEngine.rebaseNonMergerRecord's missing-date fallback) instead of
+            // proper LWW recency comparison.
+            return [F("plusOnes", .int), F("createdAt", .date), F("updatedAt", .date)]
         case .eventMeal:
             return [F("role", .string), F("recipeName", .string), F("servings", .double),
                     F("scaleMultiplier", .double), F("notes", .string), F("sortOrder", .int),

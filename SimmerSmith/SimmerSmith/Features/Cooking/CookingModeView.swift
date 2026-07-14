@@ -19,11 +19,6 @@ struct CookingModeView: View {
     @State private var cookCheckContext: CookCheckSheetContext?
     @State private var errorMessage: String?
     @State private var spokenService = SpokenStepService.shared
-    /// Build 67 — voice commands disabled (CoreAudio IPC + dispatch
-    /// queue assert crash on iPhone 15 Pro). The mic icon stays as
-    /// part of the visual composition; tapping it shows a
-    /// "coming soon" alert instead of starting the engine.
-    @State private var showingVoiceComingSoonAlert = false
 
     var body: some View {
         let recipe = appState.recipes.first { $0.recipeId == recipeID }
@@ -71,11 +66,6 @@ struct CookingModeView: View {
         }
         .sheet(item: $cookCheckContext) { context in
             CookCheckSheet(context: context)
-        }
-        .alert("Voice commands coming soon", isPresented: $showingVoiceComingSoonAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Hands-free \"next / back / stop\" is in the works. For now, tap the buttons below to advance steps.")
         }
     }
 
@@ -128,22 +118,13 @@ struct CookingModeView: View {
                     .foregroundStyle(Color(hex: 0x8F8576))
             }
 
-            // Quiet row of voice + mute toggles. Out of the way but
-            // still one-tap reachable for hands-on cooking.
-            // Build 67 — mic stays visually present but taps open a
-            // "coming soon" alert; the underlying engine is disabled
-            // pending a CoreAudio threading rework.
+            // Quiet row of mute toggle. Out of the way but still
+            // one-tap reachable for hands-on cooking.
+            // simmersmith-dac: voice-commands mic button removed — it
+            // showed a static "coming soon" alert over a dead
+            // VoiceCommandService (Build 67 CoreAudio crash disable).
             HStack(spacing: SMSpacing.lg) {
                 Spacer()
-                Button {
-                    showingVoiceComingSoonAlert = true
-                } label: {
-                    Image(systemName: "mic.slash.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color(hex: 0x8F8576))
-                }
-                .accessibilityLabel("Voice commands (coming soon)")
-
                 Button {
                     spokenService.isMuted.toggle()
                 } label: {

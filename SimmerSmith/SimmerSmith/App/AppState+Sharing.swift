@@ -176,7 +176,7 @@ extension AppState {
         )
         // start() already runs one fetchChanges(); its raced .offline is non-terminal here.
         await session.start()
-        await participantInitialFetch(session: session)
+        await participantInitialFetch(session: session, requestEpoch: requestEpoch)
 
         // simmersmith-0gf blocking-finding fix: re-check right before the commit point — a
         // sign-out could have landed during any of the awaits above (session.start(),
@@ -187,23 +187,30 @@ extension AppState {
             return false
         }
 
-        await wireHouseholdRepositories(session: session)
+        await wireHouseholdRepositories(session: session, requestEpoch: requestEpoch)
         return true
     }
 
     /// The make-or-break post-accept fetch: the accepting device usually receives no push
     /// for its own acceptance, and `accept()` can return before the server finishes creating
     /// the zone — so fetch once, then again after a short backoff to close the race.
-    private func participantInitialFetch(session: HouseholdSession) async {
+    ///
+    /// `requestEpoch` (simmersmith-7in): re-checked between attempts and before every
+    /// `syncStatusCenter` publish — this loop can run up to ~9s (6 attempts × ~1.5s backoff);
+    /// without the re-check, a sign-out mid-loop leaves it fetching into a torn-down session
+    /// and publishing stale join status for several more seconds.
+    private func participantInitialFetch(session: HouseholdSession, requestEpoch: Int) async {
         // A freshly-accepted shared zone can take several fetch cycles to fully propagate to
         // this device — the accept can return before the server finishes, and the device gets
         // no push for its own acceptance. Retry until the owner's weeks land (or attempts run
         // out), logging record counts so a TestFlight run reveals whether data is arriving.
         let maxAttempts = 6
         for attempt in 1...maxAttempts {
+            guard sessionBootEpoch == requestEpoch else { return }
             syncStatusCenter.setParticipantJoin(.joining(attempt: attempt, maxAttempts: maxAttempts))
             do { try await session.engine.fetchChanges() }
             catch { print("[Sharing] participant fetch \(attempt) error: \(error)") }
+            guard sessionBootEpoch == requestEpoch else { return }
             let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
             let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
             let recipes = session.store.records(ofType: HouseholdRecordType.recipe.recordTypeName).count
@@ -217,6 +224,7 @@ extension AppState {
         // Retry budget exhausted and the shared household still looks empty — a slow join
         // is indistinguishable from an empty household without this: surface it distinctly
         // rather than letting the join silently give up (simmersmith-qrt).
+        guard sessionBootEpoch == requestEpoch else { return }
         syncStatusCenter.setParticipantJoin(.stalled)
     }
 }

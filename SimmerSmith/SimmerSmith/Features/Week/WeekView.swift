@@ -98,8 +98,7 @@ struct WeekView: View {
                     FuHero(
                         eyebrow: weekHeroEyebrow,
                         title: weekHeroTitle,
-                        emberAccent: weekHeroEmberAccent,
-                        trailing: AnyView(planShoppingTrailing)
+                        emberAccent: weekHeroEmberAccent
                     )
                     .padding(.horizontal, -SMSpacing.lg) // FuHero applies its own 22pt inset; outer VStack inset is 16pt, so back it out
                     .contentShape(Rectangle())
@@ -249,13 +248,9 @@ struct WeekView: View {
             ToolbarItem(placement: .topBarLeading) {
                 weekToolbarMenu
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showingActivity = true } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .foregroundStyle(SMColor.textSecondary)
-                }
-                .accessibilityLabel("View week activity")
-            }
+            // simmersmith-dac: Activity toolbar entry hidden — appState.exports has
+            // zero CloudKit writers, so ActivityView is permanently empty. Returns
+            // post-launch if exports come back.
             // SP-C — talk out the week; fills meals into days via the review screen.
             if let week = displayedWeek {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -599,7 +594,7 @@ struct WeekView: View {
                             .foregroundStyle(SMColor.textSecondary)
                     }
                     Spacer()
-                    if appState.profile?.dietaryGoal != nil || !totals.isEmpty {
+                    if !totals.isEmpty {
                         Button {
                             nutritionDay = (dayName: dayName, date: todayDate, meals: meals, totals: totals)
                         } label: {
@@ -1591,9 +1586,10 @@ struct WeekView: View {
 
     private func navigateToNextWeek() { navigateRelative(weeks: 1) }
 
-    /// Build 87 — small "plan" pill in the FuHero trailing slot that
-    /// opens the PlanShoppingSheet. Replaces the now-disabled implicit
-    /// "meal → grocery list" auto-population.
+    /// Build 87 — small "plan" pill that opened the PlanShoppingSheet.
+    /// simmersmith-4ii: no longer wired into the FuHero trailing slot —
+    /// it called the dead Fly `planShopping` projection. Left in place
+    /// (unused) for a future on-device port.
     @ViewBuilder
     private var planShoppingTrailing: some View {
         Button {

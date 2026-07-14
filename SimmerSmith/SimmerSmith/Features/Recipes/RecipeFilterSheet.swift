@@ -34,17 +34,10 @@ struct RecipeFilterSheet: View {
                         .padding(.top, SMSpacing.lg)
                         .padding(.bottom, SMSpacing.md)
 
-                    section(label: "difficulty") {
-                        chipRow(DifficultyFilter.allCases.map { f in (
-                            label: f.shortLabel,
-                            selected: difficulty == f,
-                            action: { difficulty = f }
-                        )})
-                    }
-
-                    HandRule(color: SMColor.rule, height: 5, lineWidth: 0.8)
-                        .padding(.horizontal, SMSpacing.lg)
-                        .padding(.vertical, SMSpacing.sm)
+                    // simmersmith-dac: difficulty/kid-friendly filter chips hidden —
+                    // zero writers post-cutover, so they matched nothing for new
+                    // recipes. Detail pills (RecipeDetailView) still show these
+                    // fields for legacy data.
 
                     section(label: "speed") {
                         FuOutlinedPill(

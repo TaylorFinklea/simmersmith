@@ -3,7 +3,13 @@ Branch: main
 
 ## Plan
 
-- [ ] Wk1 stop-ship wave → cut build 154: deh · 48y · dkj · 91e · f0s · 7in · l4i-s1 · akv · xwb-s1 · 4ii/32i hides · dac · kby · eig · z69.3-timeboxed. Verify: per-bead verify_cmds + human device pass on 154.
+Wk1 wave → build 155. Lanes A-F run in-session (Workflow, file-disjoint); the mechanical tail below is ralph-loopable.
+
+- [x] 154 SAFETY CUT — deh + eig fixed, uploaded to TestFlight 2026-07-14 (0317679).
+- [ ] `simmersmith-dds` — Settings Test-Key/model-fetch formatter drops HTTP body; delete local aiErrorMessage, delegate to AIError.errorDescription; thread provider name into streaming transport error. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
+- [ ] `simmersmith-57d` — re-key AssistantToolCallCard title/icon/args to the 12 live ToolRegistry tool names. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
+- [ ] `simmersmith-blv` — clear AIService.seasonalCache at the teardown choke point. Verify: xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
+- [ ] `simmersmith-5fm` — release-ios.sh polls ASC processing state after upload. Verify: bash -n scripts/release-ios.sh
 
 ## Blockers
 - Device gates riding 153 (unchanged): mmi · 6uj · a97 · nli · 3hn · f5e · auc.
