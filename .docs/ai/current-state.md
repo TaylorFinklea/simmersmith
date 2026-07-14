@@ -12,7 +12,7 @@ Branch: main
 - `release-ios.sh` now REFUSES to archive a build with no entry in `ReleaseNotesCatalog.swift`. Empty new/improved/fixed = the valid "nothing user-visible" answer. Verified firing on the 152 cut.
 - SIGNING: new Mac ⇒ new distribution cert ⇒ the old `SimmerSmith App Store` profile can't sign (a profile embeds a cert allowlist). ExportOptions points at `SimmerSmith App Store Build 151`, the only profile holding this machine's cert. Fails AFTER `ARCHIVE SUCCEEDED` — only export re-signs. Details → bd memory `new-machine-signing-cert`; name consolidation beaded.
 - SIM: never bake a UDID in `verify_cmd` (a new Mac killed 28 of them). Build verify → `-destination generic/platform=iOS`; test verify → `-destination name=SimmerSmithSim`, never with `CODE_SIGNING_ALLOWED=NO`. Run `scripts/dev-sim.sh` once per machine.
-- TEST VERIFY IS RED ON MAIN unless scoped: a bare `xcodebuild test` also runs `SimmerSmithUITests`, which still drives the removed Fly connection form (7 tests / 9 failures, pre-existing — beaded). Use `-only-testing:SimmerSmithTests`, or a green run reads as `** TEST FAILED **` and masks real regressions.
+- Test verify is GREEN unscoped again (`3i0`, 85bdbeb): the Fly-era `SimmerSmithUITests` (6 dead + 1 vacuous) are gone, replaced by one launch smoke test — launch must settle on either terminal gate (tab bar OR "Sign in to iCloud") and never hang on the spinner. Deliberately NOT a launch→Week-tab test: the Week tab needs an iCloud account, so that would be red on every signed-out sim/CI box.
 - `project.pbxproj` is COMMITTED in sync with `project.yml` (152); no longer "expected dirty". New source files still need `xcodegen generate` + the pbxproj committed.
 
 ## Open Questions
