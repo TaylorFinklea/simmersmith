@@ -1715,3 +1715,53 @@ detached after `.ready` keeps a destructive CloudKit pass off the path that open
 and the pass is idempotent, so "it threw — retry next launch" is a complete recovery strategy.
 The decision rule lives in a pure `classifyLeftovers` so the safety contract is unit-tested
 rather than implied by the I/O code — same split as `chooseRichestHousehold`.
+
+## 2026-07-14 — ADR: the six-week depth+stability program (audit-driven; supersedes the submit-ASAP posture)
+
+**Context.** Owner-directed architecture + product-truth audit (Fable Lead; 5 Sonnet discovery
+agents incl. a ~200-affordance census; adversarial peer panel gpt-5.6-terra / glm-5.2 /
+gpt-5.6-sol in the pre-digested no-tools mode — 3/3 elite results, mode now validated). Full
+report: `phases/arch-audit-2026-07-14-report.md`. 45+ verified findings → 24 new beads, 30+
+updated, 2 folded. Owner locked direction the same day.
+
+**Decisions (owner, 2026-07-14):**
+1. **Depth + stability BEFORE submission; ~6 weeks.** The runbook's gates still define done;
+   the week-by-week program in roadmap `### Now` defines how. Week 1 is stop-ship class and
+   rides build 154 (headline: a TestFlight-reachable debug check that destroys real private-plane
+   data — `deh`).
+2. **Monetization: ADR-2 confirmed** — launch free, paywall dark, StoreKit products configured;
+   NO credits gateway in this program. Activation gate (all must pass before the paywall ever
+   shows): working keyless hosted-AI journey end-to-end; adversarial billing tests (JWS, App
+   Attest, replay, idempotent accounting, restore, account switch, partner device); per-user +
+   global spend ceilings, rate limits, provider timeouts, remote kill switch; graceful
+   trial/subscription exhaustion to the manual app; complete privacy/support/review-notes/pricing;
+   BYO mode stays free (or the sub carries clearly separate non-token value); a TestFlight soak
+   with measured usage and bounded cost.
+3. **Recipe images: restore photo rendering** (image-first, illustration fallback). Invisible
+   spend stops in wk1 regardless (`xwb`).
+4. **Dead-Fly duo:** hide the grocery feedback swipe for launch (signal semantics undecided);
+   port Plan Shopping as a deterministic on-device store-split in wk4 ONLY if it stays bounded,
+   else it stays hidden (`4ii`/`32i`).
+5. **Assistant scope (owner override of Sol's stricter cut):** the read/proposal/commit ladder
+   steps 1-4 PLUS token streaming (`3sf`) PLUS the first reversible write tools (grocery items,
+   executor-validated, undoable) are pre-submission scope. Web search / deletes / bulk ops /
+   preference writes stay post-launch. Streaming is the first cut if the program slips.
+6. **Fly retirement split (Sol):** 990.8 (strip runtime fallbacks) pulls forward under strict
+   conditions — fix/hide 4ii+32i first, APIClient quarantined behind a CI-enforced boundary,
+   bridge stays fail-closed (`91e` first), defer if it grows. 990.10+ stay post-launch behind
+   990.9's human gate. 990.11 (privacy/terms re-host) decouples and lands pre-submission with 5w8.
+7. **z69 re-scope (Sol):** pull the OUTCOME forward, not the refactor — z69.3 (app tests in CI,
+   timeboxed) is wk1; z69.1/.2 extract only the seams e0a needs; full structural wave post-launch.
+8. **e0a rollout = shadow → cutover → recovery** (Terra requirements + Sol sequencing, recorded
+   on the bead + report). The named risk: sync state advancing ahead of the durable mirror
+   silently skips server changes forever — shadow digest comparison + forced-crash tests are
+   mandatory before cached data drives UI.
+9. **Onboarding is submission scope** (`jfn`): the recorded deterministic 4-screen flow, fully
+   skippable, keyless-honest. exc stays the design record.
+
+**Method notes (for future reviews).** (a) The pre-digested no-tools peer-review mode is now
+3/3 at 5/5 quality across glm-5.2/terra/sol — tool-loop headless dispatch to these lanes stays
+banned for review work. (b) The census's self-verification pattern (sub-agents + lead spot-checks
+before reporting) caught the audit's worst finding (`deh`); keep it. (c) Adversarial verification
+killed 3 plausible-but-wrong claims before they became beads (fast-path resurrection, same-turn
+tool race, "fresh users never boot") — the backstop cut toward my own conclusions twice.

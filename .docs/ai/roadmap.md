@@ -14,18 +14,40 @@ Active items. Trim as completed.
 
 ### Now
 
-**App Store launch (bead epic `0lm`) — the only active track.**
-The definition of done is `phases/launch-runbook.md` (Gates 0–4: data safety → product truth →
-compliance → submission). Execution order + lane rules: `phases/arch-v2-execution-plan.md`.
-The actionable queue lives in beads (`bd ready`), NOT here. Loop state: `current-state.md`.
-**Lead: Fable** (resumed 2026-07-09; the Sonnet-5 succession ended — bd memory `lead-succession`).
-Status: Gate-1 code complete; Gate 2 started (`7pr`/`962`/`ebu` in); Gates 3–4 open; runtime proof
-= device beads (`6uj`, `a97`, …) on the next TestFlight build (cut = human).
+**The six-week depth+stability program (2026-07-14 — audit-driven; owner-locked).**
+Owner decisions 2026-07-14: **depth + stability BEFORE submission** (supersedes submit-ASAP) ·
+~6 weeks to submission · launch FREE, paywall dark (ADR-2 confirmed; gateway post-launch behind
+the activation gate) · restore recipe-photo rendering · hide the grocery feedback swipe, port
+Plan Shopping only if it stays bounded · assistant gets streaming + first reversible write tools
+pre-launch (owner override of Sol's stricter cut). Full audit: `phases/arch-audit-2026-07-14-report.md`
+(45+ findings, 24 new beads, 30+ updated). Queue = `bd ready`; epic `0lm` + runbook still define
+submission done-ness — the program below is HOW the next six weeks get there.
 
-**Launch-blocking delta-review findings (arch-v3, 2026-07-09)** — `glw` (P1: repair pass outlives
-session teardown; factory reset can resurrect the wiped zone) · `ioj` (P1: permanent sync failures
-self-clear, so the qrt banner never fires) · `44q`/`bnh`/`gd5` (P2). `c57` fixed (`02b1974`).
-Fold `glw` + `ioj` into Gate 1 before the cut — both are data-safety/observability class.
+- **Wk1 — stop-ship safety + truth**: `deh` (debug check destroys real data — MUST ride build 154)
+  · `48y` (assistant wrong-week + allergy bypass) · `dkj` (send-ack erases newer edit) · `91e`
+  (migration receipts) · `f0s` (attendee deletes) · `7in` (epoch interiors) · `l4i`-stage-1 +
+  `akv` (nutrition truth: hide false Drift, unhide free estimate + scanner + substitutions) ·
+  `xwb`-stage-1 (stop invisible image spend) · hide 4ii entry points + `32i` swipe · `dac`/`kby`
+  (dead surfaces + Settings truth) · `eig` neuter · timeboxed `z69.3` (app tests in CI).
+- **Wk2 — persistent mirror in SHADOW mode** (`e0a` phase 1): transactional scoped mirror runs
+  beside the full fetch, digest-compared; crash/replay/token-skew tests. `2g1` context caps.
+- **Wk3 — cached-launch cutover** (`e0a` phase 2): stop deleting the token; cached UI before
+  reconciliation; orthogonal boot/sync states; `8qy` indexed projections; two-device +
+  account-switch (`yqm`) + crash-recovery device proof.
+- **Wk4 — product depth**: `jfn` onboarding (submission scope) · `wkx` week-gen eval slice ·
+  `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
+  `xwb`-stage-2 photo rendering · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
+  macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
+- **Wk5 — release closure**: `3sf` streaming (cut FIRST if slipping) · `5w8`+990.11 privacy/terms
+  re-host · `9wr` grant revoke · `pb8` prod schema · `vwq` metadata/screenshots · 990.8 Fly strip
+  (quarantine + CI grep gate, per conditions on the bead) · RC1.
+- **Wk6 — soak + submit**: no features; device matrix (clean install, migration, two-device storm,
+  offline, account switch, share lifecycle, keyless walk); RC defects only; submit.
+
+**Standing device gates** (ride every build): `6uj` `a97` `nli` `3hn` `cnx` `cel` `f5e` `auc` `mmi`.
+**Post-launch (unchanged order):** 990.9–.12 retirement tail · credits gateway `bx1`→`98v` behind
+the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a's seams pre-launch)
+· assistant write-tool ladder steps 5-6 · `a0a` web search (read-only mode) · SP-B AFM at iOS 27.
 
 **Completed track history (details in decisions.md ADRs + phases/* reports):**
 - SP-A CloudKit data plane — COMPLETE 2026-06-18 (household zone, CKShare, merge, migration runner).
@@ -369,7 +391,13 @@ Complete remaining launch prerequisites and submit.
 - [ ] App Store metadata (description, keywords, category, screenshots)
 - [ ] Submit for App Store review
 
-## M4: Nutrition-Aware AI + Dietary Goals (complete)
+## M4: Nutrition-Aware AI + Dietary Goals (complete on Fly; **NOT running on CloudKit** — 2026-07-14 audit)
+
+> **Correction (2026-07-14, kept as the record):** on the shipping CloudKit architecture the
+> macro pipeline is structurally nil (`WeekRecordMapper` hardcodes nutrition; the client-side
+> recompute was never built) — worse, the UI asserts false red "Drift" verdicts when a goal is
+> set. Bead `l4i` (hide the lie, then build the deterministic client pass). The checkboxes below
+> describe the Fly era only.
 
 > Spec: `.docs/ai/phases/nutrition-goals-spec.md`
 
@@ -563,7 +591,10 @@ full-screen experience. iOS-only — no backend changes.
       (`AVSpeechSynthesizer`) speaks each step on entry; mute toggle
       in the top bar persists via UserDefaults; AVAudioSession
       ducks background music during speech.
-- [x] Phase 3 — Voice commands. `VoiceCommandService`
+- [x] ~~Phase 3 — Voice commands~~ **STUBBED since Build 67** (2026-07-14 audit: mic button
+      shows a static "coming soon" alert after a CoreAudio crash disable; `VoiceCommandService`
+      has zero call sites and its dormant "stop" lacks the ADR-mandated confirmation — bead `dac`).
+      Original Fly-era record: `VoiceCommandService`
       (on-device `SFSpeechRecognizer` + `AVAudioEngine`) recognizes
       next / back / repeat / stop. Auto-restarts every ~50s to dodge
       the ~1-min buffer limit. Live-caption pill, mic toggle,
@@ -574,7 +605,11 @@ full-screen experience. iOS-only — no backend changes.
       "Check it" button per step. "Done" on the last step shows a
       "Nicely done." toast on the recipe detail view.
 
-## M14: AI-generated recipe images (in flight)
+## M14: AI-generated recipe images (**write-only since Build 81** — 2026-07-14 audit)
+
+> **Correction (2026-07-14):** the Build-81 illustration redesign left `RecipeHeaderImage`
+> rendering gradient+icon only — generation/upload/backfill all still work and still spend,
+> but no photo ever displays. Owner decision 2026-07-14: restore photo rendering (bead `xwb`).
 
 > Plan: `~/.claude/plans/plan-out-next-milestone-glowing-matsumoto.md`
 
