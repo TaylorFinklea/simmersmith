@@ -391,39 +391,44 @@ func checkpointWriterPersistsCompleteReceiptIndex() async throws {
 
 @Test("every pre-pointer publication failure leaves the prior generation current")
 func failedPublicationKeepsPriorGeneration() async throws {
-    for failurePoint in [
-        ShadowMirrorCheckpointFailurePoint.afterRecordsWrite,
-        .afterStateWrite,
-        .afterManifestWrite,
-    ] {
-        let root = try checkpointDirectory()
-        let prior = checkpointRecord()
-        prior["name"] = "Prior soup" as CKRecordValue
-        let stableWriter = try ShadowMirrorCheckpointWriter(
-            scope: checkpointScope(), rootDirectory: root)
-        try await stableWriter.publish(
-            records: [prior],
-            engineState: MirrorEngineState(
-                serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
-
-        let candidate = checkpointRecord()
-        candidate["name"] = "Candidate soup" as CKRecordValue
-        let failingWriter = try ShadowMirrorCheckpointWriter(
-            scope: checkpointScope(), rootDirectory: root, failurePoint: failurePoint)
-        do {
-            try await failingWriter.publish(
-                records: [candidate],
+    for _ in 0..<2 {
+        for failurePoint in [
+            ShadowMirrorCheckpointFailurePoint.afterRecordsWrite,
+            .afterStateWrite,
+            .afterManifestWrite,
+        ] {
+            let root = try checkpointDirectory()
+            let prior = checkpointRecord()
+            prior["name"] = "Prior soup" as CKRecordValue
+            let stableWriter = try ShadowMirrorCheckpointWriter(
+                scope: checkpointScope(), rootDirectory: root)
+            try await stableWriter.publish(
+                records: [prior],
                 engineState: MirrorEngineState(
-                    serialization: Data([2]), coverageRevision: 2, zoneEnsured: true))
-            Issue.record("Expected deterministic checkpoint failure at \(failurePoint)")
-        } catch let error as ShadowMirrorCheckpointWriterError {
-            #expect(error == .injectedFailure(failurePoint))
-        }
+                    serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
 
-        let recovered = try #require(await stableWriter.loadCurrent())
-        let record = try #require(try recovered.records.first?.decode())
-        #expect(record["name"] as? String == "Prior soup")
-        #expect(recovered.engineState.coverageRevision == 1)
+            let candidate = checkpointRecord()
+            candidate["name"] = "Candidate soup" as CKRecordValue
+            let failingWriter = try ShadowMirrorCheckpointWriter(
+                scope: checkpointScope(), rootDirectory: root, failurePoint: failurePoint)
+            do {
+                try await failingWriter.publish(
+                    records: [candidate],
+                    engineState: MirrorEngineState(
+                        serialization: Data([2]), coverageRevision: 2, zoneEnsured: true))
+                Issue.record("Expected deterministic checkpoint failure at \(failurePoint)")
+            } catch let error as ShadowMirrorCheckpointWriterError {
+                #expect(error == .injectedFailure(failurePoint))
+            }
+
+            let recovered = try #require(await stableWriter.loadCurrent())
+            let record = try #require(try recovered.records.first?.decode())
+            #expect(record["name"] as? String == "Prior soup")
+            #expect(recovered.engineState.coverageRevision == 1)
+            let expectedDigest = try ShadowMirrorCanonicalDigest.bundle(
+                records: [prior], tombstones: [], outbox: [], receipts: .init(receipts: []))
+            #expect(recovered.manifest.logicalDigest == expectedDigest)
+        }
     }
 }
 
@@ -571,26 +576,28 @@ func invalidTransitionDoesNotReachJournal() async throws {
 
 @Test("post-pointer crash keeps journal entries at manifest high-water from replaying twice")
 func postPointerCrashDoesNotReplayIncludedJournalEntry() async throws {
-    let root = try checkpointDirectory()
-    let record = checkpointRecord()
-    let initialWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
-    let sequence = try await initialWriter.appendSave(
-        record, mutationGeneration: 1, changedFields: ["name"])
-    let crashingWriter = try ShadowMirrorCheckpointWriter(
-        scope: checkpointScope(), rootDirectory: root, failurePoint: .afterPointerPublication)
+    for _ in 0..<2 {
+        let root = try checkpointDirectory()
+        let record = checkpointRecord()
+        let initialWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+        let sequence = try await initialWriter.appendSave(
+            record, mutationGeneration: 1, changedFields: ["name"])
+        let crashingWriter = try ShadowMirrorCheckpointWriter(
+            scope: checkpointScope(), rootDirectory: root, failurePoint: .afterPointerPublication)
 
-    do {
-        try await crashingWriter.publish(
-            records: [record],
-            engineState: MirrorEngineState(
-                serialization: Data([3]), coverageRevision: 1, zoneEnsured: true))
-        Issue.record("Expected deterministic post-pointer failure")
-    } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterPointerPublication) {}
+        do {
+            try await crashingWriter.publish(
+                records: [record],
+                engineState: MirrorEngineState(
+                    serialization: Data([3]), coverageRevision: 1, zoneEnsured: true))
+            Issue.record("Expected deterministic post-pointer failure")
+        } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterPointerPublication) {}
 
-    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
-    let recovery = await recoveredWriter.recoveryState()
-    #expect(recovery.outbox.map(\.sequence) == [sequence])
-    #expect(recovery.lastIntentSequence == sequence)
+        let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+        let recovery = await recoveredWriter.recoveryState()
+        #expect(recovery.outbox.map(\.sequence) == [sequence])
+        #expect(recovery.lastIntentSequence == sequence)
+    }
 }
 
 @Test("a durable acknowledgement survives an interrupted checkpoint without reviving the intent")

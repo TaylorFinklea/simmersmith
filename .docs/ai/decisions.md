@@ -1836,3 +1836,17 @@ another Swift task, which could starve the pool during initial fetch and put dia
 on the launch critical path. Dedicated GCD execution preserves the required synchronous durability
 without that dependency cycle. Exact delivery transitions are required for crash recovery: an ack
 or failure for generation N cannot be allowed to consume, rewrite, or resurrect generation N+1.
+
+## 2026-07-15 — Live delivery generation remains one stamp per record
+
+**Decision.** Keep `sentGeneration` as one replaceable stamp per record, not a FIFO. CKSyncEngine
+finishes a batch and serially delivers its `sentRecordZoneChanges` event before requesting the next
+batch; the pending list also deduplicates record changes. The reachable race is therefore one local
+mutation between a payload stamp and its acknowledgement, which the existing generation comparison
+detects. Two same-record payloads cannot reach the required stamp-stamp-ack ordering on one engine.
+
+**Why.** A FIFO was proposed during adversarial review as protection against concurrent batches,
+but that premise conflicts with CKSyncEngine's documented batch/event ordering. A provider callback
+can still be stamped and then canceled before any sent event; the current replaceable slot heals on
+the next send, while a FIFO would retain the orphaned head and misassociate later acknowledgements.
+The single slot plus `AsyncSerialGate` for explicit operations is the safer invariant.

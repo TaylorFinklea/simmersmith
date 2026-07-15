@@ -100,6 +100,44 @@ func validShadowDoesNotHydrateLiveStore() async throws {
     #expect(activeStore.count() == 0)
 }
 
+@Test("a bad checkpoint quarantines for full-fetch fallback without hydrating the active store")
+func badCheckpointFallsBackWithoutHydration() async throws {
+    let root = try runtimeDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: runtimeScope(), rootDirectory: root)
+    try await writer.publish(
+        records: [runtimeRecord(recordName: "stale")],
+        engineState: MirrorEngineState(
+            serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+
+    let scopeDirectory = root.appendingPathComponent(runtimeScope().cacheKey)
+    let generationID = try String(
+        contentsOf: scopeDirectory.appendingPathComponent("current"), encoding: .utf8)
+    try FileManager.default.removeItem(
+        at: scopeDirectory.appendingPathComponent("generations")
+            .appendingPathComponent(generationID)
+            .appendingPathComponent("records.json"))
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: runtimeScope(), rootDirectory: root)
+    #expect(try await recoveredWriter.loadCurrent() == nil)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+    #expect(HouseholdSyncEngine.coldStartStateSerialization() == nil)
+
+    let runtime = ShadowMirrorRuntime(writer: recoveredWriter)
+    let activeStore = HouseholdLocalStore()
+    let freshRecord = runtimeRecord(recordName: "fresh")
+    runtime.beginFetchEpoch()
+    _ = try runtime.completeFetchEpoch(
+        records: [freshRecord], coverageRevision: 2, zoneEnsured: true)
+    let publication = try #require(try runtime.observeStateUpdate(
+        Data([2]), coverageRevision: 2, zoneEnsured: true))
+    try await runtime.publish(publication)
+
+    #expect(runtime.isCacheReady)
+    #expect(activeStore.count() == 0)
+    let checkpoint = try #require(await recoveredWriter.loadCurrent())
+    #expect(try checkpoint.records.first?.decode().recordID.recordName == "fresh")
+}
+
 @Test("shadow WAL derives changed and explicitly cleared fields from the CKRecord")
 func shadowRuntimeCapturesClearedFields() async throws {
     let root = try runtimeDirectory()
