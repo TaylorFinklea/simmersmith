@@ -2,7 +2,7 @@
 Branch: main
 
 ## Plan
-- [x] Release push/build 155: `10906ad` pushed; CI run 29419464369 green including app-target tests; build 155 uploaded + `VALID`. Verify: `gh run view 29419464369 --json conclusion,jobs` and ASC `/v1/builds?filter[version]=155` report success/VALID.
+- [x] e0a P1 release: main through `4ff9934` pushed; Xcode 26.3 concurrency compatibility fix `fb34fae`; CI run 29437504939 green (packages, app build, 90 app-target tests); build 157 uploaded + `VALID`. Verify: `gh run view 29437504939 --json conclusion,jobs` and ASC `/v1/builds?filter[version]=157` report success/VALID.
 - [x] `51d` tracked schema source: EventAttendee.updatedAt added to `phase0-schema.ckdb` (`a1e71b5`); CK 513 + generic iOS build green. Production Dashboard promotion remains under Blockers.
 - [x] **e0a P1a Lead spec/decomposition.** Added + GLM/MiniMax-adversarially revised `phases/e0a-shadow-mirror-spec.md`: scoped generation/WAL, state-coverage revision, canonical digest, durable asset rebinding, intent high-water, exact ack transitions, fencing, crash matrix, bounded TDD items. `tier_floor: lead` · `complexity: L`. Verify: `test -f .docs/ai/phases/e0a-shadow-mirror-spec.md && rg -q "Crash matrix" .docs/ai/phases/e0a-shadow-mirror-spec.md && rg -q "state-coverage revision" .docs/ai/phases/e0a-shadow-mirror-spec.md`.
 - [x] **`simmersmith-poj`: release poll propagation-gap regression.** Added a parser seam that treats absent ASC build/state as retryable while preserving VALID success and INVALID/FAILED failure. Verify: `bash scripts/test-release-ios-poll.sh && bash -n scripts/release-ios.sh` (passed).
@@ -12,7 +12,7 @@ Branch: main
 - [?] **e0a P1e hardening evidence + phase gate — awaiting human verify.** Repeated failpoints, bad-checkpoint nil-state/full-fetch/no-hydration fallback, digest/quarantine outcomes, and the exact device checklist are recorded in `phases/e0a-shadow-mirror-report.md`; automated package and generic iOS gates are green (562 tests). A signed device run and on-device journal-flush latency distribution remain. Test/report files only; no production behavior or cache restore. `tier_floor: senior` · `complexity: M`. Verify: `swift test --package-path SimmerSmithCloudKit && xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO`.
 
 ## Blockers
-- `51d`: CloudKit Dashboard Production deploy only (`cktool` cannot); tracked delta ready, but no controllable browser is exposed in this Codex session. Keep bead open until deploy + two-device recency check.
+- `51d`: tracked delta ready; Production Dashboard reached in Safari, but Apple passkey/Touch ID approval is pending. Keep bead open until deploy + two-device recency check (no device connected).
 
 ## Open questions
 - none — owner approved e0a P1 completion + release operations 2026-07-15.
