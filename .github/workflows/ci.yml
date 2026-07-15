@@ -60,3 +60,29 @@ jobs:
         timeout-minutes: 30
         working-directory: SimmerSmith
         run: xcodebuild build -project SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+
+      - name: Create app-target test simulator
+        timeout-minutes: 10
+        run: bash scripts/dev-sim.sh
+
+      # simmersmith-z69.3: run the app-target unit tests (SimmerSmithTests) headlessly.
+      # These construct a live CKContainer (via HouseholdSession), so they REQUIRE the iCloud
+      # entitlement to be embedded — which means signing must stay ALLOWED. The trap
+      # (bd memory `app-target-tests`): `CODE_SIGNING_ALLOWED=NO` strips the entitlement,
+      # CKContainer refuses to init, the host dies at launch, and xcodebuild prints a bare
+      # `** TEST FAILED **` with no test-level error. A stock GitHub runner has no Apple
+      # team/cert, so the fix is ad-hoc signing: `CODE_SIGN_IDENTITY=-` ("Sign to Run
+      # Locally") embeds the entitlement without a cert or profile. Proven locally to run 90
+      # tests green AND to exit nonzero on a deliberately broken test (a real gate, not a
+      # vacuous pass). No iCloud account is present, so sync degrades to "Not Authenticated"
+      # — non-fatal; the tests assert policy/logic, not live sync. Do NOT "simplify" this to
+      # CODE_SIGNING_ALLOWED=NO.
+      - name: Test SimmerSmith app target
+        timeout-minutes: 30
+        run: |
+          xcodebuild test \
+            -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith \
+            -destination 'platform=iOS Simulator,name=SimmerSmithSim' \
+            -only-testing:SimmerSmithTests \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER=""

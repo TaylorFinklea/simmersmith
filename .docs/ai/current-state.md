@@ -3,8 +3,9 @@ Branch: main
 
 ## Plan
 
-- [ ] **HUMAN: cut build 155** — `./scripts/release-ios.sh` (agent release is permission-gated; the 155 upload was blocked by design). Everything is committed, bumped and verified: CK 513 (3x) · Kit 187 · app-target · Release build. First build to exercise the new ASC processing poll (`5fm`). Verify: the script prints `processed — VALID`.
-- [ ] `simmersmith-z69.3` — app-target tests in CI (last wk1 item; timeboxed). TRAP: do NOT reuse the build step's `CODE_SIGNING_ALLOWED=NO` for `xcodebuild test` — it strips the iCloud entitlement and the host dies with a bare `** TEST FAILED **`. Verify: CI runs SimmerSmithTests and fails on a deliberately broken test.
+- [ ] **HUMAN: push `main` + cut build 155.** Push (bead `tjc`, ~9 commits ahead) makes the new CI app-target gate execute for real — no CI run happens until then. Then `./scripts/release-ios.sh` for 155 (agent release is permission-gated; the 155 upload was blocked by design). All committed + verified: CK 513 (3x) · Kit 187 · app-target 90 · Release build. Verify: CI's "Test SimmerSmith app target" job is green on the push; release script prints `processed — VALID`.
+- [x] `simmersmith-z69.3` — app-target tests wired into CI (`1eb4f85`→this commit). The host already existed (90 tests, 18 suites); the gap was CI running ZERO of them. Trap sidestepped with ad-hoc signing (`CODE_SIGN_IDENTITY=-`) which embeds the iCloud entitlement without a team/cert — proven locally: 90 green AND exit 65 on a deliberately-broken test (a real gate). First real CI run is on the push above.
+- [ ] **Week 2 begins: `simmersmith-e0a` phase 1 (persistent mirror, SHADOW mode).** The cold-start fix. Build the transactional account/zone-partitioned mirror running BESIDE the full fetch, digest-compared; crash/replay/token-skew tests. Do NOT start z69.1 extraction concurrently (Sol condition). Full requirements on the bead + arch-audit report. Verify: mirror survives forced termination at each checkpoint and converges to the full-fetch result.
 
 ## Blockers
 - Device gates ride **155** once cut: `6uj` `a97` `nli` `3hn` `cnx` `cel` `f5e` `auc` `mmi` + NEW from this wave — assistant targets the BROWSED week, an allergy-violating chat request is refused, a rapid double-edit keeps both edits, a two-device event-attendee edit keeps the partner's guest.
