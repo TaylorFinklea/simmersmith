@@ -1,12 +1,80 @@
 # What's New — versioned in-app release notes (simmersmith-224)
 
-Status: implemented, build 152.
+Status: build-152 core implemented; previous-release archive follow-up approved
+2026-07-15 (`simmersmith-pto`).
 
 ## Goal
 
 A non-technical TestFlight tester (the primary one is the owner's wife) should
 learn what changed in each build she installs, without reading a changelog, a
 commit log, or a TestFlight email.
+
+## Approved follow-up — Previous Releases (`simmersmith-pto`)
+
+### User outcome
+
+Someone who installs several builds at once still sees every unseen release in
+the automatic What's New sheet. Someone on a clean install, or anyone who wants
+to reread older changes, can reach the useful release history directly from
+that sheet instead of knowing to look elsewhere in Settings.
+
+### Interaction
+
+- Preserve the automatic launch presentation: all unseen, non-silent releases
+  remain visible together, newest first.
+- Add a secondary **Previous Releases** action when at least one older
+  user-visible release exists. Do not show a dead-end action when history is
+  empty.
+- Push history inside the sheet's existing navigation stack. Back returns to
+  the original notes; Close remains available; Got It keeps its existing
+  dismissal behavior.
+- Show older releases newest first with the existing release-note typography
+  and New / Improved / Fixed groups.
+- Settings → What's New opens the newest user-visible release available to the
+  running build, with the same Previous Releases path, instead of dumping the
+  full catalog into one long initial screen.
+
+### Selection policy
+
+The history selector is pure and accepts the running build plus the builds
+already displayed. It returns catalog entries that are:
+
+- at or below the running build;
+- non-silent;
+- not already present in the initial sheet; and
+- sorted newest first.
+
+This keeps pre-authored future notes private, hides signing/CI-only builds, and
+avoids repeating releases when the automatic sheet already contains several
+skipped builds. A silent current build in Settings falls back to the newest
+earlier user-visible release. The clean-install rule remains unchanged: the
+automatic sheet initially shows only the installed build; older notes require
+an explicit tap.
+
+### Boundaries
+
+- Keep selection in `ReleaseNotesGate`; the SwiftUI views render supplied data
+  and own only navigation state.
+- Reuse the existing release rendering rather than creating a second visual
+  interpretation of the catalog.
+- Do not change `ReleaseNotesStore`, the per-device `lastSeenBuild` key, or the
+  mark-on-dismiss rule. Browsing history never advances or rewinds seen state.
+- No network, iCloud write, AI key, migration, or new persistence.
+- This follow-up does not change cold-start performance. Shadow-mirror P2 owns
+  cache-first launch.
+
+### Test and acceptance gate
+
+Implement test-first. A failing app-target test must establish the history
+selector before production code is added. Pin that it excludes silent, future,
+and already displayed builds; returns newest first; handles a silent current
+build for Settings; and returns no action when no older visible release exists.
+All existing unseen-release and mark-seen policies remain green.
+
+Verify with the focused `SimmerSmithTests/ReleaseNotesGateTests` app-target
+suite using the entitled ad-hoc-signed simulator host, followed by the generic
+iOS build. The final review must also inspect the sheet for accessible button,
+Back, and Close labels.
 
 ## The spec deviation that makes it work
 
@@ -38,7 +106,9 @@ therefore gives both the gate key and a free total ordering. ADR in
 - `App/RootView.swift` — second `.sheet(item:)`, fired from an `onChange` of
   `householdLaunchPhase` reaching `.ready`.
 - `Features/Settings/SettingsView.swift` — an `about` section: the app's version
-  (shown nowhere else in the app) and a What's New row opening the full catalog.
+  (shown nowhere else in the app) and a What's New row. The build-152 version
+  opens the full catalog; `simmersmith-pto` replaces that long initial screen
+  with the newest visible release plus the explicit history path above.
 - `scripts/release-ios.sh` — preflight before archive.
 
 ## Policies the gate encodes (each pinned by a test)
