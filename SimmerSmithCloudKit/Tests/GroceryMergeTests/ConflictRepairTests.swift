@@ -23,6 +23,7 @@ func dedupeSemanticKeeperAndRepoint() {
     // assert the semantic policy: source_meals-populated wins)
     #expect(r.keepers.count == 1)
     #expect(r.keepers[0].recordName == "G_auto")
+    #expect(r.changedKeepers.map(\.recordName) == ["G_auto"])
     // loser is TOMBSTONED (isUserRemoved=true), not hard-deleted
     #expect(r.tombstoned.map(\.recordName) == ["G_stray"])
     #expect(r.tombstoned[0].isUserRemoved == true)
@@ -49,6 +50,7 @@ func dedupeTombstoneIdempotentAndSourceMeals() {
     let again = ConflictRepair.dedupeGrocery(items: first.keepers + first.tombstoned, eventLinks: [])
     #expect(again.tombstoned.isEmpty)
     #expect(again.keepers.count == 1)
+    #expect(again.changedKeepers.isEmpty)
     #expect(again.keepers[0].totalQuantity == 5)   // NOT 8
 }
 
@@ -58,6 +60,7 @@ func dedupeNoDuplicates() {
     let b = GroceryItem(recordName: "G2", unit: "lb", normalizedName: "beef", sourceMeals: "m")
     let r = ConflictRepair.dedupeGrocery(items: [a, b], eventLinks: [])
     #expect(r.keepers.count == 2)
+    #expect(r.changedKeepers.isEmpty)
     #expect(r.tombstoned.isEmpty)
     #expect(r.repointedLinks.isEmpty)
 }
@@ -70,6 +73,7 @@ func dedupeEarliestFallback() {
                             isUserAdded: true, createdAt: 5)
     let r = ConflictRepair.dedupeGrocery(items: [userA, userB], eventLinks: [])
     #expect(r.keepers.count == 1)
+    #expect(r.changedKeepers.isEmpty)
     #expect(r.keepers[0].recordName == "Gb")   // earliest createdAt (2)
 }
 

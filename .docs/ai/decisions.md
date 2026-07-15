@@ -1850,3 +1850,19 @@ but that premise conflicts with CKSyncEngine's documented batch/event ordering. 
 can still be stamped and then canceled before any sent event; the current replaceable slot heals on
 the next send, while a FIFO would retain the orphaned head and misassociate later acknowledgements.
 The single slot plus `AsyncSerialGate` for explicit operations is the safer invariant.
+
+## 2026-07-15 — Cross-record repair adapters persist only their changed write set
+
+**Decision.** Pure repair results may expose both a complete converged view and an explicit write
+set. For grocery dedupe, `keepers` remains the complete survivor set for reporting and callers;
+`changedKeepers` contains only survivors whose payload actually changed. `EventMergeAdapter`
+persists `changedKeepers`, tombstoned losers, and repointed event links—never unchanged survivors.
+The same diff-before-save invariant applies to future scheduler-driven cross-record repairs.
+
+**Why.** TestFlight build 157 produced the same 65 `GroceryItem` identities at generations 2,
+250, 251, and 252. The loop was deterministic: a completed send fired `onStoreChanged`, which
+scheduled repair; dedupe returned all singleton survivors; the adapter saved all 65; that send
+scheduled repair again. Full `keepers` still has legitimate semantic value, so changing it to a
+write-only result would silently break callers. Splitting the two roles preserves that contract
+and makes scheduler convergence explicit. A mutation-checked regression produced 57 passes in
+100 ms with the old loop and exactly two with the changed-write-set path.

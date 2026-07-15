@@ -9,7 +9,8 @@ public enum ConflictRepair {
     // MARK: - Grocery dedupe (semantic keeper + EventGroceryItem repointing — M68)
 
     public struct GroceryDedupeResult: Equatable {
-        public var keepers: [GroceryItem]             // survivors (rolled-up), to SAVE
+        public var keepers: [GroceryItem]             // complete survivor set (rolled-up)
+        public var changedKeepers: [GroceryItem]      // survivors whose payload changed, to SAVE
         public var tombstoned: [GroceryItem]          // losers, isUserRemoved=true, to SAVE (NOT delete)
         public var repointedLinks: [EventGroceryItem] // links whose merged_into moved
     }
@@ -48,6 +49,7 @@ public enum ConflictRepair {
         }
 
         var keepers: [GroceryItem] = []
+        var changedKeepers: [GroceryItem] = []
         var tombstoned: [GroceryItem] = []
         var repointed: [String: EventGroceryItem] = [:]   // by recordName
 
@@ -55,6 +57,7 @@ public enum ConflictRepair {
             let group = groups[key]!
             guard group.count > 1 else { keepers.append(group[0]); continue }
             var keeper = Self.keeper(of: group)
+            let originalKeeper = keeper
             for loser in group where loser.recordName != keeper.recordName {
                 keeper.totalQuantity = Self.roundedSum(keeper.totalQuantity, loser.totalQuantity)
                 keeper.eventQuantity = Self.roundedSum(keeper.eventQuantity, loser.eventQuantity)
@@ -80,10 +83,14 @@ public enum ConflictRepair {
                 tombstoned.append(dead)
             }
             keepers.append(keeper)
+            if keeper != originalKeeper {
+                changedKeepers.append(keeper)
+            }
         }
 
         return GroceryDedupeResult(
             keepers: keepers.sorted { $0.recordName < $1.recordName },
+            changedKeepers: changedKeepers.sorted { $0.recordName < $1.recordName },
             tombstoned: tombstoned.sorted { $0.recordName < $1.recordName },
             repointedLinks: repointed.values.sorted { $0.recordName < $1.recordName }
         )

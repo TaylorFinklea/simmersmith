@@ -88,10 +88,21 @@ public struct EventMergeAdapter {
     public func dedupeWeekGrocery(weekID: String, eventLinks: [EventGroceryItem] = [])
         -> ConflictRepair.GroceryDedupeResult {
         let result = ConflictRepair.dedupeGrocery(items: weekGroceryRows(weekID), eventLinks: eventLinks)
-        for keeper in result.keepers { saveGrocery(keeper) }
+        Self.applyDedupeResult(result, saveGrocery: saveGrocery, saveEventRow: saveEventRow)
+        return result
+    }
+
+    /// Apply only the repair write set. `keepers` also contains unchanged survivors for callers
+    /// that need the full converged view; re-saving those rows would make every post-send repair
+    /// schedule another identical sync pass.
+    static func applyDedupeResult(
+        _ result: ConflictRepair.GroceryDedupeResult,
+        saveGrocery: (GroceryItem) -> Void,
+        saveEventRow: (EventGroceryItem) -> Void
+    ) {
+        for keeper in result.changedKeepers { saveGrocery(keeper) }
         for dead in result.tombstoned { saveGrocery(dead) }       // isUserRemoved=true, syncs as a save
         for link in result.repointedLinks { saveEventRow(link) }
-        return result
     }
 }
 #endif
