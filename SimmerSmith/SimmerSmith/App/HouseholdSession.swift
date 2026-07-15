@@ -235,7 +235,7 @@ final class HouseholdSession {
         let shadowZoneID = zoneID
         let shadowHouseholdID = householdID
         let shadowRootURL = shadowMirrorRootURL
-        Task.detached { [weak self] in
+        Task { @MainActor [weak self] in
             let accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
             guard let scope = ShadowMirrorScopeFactory.make(
                     accountRecordName: accountRecordName,
@@ -244,11 +244,8 @@ final class HouseholdSession {
                     role: shadowRole) else {
                 return
             }
-            let engine = await MainActor.run { () -> HouseholdSyncEngine? in
-                guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return nil }
-                return self.engine
-            }
-            try? await engine?.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
+            guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return }
+            try? await self.engine.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
         }
 
         // 0. Boot the per-user PRIVATE plane (NSPCKC). Independent of the household
