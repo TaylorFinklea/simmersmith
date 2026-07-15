@@ -40,4 +40,15 @@ func unrecognizedCodeDefaultsToPermanent() {
     // exercises the "anything else" default arm of the classifier.
     #expect(HouseholdSyncEngine.classifyFailure(.assetFileNotFound) == .permanent)
 }
+
+@Test("failed delete classification consumes absence, retries transient errors, and blocks permanent errors")
+func failedDeleteDispositionPreservesDurableIntentSemantics() {
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.unknownItem) == .consumed)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.zoneNotFound) == .consumed)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.userDeletedZone) == .consumed)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.networkFailure) == .retry)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.requestRateLimited) == .retry)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.notAuthenticated) == .blocked)
+    #expect(HouseholdSyncEngine.classifyFailedDelete(.permissionFailure) == .blocked)
+}
 #endif

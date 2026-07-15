@@ -1788,3 +1788,51 @@ logical digest. Asset bytes also need their own durable copy and the archived re
 that copy because current `CKAsset` URLs live under Caches. This deliberately costs more than a
 keyed archive, but it makes the persistent cache safely recoverable across a crash, account switch,
 and owner/participant swap rather than merely fast on the happy path.
+
+## 2026-07-15 — P1 shadow capture waits for identity but never for active-engine construction
+
+**Decision.** `HouseholdSession` resolves the account record name in an unstructured boot task.
+Until it is available, P1 capture is disabled; the active `CKSyncEngine` still receives nil cached
+state and takes the existing full-fetch path. Once identity resolves, a scope-validated runtime
+observes the latest complete fetch/state boundary only; it never loads records into the active
+store. The runtime synchronously persists local save/delete and delivery transitions before their
+in-memory effects. One logical gate captures records, generation bookkeeping, state coverage, and
+the exact outbox high-water; generation I/O then runs from that immutable boundary after the gate
+releases while retaining later WAL frames. A missed/WAL mutation quarantines the scope
+persistently; a failed candidate publication can retain the prior verified generation; a
+same-launch boundary mismatch quarantines. Every failure leaves the shipping nil-state/full-fetch
+session unchanged.
+
+**Why.** A scope without the account record name cannot prove account isolation, while waiting for
+`userRecordID()` before engine construction would turn a diagnostic shadow into a launch dependency.
+The split preserves P1's safety boundary: a missing/late identity costs only shadow telemetry, not
+access to current server data. Clear, account changes, and owner-to-participant detach fence the
+old runtime before clearing or parking its scope, preventing a stale callback from publishing into
+the next session.
+
+## 2026-07-15 — Shadow durability uses dedicated GCD lanes and exact delivery generations
+
+**Decision.** The checkpoint writer owns a serial GCD state/WAL lane and a separate serial
+generation lane. Synchronous repository mutations call the state lane directly so their WAL frame
+is fsynced before the in-memory mutation; async checkpoint publication awaits GCD completion and
+never bridges through a blocked Swift task or semaphore. Generation construction cannot block WAL
+appends, but final pointer installation, read-back, compaction, and recovery return to the state
+lane. Session clear/park closes an immediate publication fence; clear atomically retires the root
+before deleting it asynchronously, so neither lifecycle path waits on generation I/O. Direct
+destructive writer APIs still drain already-started publications before mutation, and the
+generation lane preserves publication order.
+
+CloudKit delivery handling also resolves the exact mutation generation that was sent. A stale save
+ack/failure may rebase a newer save but cannot resurrect over a newer delete; a stale delete result
+consumes only the old delete and never tries to attach a record payload to that acknowledgement.
+Failed deletes are no longer ignored: already-absent record/zone results consume the tombstone,
+transient failures return it to pending, and permanent failures remain durably blocked. These stale
+branches intentionally tighten the active conflict behavior because preserving a later user
+mutation is the same invariant the shadow outbox records; keeping the older blanket replacement
+would make the live store and durable intent disagree.
+
+**Why.** The prior actor-to-synchronous bridge parked cooperative Swift threads while waiting for
+another Swift task, which could starve the pool during initial fetch and put diagnostic shadow work
+on the launch critical path. Dedicated GCD execution preserves the required synchronous durability
+without that dependency cycle. Exact delivery transitions are required for crash recovery: an ack
+or failure for generation N cannot be allowed to consume, rewrite, or resurrect generation N+1.

@@ -479,6 +479,25 @@ func acknowledgementRebasesNewerMutation() async throws {
         == "system fields rebased")
 }
 
+@Test("acknowledging an older delete preserves a newer save without a delete rebase")
+func deleteAcknowledgementPreservesNewerSave() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let identity = MirrorRecordIdentity(record)
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    let deleteSequence = try await writer.appendDelete(identity, mutationGeneration: 1)
+    _ = try await writer.markSent(sequence: deleteSequence, mutationGeneration: 1)
+    let saveSequence = try await writer.appendSave(
+        record, mutationGeneration: 2, changedFields: ["name"])
+    _ = try await writer.acknowledge(sequence: deleteSequence, mutationGeneration: 1)
+
+    let recovery = await writer.recoveryState()
+    #expect(recovery.outbox.map(\.sequence) == [saveSequence])
+    #expect(recovery.outbox.map(\.operation) == [.save])
+    #expect(recovery.tombstones.isEmpty)
+}
+
 @Test("a later user transition supersedes pending and permanently blocked intents")
 func laterMutationSupersedesUnsentIntents() async throws {
     let root = try checkpointDirectory()

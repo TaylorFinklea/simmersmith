@@ -81,6 +81,12 @@ final class HouseholdSession {
     /// on sign-out — otherwise a different household signed in on this device would
     /// inherit the prior household's sync token (Task-3 token-leakage risk).
     private let stateURL: URL
+    /// Scoped P1 shadow generations live beside, but never replace, the legacy active-engine
+    /// state token. A new session receives a complete `MirrorScope` only after identity resolves.
+    private let shadowMirrorRootURL: URL
+    /// Invalidated by clear/detach so a late account-identity callback cannot re-enable an old
+    /// writer after this session has been torn down or parked for adoption.
+    private var shadowCaptureNonce = UUID()
 
     // MARK: — Observable state
 
@@ -129,6 +135,7 @@ final class HouseholdSession {
         let stateFileName = role.isOwner ? "engine-state.json" : "engine-state-shared.json"
         let stateURL = syncDir.appendingPathComponent(stateFileName)
         self.stateURL = stateURL
+        self.shadowMirrorRootURL = syncDir.appendingPathComponent("shadow-mirror", isDirectory: true)
 
         // simmersmith-r8q interim fix: the local store below is ALWAYS rebuilt fresh/empty
         // on every launch, but the sync-engine state token on disk persists — so a resumed
@@ -158,7 +165,8 @@ final class HouseholdSession {
                 GrocerySyncMerger(),
                 EventGrocerySyncMerger(),
                 EventSyncMerger(),
-            ])
+            ]),
+            shadowMirrorRootDirectory: shadowMirrorRootURL
         )
         self.store = store
         self.engine = engine
@@ -218,6 +226,30 @@ final class HouseholdSession {
     /// set syncPhase. Must not crash if iCloud is unavailable — sets .offline on throw.
     func start() async {
         syncPhase = .loading  // AppState.SyncPhase.loading
+
+        // P1 shadow capture is deliberately best-effort and never gates active-engine creation
+        // or the first full fetch. If CloudKit cannot immediately resolve an account identity,
+        // this session simply remains shadow-disabled; no persisted cache reaches the live store.
+        let shadowCaptureNonce = shadowCaptureNonce
+        let shadowRole: MirrorRole = role.isOwner ? .owner : .participant
+        let shadowZoneID = zoneID
+        let shadowHouseholdID = householdID
+        let shadowRootURL = shadowMirrorRootURL
+        Task.detached { [weak self] in
+            let accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
+            guard let scope = ShadowMirrorScopeFactory.make(
+                    accountRecordName: accountRecordName,
+                    zoneID: shadowZoneID,
+                    householdID: shadowHouseholdID,
+                    role: shadowRole) else {
+                return
+            }
+            let engine = await MainActor.run { () -> HouseholdSyncEngine? in
+                guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return nil }
+                return self.engine
+            }
+            try? await engine?.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
+        }
 
         // 0. Boot the per-user PRIVATE plane (NSPCKC). Independent of the household
         //    CKSyncEngine boot below — a failure here (or there) must not take the other
@@ -286,6 +318,8 @@ final class HouseholdSession {
     /// Without this, an in-flight destructive pass outlives teardown, still strongly
     /// retaining `engine`/`store` and issuing CKModifyRecords after this session is gone.
     func clearState() {
+        shadowCaptureNonce = UUID()
+        engine.clearShadowMirror()
         try? FileManager.default.removeItem(at: stateURL)
         repairScheduler.deactivate()
         engine.onStoreChanged = nil
@@ -300,6 +334,8 @@ final class HouseholdSession {
     /// simmersmith-glw: also deactivates `repairScheduler` (see `clearState()`'s note — same
     /// sync/fire-and-forget-safe reasoning applies to the adopt-swap's detach call site).
     func detach() {
+        shadowCaptureNonce = UUID()
+        engine.parkShadowMirror()
         repairScheduler.deactivate()
         engine.onStoreChanged = nil
         engine.onSyncError = nil

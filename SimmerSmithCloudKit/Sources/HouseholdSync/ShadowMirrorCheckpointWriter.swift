@@ -13,6 +13,7 @@ public enum ShadowMirrorCheckpointFailurePoint: Equatable, Sendable {
 
 public enum ShadowMirrorCheckpointWriterError: Error, Equatable {
     case injectedFailure(ShadowMirrorCheckpointFailurePoint)
+    case fenced
 }
 
 public struct ShadowMirrorCheckpointRecoveryState: Equatable, Sendable {
@@ -21,14 +22,19 @@ public struct ShadowMirrorCheckpointRecoveryState: Equatable, Sendable {
     public let lastIntentSequence: UInt64
 }
 
-public actor ShadowMirrorCheckpointWriter {
+public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     public let scope: MirrorScope
 
     private let scopeDirectory: URL
     private let failurePoint: ShadowMirrorCheckpointFailurePoint?
+    private let stateQueue = DispatchQueue(label: "app.simmersmith.shadow-mirror.state")
+    private let generationQueue = DispatchQueue(label: "app.simmersmith.shadow-mirror.generation")
+    private let publicationGroup = DispatchGroup()
+    private let fenceLock = NSLock()
     private var outbox: [MirrorOutboxIntent]
     private var tombstones: Set<MirrorRecordIdentity>
     private var lastIntentSequence: UInt64
+    private var fenced = false
 
     public init(
         scope: MirrorScope,
@@ -59,7 +65,25 @@ public actor ShadowMirrorCheckpointWriter {
         mutationGeneration: UInt64,
         changedFields: [String] = [],
         clearedFields: [String] = []
+    ) async throws -> UInt64 {
+        let copy = record.copy() as! CKRecord
+        return try await onStateQueue {
+            try self.appendSaveLocked(
+                copy,
+                mutationGeneration: mutationGeneration,
+                changedFields: changedFields,
+                clearedFields: clearedFields)
+        }
+    }
+
+    @discardableResult
+    private func appendSaveLocked(
+        _ record: CKRecord,
+        mutationGeneration: UInt64,
+        changedFields: [String],
+        clearedFields: [String]
     ) throws -> UInt64 {
+        try requireActive()
         let sequence = try nextSequence()
         let record = try archiveForJournal(record, sequence: sequence)
         let intent = MirrorOutboxIntent(
@@ -77,7 +101,18 @@ public actor ShadowMirrorCheckpointWriter {
     public func appendDelete(
         _ tombstone: MirrorRecordIdentity,
         mutationGeneration: UInt64
+    ) async throws -> UInt64 {
+        try await onStateQueue {
+            try self.appendDeleteLocked(tombstone, mutationGeneration: mutationGeneration)
+        }
+    }
+
+    @discardableResult
+    private func appendDeleteLocked(
+        _ tombstone: MirrorRecordIdentity,
+        mutationGeneration: UInt64
     ) throws -> UInt64 {
+        try requireActive()
         let sequence = try nextSequence()
         let intent = MirrorOutboxIntent(
             sequence: sequence,
@@ -93,7 +128,23 @@ public actor ShadowMirrorCheckpointWriter {
         sequence: UInt64,
         mutationGeneration: UInt64,
         rebasedRecord: CKRecord? = nil
+    ) async throws -> UInt64 {
+        let copy = rebasedRecord.map { $0.copy() as! CKRecord }
+        return try await onStateQueue {
+            try self.acknowledgeLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration,
+                rebasedRecord: copy)
+        }
+    }
+
+    @discardableResult
+    private func acknowledgeLocked(
+        sequence: UInt64,
+        mutationGeneration: UInt64,
+        rebasedRecord: CKRecord?
     ) throws -> UInt64 {
+        try requireActive()
         let transitionSequence = try nextSequence()
         let replacement = try rebasedRecord.map {
             try archiveForJournal($0, sequence: transitionSequence)
@@ -107,7 +158,15 @@ public actor ShadowMirrorCheckpointWriter {
     }
 
     @discardableResult
-    public func markSent(sequence: UInt64, mutationGeneration: UInt64) throws -> UInt64 {
+    public func markSent(sequence: UInt64, mutationGeneration: UInt64) async throws -> UInt64 {
+        try await onStateQueue {
+            try self.markSentLocked(sequence: sequence, mutationGeneration: mutationGeneration)
+        }
+    }
+
+    @discardableResult
+    private func markSentLocked(sequence: UInt64, mutationGeneration: UInt64) throws -> UInt64 {
+        try requireActive()
         let transitionSequence = try nextSequence()
         try append(.sent(
             sequence: transitionSequence,
@@ -121,7 +180,23 @@ public actor ShadowMirrorCheckpointWriter {
         sequence: UInt64,
         mutationGeneration: UInt64,
         rebasedRecord: CKRecord? = nil
+    ) async throws -> UInt64 {
+        let copy = rebasedRecord.map { $0.copy() as! CKRecord }
+        return try await onStateQueue {
+            try self.markTransientFailureLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration,
+                rebasedRecord: copy)
+        }
+    }
+
+    @discardableResult
+    private func markTransientFailureLocked(
+        sequence: UInt64,
+        mutationGeneration: UInt64,
+        rebasedRecord: CKRecord?
     ) throws -> UInt64 {
+        try requireActive()
         let transitionSequence = try nextSequence()
         let replacement = try rebasedRecord.map {
             try archiveForJournal($0, sequence: transitionSequence)
@@ -135,7 +210,23 @@ public actor ShadowMirrorCheckpointWriter {
     }
 
     @discardableResult
-    public func markBlockedPermanent(sequence: UInt64, mutationGeneration: UInt64) throws -> UInt64 {
+    public func markBlockedPermanent(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) async throws -> UInt64 {
+        try await onStateQueue {
+            try self.markBlockedPermanentLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration)
+        }
+    }
+
+    @discardableResult
+    private func markBlockedPermanentLocked(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try requireActive()
         let transitionSequence = try nextSequence()
         try append(.blockedPermanent(
             sequence: transitionSequence,
@@ -144,38 +235,336 @@ public actor ShadowMirrorCheckpointWriter {
         return transitionSequence
     }
 
-    public func recoveryState() -> ShadowMirrorCheckpointRecoveryState {
+    public func recoveryState() async -> ShadowMirrorCheckpointRecoveryState {
+        await onStateQueueWithoutThrow { self.recoveryStateLocked() }
+    }
+
+    private func recoveryStateLocked() -> ShadowMirrorCheckpointRecoveryState {
         ShadowMirrorCheckpointRecoveryState(
             outbox: outbox.sorted { $0.sequence < $1.sequence },
             tombstones: tombstones.sorted { $0.sortKey < $1.sortKey },
             lastIntentSequence: lastIntentSequence)
     }
 
-    public func publish(records: [CKRecord], engineState: MirrorEngineState) throws {
-        let generationID = UUID().uuidString
-        let generationDirectory = scopeDirectory
-            .appendingPathComponent("generations", isDirectory: true)
-            .appendingPathComponent(generationID, isDirectory: true)
-        try FileManager.default.createDirectory(at: generationDirectory, withIntermediateDirectories: true)
-        try Self.synchronizeDirectory(generationDirectory.deletingLastPathComponent())
-        let snapshotOutbox = try Self.rehomeOutbox(
-            outbox,
-            in: generationDirectory.appendingPathComponent("outbox-assets", isDirectory: true))
-        let receiptIndex = MirrorReceiptIndex(receipts: records
+    public func publish(records: [CKRecord], engineState: MirrorEngineState) async throws {
+        let recoveryState = await recoveryState()
+        try await publish(records: records, engineState: engineState, recoveryState: recoveryState)
+    }
+
+    /// Publishes an immutable mirror-boundary snapshot. Journal transitions appended after
+    /// `recoveryState` was captured remain above its high-water mark and are replayed over the
+    /// installed generation instead of leaking into (or being compacted with) this checkpoint.
+    func publish(
+        records: [CKRecord],
+        engineState: MirrorEngineState,
+        recoveryState: ShadowMirrorCheckpointRecoveryState
+    ) async throws {
+        let copies = records.map { $0.copy() as! CKRecord }
+        try await withCheckedThrowingContinuation { continuation in
+            enqueuePublication(
+                records: copies,
+                engineState: engineState,
+                recoveryState: recoveryState
+            ) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    public func loadCurrent() async throws -> MirrorCheckpointBundle? {
+        try await onStateQueue {
+            try Self.loadCurrent(in: self.scopeDirectory, scope: self.scope)
+        }
+    }
+
+    /// Prevent an old engine/session callback from writing into a scope that has been detached.
+    /// Parking keeps the previously verified generation intact for a future identity-validated
+    /// owner session, but this writer instance can never publish again.
+    public func fenceAndPark() async {
+        fenceSynchronously()
+        await waitForPublications()
+    }
+
+    /// Fence first, then move the entire scope out of its live location before deleting it.
+    /// A subsequent session receives a fresh directory, so it cannot observe a token without the
+    /// matching records (or vice versa), and a stale writer cannot recreate either half.
+    public func fenceAndClear() async throws {
+        fenceSynchronously()
+        await waitForPublications()
+        try await onStateQueue {
+            try self.clearLocked()
+        }
+    }
+
+    /// A same-launch boundary mismatch means the installed generation is internally coherent
+    /// but does not represent the immutable snapshot that requested publication. Quarantine the
+    /// whole scope and permanently fence this writer so P1 can only continue via full fetch.
+    public func fenceAndQuarantine() async throws {
+        fenceSynchronously()
+        await waitForPublications()
+        try await onStateQueue {
+            try self.quarantineLocked()
+        }
+    }
+
+    // The active engine's save/delete APIs are deliberately synchronous. These bridge methods
+    // keep P1's WAL-before-store-mutation invariant without changing repository call sites; the
+    // dedicated state lane serializes WAL state and final pointer/compaction; immutable generation
+    // construction uses a separate serial lane so later WAL appends are not trapped behind
+    // whole-cache asset I/O.
+    public func appendSaveSynchronously(
+        _ record: CKRecord,
+        mutationGeneration: UInt64,
+        changedFields: [String] = [],
+        clearedFields: [String] = []
+    ) throws -> UInt64 {
+        let copy = record.copy() as! CKRecord
+        return try stateQueue.sync {
+            try self.appendSaveLocked(
+                copy,
+                mutationGeneration: mutationGeneration,
+                changedFields: changedFields,
+                clearedFields: clearedFields)
+        }
+    }
+
+    public func appendDeleteSynchronously(
+        _ tombstone: MirrorRecordIdentity,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try stateQueue.sync {
+            try self.appendDeleteLocked(tombstone, mutationGeneration: mutationGeneration)
+        }
+    }
+
+    public func markSentSynchronously(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try stateQueue.sync {
+            try self.markSentLocked(sequence: sequence, mutationGeneration: mutationGeneration)
+        }
+    }
+
+    public func acknowledgeSynchronously(
+        sequence: UInt64,
+        mutationGeneration: UInt64,
+        rebasedRecord: CKRecord? = nil
+    ) throws -> UInt64 {
+        let copy = rebasedRecord.map { $0.copy() as! CKRecord }
+        return try stateQueue.sync {
+            try self.acknowledgeLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration,
+                rebasedRecord: copy)
+        }
+    }
+
+    public func markTransientFailureSynchronously(
+        sequence: UInt64,
+        mutationGeneration: UInt64,
+        rebasedRecord: CKRecord? = nil
+    ) throws -> UInt64 {
+        let copy = rebasedRecord.map { $0.copy() as! CKRecord }
+        return try stateQueue.sync {
+            try self.markTransientFailureLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration,
+                rebasedRecord: copy)
+        }
+    }
+
+    public func markBlockedPermanentSynchronously(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try stateQueue.sync {
+            try self.markBlockedPermanentLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration)
+        }
+    }
+
+    public func recoveryStateSynchronously() throws -> ShadowMirrorCheckpointRecoveryState {
+        stateQueue.sync { recoveryStateLocked() }
+    }
+
+    public func loadCurrentSynchronously() throws -> MirrorCheckpointBundle? {
+        try stateQueue.sync { try Self.loadCurrent(in: scopeDirectory, scope: scope) }
+    }
+
+    public func fenceAndParkSynchronously() {
+        fenceSynchronously()
+        publicationGroup.wait()
+    }
+
+    public func fenceSynchronously() {
+        fenceLock.withLock { fenced = true }
+    }
+
+    public func fenceAndClearSynchronously() throws {
+        fenceSynchronously()
+        publicationGroup.wait()
+        try stateQueue.sync { try clearLocked() }
+    }
+
+    public func fenceAndQuarantineSynchronously() throws {
+        fenceSynchronously()
+        publicationGroup.wait()
+        try stateQueue.sync { try quarantineLocked() }
+    }
+
+    private func enqueuePublication(
+        records: [CKRecord],
+        engineState: MirrorEngineState,
+        recoveryState: ShadowMirrorCheckpointRecoveryState,
+        completion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
+        stateQueue.async {
+            do {
+                try self.requireActive()
+                guard recoveryState.lastIntentSequence <= self.lastIntentSequence else {
+                    throw MirrorCheckpointError.invalidOutbox(
+                        "checkpoint high-water leads the writer")
+                }
+                let generationID = UUID().uuidString
+                let generationDirectory = self.scopeDirectory
+                    .appendingPathComponent("generations", isDirectory: true)
+                    .appendingPathComponent(generationID, isDirectory: true)
+                let input = ShadowMirrorGenerationInput(
+                    scope: self.scope,
+                    generationDirectory: generationDirectory,
+                    records: records,
+                    engineState: engineState,
+                    recoveryState: recoveryState,
+                    failurePoint: self.failurePoint)
+                self.publicationGroup.enter()
+                self.generationQueue.async {
+                    let prepared = Result { try Self.prepareGeneration(input) }
+                    self.stateQueue.async {
+                        defer { self.publicationGroup.leave() }
+                        do {
+                            try prepared.get()
+                            try self.installPreparedGenerationLocked(
+                                generationID: generationID,
+                                recoveryState: recoveryState)
+                            completion(.success(()))
+                        } catch {
+                            completion(.failure(error))
+                        }
+                    }
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func installPreparedGenerationLocked(
+        generationID: String,
+        recoveryState: ShadowMirrorCheckpointRecoveryState
+    ) throws {
+        // Generation construction runs on a separate serial queue. A clear/park can fence this
+        // writer meanwhile; final pointer installation rechecks the fence on the state lane.
+        try requireActive()
+        try Self.installCurrent(generationID, in: scopeDirectory)
+        try failIfNeeded(.afterPointerPublication)
+        guard let installed = try Self.loadCurrent(in: scopeDirectory, scope: scope),
+              installed.manifest.generationID == generationID else {
+            throw MirrorCheckpointError.invalidManifest
+        }
+        try Self.compactJournal(
+            in: scopeDirectory,
+            through: recoveryState.lastIntentSequence)
+        try Self.removeJournalAssets(
+            in: scopeDirectory,
+            through: recoveryState.lastIntentSequence)
+        let recovered = try Self.recover(in: scopeDirectory, scope: scope)
+        outbox = recovered.outbox
+        tombstones = recovered.tombstones
+        lastIntentSequence = recovered.lastIntentSequence
+    }
+
+    private func clearLocked() throws {
+        let parent = scopeDirectory.deletingLastPathComponent()
+        let retired = parent.appendingPathComponent(
+            ".clearing-\(UUID().uuidString)", isDirectory: true)
+        if FileManager.default.fileExists(atPath: scopeDirectory.path) {
+            try FileManager.default.moveItem(at: scopeDirectory, to: retired)
+        }
+        try Self.prepareScopeDirectory(scopeDirectory)
+        outbox = []
+        tombstones = []
+        lastIntentSequence = 0
+        try Self.synchronizeDirectory(parent)
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(at: retired)
+        }
+    }
+
+    private func quarantineLocked() throws {
+        try Self.quarantine(scopeDirectory)
+        try Self.prepareScopeDirectory(scopeDirectory)
+        outbox = []
+        tombstones = []
+        lastIntentSequence = 0
+    }
+
+    private func waitForPublications() async {
+        await withCheckedContinuation { continuation in
+            publicationGroup.notify(queue: DispatchQueue.global(qos: .utility)) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func onStateQueue<Value: Sendable>(
+        _ operation: @escaping @Sendable () throws -> Value
+    ) async throws -> Value {
+        try await withCheckedThrowingContinuation { continuation in
+            stateQueue.async {
+                do {
+                    continuation.resume(returning: try operation())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func onStateQueueWithoutThrow<Value: Sendable>(
+        _ operation: @escaping @Sendable () -> Value
+    ) async -> Value {
+        await withCheckedContinuation { continuation in
+            stateQueue.async {
+                continuation.resume(returning: operation())
+            }
+        }
+    }
+
+    private static func prepareGeneration(
+        _ input: ShadowMirrorGenerationInput
+    ) throws {
+        let directory = input.generationDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try synchronizeDirectory(directory.deletingLastPathComponent())
+        let snapshotOutbox = try rehomeOutbox(
+            input.recoveryState.outbox,
+            in: directory.appendingPathComponent("outbox-assets", isDirectory: true))
+        let receiptIndex = MirrorReceiptIndex(receipts: input.records
             .filter { $0.recordType == "MigrationReceipt" }
             .map(MirrorRecordIdentity.init))
-
         let bundle = try MirrorCheckpointBundle.capture(
-            scope: scope,
-            generationID: generationID,
-            records: records,
-            in: generationDirectory.appendingPathComponent("assets", isDirectory: true),
-            tombstones: tombstones.sorted { $0.sortKey < $1.sortKey },
+            scope: input.scope,
+            generationID: directory.lastPathComponent,
+            records: input.records,
+            in: directory.appendingPathComponent("assets", isDirectory: true),
+            tombstones: input.recoveryState.tombstones,
             outbox: snapshotOutbox,
             receipts: receiptIndex,
-            engineState: engineState,
-            lastIncludedIntentSequence: lastIntentSequence)
-        try Self.synchronizeTree(at: generationDirectory)
+            engineState: input.engineState,
+            lastIncludedIntentSequence: input.recoveryState.lastIntentSequence)
+        try synchronizeTree(at: directory)
         let recordsData = try JSONEncoder().encode(PersistedRecords(bundle: bundle))
         let stateData = try JSONEncoder().encode(bundle.engineState)
         let manifest = PersistedManifest(
@@ -183,36 +572,32 @@ public actor ShadowMirrorCheckpointWriter {
             recordsFileDigest: ShadowMirrorDigest.sha256(recordsData),
             stateFileDigest: ShadowMirrorDigest.sha256(stateData))
 
-        try Self.writeDurable(recordsData, to: generationDirectory.appendingPathComponent("records.json"))
-        try failIfNeeded(.afterRecordsWrite)
-        try Self.writeDurable(stateData, to: generationDirectory.appendingPathComponent("engine-state.json"))
-        try failIfNeeded(.afterStateWrite)
-        try Self.writeDurable(
-            try JSONEncoder().encode(manifest),
-            to: generationDirectory.appendingPathComponent("manifest.json"))
-        try failIfNeeded(.afterManifestWrite)
-        _ = try Self.loadGeneration(at: generationDirectory, scope: scope)
-        try Self.installCurrent(generationID, in: scopeDirectory)
-        try failIfNeeded(.afterPointerPublication)
-        guard let installed = try Self.loadCurrent(in: scopeDirectory, scope: scope),
-              installed.manifest.generationID == generationID else {
-            throw MirrorCheckpointError.invalidManifest
+        try writeDurable(recordsData, to: directory.appendingPathComponent("records.json"))
+        if input.failurePoint == .afterRecordsWrite {
+            throw ShadowMirrorCheckpointWriterError.injectedFailure(.afterRecordsWrite)
         }
-        outbox = installed.outbox
-        tombstones = Set(installed.tombstones)
-        try Self.compactJournal(
-            in: scopeDirectory,
-            through: lastIntentSequence)
-        try Self.removeJournalAssets(in: scopeDirectory, through: lastIntentSequence)
-    }
-
-    public func loadCurrent() throws -> MirrorCheckpointBundle? {
-        try Self.loadCurrent(in: scopeDirectory, scope: scope)
+        try writeDurable(stateData, to: directory.appendingPathComponent("engine-state.json"))
+        if input.failurePoint == .afterStateWrite {
+            throw ShadowMirrorCheckpointWriterError.injectedFailure(.afterStateWrite)
+        }
+        try writeDurable(
+            try JSONEncoder().encode(manifest),
+            to: directory.appendingPathComponent("manifest.json"))
+        if input.failurePoint == .afterManifestWrite {
+            throw ShadowMirrorCheckpointWriterError.injectedFailure(.afterManifestWrite)
+        }
+        _ = try loadGeneration(at: directory, scope: input.scope)
     }
 
     private func failIfNeeded(_ point: ShadowMirrorCheckpointFailurePoint) throws {
         guard failurePoint == point else { return }
         throw ShadowMirrorCheckpointWriterError.injectedFailure(point)
+    }
+
+    private func requireActive() throws {
+        guard fenceLock.withLock({ !fenced }) else {
+            throw ShadowMirrorCheckpointWriterError.fenced
+        }
     }
 
     private func nextSequence() throws -> UInt64 {
@@ -703,6 +1088,15 @@ public actor ShadowMirrorCheckpointWriter {
     private static func currentPOSIXError() -> POSIXError {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
+}
+
+private struct ShadowMirrorGenerationInput: @unchecked Sendable {
+    let scope: MirrorScope
+    let generationDirectory: URL
+    let records: [CKRecord]
+    let engineState: MirrorEngineState
+    let recoveryState: ShadowMirrorCheckpointRecoveryState
+    let failurePoint: ShadowMirrorCheckpointFailurePoint?
 }
 
 private struct RecoveredState {
