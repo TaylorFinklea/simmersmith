@@ -1765,3 +1765,26 @@ banned for review work. (b) The census's self-verification pattern (sub-agents +
 before reporting) caught the audit's worst finding (`deh`); keep it. (c) Adversarial verification
 killed 3 plausible-but-wrong claims before they became beads (fast-path resurrection, same-turn
 tool race, "fresh users never boot") — the backstop cut toward my own conclusions twice.
+
+## 2026-07-15 — e0a uses a generation bundle and write-ahead intent journal
+
+**Decision.** The persistent HouseholdLocalStore mirror will be a scope-validated generation
+bundle, not a record archive beside `engine-state.json` or a new database. Every local mutation
+and delivery acknowledgement first writes a monotonically sequenced durable transition; a serial
+checkpointer writes the complete record/asset/outbox/receipt snapshot before the opaque CloudKit
+state serialization, then atomically publishes one verified generation with the journal high-water
+mark. The serial delegate's state update is bound to a mirror-coverage revision, so a token may lag
+its records but can never lead them. Scope is container + database role + signed-in account record
+name + zone owner/name + household + format version. P1 observes and canonical-digest-compares this
+bundle while full fetch remains authoritative; P2 is the only phase allowed to restore it into the
+active store.
+
+**Why.** Two independently atomic files retain the catastrophic token-ahead-of-mirror window,
+and CloudKit's pending-ID state cannot replay a pending save/delete or an explicit field clear.
+The generation pointer makes incomplete record/state pairs unreachable; the journal covers the
+window before a snapshot publishes; the included-sequence high-water makes post-pointer/pre-compaction
+replay idempotent. Keyed-archive bytes are integrity-checked but never treated as a deterministic
+logical digest. Asset bytes also need their own durable copy and the archived record must point at
+that copy because current `CKAsset` URLs live under Caches. This deliberately costs more than a
+keyed archive, but it makes the persistent cache safely recoverable across a crash, account switch,
+and owner/participant swap rather than merely fast on the happy path.
