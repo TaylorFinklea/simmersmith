@@ -144,8 +144,37 @@ echo "release-ios: build ${BUILD_NUMBER} accepted for processing by App Store Co
 # PROCESSING — not that it passed. A build can fail ASC's async validation minutes later while
 # this script has already printed success and exited 0 (build 153 shipped with its processing
 # state unconfirmed for exactly this reason). Poll until the build reaches a terminal state.
+processing_state_from_response() {
+    local response="$1"
+    printf '%s' "$response" | grep -o '"processingState"[[:space:]]*:[[:space:]]*"[A-Z]*"' |
+        head -1 | sed 's/.*"\([A-Z]*\)"$/\1/' || true
+}
+
+processing_state_result() {
+    local state="$1"
+    local build_number="${2:-${BUILD_NUMBER:-unknown}}"
+    case "$state" in
+        VALID)
+            echo "release-ios: build ${build_number} processed — VALID (ready for TestFlight)"
+            return 0
+            ;;
+        INVALID|FAILED)
+            echo "release-ios: ERROR — build ${build_number} processing state is ${state}." >&2
+            echo "release-ios: check App Store Connect for the rejection detail." >&2
+            return 1
+            ;;
+        "")
+            return 2
+            ;;
+        *)
+            echo "release-ios: processing (${state})…"
+            return 2
+            ;;
+    esac
+}
+
 poll_processing_state() {
-    local jwt exp iat header payload signature response state
+    local jwt exp iat header payload signature response state result
     # ES256 JWT for the ASC API, signed with the same .p8 the upload used.
     iat=$(date +%s)
     exp=$((iat + 600))
@@ -165,23 +194,13 @@ poll_processing_state() {
         sleep 20
         response=$(curl -sS -H "Authorization: Bearer ${jwt}" \
             "https://api.appstoreconnect.apple.com/v1/builds?filter%5Bversion%5D=${BUILD_NUMBER}&limit=1" 2>/dev/null) || continue
-        state=$(printf '%s' "$response" | grep -o '"processingState"[[:space:]]*:[[:space:]]*"[A-Z]*"' |
-            head -1 | sed 's/.*"\([A-Z]*\)"$/\1/')
-        [ -z "$state" ] && continue
-        case "$state" in
-            VALID)
-                echo "release-ios: build ${BUILD_NUMBER} processed — VALID (ready for TestFlight)"
-                return 0
-                ;;
-            INVALID|FAILED)
-                echo "release-ios: ERROR — build ${BUILD_NUMBER} processing state is ${state}." >&2
-                echo "release-ios: check App Store Connect for the rejection detail." >&2
-                return 1
-                ;;
-            *)
-                echo "release-ios: processing (${state})…"
-                ;;
-        esac
+        state=$(processing_state_from_response "$response")
+        if processing_state_result "$state" "$BUILD_NUMBER"; then
+            return 0
+        else
+            result=$?
+            [ "$result" -eq 1 ] && return 1
+        fi
     done
     echo "release-ios: WARNING — build ${BUILD_NUMBER} still processing after ~10 min; check App Store Connect." >&2
     return 0
