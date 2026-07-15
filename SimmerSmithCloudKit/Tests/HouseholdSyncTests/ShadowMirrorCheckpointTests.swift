@@ -286,9 +286,476 @@ func checkpointValidationBindsWholeManifestAndEngineState() throws {
     }
 }
 
+@Test("checkpoint writer publishes a complete generation through current")
+func checkpointWriterPublishesCompleteGeneration() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let state = MirrorEngineState(
+        serialization: Data([4, 2]), coverageRevision: 1, zoneEnsured: true)
+
+    try await writer.publish(records: [checkpointRecord()], engineState: state)
+
+    let bundle = try #require(await writer.loadCurrent())
+    #expect(bundle.manifest.scope == checkpointScope())
+    #expect(bundle.engineState == state)
+    #expect(bundle.records.count == 1)
+    #expect(FileManager.default.fileExists(
+        atPath: root.appendingPathComponent(checkpointScope().cacheKey)
+            .appendingPathComponent("current").path))
+
+    let newer = checkpointRecord()
+    newer["name"] = "Newer soup" as CKRecordValue
+    try await writer.publish(
+        records: [newer],
+        engineState: MirrorEngineState(
+            serialization: Data([5]), coverageRevision: 2, zoneEnsured: true))
+    let replaced = try #require(await writer.loadCurrent())
+    #expect(replaced.engineState.coverageRevision == 2)
+    #expect(try replaced.records.first?.decode()["name"] as? String == "Newer soup")
+}
+
+@Test("published outbox assets are generation-local and survive journal asset cleanup")
+func publishedOutboxAssetsAreSelfContained() async throws {
+    let root = try checkpointDirectory()
+    let sourceURL = root.appendingPathComponent("source-image.bin")
+    try Data("outbox-image".utf8).write(to: sourceURL)
+    let record = checkpointRecord()
+    record["imageAsset"] = CKAsset(fileURL: sourceURL)
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        record, mutationGeneration: 1, changedFields: ["imageAsset"])
+    try await writer.publish(
+        records: [record],
+        engineState: MirrorEngineState(
+            serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+
+    let scopeDirectory = checkpointScopeDirectory(in: root)
+    let journalAssets = scopeDirectory.appendingPathComponent("journal-assets", isDirectory: true)
+    try FileManager.default.removeItem(at: journalAssets)
+    let bundle = try #require(await writer.loadCurrent())
+    let restored = try #require(try bundle.outbox.first?.record?.decode())
+    let restoredAsset = try #require(restored["imageAsset"] as? CKAsset)
+    let restoredURL = try #require(restoredAsset.fileURL)
+
+    #expect(restoredURL.path.contains("/generations/"))
+    #expect(restoredURL.path.contains("/outbox-assets/1/"))
+    #expect(try Data(contentsOf: restoredURL) == Data("outbox-image".utf8))
+}
+
+@Test("journal assets survive their source and corruption quarantines the scope")
+func journalAssetsAreDurableAndValidatedDuringReplay() async throws {
+    let root = try checkpointDirectory()
+    let sourceURL = root.appendingPathComponent("journal-source.bin")
+    try Data("journal-image".utf8).write(to: sourceURL)
+    let record = checkpointRecord()
+    record["imageAsset"] = CKAsset(fileURL: sourceURL)
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        record, mutationGeneration: 1, changedFields: ["imageAsset"])
+    try FileManager.default.removeItem(at: sourceURL)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let durableRecord = try #require(
+        try await recovered.recoveryState().outbox.first?.record?.decode())
+    let durableAsset = try #require(durableRecord["imageAsset"] as? CKAsset)
+    #expect(try Data(contentsOf: #require(durableAsset.fileURL)) == Data("journal-image".utf8))
+
+    let assetDirectory = checkpointScopeDirectory(in: root)
+        .appendingPathComponent("journal-assets/1", isDirectory: true)
+    let assetURL = try #require(
+        FileManager.default.contentsOfDirectory(
+            at: assetDirectory, includingPropertiesForKeys: nil).first)
+    try Data("corrupt".utf8).write(to: assetURL, options: .atomic)
+    let quarantined = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    #expect(await quarantined.recoveryState().outbox.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("writer derives a complete receipt index from the same record snapshot")
+func checkpointWriterPersistsCompleteReceiptIndex() async throws {
+    let receipt = CKRecord(
+        recordType: "MigrationReceipt",
+        recordID: CKRecord.ID(recordName: "receipt-writer", zoneID: checkpointZone))
+    let writer = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: checkpointDirectory())
+
+    try await writer.publish(
+        records: [checkpointRecord(), receipt],
+        engineState: MirrorEngineState(
+            serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+
+    let bundle = try #require(await writer.loadCurrent())
+    #expect(bundle.receipts.receipts == [MirrorRecordIdentity(receipt)])
+}
+
+@Test("every pre-pointer publication failure leaves the prior generation current")
+func failedPublicationKeepsPriorGeneration() async throws {
+    for failurePoint in [
+        ShadowMirrorCheckpointFailurePoint.afterRecordsWrite,
+        .afterStateWrite,
+        .afterManifestWrite,
+    ] {
+        let root = try checkpointDirectory()
+        let prior = checkpointRecord()
+        prior["name"] = "Prior soup" as CKRecordValue
+        let stableWriter = try ShadowMirrorCheckpointWriter(
+            scope: checkpointScope(), rootDirectory: root)
+        try await stableWriter.publish(
+            records: [prior],
+            engineState: MirrorEngineState(
+                serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+
+        let candidate = checkpointRecord()
+        candidate["name"] = "Candidate soup" as CKRecordValue
+        let failingWriter = try ShadowMirrorCheckpointWriter(
+            scope: checkpointScope(), rootDirectory: root, failurePoint: failurePoint)
+        do {
+            try await failingWriter.publish(
+                records: [candidate],
+                engineState: MirrorEngineState(
+                    serialization: Data([2]), coverageRevision: 2, zoneEnsured: true))
+            Issue.record("Expected deterministic checkpoint failure at \(failurePoint)")
+        } catch let error as ShadowMirrorCheckpointWriterError {
+            #expect(error == .injectedFailure(failurePoint))
+        }
+
+        let recovered = try #require(await stableWriter.loadCurrent())
+        let record = try #require(try recovered.records.first?.decode())
+        #expect(record["name"] as? String == "Prior soup")
+        #expect(recovered.engineState.coverageRevision == 1)
+    }
+}
+
+@Test("journal recovery preserves a delete tombstone after an uncheckpointed save")
+func journalRecoveryPreservesSaveThenDelete() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let identity = MirrorRecordIdentity(record)
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    _ = try await writer.appendSave(
+        record,
+        mutationGeneration: 1,
+        changedFields: ["name"])
+    _ = try await writer.appendDelete(identity, mutationGeneration: 2)
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let recovery = await recoveredWriter.recoveryState()
+    #expect(recovery.tombstones == [identity])
+    #expect(recovery.outbox.map(\.operation) == [.delete])
+    #expect(recovery.lastIntentSequence == 2)
+}
+
+@Test("acknowledgement removes the exact sent mutation and durably rebases a newer edit")
+func acknowledgementRebasesNewerMutation() async throws {
+    let root = try checkpointDirectory()
+    let first = checkpointRecord()
+    first["name"] = "First edit" as CKRecordValue
+    let second = checkpointRecord()
+    second["name"] = "Second edit" as CKRecordValue
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    let firstSequence = try await writer.appendSave(
+        first, mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.markSent(sequence: firstSequence, mutationGeneration: 1)
+    let secondSequence = try await writer.appendSave(
+        second, mutationGeneration: 2, changedFields: ["name"])
+    let rebased = second.copy() as! CKRecord
+    rebased["serverMarker"] = "system fields rebased" as CKRecordValue
+    await #expect(throws: MirrorCheckpointError.self) {
+        _ = try await writer.acknowledge(
+            sequence: firstSequence, mutationGeneration: 1)
+    }
+    let acknowledgementSequence = try await writer.acknowledge(
+        sequence: firstSequence, mutationGeneration: 1, rebasedRecord: rebased)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let recovery = await recovered.recoveryState()
+    #expect(recovery.outbox.map(\.sequence) == [secondSequence])
+    #expect(acknowledgementSequence == 4)
+    #expect(recovery.outbox.first?.delivery == .pending)
+    #expect(try recovery.outbox.first?.record?.decode()["serverMarker"] as? String
+        == "system fields rebased")
+}
+
+@Test("a later user transition supersedes pending and permanently blocked intents")
+func laterMutationSupersedesUnsentIntents() async throws {
+    let root = try checkpointDirectory()
+    let first = checkpointRecord()
+    first["name"] = "First edit" as CKRecordValue
+    let second = checkpointRecord()
+    second["name"] = "Second edit" as CKRecordValue
+    let third = checkpointRecord()
+    third["name"] = "Third edit" as CKRecordValue
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    let firstSequence = try await writer.appendSave(
+        first, mutationGeneration: 1, changedFields: ["name"])
+    let secondSequence = try await writer.appendSave(
+        second, mutationGeneration: 2, changedFields: ["name"])
+    #expect(await writer.recoveryState().outbox.map(\.sequence) == [secondSequence])
+    _ = try await writer.markSent(sequence: secondSequence, mutationGeneration: 2)
+    _ = try await writer.markBlockedPermanent(sequence: secondSequence, mutationGeneration: 2)
+    let thirdSequence = try await writer.appendSave(
+        third, mutationGeneration: 3, changedFields: ["name"])
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(firstSequence == 1)
+    #expect(await recovered.recoveryState().outbox.map(\.sequence) == [thirdSequence])
+    #expect(await recovered.recoveryState().outbox.first?.delivery == .pending)
+}
+
+@Test("transient failure returns the exact sent intent to pending; permanent failure stays blocked")
+func deliveryFailuresRemainDurable() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.markSent(sequence: sequence, mutationGeneration: 1)
+    let rebased = checkpointRecord()
+    rebased["name"] = "Retry with server fields" as CKRecordValue
+    _ = try await writer.markTransientFailure(
+        sequence: sequence, mutationGeneration: 1, rebasedRecord: rebased)
+    #expect(await writer.recoveryState().outbox.first?.delivery == .pending)
+    #expect(try await writer.recoveryState().outbox.first?.record?.decode()["name"] as? String
+        == "Retry with server fields")
+
+    _ = try await writer.markSent(sequence: sequence, mutationGeneration: 1)
+    _ = try await writer.markBlockedPermanent(sequence: sequence, mutationGeneration: 1)
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(await recovered.recoveryState().outbox.first?.delivery
+        == .blockedPermanent(sequence: sequence, generation: 1))
+}
+
+@Test("a rejected transition never poisons the durable journal or consumes a sequence")
+func invalidTransitionDoesNotReachJournal() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    await #expect(throws: MirrorCheckpointError.self) {
+        _ = try await writer.appendSave(
+            checkpointRecord(), mutationGeneration: 0, changedFields: ["name"])
+    }
+    let sequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    await #expect(throws: MirrorCheckpointError.self) {
+        _ = try await writer.markSent(sequence: sequence, mutationGeneration: 999)
+    }
+    let sentTransition = try await writer.markSent(sequence: sequence, mutationGeneration: 1)
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    #expect(sequence == 1)
+    #expect(sentTransition == 2)
+    #expect(await recovered.recoveryState().outbox.map(\.sequence) == [1])
+}
+
+@Test("post-pointer crash keeps journal entries at manifest high-water from replaying twice")
+func postPointerCrashDoesNotReplayIncludedJournalEntry() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let initialWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await initialWriter.appendSave(
+        record, mutationGeneration: 1, changedFields: ["name"])
+    let crashingWriter = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: root, failurePoint: .afterPointerPublication)
+
+    do {
+        try await crashingWriter.publish(
+            records: [record],
+            engineState: MirrorEngineState(
+                serialization: Data([3]), coverageRevision: 1, zoneEnsured: true))
+        Issue.record("Expected deterministic post-pointer failure")
+    } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterPointerPublication) {}
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let recovery = await recoveredWriter.recoveryState()
+    #expect(recovery.outbox.map(\.sequence) == [sequence])
+    #expect(recovery.lastIntentSequence == sequence)
+}
+
+@Test("a durable acknowledgement survives an interrupted checkpoint without reviving the intent")
+func interruptedAckCheckpointDoesNotReviveIntent() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        record, mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.markSent(sequence: sequence, mutationGeneration: 1)
+    _ = try await writer.acknowledge(sequence: sequence, mutationGeneration: 1)
+    let crashingWriter = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: root, failurePoint: .afterPointerPublication)
+
+    do {
+        try await crashingWriter.publish(
+            records: [record],
+            engineState: MirrorEngineState(
+                serialization: Data([3]), coverageRevision: 1, zoneEnsured: true))
+        Issue.record("Expected deterministic post-pointer failure")
+    } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterPointerPublication) {}
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(await recovered.recoveryState().outbox.isEmpty)
+    #expect(await recovered.recoveryState().lastIntentSequence == 3)
+}
+
+@Test("torn final journal frame is ignored during recovery")
+func tornFinalJournalFrameIsIgnored() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    let journalURL = root.appendingPathComponent(checkpointScope().cacheKey)
+        .appendingPathComponent("journal.wal")
+    let handle = try FileHandle(forWritingTo: journalURL)
+    defer { try? handle.close() }
+    try handle.seekToEnd()
+    handle.write(Data([0, 0, 0]))
+    try handle.synchronize()
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let recovery = await recoveredWriter.recoveryState()
+    #expect(recovery.outbox.map(\.sequence) == [sequence])
+}
+
+@Test("a complete checksum-corrupt final journal frame quarantines instead of disappearing")
+func corruptCompleteFinalJournalFrameQuarantines() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    let journalURL = checkpointScopeDirectory(in: root).appendingPathComponent("journal.wal")
+    var journal = try Data(contentsOf: journalURL)
+    journal[JournalFrameLength.header + 1] ^= 0x01
+    try journal.write(to: journalURL, options: .atomic)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    #expect(await recovered.recoveryState().outbox.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("invalid interior journal frame quarantines the scope")
+func invalidInteriorJournalFrameQuarantinesScope() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 2)
+    let journalURL = root.appendingPathComponent(checkpointScope().cacheKey)
+        .appendingPathComponent("journal.wal")
+    var journal = try Data(contentsOf: journalURL)
+    journal[JournalFrameLength.header + 1] ^= 0x01
+    try journal.write(to: journalURL, options: .atomic)
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let recovery = await recoveredWriter.recoveryState()
+    #expect(recovery.outbox.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("a missing journal frame above checkpoint high-water quarantines the scope")
+func journalSequenceGapQuarantinesScope() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 2)
+    let journalURL = checkpointScopeDirectory(in: root).appendingPathComponent("journal.wal")
+    let journal = try Data(contentsOf: journalURL)
+    let firstPayloadLength = journal.prefix(8).reduce(UInt64(0)) {
+        ($0 << 8) | UInt64($1)
+    }
+    let firstFrameLength = JournalFrameLength.header + Int(firstPayloadLength)
+    try Data(journal.dropFirst(firstFrameLength)).write(to: journalURL, options: .atomic)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+
+    #expect(await recovered.recoveryState().outbox.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("records-only current generation is quarantined instead of selected")
+func recordsOnlyGenerationIsQuarantined() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    try await writer.publish(
+        records: [checkpointRecord()],
+        engineState: MirrorEngineState(
+            serialization: Data([8]), coverageRevision: 1, zoneEnsured: true))
+    let scopeDirectory = root.appendingPathComponent(checkpointScope().cacheKey)
+    let generationID = try String(
+        contentsOf: scopeDirectory.appendingPathComponent("current"),
+        encoding: .utf8)
+    try FileManager.default.removeItem(
+        at: scopeDirectory.appendingPathComponent("generations")
+            .appendingPathComponent(generationID)
+            .appendingPathComponent("engine-state.json"))
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(try await recoveredWriter.loadCurrent() == nil)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("state-only current generation is quarantined instead of selected")
+func stateOnlyGenerationIsQuarantined() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    try await writer.publish(
+        records: [checkpointRecord()],
+        engineState: MirrorEngineState(
+            serialization: Data([8]), coverageRevision: 1, zoneEnsured: true))
+    let scopeDirectory = checkpointScopeDirectory(in: root)
+    let generationID = try String(
+        contentsOf: scopeDirectory.appendingPathComponent("current"), encoding: .utf8)
+    try FileManager.default.removeItem(
+        at: scopeDirectory.appendingPathComponent("generations")
+            .appendingPathComponent(generationID)
+            .appendingPathComponent("records.json"))
+
+    let recoveredWriter = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(try await recoveredWriter.loadCurrent() == nil)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
+@Test("current pointer rejects a generation whose manifest names a different directory")
+func currentPointerBindsGenerationDirectory() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    try await writer.publish(
+        records: [checkpointRecord()],
+        engineState: MirrorEngineState(
+            serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+    let scopeDirectory = checkpointScopeDirectory(in: root)
+    let generationID = try String(
+        contentsOf: scopeDirectory.appendingPathComponent("current"), encoding: .utf8)
+    let manifestURL = scopeDirectory.appendingPathComponent("generations")
+        .appendingPathComponent(generationID).appendingPathComponent("manifest.json")
+    var rootObject = try #require(
+        JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+    var manifest = try #require(rootObject["manifest"] as? [String: Any])
+    manifest["generationID"] = UUID().uuidString
+    rootObject["manifest"] = manifest
+    try JSONSerialization.data(withJSONObject: rootObject).write(to: manifestURL, options: .atomic)
+
+    await #expect(throws: MirrorCheckpointError.self) {
+        _ = try await writer.loadCurrent()
+    }
+}
+
 private func checkpointScope() -> MirrorScope {
     MirrorScope(
         accountRecordName: "user-a", zoneOwnerName: "user-a", zoneName: "household",
         householdID: "household-a", role: .owner, databaseScope: .private)
+}
+
+private func checkpointScopeDirectory(in root: URL) -> URL {
+    root.appendingPathComponent(checkpointScope().cacheKey, isDirectory: true)
+}
+
+private enum JournalFrameLength {
+    static let header = 40
 }
 #endif
