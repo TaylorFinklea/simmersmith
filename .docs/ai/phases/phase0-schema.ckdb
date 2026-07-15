@@ -203,6 +203,7 @@ DEFINE SCHEMA
     RECORD TYPE EventAttendee (
         plusOnes INT64,
         createdAt TIMESTAMP,
+        updatedAt TIMESTAMP,
         event REFERENCE,
         guest REFERENCE,
         GRANT WRITE TO "_creator",
