@@ -218,11 +218,13 @@ Standing verify, every phase (Sol F9): `CloudParseService.swift` SHA-256 equals 
 value; `git diff <base>..HEAD` for that file is empty; the existing `useBallastParse == false`
 test passes.
 
-- [ ] **P1 — adapter: characterization suite → shared-internals refactor → public baseline
-  scoring path + coverage validation + differential fixtures.** `tier_floor: senior` ·
+- [x] **P1 — adapter: characterization suite → shared-internals refactor → public baseline
+  scoring path + coverage validation + differential fixtures.** ✓ 2026-07-16, 58/58 adapter
+  tests (36 pre-existing + 8 characterization + 14 baseline/differential). `tier_floor: senior` ·
   `complexity: L`. Verify: `swift test --package-path SimmerSmithBallastAdapter` (36 existing +
   new tests green; sibling ballast checkout required by Package.swift path deps).
-- [ ] **P2 — AIService identity snapshot + inert-by-default per-call lease.** `tier_floor:
+- [x] **P2 — AIService identity snapshot + inert-by-default per-call lease.** ✓ 2026-07-16,
+  build green + 107/107 app-hosted tests (11 new snapshot/lease tests). `tier_floor:
   senior` · `complexity: M`. Verify: `xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj
   -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` **plus
   mandatory app-hosted tests** (lease inert when inactive; abort on violation; snapshot format) —
