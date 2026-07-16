@@ -300,13 +300,6 @@ private struct VoiceParseEvalSample: Sendable {
 }
 
 private enum VoiceParseScorer {
-    private struct MealSignature: Hashable {
-        let day: String
-        let slot: String
-        let rawDish: String
-        let intent: String
-    }
-
     private struct FullSignature: Hashable {
         let meal: MealSignature
         let evidence: String
@@ -408,11 +401,11 @@ private enum VoiceParseScorer {
     }
 
     private static func mealSignature(_ entry: WeeklyPlanWireEntry) -> MealSignature {
-        MealSignature(
-            day: normalize(entry.day),
-            slot: normalize(entry.slot),
-            rawDish: normalize(entry.rawDish),
-            intent: normalize(entry.intent)
+        VoiceParseScoringPrimitives.mealSignature(
+            day: entry.day,
+            slot: entry.slot,
+            rawDish: entry.rawDish,
+            intent: entry.intent
         )
     }
 
@@ -421,19 +414,15 @@ private enum VoiceParseScorer {
     }
 
     private static func normalize(_ value: String) -> String {
-        value.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+        VoiceParseScoringPrimitives.normalize(value)
     }
 
     private static func counts<T: Hashable>(_ values: [T]) -> [T: Int] {
-        values.reduce(into: [:]) { $0[$1, default: 0] += 1 }
+        VoiceParseScoringPrimitives.counts(values)
     }
 
     private static func intersectionCount<T: Hashable>(_ lhs: [T], _ rhs: [T]) -> Int {
-        let left = counts(lhs)
-        let right = counts(rhs)
-        return left.reduce(into: 0) { total, pair in
-            total += min(pair.value, right[pair.key, default: 0])
-        }
+        VoiceParseScoringPrimitives.intersectionCount(lhs, rhs)
     }
 
     private static func fieldMatches(
@@ -472,6 +461,6 @@ private enum VoiceParseScorer {
         _ denominator: Int,
         emptyValue: Double = 0
     ) -> Double {
-        denominator == 0 ? emptyValue : Double(numerator) / Double(denominator)
+        VoiceParseScoringPrimitives.ratio(numerator, denominator, emptyValue: emptyValue)
     }
 }

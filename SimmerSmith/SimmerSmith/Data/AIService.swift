@@ -64,8 +64,20 @@ final class AIService {
     /// Throws `AIServiceError.noKeyConfigured` when no key is in Keychain for the chosen
     /// provider, or `AIServiceError.noProviderConfigured` when no provider is selected.
     /// Provider HTTP/parse errors propagate as `AIError.*`.
+    ///
+    /// P8 D2: when the baseline runner holds an identity lease (`beginIdentityLease`),
+    /// this freshly-resolved (provider, model) must match the leased identity or the
+    /// call aborts via `AIServiceError.identityLeaseViolation` instead of calling out.
+    /// `identityLease == nil` (always true in production) skips this entirely — inert
+    /// by default, zero behavior change on the success path.
     func generate(_ request: AIRequest) async throws -> AIResponse {
         let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
+        if let identityLease {
+            let resolved = Self.identity(
+                for: cloudModel, openAIModel: openAIModel, anthropicModel: anthropicModel, openModelsModel: openModelsModel
+            )
+            try Self.checkIdentityLease(identityLease, resolved: resolved)
+        }
         let providerKey = Self.keychainKeyID(for: cloudModel)
         guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
             throw AIServiceError.noKeyConfigured(providerKey)
@@ -360,14 +372,97 @@ final class AIService {
             openModelsModel
         )
     }
+
+    // MARK: - Identity (P8 D2 — cloud baseline runner)
+
+    /// Non-secret identity of the currently-configured provider/model — never keys or
+    /// key presence. Shares `resolveConfiguration()` with `generate()` so the snapshot
+    /// always matches what the next call would actually use. The baseline runner's
+    /// consent screen shows this before spending any live calls.
+    func identitySnapshot() throws -> AIServiceIdentity {
+        let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
+        return Self.identity(
+            for: cloudModel, openAIModel: openAIModel, anthropicModel: anthropicModel, openModelsModel: openModelsModel
+        )
+    }
+
+    /// Maps a resolved `(CloudModel, model strings)` tuple to the pinned identity
+    /// format: `providerName` ∈ `"openai"` | `"anthropic"` | `"openmodels/<vendor-id>"`;
+    /// `modelIdentifier` is the resolved model id (open-models empty-string falls back
+    /// to the vendor descriptor's default, mirroring `BYOKeyProvider`'s own fallback).
+    /// Factored out of `identitySnapshot()`/`generate()` so it's directly testable
+    /// without a live `HouseholdSession`.
+    static func identity(
+        for cloudModel: CloudModel,
+        openAIModel: String,
+        anthropicModel: String,
+        openModelsModel: String
+    ) -> AIServiceIdentity {
+        switch cloudModel {
+        case .openAI:
+            return AIServiceIdentity(providerName: "openai", modelIdentifier: openAIModel)
+        case .anthropic:
+            return AIServiceIdentity(providerName: "anthropic", modelIdentifier: anthropicModel)
+        case .openModels(let vendor):
+            let descriptor = ProviderRegistry.descriptor(for: vendor)
+            let modelID = openModelsModel.isEmpty ? descriptor.defaultModel : openModelsModel
+            return AIServiceIdentity(providerName: "openmodels/\(descriptor.id)", modelIdentifier: modelID)
+        case .gemini, .openRouter:
+            // resolveConfiguration()'s providerRaw switch only ever produces openai/
+            // anthropic/openModels — these two CloudModel cases are unreachable here,
+            // kept only for exhaustiveness.
+            return AIServiceIdentity(providerName: cloudModel.label.lowercased(), modelIdentifier: "")
+        }
+    }
+
+    // MARK: - Identity lease (P8 D2 — cloud baseline runner)
+
+    /// Currently-held per-call identity lease, if any. `nil` (the default) makes the
+    /// lease mechanism fully inert — `generate()` behaves exactly as it did before P8.
+    /// Only the baseline runner is expected to engage this.
+    private var identityLease: AIServiceIdentity?
+
+    /// Engage the per-call identity lease: every `generate()` call this instance makes
+    /// while the lease is held must resolve to `identity`, or it throws
+    /// `AIServiceError.identityLeaseViolation` instead of calling out. Throws
+    /// `AIServiceError.identityLeaseAlreadyHeld` if a lease is already engaged — single
+    /// ownership only (P8 spec Landmines: "un-engageable outside the runner").
+    func beginIdentityLease(_ identity: AIServiceIdentity) throws {
+        guard identityLease == nil else {
+            throw AIServiceError.identityLeaseAlreadyHeld
+        }
+        identityLease = identity
+    }
+
+    /// Release the identity lease. Idempotent — safe to call from a `defer` even if no
+    /// lease was ever engaged or it was already released.
+    func endIdentityLease() {
+        identityLease = nil
+    }
+
+    /// Pure lease check, factored out of `generate()` so it's directly testable
+    /// without a live `HouseholdSession`/private-plane store. `lease == nil` always
+    /// passes (the inert-by-default property).
+    static func checkIdentityLease(_ lease: AIServiceIdentity?, resolved: AIServiceIdentity) throws {
+        guard let lease, lease != resolved else { return }
+        throw AIServiceError.identityLeaseViolation(expected: lease, resolved: resolved)
+    }
 }
 
 // MARK: - AIServiceError
 
-enum AIServiceError: Error, LocalizedError {
+enum AIServiceError: Error, LocalizedError, Equatable {
     case noProviderConfigured
     case noKeyConfigured(String)
     case unsupportedProvider(String)
+    /// P8 D2: the baseline runner's per-call identity lease caught a freshly-resolved
+    /// (provider, model) diverging from what it leased mid-sweep — abort class, not
+    /// scored data (Settings changed away-and-back, or the resolved config otherwise
+    /// drifted underneath the runner).
+    case identityLeaseViolation(expected: AIServiceIdentity, resolved: AIServiceIdentity)
+    /// P8 D2: `beginIdentityLease` called while a lease is already held. The lease is
+    /// single-owner — the runner must release (or the caller must not double-engage).
+    case identityLeaseAlreadyHeld
 
     var errorDescription: String? {
         switch self {
@@ -379,7 +474,20 @@ enum AIServiceError: Error, LocalizedError {
             return "No \(label) API key is saved. Open Settings → AI and enter your key."
         case .unsupportedProvider(let p):
             return "Provider \"\(p)\" is not supported in this version."
+        case .identityLeaseViolation(let expected, let resolved):
+            return "AI identity changed mid-sweep: leased \(expected.providerName)/\(expected.modelIdentifier), resolved \(resolved.providerName)/\(resolved.modelIdentifier)."
+        case .identityLeaseAlreadyHeld:
+            return "An AI identity lease is already held."
         }
     }
+}
+
+/// Non-secret identity of a resolved AI configuration (P8 D2): provider + model id.
+/// Never carries keys or key presence — safe to snapshot, lease-compare, log, or
+/// export into the baseline runner's provenance sidecar.
+/// `providerName` ∈ `"openai"` | `"anthropic"` | `"openmodels/<vendor-id>"`.
+struct AIServiceIdentity: Sendable, Equatable {
+    let providerName: String
+    let modelIdentifier: String
 }
 #endif

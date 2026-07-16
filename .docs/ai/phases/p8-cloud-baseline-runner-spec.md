@@ -218,17 +218,29 @@ Standing verify, every phase (Sol F9): `CloudParseService.swift` SHA-256 equals 
 value; `git diff <base>..HEAD` for that file is empty; the existing `useBallastParse == false`
 test passes.
 
-- [ ] **P1 — adapter: characterization suite → shared-internals refactor → public baseline
-  scoring path + coverage validation + differential fixtures.** `tier_floor: senior` ·
+- [x] **P1 — adapter: characterization suite → shared-internals refactor → public baseline
+  scoring path + coverage validation + differential fixtures.** ✓ 2026-07-16, 58/58 adapter
+  tests (36 pre-existing + 8 characterization + 14 baseline/differential). `tier_floor: senior` ·
   `complexity: L`. Verify: `swift test --package-path SimmerSmithBallastAdapter` (36 existing +
   new tests green; sibling ballast checkout required by Package.swift path deps).
-- [ ] **P2 — AIService identity snapshot + inert-by-default per-call lease.** `tier_floor:
+- [x] **P2 — AIService identity snapshot + inert-by-default per-call lease.** ✓ 2026-07-16,
+  build green + 107/107 app-hosted tests (11 new snapshot/lease tests). `tier_floor:
   senior` · `complexity: M`. Verify: `xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj
   -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` **plus
   mandatory app-hosted tests** (lease inert when inactive; abort on violation; snapshot format) —
   mirror the e0a P2 spec §9 ad-hoc app-target suite command (implementer: read that spec first).
-- [ ] **P3 — runner controller (injected seams) + debug screen + hash-bound export.**
-  `tier_floor: senior` · `complexity: L`. New app files ⇒ **xcodegen regen required**
+- [x] **P3 — runner controller (injected seams) + debug screen + hash-bound export.** ✓
+  2026-07-16, build green + 121/121 app-hosted tests (14 new `BaselineRunnerControllerTests`,
+  107 pre-existing). `.dataCorrupted` → `emptyOrNonJSONBody`, `.keyNotFound`/
+  `.typeMismatch`/`.valueNotFound` → `schemaDecodeFailure` (Foundation's own `DecodingError`
+  case split, noted as the classify rationale). No commit-embedding convention found in this
+  repo; `repoCommit` falls back to `"app-build-<CFBundleVersion>"` per spec fallback (deviation).
+  Simulator smoke: app builds/installs/launches without crash; this sim has no iCloud account so
+  RootView's pre-existing "Sign in to iCloud" gate blocks reaching Settings — the exact
+  behavioral claims (no call before consent; graceful `.consentUnavailable` degrade; zero network
+  calls) are covered by `prepareNeverCallsParseBeforeConsent`/`prepareDegradesGracefullyWithNoService`
+  against the same controller code the debug view drives. `tier_floor: senior` · `complexity: L`.
+  New app files ⇒ **xcodegen regen required**
   (project.pbxproj is generated; files added without regen silently drop out of the target).
   Verify: P2's build command **plus mandatory app-hosted controller tests** (Sol F8; same
   invocation pattern as P2 — mirror the e0a P2 spec §9 ad-hoc app-target suite command): no call
@@ -239,7 +251,9 @@ test passes.
   exported metrics decode as `VoiceParseEvalMetrics`; sidecar hash binds the exported bytes.
   Plus simulator smoke: no-key/no-session degrades gracefully, consent gate shows, no network
   call.
-- [ ] **P4 — adapter preflight validator target + tests.** `tier_floor: junior` ·
+- [x] **P4 — adapter preflight validator target + tests.** ✓ 2026-07-16, 71/71 adapter tests
+  (13 new, every ValidationError case) + built binary smoke-tested both directions.
+  `tier_floor: junior` ·
   `complexity: S`. Verify: `swift test --package-path SimmerSmithBallastAdapter` (validator
   logic covered; existing CLI target byte-identical).
 - [ ] **P5 — live baseline sweep (HUMAN; separately gated).** Explicit user spend consent

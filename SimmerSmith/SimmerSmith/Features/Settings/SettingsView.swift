@@ -650,6 +650,13 @@ struct SettingsView: View {
                     } label: {
                         Label("CloudKit checks", systemImage: "cloud")
                     }
+                    // P8 D3 — production-cloud baseline sweep. Same DebugGate + embedding as
+                    // CloudKit checks above; dormant in Release.
+                    NavigationLink {
+                        BaselineRunnerDebugView()
+                    } label: {
+                        Label("Baseline sweep", systemImage: "chart.bar.doc.horizontal")
+                    }
                 } header: {
                     SmithSectionHeader("developer")
                 }
