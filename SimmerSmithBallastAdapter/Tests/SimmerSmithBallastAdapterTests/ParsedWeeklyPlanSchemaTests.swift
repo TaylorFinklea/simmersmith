@@ -69,6 +69,33 @@ struct ParsedWeeklyPlanSchemaTests {
         #expect(errors.contains { $0.contains("entries[0].evidence") && $0.contains("raw_dish") })
     }
 
+    @Test("one evidence span cannot cross-product separate meals")
+    func rejectsCrossMealEvidence() throws {
+        let transcript = "Monday breakfast oatmeal and Tuesday dinner tacos"
+        let schema = ParsedWeeklyPlanSchema(transcript: transcript)
+        let payload = try schema.decode(
+            #"{"entries":[{"day":"Monday","slot":"dinner","raw_dish":"tacos","intent":"recipe","evidence":"Monday breakfast oatmeal and Tuesday dinner tacos"}]}"#
+        )
+
+        let errors = schema.validate(payload)
+        #expect(errors.contains { $0.contains("entries[0].evidence") && $0.contains("one meal clause") })
+    }
+
+    @Test("at-home timing remains recipe while at-venue supports eatOut")
+    func venueIntentIsStructural() throws {
+        let homeSchema = ParsedWeeklyPlanSchema(transcript: "Monday dinner tacos at 6")
+        let home = try homeSchema.decode(
+            #"{"entries":[{"day":"Monday","slot":"dinner","raw_dish":"tacos","intent":"recipe","evidence":"Monday dinner tacos at 6"}]}"#
+        )
+        let venueSchema = ParsedWeeklyPlanSchema(transcript: "Monday dinner at Mario's")
+        let venue = try venueSchema.decode(
+            #"{"entries":[{"day":"Monday","slot":"dinner","raw_dish":"Mario's","intent":"eatOut","evidence":"Monday dinner at Mario's"}]}"#
+        )
+
+        #expect(homeSchema.validate(home).isEmpty)
+        #expect(venueSchema.validate(venue).isEmpty)
+    }
+
     @Test("groundedness ignores only case and whitespace differences")
     func conservativeGroundednessNormalization() throws {
         let schema = ParsedWeeklyPlanSchema(transcript: "Tuesday\n lunch   TUNA salad")

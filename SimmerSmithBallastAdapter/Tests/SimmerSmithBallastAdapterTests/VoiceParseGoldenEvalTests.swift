@@ -20,6 +20,7 @@ struct VoiceParseGoldenEvalTests {
         #expect(Set(cases.map(\.category)) == requiredCategories)
         #expect(cases.filter(\.safetyCritical).count >= 20)
         #expect(cases.allSatisfy { !$0.expectedEntries.isEmpty || !$0.whyOmitted.isEmpty })
+        #expect(try VoiceParseGoldenSuite.digest() == VoiceParseEvalPolicy.corpusDigest)
     }
 
     @Test("every labeled evidence span is grounded in its frozen transcript")
@@ -165,11 +166,16 @@ struct VoiceParseGoldenEvalTests {
 
     @Test("non-inferiority requires matching frozen live-run provenance")
     func nonInferiorityRequiresProvenance() {
-        let candidate = metrics()
-        let wrongRuns = metrics(runsPerCase: 1)
+        let candidate = metrics(role: .liveFMCandidate)
+        let baseline = metrics(role: .productionCloudBaseline)
+        let candidateAsBaseline = metrics(role: .liveFMCandidate)
+        let wrongRuns = metrics(role: .productionCloudBaseline, runsPerCase: 1)
+        let wrongCorpus = metrics(role: .productionCloudBaseline, corpusDigest: "not-the-corpus")
 
-        #expect(VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: candidate))
+        #expect(VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: baseline))
+        #expect(!VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: candidateAsBaseline))
         #expect(!VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: wrongRuns))
+        #expect(!VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: wrongCorpus))
     }
 
     private func encode(_ payload: WeeklyPlanWirePayload) throws -> String {
@@ -183,12 +189,18 @@ struct VoiceParseGoldenEvalTests {
     }
 
     private func metrics(
+        role: VoiceParseEvalRole,
         corpusID: String = VoiceParseEvalPolicy.corpusID,
+        corpusDigest: String = VoiceParseEvalPolicy.corpusDigest,
         caseCount: Int = 60,
         runsPerCase: Int = VoiceParseEvalPolicy.liveRunsPerCase
     ) -> VoiceParseEvalMetrics {
         VoiceParseEvalMetrics(
+            role: role,
+            providerName: role == .liveFMCandidate ? "foundation-models" : "production-cloud",
+            modelIdentifier: role == .liveFMCandidate ? "SystemLanguageModel.default" : "cloud-model",
             corpusID: corpusID,
+            corpusDigest: corpusDigest,
             caseCount: caseCount,
             runsPerCase: runsPerCase,
             caseRuns: caseCount * VoiceParseEvalPolicy.liveRunsPerCase,

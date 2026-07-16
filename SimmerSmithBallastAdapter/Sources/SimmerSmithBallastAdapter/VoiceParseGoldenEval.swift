@@ -1,4 +1,5 @@
 import BallastCore
+import CryptoKit
 import Foundation
 
 public struct VoiceParseGoldenCase: Codable, Sendable, Equatable {
@@ -29,13 +30,25 @@ public enum VoiceParseGoldenSuite {
     }
 
     public static func load() throws -> [VoiceParseGoldenCase] {
+        try JSONDecoder().decode(
+            [VoiceParseGoldenCase].self,
+            from: Data(contentsOf: resourceURL())
+        )
+    }
+
+    public static func digest() throws -> String {
+        let hash = SHA256.hash(data: try Data(contentsOf: resourceURL()))
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func resourceURL() throws -> URL {
         guard let url = Bundle.module.url(
             forResource: "voice-plan-golden",
             withExtension: "json"
         ) else {
             throw LoadError.resourceMissing
         }
-        return try JSONDecoder().decode([VoiceParseGoldenCase].self, from: Data(contentsOf: url))
+        return url
     }
 }
 
@@ -66,6 +79,7 @@ public enum VoiceParseEvalCommandLine {
 
 public enum VoiceParseEvalPolicy {
     public static let corpusID = "simmersmith-voice-plan-v1"
+    public static let corpusDigest = "371b0ab974e52daed4c770bce044b9386a5da3a2fcca2b0523543cfded00b6a5"
     public static let corpusCaseCount = 60
     public static let liveRunsPerCase = 3
     public static let maximumSafetyUnsupportedEntries = 0
@@ -76,9 +90,16 @@ public enum VoiceParseEvalPolicy {
         candidate: VoiceParseEvalMetrics,
         cloudBaseline: VoiceParseEvalMetrics
     ) -> Bool {
-        hasValidLiveProvenance(candidate)
+        candidate.role == .liveFMCandidate
+            && cloudBaseline.role == .productionCloudBaseline
+            && !candidate.providerName.isEmpty
+            && !candidate.modelIdentifier.isEmpty
+            && !cloudBaseline.providerName.isEmpty
+            && !cloudBaseline.modelIdentifier.isEmpty
+            && hasValidLiveProvenance(candidate)
             && hasValidLiveProvenance(cloudBaseline)
             && candidate.corpusID == cloudBaseline.corpusID
+            && candidate.corpusDigest == cloudBaseline.corpusDigest
             && candidate.caseCount == cloudBaseline.caseCount
             && candidate.runsPerCase == cloudBaseline.runsPerCase
             && candidate.caseRuns == cloudBaseline.caseRuns
@@ -90,14 +111,25 @@ public enum VoiceParseEvalPolicy {
 
     private static func hasValidLiveProvenance(_ metrics: VoiceParseEvalMetrics) -> Bool {
         metrics.corpusID == corpusID
+            && metrics.corpusDigest == corpusDigest
             && metrics.caseCount == corpusCaseCount
             && metrics.runsPerCase == liveRunsPerCase
             && metrics.caseRuns == corpusCaseCount * liveRunsPerCase
     }
 }
 
+public enum VoiceParseEvalRole: String, Codable, Sendable, Equatable {
+    case mockWiring
+    case liveFMCandidate
+    case productionCloudBaseline
+}
+
 public struct VoiceParseEvalMetrics: Codable, Sendable, Equatable {
+    public let role: VoiceParseEvalRole
+    public let providerName: String
+    public let modelIdentifier: String
     public let corpusID: String
+    public let corpusDigest: String
     public let caseCount: Int
     public let runsPerCase: Int
     public let caseRuns: Int
@@ -121,9 +153,20 @@ public struct VoiceParseEvalRun: Sendable {
 
 public struct VoiceParseEvalRunner: Sendable {
     private let runsPerCase: Int
+    private let role: VoiceParseEvalRole
+    private let modelIdentifier: String
+    private let corpusDigest: String
 
-    public init(runsPerCase: Int = VoiceParseEvalPolicy.liveRunsPerCase) {
+    public init(
+        runsPerCase: Int = VoiceParseEvalPolicy.liveRunsPerCase,
+        role: VoiceParseEvalRole = .mockWiring,
+        modelIdentifier: String = "scripted-provider",
+        corpusDigest: String = VoiceParseEvalPolicy.corpusDigest
+    ) {
         self.runsPerCase = max(1, runsPerCase)
+        self.role = role
+        self.modelIdentifier = modelIdentifier
+        self.corpusDigest = corpusDigest
     }
 
     public func run(
@@ -150,7 +193,11 @@ public struct VoiceParseEvalRunner: Sendable {
             ballastReport: ballastReport,
             metrics: VoiceParseScorer.score(
                 samples,
+                role: role,
+                providerName: provider.identity.name,
+                modelIdentifier: modelIdentifier,
                 corpusID: VoiceParseEvalPolicy.corpusID,
+                corpusDigest: corpusDigest,
                 caseCount: cases.count,
                 runsPerCase: runsPerCase
             )
@@ -274,7 +321,11 @@ private enum VoiceParseScorer {
 
     static func score(
         _ samples: [VoiceParseEvalSample],
+        role: VoiceParseEvalRole,
+        providerName: String,
+        modelIdentifier: String,
         corpusID: String,
+        corpusDigest: String,
         caseCount: Int,
         runsPerCase: Int
     ) -> VoiceParseEvalMetrics {
@@ -334,7 +385,11 @@ private enum VoiceParseScorer {
         let count = samples.count
 
         return VoiceParseEvalMetrics(
+            role: role,
+            providerName: providerName,
+            modelIdentifier: modelIdentifier,
             corpusID: corpusID,
+            corpusDigest: corpusDigest,
             caseCount: caseCount,
             runsPerCase: runsPerCase,
             caseRuns: count,

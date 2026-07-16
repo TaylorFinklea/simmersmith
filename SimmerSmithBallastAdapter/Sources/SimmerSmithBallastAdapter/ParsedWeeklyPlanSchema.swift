@@ -111,11 +111,37 @@ public struct ParsedWeeklyPlanSchema: StructuredSchema {
             fields.append("raw_dish")
         }
 
+        var clauseContext = evidenceCompact
+        if !rawDish.isEmpty, let dishRange = clauseContext.range(of: rawDish) {
+            clauseContext.removeSubrange(dishRange)
+        }
+        let dayOccurrences = Self.validDays.reduce(into: 0) { count, day in
+            count += occurrenceCount(of: compact(day), in: clauseContext)
+        }
+        let slotOccurrences = ["breakfast", "lunch", "dinner", "diner"].reduce(into: 0) {
+            count, slotForm in
+            count += occurrenceCount(of: slotForm, in: clauseContext)
+        }
+        let dayRange = evidenceCompact.range(of: compact(entry.day))
+        let slotRange = firstRange(of: slotForms, in: evidenceCompact)
+        let fieldsAreOrdered = dayRange.map { day in
+            slotRange.map { slot in
+                day.lowerBound < slot.lowerBound
+                    && (rawDish.isEmpty
+                        || evidenceCompact.range(of: rawDish, range: slot.upperBound..<evidenceCompact.endIndex) != nil)
+            } ?? false
+        } ?? false
+        if dayOccurrences != 1 || slotOccurrences != 1 || !fieldsAreOrdered {
+            fields.append("one meal clause")
+        }
+
         let intent = domainValue(entry.intent)
-        let words = Set(evidence.split(separator: " ").map(String.init))
         let eatOutMarkers = ["eatout", "takeout", "orderout", "orderingout", "restaurant", "pizza"]
+        let rawDishText = lexicalText(entry.rawDish)
+        let atVenue = !rawDishText.isEmpty
+            && (evidence.contains(" at \(rawDishText)") || evidence.hasPrefix("at \(rawDishText)"))
         let hasEatOutMarker = eatOutMarkers.contains(where: evidenceCompact.contains)
-            || (words.contains("at") && !rawDish.isEmpty && evidenceCompact.contains(rawDish))
+            || atVenue
         let intentIsSupported = switch intent {
         case "recipe":
             !hasEatOutMarker
@@ -146,5 +172,20 @@ public struct ParsedWeeklyPlanSchema: StructuredSchema {
 
     private func compact(_ value: String) -> String {
         lexicalText(value).replacingOccurrences(of: " ", with: "")
+    }
+
+    private func occurrenceCount(of needle: String, in haystack: String) -> Int {
+        guard !needle.isEmpty else { return 0 }
+        var count = 0
+        var searchStart = haystack.startIndex
+        while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            count += 1
+            searchStart = range.upperBound
+        }
+        return count
+    }
+
+    private func firstRange(of forms: [String], in value: String) -> Range<String.Index>? {
+        forms.compactMap { value.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
     }
 }

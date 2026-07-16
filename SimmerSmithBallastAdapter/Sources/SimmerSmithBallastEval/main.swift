@@ -19,12 +19,16 @@ struct SimmerSmithBallastEvalCommand {
         let provider: any LanguageProvider
         let runsPerCase: Int
         let baselineURL: URL?
+        let role: VoiceParseEvalRole
+        let modelIdentifier: String
 
         switch mode {
         case .mock:
             provider = try mockProvider(for: cases)
             runsPerCase = 1
             baselineURL = nil
+            role = .mockWiring
+            modelIdentifier = "scripted-golden-responses"
         case .live(let url):
             #if canImport(FoundationModels)
             provider = GuidedFMParseProvider()
@@ -33,9 +37,16 @@ struct SimmerSmithBallastEvalCommand {
             #endif
             runsPerCase = VoiceParseEvalPolicy.liveRunsPerCase
             baselineURL = url
+            role = .liveFMCandidate
+            modelIdentifier = "SystemLanguageModel.default@\(ProcessInfo.processInfo.operatingSystemVersionString)"
         }
 
-        let run = await VoiceParseEvalRunner(runsPerCase: runsPerCase).run(cases, with: provider)
+        let run = await VoiceParseEvalRunner(
+            runsPerCase: runsPerCase,
+            role: role,
+            modelIdentifier: modelIdentifier,
+            corpusDigest: try VoiceParseGoldenSuite.digest()
+        ).run(cases, with: provider)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         var output = try encoder.encode(run.metrics)
