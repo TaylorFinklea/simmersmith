@@ -65,6 +65,10 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
   parse flow and does not exercise Ballast. Enablement remains blocked until `simmersmith-zyp`
   passes the live hardware/non-inferiority gate. See the
   [quarantine ADR](decisions.md#2026-07-15--ballast-voice-parse-adapter-remains-quarantined-and-default-off).
+  2026-07-16: the gate's missing prerequisite — an app-owned production-cloud baseline producer —
+  merged as `214ec20` (DebugGate-gated, dormant; spec/report + P5 run procedure in
+  `phases/p8-cloud-baseline-runner-*`). Both remaining gate steps are human, best run near
+  iOS-27 GA.
 - Architecture reviews v1+v2 (2026-07-01/02) rebuilt the backlog in beads; arch-v2 P1 data-safety
   wave landed 2026-07-02. **arch-v3 (2026-07-09)** = delta review of the post-v2 commits + forward
   track architecture (below).

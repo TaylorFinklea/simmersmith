@@ -1,5 +1,8 @@
 # Current State
 Branch: main
+Note: P8 baseline runner merged `214ec20` 2026-07-16 (separate voice/Ballast track — dormant
+behind DebugGate, app-target source files added; context in `phases/p8-cloud-baseline-runner-*`
++ bead `simmersmith-zyp`). Not part of this e0a Plan.
 
 ## Plan
 - [?] **e0a P1e hardening evidence — build 160 device rerun pending.** Post-repair packages/app/build green; repeat signed-device online edit, offline save+delete, force-quit/relaunch/reconnect, no-new-quarantine. Verify: named device check + `swift test --package-path SimmerSmithCloudKit && xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO`.
