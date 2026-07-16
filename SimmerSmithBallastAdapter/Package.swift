@@ -27,7 +27,11 @@ let package = Package(
         ),
         .testTarget(
             name: "SimmerSmithBallastAdapterTests",
-            dependencies: ["SimmerSmithBallastAdapter"]
+            dependencies: [
+                "SimmerSmithBallastAdapter",
+                .product(name: "BallastCore", package: "Ballast"),
+                .product(name: "BallastMock", package: "Ballast"),
+            ]
         ),
     ]
 )
