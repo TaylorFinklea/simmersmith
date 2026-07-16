@@ -55,6 +55,20 @@ struct ParsedWeeklyPlanSchemaTests {
         #expect(errors.contains { $0.contains("Thursday dinner tacos") })
     }
 
+    @Test("literal evidence must support the claimed meal fields")
+    func rejectsUnrelatedLiteralEvidence() throws {
+        let schema = ParsedWeeklyPlanSchema(
+            transcript: "Tuesday lunch tuna salad. Thursday dinner tacos."
+        )
+        let payload = try schema.decode(
+            #"{"entries":[{"day":"Thursday","slot":"lunch","raw_dish":"tacos","intent":"recipe","evidence":"Tuesday lunch tuna salad"}]}"#
+        )
+
+        let errors = schema.validate(payload)
+        #expect(errors.contains { $0.contains("entries[0].evidence") && $0.contains("day") })
+        #expect(errors.contains { $0.contains("entries[0].evidence") && $0.contains("raw_dish") })
+    }
+
     @Test("groundedness ignores only case and whitespace differences")
     func conservativeGroundednessNormalization() throws {
         let schema = ParsedWeeklyPlanSchema(transcript: "Tuesday\n lunch   TUNA salad")

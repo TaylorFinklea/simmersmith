@@ -39,7 +39,34 @@ public enum VoiceParseGoldenSuite {
     }
 }
 
+public enum VoiceParseEvalCommandLine {
+    public enum Mode: Sendable, Equatable {
+        case mock
+        case live(baselineURL: URL)
+    }
+
+    public enum ParseError: Error, Sendable, Equatable {
+        case invalidArguments([String])
+    }
+
+    public static func parse(_ arguments: [String]) throws -> Mode {
+        if arguments == ["--mock"] {
+            return .mock
+        }
+        if arguments.count == 3,
+           arguments[0] == "--live",
+           arguments[1] == "--baseline",
+           !arguments[2].isEmpty,
+           !arguments[2].hasPrefix("--") {
+            return .live(baselineURL: URL(fileURLWithPath: arguments[2]))
+        }
+        throw ParseError.invalidArguments(arguments)
+    }
+}
+
 public enum VoiceParseEvalPolicy {
+    public static let corpusID = "simmersmith-voice-plan-v1"
+    public static let corpusCaseCount = 60
     public static let liveRunsPerCase = 3
     public static let maximumSafetyUnsupportedEntries = 0
     public static let maximumF1DropFromCloud = 0.03
@@ -49,14 +76,30 @@ public enum VoiceParseEvalPolicy {
         candidate: VoiceParseEvalMetrics,
         cloudBaseline: VoiceParseEvalMetrics
     ) -> Bool {
-        candidate.safetyUnsupportedEntries <= maximumSafetyUnsupportedEntries
+        hasValidLiveProvenance(candidate)
+            && hasValidLiveProvenance(cloudBaseline)
+            && candidate.corpusID == cloudBaseline.corpusID
+            && candidate.caseCount == cloudBaseline.caseCount
+            && candidate.runsPerCase == cloudBaseline.runsPerCase
+            && candidate.caseRuns == cloudBaseline.caseRuns
+            && candidate.safetyUnsupportedEntries <= maximumSafetyUnsupportedEntries
             && candidate.entryF1 + maximumF1DropFromCloud >= cloudBaseline.entryF1
             && candidate.exactPlanMatchRate + maximumExactPlanMatchDropFromCloud
                 >= cloudBaseline.exactPlanMatchRate
     }
+
+    private static func hasValidLiveProvenance(_ metrics: VoiceParseEvalMetrics) -> Bool {
+        metrics.corpusID == corpusID
+            && metrics.caseCount == corpusCaseCount
+            && metrics.runsPerCase == liveRunsPerCase
+            && metrics.caseRuns == corpusCaseCount * liveRunsPerCase
+    }
 }
 
 public struct VoiceParseEvalMetrics: Codable, Sendable, Equatable {
+    public let corpusID: String
+    public let caseCount: Int
+    public let runsPerCase: Int
     public let caseRuns: Int
     public let entryPrecision: Double
     public let entryRecall: Double
@@ -105,7 +148,12 @@ public struct VoiceParseEvalRunner: Sendable {
         let samples = await collector.samples
         return VoiceParseEvalRun(
             ballastReport: ballastReport,
-            metrics: VoiceParseScorer.score(samples)
+            metrics: VoiceParseScorer.score(
+                samples,
+                corpusID: VoiceParseEvalPolicy.corpusID,
+                caseCount: cases.count,
+                runsPerCase: runsPerCase
+            )
         )
     }
 }
@@ -224,7 +272,12 @@ private enum VoiceParseScorer {
         counts(predicted.map(fullSignature)) == counts(expected.map(fullSignature))
     }
 
-    static func score(_ samples: [VoiceParseEvalSample]) -> VoiceParseEvalMetrics {
+    static func score(
+        _ samples: [VoiceParseEvalSample],
+        corpusID: String,
+        caseCount: Int,
+        runsPerCase: Int
+    ) -> VoiceParseEvalMetrics {
         var truePositiveEntries = 0
         var predictedEntries = 0
         var expectedEntries = 0
@@ -252,7 +305,8 @@ private enum VoiceParseScorer {
             if sample.goldenCase.safetyCritical {
                 safetyUnsupportedEntries += unsupported
             }
-            if exactMatch(sample.predictedEntries, sample.goldenCase.expectedEntries) {
+            if sample.producedResult,
+               exactMatch(sample.predictedEntries, sample.goldenCase.expectedEntries) {
                 exactMatches += 1
             }
 
@@ -280,6 +334,9 @@ private enum VoiceParseScorer {
         let count = samples.count
 
         return VoiceParseEvalMetrics(
+            corpusID: corpusID,
+            caseCount: caseCount,
+            runsPerCase: runsPerCase,
             caseRuns: count,
             entryPrecision: precision,
             entryRecall: recall,

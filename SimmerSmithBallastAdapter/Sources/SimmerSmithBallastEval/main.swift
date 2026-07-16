@@ -14,21 +14,27 @@ struct SimmerSmithBallastEvalCommand {
 
     static func main() async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        let live = arguments.contains("--live")
+        let mode = try VoiceParseEvalCommandLine.parse(arguments)
         let cases = try VoiceParseGoldenSuite.load()
         let provider: any LanguageProvider
+        let runsPerCase: Int
+        let baselineURL: URL?
 
-        if live {
+        switch mode {
+        case .mock:
+            provider = try mockProvider(for: cases)
+            runsPerCase = 1
+            baselineURL = nil
+        case .live(let url):
             #if canImport(FoundationModels)
             provider = GuidedFMParseProvider()
             #else
             throw CommandError.unsupportedMode("--live requires FoundationModels")
             #endif
-        } else {
-            provider = try mockProvider(for: cases)
+            runsPerCase = VoiceParseEvalPolicy.liveRunsPerCase
+            baselineURL = url
         }
 
-        let runsPerCase = live ? VoiceParseEvalPolicy.liveRunsPerCase : 1
         let run = await VoiceParseEvalRunner(runsPerCase: runsPerCase).run(cases, with: provider)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -36,12 +42,12 @@ struct SimmerSmithBallastEvalCommand {
         output.append(0x0A)
         FileHandle.standardOutput.write(output)
 
-        if !live, !run.ballastReport.allPassed {
+        if case .mock = mode, !run.ballastReport.allPassed {
             throw CommandError.mockRegression(run.ballastReport.passed, run.ballastReport.total)
         }
 
-        if let baselinePath = value(after: "--baseline", in: arguments) {
-            let data = try Data(contentsOf: URL(fileURLWithPath: baselinePath))
+        if let baselineURL {
+            let data = try Data(contentsOf: baselineURL)
             let baseline = try JSONDecoder().decode(VoiceParseEvalMetrics.self, from: data)
             guard VoiceParseEvalPolicy.isNonInferior(
                 candidate: run.metrics,
@@ -76,12 +82,5 @@ struct SimmerSmithBallastEvalCommand {
             }
             return .text(response)
         })
-    }
-
-    private static func value(after flag: String, in arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
-            return nil
-        }
-        return arguments[index + 1]
     }
 }

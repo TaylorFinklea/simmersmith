@@ -22,12 +22,14 @@ public struct BallastVoicePlanParser: Sendable {
     }
 
     public func parse(transcript: String) async throws -> ParsedWeeklyPlan {
+        try Task.checkCancellation()
+
         guard fmProvider.identity.capabilities.contains(.guidedGeneration) else {
             throw ConfigurationError.providerMissingGuidedGeneration(fmProvider.identity.name)
         }
 
         guard isFMAvailable() else {
-            return try await cloudParse(transcript)
+            return try await runCloud(transcript)
         }
 
         let cancellation = CancellationSignal()
@@ -38,29 +40,35 @@ public struct BallastVoicePlanParser: Sendable {
             maxRepairs: 2
         )
 
+        let outcome: AgentOutcome<WeeklyPlanWirePayload>
         do {
-            let outcome = try await generator.run(
+            outcome = try await generator.run(
                 ParsedWeeklyPlanSchema(transcript: transcript),
                 prompt: transcript,
                 instructions: nil
             )
             try checkCancellation(cancellation)
-
-            switch outcome {
-            case .ok(let payload, _, _):
-                return payload.toParsed()
-            case .failed(let error, _, _):
-                if Self.isConfigurationOrInvariantFailure(error) {
-                    throw error
-                }
-                return try await cloudParse(transcript)
-            }
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BallastError where error.isBudgetExceeded {
             try checkCancellation(cancellation)
-            return try await cloudParse(transcript)
+            return try await runCloud(transcript)
         }
+
+        switch outcome {
+        case .ok(let payload, _, _):
+            return payload.toParsed()
+        case .failed(let error, _, _):
+            if Self.isConfigurationOrInvariantFailure(error) {
+                throw error
+            }
+            return try await runCloud(transcript)
+        }
+    }
+
+    private func runCloud(_ transcript: String) async throws -> ParsedWeeklyPlan {
+        try Task.checkCancellation()
+        return try await cloudParse(transcript)
     }
 
     private static func isConfigurationOrInvariantFailure(_ error: BallastError) -> Bool {

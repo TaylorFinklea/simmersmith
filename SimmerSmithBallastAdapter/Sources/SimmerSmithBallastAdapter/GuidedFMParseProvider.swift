@@ -84,7 +84,8 @@ public struct GuidedFMParseProvider: LanguageProvider {
     output exactly one entry; if they mention none, output an empty list. Use the day exactly as \
     said (Monday through Sunday, today, tomorrow, or tonight), the slot (breakfast, lunch, or \
     dinner), and put the dish exactly as spoken into rawDish. Set intent to eatOut for ordering \
-    out, restaurants, or takeout; leftovers for leftovers; skip to skip a meal; otherwise recipe. \
+    out, restaurants, takeout, or pizza; leftovers for leftovers; skip to skip a meal; otherwise \
+    recipe. \
     For every entry, copy a non-empty evidence span literally from the user's text that supports \
     that entry. Never invent or paraphrase evidence.
     """

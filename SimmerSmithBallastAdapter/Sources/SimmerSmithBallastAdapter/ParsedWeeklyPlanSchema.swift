@@ -55,6 +55,13 @@ public struct ParsedWeeklyPlanSchema: StructuredSchema {
                 errors.append(
                     "entries[\(index)].evidence: \"\(entry.evidence)\" is not a non-empty literal span in the transcript"
                 )
+            } else {
+                let unsupportedFields = evidenceUnsupportedFields(entry)
+                if !unsupportedFields.isEmpty {
+                    errors.append(
+                        "entries[\(index)].evidence: \"\(entry.evidence)\" does not support fields: \(unsupportedFields.joined(separator: ", "))"
+                    )
+                }
             }
 
             let slotKey = "\(day)|\(slot)"
@@ -82,5 +89,62 @@ public struct ParsedWeeklyPlanSchema: StructuredSchema {
 
     private func groundednessText(_ value: String) -> String {
         value.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
+
+    private func evidenceUnsupportedFields(_ entry: WeeklyPlanWireEntry) -> [String] {
+        var fields: [String] = []
+        let evidence = lexicalText(entry.evidence)
+        let evidenceCompact = compact(evidence)
+
+        if !evidenceCompact.contains(compact(entry.day)) {
+            fields.append("day")
+        }
+
+        let slot = compact(entry.slot)
+        let slotForms = slot == "dinner" ? ["dinner", "diner"] : [slot]
+        if !slotForms.contains(where: evidenceCompact.contains) {
+            fields.append("slot")
+        }
+
+        let rawDish = compact(entry.rawDish)
+        if !rawDish.isEmpty, !evidenceCompact.contains(rawDish) {
+            fields.append("raw_dish")
+        }
+
+        let intent = domainValue(entry.intent)
+        let words = Set(evidence.split(separator: " ").map(String.init))
+        let eatOutMarkers = ["eatout", "takeout", "orderout", "orderingout", "restaurant", "pizza"]
+        let hasEatOutMarker = eatOutMarkers.contains(where: evidenceCompact.contains)
+            || (words.contains("at") && !rawDish.isEmpty && evidenceCompact.contains(rawDish))
+        let intentIsSupported = switch intent {
+        case "recipe":
+            !hasEatOutMarker
+                && !evidenceCompact.contains("leftover")
+                && !evidenceCompact.contains("skip")
+        case "eatout":
+            hasEatOutMarker
+        case "leftovers":
+            evidenceCompact.contains("leftover")
+        case "skip":
+            evidenceCompact.contains("skip")
+        default:
+            true
+        }
+        if !intentIsSupported {
+            fields.append("intent")
+        }
+
+        return fields
+    }
+
+    private func lexicalText(_ value: String) -> String {
+        let words = value.lowercased().map { character in
+            character.isLetter || character.isNumber ? character : " "
+        }
+        return String(words).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private func compact(_ value: String) -> String {
+        lexicalText(value).replacingOccurrences(of: " ", with: "")
     }
 }

@@ -1909,7 +1909,16 @@ aggregate production-cloud baseline:
 swift run --package-path SimmerSmithBallastAdapter SimmerSmithBallastEval --live --baseline <cloud-metrics.json>
 ```
 
-These commands never enable the flag. Eval output must not persist real user transcripts.
+The live command fails closed unless the baseline is supplied and both aggregates identify the
+same frozen 60-case corpus with three runs per case. A provider failure is never scored as an exact
+empty-plan match. These commands never enable the flag. Eval output must not persist real user
+transcripts.
+
+Literal evidence containment is necessary but not sufficient: each entry's evidence must also
+lexically support its claimed day, slot, dish, and intent. Support normalization is deliberately
+narrow (case, punctuation, whitespace, and the frozen ASR `dinner`/`diner` variant) and every
+golden label passes the production validator. Cloud fallback runs through one cancellation-checked
+boundary so the injected closure is invoked at most once even when it throws a Ballast error.
 
 **Why.** This keeps an experimental sibling dependency and new reliability layer outside the
 shipping Kit boundary, preserves the production cloud fallback's provider-compatibility behavior,

@@ -152,6 +152,49 @@ struct BallastVoicePlanParserTests {
         #expect(await cloud.transcripts == [transcript])
     }
 
+    @Test("pre-cancelled unavailable parse never invokes cloud")
+    func unavailableCancellationPropagates() async {
+        let cloud = CloudRecorder(result: cloudPlan)
+        let parser = makeParser(
+            provider: MockProvider(script: [.text(validJSON)]),
+            available: false,
+            cloud: cloud
+        )
+        let task = Task { () throws -> ParsedWeeklyPlan in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await parser.parse(transcript: transcript)
+        }
+
+        do {
+            _ = try await task.value
+            Issue.record("expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("expected CancellationError, got \(error)")
+        }
+        #expect(await cloud.calls == 0)
+    }
+
+    @Test("a cloud budget error is propagated without invoking cloud twice")
+    func cloudIsInvokedAtMostOnce() async {
+        let cloud = BudgetThrowingCloudRecorder()
+        let parser = BallastVoicePlanParser(
+            fmProvider: MockProvider(script: [.failure(.refusal(explanation: "no"))]),
+            isFMAvailable: { true },
+            cloudParse: { transcript in try await cloud.parse(transcript) }
+        )
+
+        do {
+            _ = try await parser.parse(transcript: transcript)
+            Issue.record("expected cloud budget error")
+        } catch let error as BallastError {
+            #expect(error.isBudgetExceeded)
+        } catch {
+            Issue.record("expected BallastError, got \(error)")
+        }
+        #expect(await cloud.calls == 1)
+    }
+
     private func makeParser(
         provider: any LanguageProvider,
         available: Bool = true,
@@ -196,6 +239,22 @@ private actor CloudRecorder {
     func parse(_ transcript: String) throws -> ParsedWeeklyPlan {
         transcripts.append(transcript)
         return result
+    }
+}
+
+private actor BudgetThrowingCloudRecorder {
+    private(set) var calls = 0
+
+    func parse(_ transcript: String) throws -> ParsedWeeklyPlan {
+        calls += 1
+        throw BallastError.budgetExceeded(
+            BudgetSnapshot(
+                inputTokens: 0,
+                outputTokens: 0,
+                steps: 4,
+                limits: BudgetLimits(maxSteps: 3)
+            )
+        )
     }
 }
 

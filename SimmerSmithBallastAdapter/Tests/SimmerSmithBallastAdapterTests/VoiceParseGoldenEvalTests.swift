@@ -29,6 +29,11 @@ struct VoiceParseGoldenEvalTests {
             for entry in goldenCase.expectedEntries {
                 #expect(transcript.contains(normalize(entry.evidence)), "\(goldenCase.id): \(entry.evidence)")
             }
+            #expect(
+                ParsedWeeklyPlanSchema(transcript: goldenCase.transcript)
+                    .validate(goldenCase.expectedPayload).isEmpty,
+                "\(goldenCase.id): frozen label must satisfy production validation"
+            )
         }
     }
 
@@ -81,7 +86,7 @@ struct VoiceParseGoldenEvalTests {
                 day: "Monday",
                 slot: "dinner",
                 rawDish: "pizza",
-                intent: "recipe",
+                intent: "eatOut",
                 evidence: "Monday dinner pizza"
             )
         ])
@@ -117,6 +122,56 @@ struct VoiceParseGoldenEvalTests {
         #expect(failed.metrics.fallbackRate == 1)
     }
 
+    @Test("failed empty-label cases do not receive exact-plan credit")
+    func failedEmptyCaseIsNotExact() async throws {
+        let goldenCase = try #require(
+            VoiceParseGoldenSuite.load().first { $0.id == "chatter-01" }
+        )
+        let run = await VoiceParseEvalRunner(runsPerCase: 1).run(
+            [goldenCase],
+            with: MockProvider(script: [.failure(.refusal(explanation: "no"))])
+        )
+
+        #expect(run.metrics.exactPlanMatchRate == 0)
+        #expect(run.metrics.fallbackRate == 1)
+    }
+
+    @Test("live command line requires an explicit mode and baseline")
+    func commandLineFailsClosed() throws {
+        guard case .mock = try VoiceParseEvalCommandLine.parse(["--mock"]) else {
+            Issue.record("expected mock mode")
+            return
+        }
+        guard case .live(let baselineURL) = try VoiceParseEvalCommandLine.parse([
+            "--live", "--baseline", "/tmp/cloud-metrics.json",
+        ]) else {
+            Issue.record("expected live mode")
+            return
+        }
+        #expect(baselineURL.path == "/tmp/cloud-metrics.json")
+        #expect(throws: VoiceParseEvalCommandLine.ParseError.self) {
+            try VoiceParseEvalCommandLine.parse([])
+        }
+        #expect(throws: VoiceParseEvalCommandLine.ParseError.self) {
+            try VoiceParseEvalCommandLine.parse(["--live"])
+        }
+        #expect(throws: VoiceParseEvalCommandLine.ParseError.self) {
+            try VoiceParseEvalCommandLine.parse(["--live", "--baseline"])
+        }
+        #expect(throws: VoiceParseEvalCommandLine.ParseError.self) {
+            try VoiceParseEvalCommandLine.parse(["--mock", "--wat"])
+        }
+    }
+
+    @Test("non-inferiority requires matching frozen live-run provenance")
+    func nonInferiorityRequiresProvenance() {
+        let candidate = metrics()
+        let wrongRuns = metrics(runsPerCase: 1)
+
+        #expect(VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: candidate))
+        #expect(!VoiceParseEvalPolicy.isNonInferior(candidate: candidate, cloudBaseline: wrongRuns))
+    }
+
     private func encode(_ payload: WeeklyPlanWirePayload) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -125,5 +180,29 @@ struct VoiceParseGoldenEvalTests {
 
     private func normalize(_ value: String) -> String {
         value.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
+
+    private func metrics(
+        corpusID: String = VoiceParseEvalPolicy.corpusID,
+        caseCount: Int = 60,
+        runsPerCase: Int = VoiceParseEvalPolicy.liveRunsPerCase
+    ) -> VoiceParseEvalMetrics {
+        VoiceParseEvalMetrics(
+            corpusID: corpusID,
+            caseCount: caseCount,
+            runsPerCase: runsPerCase,
+            caseRuns: caseCount * VoiceParseEvalPolicy.liveRunsPerCase,
+            entryPrecision: 1,
+            entryRecall: 1,
+            entryF1: 1,
+            exactPlanMatchRate: 1,
+            fieldAccuracy: 1,
+            unsupportedEntryRate: 0,
+            safetyUnsupportedEntries: 0,
+            emptyResultFalseNegativeRate: 0,
+            repairRate: 0,
+            fallbackRate: 0,
+            meanLatencyMilliseconds: 1
+        )
     }
 }
