@@ -1874,6 +1874,18 @@ and makes scheduler convergence explicit. A mutation-checked regression produced
 a developer-local Ballast checkout by local path; that deliberately non-hermetic requirement
 must be documented in SimmerSmith before any merge to `main`.
 
+The supported developer layout is the normal sibling checkout:
+
+```text
+/Users/tfinklea/git/ballast/
+/Users/tfinklea/git/simmersmith/
+```
+
+Feature work may instead place SimmerSmith under
+`/Users/tfinklea/git/.worktrees/simmersmith-ballast-voice-parse/`. The adapter manifest resolves
+Ballast from either layout; it does not vendor, copy, or add Ballast to `SimmerSmithKit`. A checkout
+without the sibling Ballast repository is intentionally unsupported while the flag is private.
+
 `CloudParseService` remains verbatim and is supplied as an injected application-level fallback
 closure. It is neither folded into `FallbackPolicy` nor rewritten as part of this port.
 
@@ -1882,6 +1894,22 @@ rollout gate and may enable it only after the frozen live-Foundation Models gold
 its predeclared criteria on Apple-Intelligence hardware. The `ballast-voice-parse` branch/worktree
 exists specifically to protect SimmerSmith's dirty `main` checkout while this default-OFF work
 proceeds.
+
+The frozen synthetic wiring gate is:
+
+```bash
+swift test --package-path SimmerSmithBallastAdapter
+swift run --package-path SimmerSmithBallastAdapter SimmerSmithBallastEval --mock
+```
+
+The separate hardware gate runs three passes per case and compares aggregate-only output with an
+aggregate production-cloud baseline:
+
+```bash
+swift run --package-path SimmerSmithBallastAdapter SimmerSmithBallastEval --live --baseline <cloud-metrics.json>
+```
+
+These commands never enable the flag. Eval output must not persist real user transcripts.
 
 **Why.** This keeps an experimental sibling dependency and new reliability layer outside the
 shipping Kit boundary, preserves the production cloud fallback's provider-compatibility behavior,
