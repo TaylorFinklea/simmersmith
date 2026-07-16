@@ -1866,3 +1866,23 @@ scheduled repair again. Full `keepers` still has legitimate semantic value, so c
 write-only result would silently break callers. Splitting the two roles preserves that contract
 and makes scheduler convergence explicit. A mutation-checked regression produced 57 passes in
 100 ms with the old loop and exactly two with the changed-write-set path.
+
+## 2026-07-15 — Ballast voice-parse adapter remains quarantined and default-off
+
+**Decision.** The Ballast retrofit lives in a new local `SimmerSmithBallastAdapter` package.
+`SimmerSmithKit` will never gain a dependency on the sibling Ballast repository. The adapter uses
+a developer-local Ballast checkout by local path; that deliberately non-hermetic requirement
+must be documented in SimmerSmith before any merge to `main`.
+
+`CloudParseService` remains verbatim and is supplied as an injected application-level fallback
+closure. It is neither folded into `FallbackPolicy` nor rewritten as part of this port.
+
+`VoicePlanningCoordinator.useBallastParse` remains default OFF. `simmersmith-zyp` is the separate
+rollout gate and may enable it only after the frozen live-Foundation Models golden evaluation meets
+its predeclared criteria on Apple-Intelligence hardware. The `ballast-voice-parse` branch/worktree
+exists specifically to protect SimmerSmith's dirty `main` checkout while this default-OFF work
+proceeds.
+
+**Why.** This keeps an experimental sibling dependency and new reliability layer outside the
+shipping Kit boundary, preserves the production cloud fallback's provider-compatibility behavior,
+and prevents a live behavior change until hardware evidence supports the rollout.
