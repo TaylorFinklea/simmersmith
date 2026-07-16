@@ -55,6 +55,10 @@ public enum VoiceParseBaselineFailureCategory: String, Sendable, Equatable, Coda
 /// (no evidence, no repair loop). `VoiceParseScorer` stays private and untouched; this type reuses
 /// only the shared `MealSignature`/normalize/counts/intersectionCount primitives.
 public enum VoiceParseBaselineEval {
+    /// Baseline scoring-semantics version, recorded in the provenance sidecar (Sol F7): bump on
+    /// any change to the baseline-role scoring math so old baseline files self-identify as stale.
+    public static let scoringVersion = "p8-baseline-1"
+
     public enum ScoringError: Error, Sendable, Equatable {
         case corpusDigestMismatch(expected: String, actual: String)
         case missingCaseRun(caseID: String, runIndex: Int)
