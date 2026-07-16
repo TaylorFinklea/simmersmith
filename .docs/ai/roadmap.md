@@ -32,10 +32,12 @@ submission done-ness — the program below is HOW the next six weeks get there.
 - **Wk2 — persistent mirror in SHADOW mode** (`e0a` phase 1): transactional scoped mirror runs
   beside the full fetch, digest-compared; crash/replay/token-skew tests. Sel/build 157 captured the
   latency gate and exposed a fail-safe quarantine caused by a no-op grocery-repair sync loop; the
-  TDD fix is green and build 158 must clear the online/offline device rerun. `2g1` context caps.
+  TDD fix is green and build 160 must clear the online/offline device rerun. `2g1` context caps.
 - **Wk3 — cached-launch cutover** (`e0a` phase 2): stop deleting the token; cached UI before
-  reconciliation; orthogonal boot/sync states; `8qy` indexed projections; two-device +
-  account-switch (`yqm`) + crash-recovery device proof.
+  reconciliation; orthogonal boot/sync states; exact-scope/authority gates; two-device +
+  account-switch (`yqm`) + crash-recovery/token-resume device proof. Written staged/default-off
+  spec: `phases/e0a-cache-first-cutover-spec.md`; `8qy` runs separately only if measurements prove
+  projection scans block the absolute launch target.
 - **Wk4 — product depth**: `jfn` onboarding (submission scope) · `wkx` week-gen eval slice ·
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
   `xwb`-stage-2 photo rendering · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2

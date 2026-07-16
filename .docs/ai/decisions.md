@@ -1925,3 +1925,31 @@ boundary so the injected closure is invoked at most once even when it throws a B
 **Why.** This keeps an experimental sibling dependency and new reliability layer outside the
 shipping Kit boundary, preserves the production cloud fallback's provider-compatibility behavior,
 and prevents a live behavior change until hardware evidence supports the rollout.
+
+## 2026-07-15 — Cache-first launch is staged behind exact-scope and authority gates
+
+**Decision.** Implement e0a P2 behind a single injected gate whose shipping default stays off
+until P1e and the P2 device matrix clear. A checkpoint is resumable only as one exact-scope unit:
+validated records/assets, all contiguous WAL suffixes, normalized durable intents, and decoded
+CloudKit state. Because `CKSyncEngine` accepts its serialization only at construction but may call
+its delegate immediately, an automatic candidate starts behind a closed delegate gate; its opaque
+pending state must match the recovered outbox before any callback or send can proceed. A mismatch
+fails closed to exact-scope quarantine and nil-state full fetch.
+
+Cached content is renderable but non-authoritative. Destructive/absence-based work is denied at
+the data plane until reconciliation succeeds; a remote delete beats a pre-authority cached edit
+without silent resurrection. Account identity is always proved by CloudKit, account boundaries
+clear the whole mirror root, and verified participant revocation clears both the exact scope and
+participant marker before another ready state. Offline cache display is best effort when identity
+can still be proved, not a reason to persist or guess identity.
+
+`8qy` remains a separate evidence-triggered optimization rather than a correctness dependency.
+Default-on, build cutting, upload, TestFlight assignment, and installed-device confirmation remain
+controller-owned release operations after automated, two-device, token-resume, crash, and launch
+latency gates pass.
+
+**Why.** Restoring only records or only a token creates complementary data-loss modes. Staging the
+complete restore path preserves P1's fail-closed control while making the slow full fetch removable
+from the visible launch path. The authority and lifecycle gates trade some offline capability for
+cross-account privacy and prevent stale cached absence from creating, cascading, or resurrecting
+CloudKit data.
