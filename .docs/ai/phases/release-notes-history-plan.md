@@ -36,7 +36,7 @@
 - Consumes: `ReleaseNote.isSilent`, `ReleaseNotesGate.unseen`, `ReleaseNotesStore.currentBuild`, `ReleaseNotesCatalog.all`, `ReleaseNotesPresentation`, and the existing release-note sheet/presentation call sites.
 - Produces: `ReleaseNotesGate.history(catalog:through:excludingBuilds:) -> [ReleaseNote]`; `ReleaseNotesPresentation.previousNotes`; one item-driven Settings presentation; one in-sheet Previous Releases destination.
 
-- [ ] **Step 1: Write the failing pure-policy tests**
+- [x] **Step 1: Write the failing pure-policy tests**
 
 Add these tests inside `ReleaseNotesGateTests`, after the existing defensive-edge tests:
 
@@ -113,7 +113,7 @@ Add these tests inside `ReleaseNotesGateTests`, after the existing defensive-edg
     }
 ```
 
-- [ ] **Step 2: Run the focused tests and prove RED**
+- [x] **Step 2: Run the focused tests and prove RED**
 
 Run:
 
@@ -130,7 +130,7 @@ Expected: build failure because `ReleaseNotesGate` has no member `history` and
 simulator/bootstrap or signing failure is not the required RED; fix the test
 host and rerun until the missing policy/model APIs are the failure.
 
-- [ ] **Step 3: Implement the minimal pure selector and presentation value**
+- [x] **Step 3: Implement the minimal pure selector and presentation value**
 
 Add this method to `ReleaseNotesGate` after `unseen`:
 
@@ -166,7 +166,7 @@ struct ReleaseNotesPresentation: Identifiable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run the focused tests and prove GREEN**
+- [x] **Step 4: Run the focused tests and prove GREEN**
 
 Run the exact `xcodebuild test` command from Step 2.
 
@@ -174,7 +174,7 @@ Expected: all `ReleaseNotesGateTests` pass, including the four new history
 tests, the presentation-value test, and every existing unseen-release policy
 test.
 
-- [ ] **Step 5: Carry prefiltered history through the launch presentation**
+- [x] **Step 5: Carry prefiltered history through the launch presentation**
 
 In `AppState+ReleaseNotes.swift`, preserve `unseen` and construct the launch presentation with prefiltered history:
 
@@ -196,7 +196,7 @@ In `RootView.swift`, pass the item directly:
             ReleaseNotesSheet(presentation: presentation)
 ```
 
-- [ ] **Step 6: Add the in-sheet archive using the existing renderer**
+- [x] **Step 6: Add the in-sheet archive using the existing renderer**
 
 Refactor `ReleaseNotesSheet.swift` without changing its visual tokens:
 
@@ -378,7 +378,7 @@ private struct ReleaseNotesEntries: View {
 
 The `NavigationLink` text is the accessible button label, the stack supplies Back, and the destination's trailing Close preserves both actions simultaneously.
 
-- [ ] **Step 7: Make Settings item-driven and start at the newest visible release**
+- [x] **Step 7: Make Settings item-driven and start at the newest visible release**
 
 Replace `showingReleaseNotes` with:
 
@@ -422,7 +422,7 @@ Replace its sheet modifier with:
         }
 ```
 
-- [ ] **Step 8: Run the complete verification gate**
+- [x] **Step 8: Run the complete verification gate**
 
 Run:
 
@@ -439,7 +439,7 @@ git diff --check
 
 Expected: the full app-target suite passes, the generic iOS build prints `** BUILD SUCCEEDED **`, and `git diff --check` exits 0.
 
-- [ ] **Step 9: Self-review and commit**
+- [x] **Step 9: Self-review and commit**
 
 Review the final diff for these invariants before closing:
 
@@ -482,7 +482,7 @@ Connect operations to the implementation worker.
 - Consumes: the reviewed Task-1 feature commit, `scripts/release-ios.sh`, App Store Connect API-key flow, GitHub Actions.
 - Produces: build 159 with a catalog entry, a green CI run, terminal App Store Connect `VALID`, internal Finklea Dev assignment, and a durable release handoff.
 
-- [ ] **Step 1: Add release notes and bump the build**
+- [x] **Step 1: Add release notes and bump the build**
 
 After the feature commit, add the build-159 catalog entry at the top of
 `ReleaseNotesCatalog.all`:
@@ -524,7 +524,7 @@ git add SimmerSmith/project.yml \
 git commit -m "chore(release): bump to build 159 [skip ci]"
 ```
 
-- [ ] **Step 2: Push, wait for CI, upload, and verify external state**
+- [x] **Step 2: Push, wait for CI, upload, and verify external state**
 
 Push `main`, wait for the GitHub Actions run triggered by the feature commit to
 finish green, run `./scripts/release-ios.sh`, and wait for the script's terminal

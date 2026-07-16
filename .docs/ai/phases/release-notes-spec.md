@@ -1,7 +1,7 @@
 # What's New — versioned in-app release notes (simmersmith-224)
 
-Status: build-152 core implemented; previous-release archive follow-up approved
-2026-07-15 (`simmersmith-pto`).
+Status: build-152 core implemented; previous-release archive shipped in
+TestFlight build 159 on 2026-07-15 (`simmersmith-pto` closed).
 
 ## Goal
 
@@ -9,7 +9,7 @@ A non-technical TestFlight tester (the primary one is the owner's wife) should
 learn what changed in each build she installs, without reading a changelog, a
 commit log, or a TestFlight email.
 
-## Approved follow-up — Previous Releases (`simmersmith-pto`)
+## Shipped follow-up — Previous Releases (`simmersmith-pto`)
 
 ### User outcome
 
@@ -144,12 +144,19 @@ all three lists empty satisfies both guards and shows no sheet.
   never reaches `.ready` (its iCloud account needs re-auth), so the sheet had to
   be raised via a temporary patch that was reverted before commit. **The launch
   path itself is unverified on a real device** — see the open item below.
+- Previous Releases follow-up: required RED captured; 13/13 focused gate tests
+  and 95/95 full app-target tests green; generic iOS build succeeded. Opus found
+  no Critical/Important issue; Luna approved the corrected range.
+- Final build-159 tree: CI run 29466604971 green across both Swift packages,
+  app build, and app-target tests. App Store Connect reports build 159 `VALID`
+  and present in the Finklea Dev beta group's build list.
 
 ## Open
 
-- Device-verify the once-per-update trigger on the next TestFlight build: install
-  152 over 151 and confirm the sheet appears once and does not return on a later
-  foreground. Tracked as a bead.
+- Physical-device UX confirmation for build 159 remains available when the owner
+  is back: open What's New, push Previous Releases, Back, and Close. This is not
+  a `simmersmith-pto` acceptance blocker; policy, navigation, CI, and TestFlight
+  distribution gates are complete.
 - When the onboarding bead (simmersmith-exc's child) lands, a brand-new user
   would get onboarding *and* What's New. Onboarding should call
   `markReleaseNotesSeen()` on completion to suppress the second sheet.
