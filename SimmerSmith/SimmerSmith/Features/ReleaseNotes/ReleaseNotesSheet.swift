@@ -9,7 +9,7 @@ import SwiftUI
 struct ReleaseNotesSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let notes: [ReleaseNote]
+    let presentation: ReleaseNotesPresentation
 
     var body: some View {
         NavigationStack {
@@ -22,12 +22,44 @@ struct ReleaseNotesSheet: View {
                         FuMark(size: 48, color: SMColor.ink, ember: SMColor.ember)
                             .padding(.top, SMSpacing.sm)
 
-                        ForEach(Array(notes.enumerated()), id: \.element.id) { index, note in
-                            if index > 0 {
-                                DashedRule()
-                                    .padding(.vertical, SMSpacing.xs)
+                        ReleaseNotesEntries(notes: presentation.notes)
+
+                        if !presentation.previousNotes.isEmpty {
+                            NavigationLink {
+                                PreviousReleasesView(
+                                    notes: presentation.previousNotes,
+                                    close: { dismiss() }
+                                )
+                            } label: {
+                                HStack(spacing: SMSpacing.sm) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .accessibilityHidden(true)
+                                    Text("Previous Releases")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .accessibilityHidden(true)
+                                }
+                                .font(SMFont.label)
+                                .foregroundStyle(SMColor.ember)
+                                .padding(.horizontal, SMSpacing.lg)
+                                .padding(.vertical, SMSpacing.md)
+                                .background(
+                                    SMColor.paperAlt,
+                                    in: RoundedRectangle(
+                                        cornerRadius: SMRadius.md,
+                                        style: .continuous
+                                    )
+                                )
+                                .overlay {
+                                    RoundedRectangle(
+                                        cornerRadius: SMRadius.md,
+                                        style: .continuous
+                                    )
+                                    .stroke(SMColor.ember.opacity(0.35), lineWidth: 1)
+                                }
                             }
-                            release(note)
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Shows earlier release notes")
                         }
 
                         Button {
@@ -54,8 +86,49 @@ struct ReleaseNotesSheet: View {
         }
         .presentationDetents([.large])
     }
+}
 
-    // MARK: - One release
+private struct PreviousReleasesView: View {
+    let notes: [ReleaseNote]
+    let close: () -> Void
+
+    var body: some View {
+        ZStack {
+            SMColor.paper.ignoresSafeArea()
+            PaperGrain().ignoresSafeArea()
+
+            ScrollView {
+                ReleaseNotesEntries(notes: notes)
+                    .padding(.horizontal, SMSpacing.xl)
+                    .padding(.vertical, SMSpacing.xl)
+            }
+        }
+        .navigationTitle("Previous Releases")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Close", action: close)
+                    .foregroundStyle(SMColor.ember)
+            }
+        }
+        .smithToolbar()
+    }
+}
+
+private struct ReleaseNotesEntries: View {
+    let notes: [ReleaseNote]
+
+    var body: some View {
+        VStack(spacing: SMSpacing.xl) {
+            ForEach(Array(notes.enumerated()), id: \.element.id) { index, note in
+                if index > 0 {
+                    DashedRule()
+                        .padding(.vertical, SMSpacing.xs)
+                }
+                release(note)
+            }
+        }
+    }
 
     private func release(_ note: ReleaseNote) -> some View {
         VStack(alignment: .leading, spacing: SMSpacing.lg) {

@@ -29,16 +29,31 @@ struct SettingsView: View {
     @State private var showingClearCacheConfirmation = false
     @State private var showingResetConnectionConfirmation = false
     @State private var showingSignOutConfirmation = false
-    /// simmersmith-224 — Settings shows the *whole* catalog, not just the
-    /// unseen slice the launch sheet shows. Nothing here marks notes as seen;
-    /// that is the launch sheet's job alone.
-    @State private var showingReleaseNotes = false
+    /// Settings opens the newest user-visible release and keeps older entries
+    /// behind the same Previous Releases navigation used at launch.
+    @State private var releaseNotesPresentation: ReleaseNotesPresentation?
 
     private var appVersionDisplay: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? "—"
         return "\(version) (\(build))"
+    }
+
+    private func makeReleaseNotesPresentation() -> ReleaseNotesPresentation? {
+        let store = ReleaseNotesStore()
+        guard let currentBuild = store.currentBuild else { return nil }
+
+        let visibleNotes = ReleaseNotesGate.history(
+            catalog: ReleaseNotesCatalog.all,
+            through: currentBuild
+        )
+        guard let newest = visibleNotes.first else { return nil }
+
+        return ReleaseNotesPresentation(
+            notes: [newest],
+            previousNotes: Array(visibleNotes.dropFirst())
+        )
     }
 
     var body: some View {
@@ -614,7 +629,7 @@ struct SettingsView: View {
             // any bug report needs.
             Section {
                 Button {
-                    showingReleaseNotes = true
+                    releaseNotesPresentation = makeReleaseNotesPresentation()
                 } label: {
                     HStack {
                         Label("What's New", systemImage: "sparkles")
@@ -648,8 +663,8 @@ struct SettingsView: View {
                 await appState.refreshIngredientPreferences()
             }
         }
-        .sheet(isPresented: $showingReleaseNotes) {
-            ReleaseNotesSheet(notes: ReleaseNotesCatalog.all)
+        .sheet(item: $releaseNotesPresentation) { presentation in
+            ReleaseNotesSheet(presentation: presentation)
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)

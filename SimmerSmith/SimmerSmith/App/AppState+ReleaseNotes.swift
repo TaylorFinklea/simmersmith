@@ -28,7 +28,15 @@ extension AppState {
         )
         guard !unseen.isEmpty else { return }
 
-        pendingReleaseNotes = ReleaseNotesPresentation(notes: unseen)
+        let previousNotes = ReleaseNotesGate.history(
+            catalog: ReleaseNotesCatalog.all,
+            through: currentBuild,
+            excludingBuilds: Set(unseen.map(\.build))
+        )
+        pendingReleaseNotes = ReleaseNotesPresentation(
+            notes: unseen,
+            previousNotes: previousNotes
+        )
     }
 
     /// Record that the notes have been seen. Called from the sheet's `onDismiss`

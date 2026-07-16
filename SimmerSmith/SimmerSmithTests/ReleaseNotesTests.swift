@@ -113,6 +113,77 @@ struct ReleaseNotesGateTests {
 
         #expect(unseen.map(\.build) == [152])
     }
+
+    // MARK: - Previous releases
+
+    @Test
+    func historyExcludesSilentFutureAndAlreadyDisplayedBuilds() {
+        let mixed = [
+            note(build: 149, fixed: ["Oldest visible fix"]),
+            note(build: 150, new: ["Older visible feature"]),
+            note(build: 151),
+            note(build: 152, improved: ["Already on screen"]),
+            note(build: 153, new: ["Authored for a future build"]),
+        ]
+
+        let history = ReleaseNotesGate.history(
+            catalog: mixed,
+            through: 152,
+            excludingBuilds: [152]
+        )
+
+        #expect(history.map(\.build) == [150, 149])
+    }
+
+    @Test
+    func historyExcludesEveryReleaseAlreadyShownInASkippedBuildBatch() {
+        let history = ReleaseNotesGate.history(
+            catalog: catalog,
+            through: 152,
+            excludingBuilds: [152, 151]
+        )
+
+        #expect(history.map(\.build) == [150])
+    }
+
+    @Test
+    func aSilentCurrentBuildFallsBackToTheNewestVisibleReleaseForSettings() {
+        let mixed = [
+            note(build: 150, fixed: ["Older fix"]),
+            note(build: 151, new: ["Newest visible feature"]),
+            note(build: 152),
+        ]
+
+        let visible = ReleaseNotesGate.history(catalog: mixed, through: 152)
+
+        #expect(visible.map(\.build) == [151, 150])
+        #expect(visible.first?.build == 151)
+    }
+
+    @Test
+    func historyIsEmptyWhenNoOlderVisibleReleaseExists() {
+        let history = ReleaseNotesGate.history(
+            catalog: [note(build: 152, new: ["Only visible release"])],
+            through: 152,
+            excludingBuilds: [152]
+        )
+
+        #expect(history.isEmpty)
+    }
+
+    @Test
+    func presentationKeepsInitialAndPreviousNotesSeparate() {
+        let current = note(build: 152, new: ["Current feature"])
+        let previous = note(build: 151, fixed: ["Previous fix"])
+
+        let presentation = ReleaseNotesPresentation(
+            notes: [current],
+            previousNotes: [previous]
+        )
+
+        #expect(presentation.notes.map(\.build) == [152])
+        #expect(presentation.previousNotes.map(\.build) == [151])
+    }
 }
 
 /// The store is the impure edge — the running build number and the per-device

@@ -33,4 +33,21 @@ enum ReleaseNotesGate {
             }
             .sorted { $0.build > $1.build }
     }
+
+    /// User-visible release history through the running build, newest first.
+    /// `excludingBuilds` prevents an automatic skipped-build batch from being
+    /// repeated when the user explicitly opens Previous Releases.
+    static func history(
+        catalog: [ReleaseNote],
+        through currentBuild: Int,
+        excludingBuilds: Set<Int> = []
+    ) -> [ReleaseNote] {
+        catalog
+            .filter { note in
+                note.build <= currentBuild
+                    && !note.isSilent
+                    && !excludingBuilds.contains(note.build)
+            }
+            .sorted { $0.build > $1.build }
+    }
 }

@@ -41,6 +41,7 @@ struct ReleaseNote: Identifiable, Equatable, Sendable {
 /// exactly as it already does for `pendingPaywall`.
 struct ReleaseNotesPresentation: Identifiable, Equatable {
     let notes: [ReleaseNote]
+    let previousNotes: [ReleaseNote]
 
     /// The newest release in the batch — stable for the life of the sheet.
     var id: Int { notes.first?.build ?? 0 }

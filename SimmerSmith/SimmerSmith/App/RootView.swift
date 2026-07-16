@@ -44,7 +44,7 @@ struct RootView: View {
             item: $appState.pendingReleaseNotes,
             onDismiss: { appState.markReleaseNotesSeen() }
         ) { presentation in
-            ReleaseNotesSheet(notes: presentation.notes)
+            ReleaseNotesSheet(presentation: presentation)
         }
         #if canImport(CloudKit)
         // Only once the household is resolved — otherwise the sheet lands on top
