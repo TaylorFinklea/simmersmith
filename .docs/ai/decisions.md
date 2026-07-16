@@ -1866,3 +1866,62 @@ scheduled repair again. Full `keepers` still has legitimate semantic value, so c
 write-only result would silently break callers. Splitting the two roles preserves that contract
 and makes scheduler convergence explicit. A mutation-checked regression produced 57 passes in
 100 ms with the old loop and exactly two with the changed-write-set path.
+
+## 2026-07-15 — Ballast voice-parse adapter remains quarantined and default-off
+
+**Decision.** The Ballast retrofit lives in a new local `SimmerSmithBallastAdapter` package.
+`SimmerSmithKit` will never gain a dependency on the sibling Ballast repository. The adapter uses
+a developer-local Ballast checkout by local path; that deliberately non-hermetic requirement
+must be documented in SimmerSmith before any merge to `main`.
+
+The supported developer layout is the normal sibling checkout:
+
+```text
+/Users/tfinklea/git/ballast/
+/Users/tfinklea/git/simmersmith/
+```
+
+Feature work may instead place SimmerSmith under
+`/Users/tfinklea/git/.worktrees/simmersmith-ballast-voice-parse/`. The adapter manifest resolves
+Ballast from either layout; it does not vendor, copy, or add Ballast to `SimmerSmithKit`. A checkout
+without the sibling Ballast repository is intentionally unsupported while the flag is private.
+
+`CloudParseService` remains verbatim and is supplied as an injected application-level fallback
+closure. It is neither folded into `FallbackPolicy` nor rewritten as part of this port.
+
+`VoicePlanningCoordinator.useBallastParse` remains default OFF. `simmersmith-zyp` is the separate
+rollout gate and may enable it only after the frozen live-Foundation Models golden evaluation meets
+its predeclared criteria on Apple-Intelligence hardware. The `ballast-voice-parse` branch/worktree
+exists specifically to protect SimmerSmith's dirty `main` checkout while this default-OFF work
+proceeds.
+
+The frozen synthetic wiring gate is:
+
+```bash
+swift test --package-path SimmerSmithBallastAdapter
+swift run --package-path SimmerSmithBallastAdapter SimmerSmithBallastEval --mock
+```
+
+The separate hardware gate runs three passes per case and compares aggregate-only output with an
+aggregate production-cloud baseline:
+
+```bash
+swift run --package-path SimmerSmithBallastAdapter SimmerSmithBallastEval --live --baseline <cloud-metrics.json>
+```
+
+The live command fails closed unless the baseline is supplied. The candidate and baseline must
+carry distinct typed roles (`liveFMCandidate` / `productionCloudBaseline`), non-empty provider and
+model identifiers, and the same frozen 60-case corpus ID, SHA-256, and three-run provenance. A
+provider failure is never scored as an exact empty-plan match. These commands never enable the
+flag. Eval output must not persist real user transcripts.
+
+Literal evidence containment is necessary but not sufficient: each entry's evidence must also be
+one ordered meal clause with one day/slot assignment and lexical support for its claimed dish and
+intent. Support normalization is deliberately narrow (case, punctuation, whitespace, and the
+frozen ASR `dinner`/`diner` variant); `at <venue>` is structural, not a generic `at` marker. Every
+golden label passes the production validator. Cloud fallback runs through one cancellation-checked
+boundary so the injected closure is invoked at most once even when it throws a Ballast error.
+
+**Why.** This keeps an experimental sibling dependency and new reliability layer outside the
+shipping Kit boundary, preserves the production cloud fallback's provider-compatibility behavior,
+and prevents a live behavior change until hardware evidence supports the rollout.

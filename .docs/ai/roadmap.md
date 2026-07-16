@@ -58,6 +58,10 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 - Sharing v1 / Backup & Restore / voice planning / open-models providers / token streaming —
   shipped 2026-06-28..07-09; device gates beaded. Open models = Ollama Cloud + NeuralWatt
   (OpenRouter retired 2026-07-09, `5890cc8`).
+- Ballast voice parsing — default-OFF adapter implementation staged on `ballast-voice-parse` with
+  a 60-case synthetic golden corpus. Mock results prove wiring only; no TestFlight build exercises
+  Ballast until `simmersmith-zyp` passes the live hardware/non-inferiority gate. See the
+  [quarantine ADR](decisions.md#2026-07-15--ballast-voice-parse-adapter-remains-quarantined-and-default-off).
 - Architecture reviews v1+v2 (2026-07-01/02) rebuilt the backlog in beads; arch-v2 P1 data-safety
   wave landed 2026-07-02. **arch-v3 (2026-07-09)** = delta review of the post-v2 commits + forward
   track architecture (below).

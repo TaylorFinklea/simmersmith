@@ -78,7 +78,7 @@
 		53F76F4988F3B6BAB01DAB4B /* DebugGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0746BC20391CB8C28F0A4149 /* DebugGate.swift */; };
 		5512B55E7B397524A4CE180D /* RecipeWeekAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E820174D5BF298C1541157 /* RecipeWeekAssignmentView.swift */; };
 		56361EF23CCD75F017B8AC57 /* AppState+Sharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE783F0DD2FDE882735AED55 /* AppState+Sharing.swift */; };
-		59652E38F8C270B8BED713CB /* AIProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4C5892CBBF38A0311D40527E /* AIProviderKit */; };
+		59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
 		5AB4A57D6DB7855A8D017676 /* EventEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222A33C201808AF925C11C1 /* EventEditSheet.swift */; };
 		5AFC3A325108BEC137426ABD /* BackupRestoreSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */; };
 		5B13B381E58F7AD741501E5E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FB8215B29EE1469EE3AA1E /* MainTabView.swift */; };
@@ -136,7 +136,7 @@
 		9FEF5423BB6FCDEEAA8574C2 /* RecipeImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2D8B527603D3217EFA2E1C /* RecipeImportView.swift */; };
 		9FF56004858F125979DE66F1 /* InstrumentSerif-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FE36235751C070E83516E23D /* InstrumentSerif-Regular.ttf */; };
 		A020099204BC60B0BB65112B /* IngredientsProductFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FED9D160DD2EC6B064E1F7 /* IngredientsProductFlowTests.swift */; };
-		A241F23B878BE1627D27E482 /* HouseholdRecords in Frameworks */ = {isa = PBXBuildFile; productRef = 841B0CE52871964165366435 /* HouseholdRecords */; };
+		A241F23B878BE1627D27E482 /* HouseholdSync in Frameworks */ = {isa = PBXBuildFile; productRef = 2040F6BEA94497101D5A4E38 /* HouseholdSync */; };
 		A2F84640D3BB288ADE7525BB /* EventRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F5F414D9106C16C2A14C72 /* EventRepository.swift */; };
 		A4CE9152718188482D546934 /* RecipeWebImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80EE82F42F6428AF84B3E94 /* RecipeWebImportView.swift */; };
 		A50492A8C75536C4828C7951 /* MealSlotRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3679DF56BB2C65A8DA4541BD /* MealSlotRow.swift */; };
@@ -150,7 +150,7 @@
 		AE6AA3B8BE1DCA5EA6B76663 /* AliasRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF45A785CDE3A5D0755B138F /* AliasRepository.swift */; };
 		B04E2D4442A2F39C64D588A8 /* EventsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6127E6D290A5B49CE1F51554 /* EventsView.swift */; };
 		B11F36C1CC7CE592858BA603 /* MacroRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DF4C402A2B4FBFF4C1D3D4 /* MacroRing.swift */; };
-		B3A1BE0F8986881FCB386F8F /* CloudKitProvisioning in Frameworks */ = {isa = PBXBuildFile; productRef = 25D3B27DDE18E5E9D1A3F106 /* CloudKitProvisioning */; };
+		B3A1BE0F8986881FCB386F8F /* SimmerSmithBallastAdapter in Frameworks */ = {isa = PBXBuildFile; productRef = 1A1E0165D952B447A7351EFD /* SimmerSmithBallastAdapter */; };
 		B48E0E604963B99AD08A04CA /* MealIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFD40679A0A648A290B348CF /* MealIcon.swift */; };
 		B4C0DF8D030F1CC6F96FF5F1 /* IngredientResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4068EDAF68A8CD3DE46AE8CE /* IngredientResolutionCoordinator.swift */; };
 		B5B6BEA61114BB6ADD99905E /* SimmerSmithApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E1D4E6F838082C4E8DDAF /* SimmerSmithApp.swift */; };
@@ -189,7 +189,7 @@
 		DDB8C4DD897500DB62356859 /* AddGroceryItemSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6E46D15E4FD124EB6535A2 /* AddGroceryItemSheet.swift */; };
 		DF013B689CE654E21C864D22 /* AppState+Pantry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDDF7B7C9AD00BE199D8CB3A /* AppState+Pantry.swift */; };
 		DF7731457AC9E508DD586A96 /* AppState+Vision.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8139D89AB66E9965BB567E1 /* AppState+Vision.swift */; };
-		E0378532886B9D2564206062 /* HouseholdSync in Frameworks */ = {isa = PBXBuildFile; productRef = 2040F6BEA94497101D5A4E38 /* HouseholdSync */; };
+		E0378532886B9D2564206062 /* CloudKitProvisioning in Frameworks */ = {isa = PBXBuildFile; productRef = 25D3B27DDE18E5E9D1A3F106 /* CloudKitProvisioning */; };
 		E1CDA323F24EFD0D782C52A1 /* EventPantrySupplementSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D586714A3E5BBDBBA6E3107F /* EventPantrySupplementSheet.swift */; };
 		E2B89E1951A216A0F6C95B6C /* WeekGenContextGathererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F653D95D4D906EF6DD6C4DEF /* WeekGenContextGathererTests.swift */; };
 		E2F4671C3E4F1338A7AF13C0 /* CloudKitDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4A50DC51D748BEBD80B3C6 /* CloudKitDebugView.swift */; };
@@ -198,6 +198,7 @@
 		E6A4D9382733DDEAB5632CA6 /* ReminderListPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFE006D3FD5BC2ECEBD6A00 /* ReminderListPickerSheet.swift */; };
 		E6E569431165A47479D5427D /* RecipeFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9935E945427DEAA0FE104C29 /* RecipeFilterSheet.swift */; };
 		E7E1D7ABAB4053FC3869C7BE /* AppState+HouseholdCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BFC08676B055C4E2EE1784 /* AppState+HouseholdCleanup.swift */; };
+		EDED0ED9873237E8890430AB /* AIProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4C5892CBBF38A0311D40527E /* AIProviderKit */; };
 		EE566CA88D275034F52ABDDD /* VoicePlanningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37588626E6B1863A161B135A /* VoicePlanningCoordinator.swift */; };
 		EF518E6D2331C066714501DA /* MealNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F368CD8AFF04F7DC72D394B8 /* MealNoteEditor.swift */; };
 		F1C771270E796573C34523A4 /* RecipePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AB5CA06BF0FB267EED5C2B /* RecipePickerSheet.swift */; };
@@ -275,6 +276,7 @@
 		2C1D5C19615FDB1970BD83E5 /* AIAssistantOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantOverlay.swift; sourceTree = "<group>"; };
 		2D7CDAF7CC440F6E5157D784 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		2F09E404CAA8E6D26BEE5B2B /* SmithToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithToolbar.swift; sourceTree = "<group>"; };
+		2FE8764E1E7EBC7CE2241992 /* SimmerSmithBallastAdapter */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithBallastAdapter; path = ../SimmerSmithBallastAdapter; sourceTree = SOURCE_ROOT; };
 		305DB39B05047967856041B5 /* AssistantToolCallCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantToolCallCard.swift; sourceTree = "<group>"; };
 		30CBBD67719CD798D3453A74 /* BackupRestoreSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupRestoreSection.swift; sourceTree = "<group>"; };
 		351610A1EE19B85DD1B50FF9 /* ReleaseNotesGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseNotesGate.swift; sourceTree = "<group>"; };
@@ -453,10 +455,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				277A0DE36D3096B7BB76ED9E /* SimmerSmithKit in Frameworks */,
-				B3A1BE0F8986881FCB386F8F /* CloudKitProvisioning in Frameworks */,
-				E0378532886B9D2564206062 /* HouseholdSync in Frameworks */,
-				A241F23B878BE1627D27E482 /* HouseholdRecords in Frameworks */,
-				59652E38F8C270B8BED713CB /* AIProviderKit in Frameworks */,
+				B3A1BE0F8986881FCB386F8F /* SimmerSmithBallastAdapter in Frameworks */,
+				E0378532886B9D2564206062 /* CloudKitProvisioning in Frameworks */,
+				A241F23B878BE1627D27E482 /* HouseholdSync in Frameworks */,
+				59652E38F8C270B8BED713CB /* HouseholdRecords in Frameworks */,
+				EDED0ED9873237E8890430AB /* AIProviderKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -618,6 +621,7 @@
 		6AE9197ED55EA06FB91EA461 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
+				2FE8764E1E7EBC7CE2241992 /* SimmerSmithBallastAdapter */,
 				C11195860BCA1B7B3A5B55E8 /* SimmerSmithCloudKit */,
 				A8178AFC294B4845F8D0AFF3 /* SimmerSmithKit */,
 			);
@@ -965,6 +969,7 @@
 			name = SimmerSmith;
 			packageProductDependencies = (
 				5EA42101A03628D82ADE249C /* SimmerSmithKit */,
+				1A1E0165D952B447A7351EFD /* SimmerSmithBallastAdapter */,
 				25D3B27DDE18E5E9D1A3F106 /* CloudKitProvisioning */,
 				2040F6BEA94497101D5A4E38 /* HouseholdSync */,
 				841B0CE52871964165366435 /* HouseholdRecords */,
@@ -1001,6 +1006,7 @@
 			mainGroup = FFB064ECC23DC1A68E312C08;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				98DBA4B81D426AC0C4EF3F8D /* XCLocalSwiftPackageReference "../SimmerSmithBallastAdapter" */,
 				E04CCF90420768964947C25D /* XCLocalSwiftPackageReference "../SimmerSmithCloudKit" */,
 				AB12ABCE4B5D0BA22F683814 /* XCLocalSwiftPackageReference "../SimmerSmithKit" */,
 			);
@@ -1550,6 +1556,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		98DBA4B81D426AC0C4EF3F8D /* XCLocalSwiftPackageReference "../SimmerSmithBallastAdapter" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../SimmerSmithBallastAdapter;
+		};
 		AB12ABCE4B5D0BA22F683814 /* XCLocalSwiftPackageReference "../SimmerSmithKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../SimmerSmithKit;
@@ -1561,6 +1571,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1A1E0165D952B447A7351EFD /* SimmerSmithBallastAdapter */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SimmerSmithBallastAdapter;
+		};
 		2040F6BEA94497101D5A4E38 /* HouseholdSync */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HouseholdSync;
