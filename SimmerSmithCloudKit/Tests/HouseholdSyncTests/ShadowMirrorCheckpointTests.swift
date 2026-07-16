@@ -600,6 +600,37 @@ func postPointerCrashDoesNotReplayIncludedJournalEntry() async throws {
     }
 }
 
+@Test("a duplicate complete stale journal frame quarantines after a post-pointer crash")
+func duplicateStaleJournalFrameQuarantinesAfterPostPointerCrash() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let initialWriter = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: root)
+    _ = try await initialWriter.appendSave(
+        record, mutationGeneration: 1, changedFields: ["name"])
+    let crashingWriter = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: root, failurePoint: .afterPointerPublication)
+
+    do {
+        try await crashingWriter.publish(
+            records: [record],
+            engineState: MirrorEngineState(
+                serialization: Data([3]), coverageRevision: 1, zoneEnsured: true))
+        Issue.record("Expected deterministic post-pointer failure")
+    } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterPointerPublication) {}
+
+    let journalURL = checkpointScopeDirectory(in: root).appendingPathComponent("journal.wal")
+    let frame = try Data(contentsOf: journalURL)
+    var duplicatedJournal = frame
+    duplicatedJournal.append(frame)
+    try duplicatedJournal.write(to: journalURL, options: .atomic)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(await recovered.recoveryState().outbox.isEmpty)
+    #expect(await recovered.recoveryState().lastIntentSequence == 0)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
 @Test("a durable acknowledgement survives an interrupted checkpoint without reviving the intent")
 func interruptedAckCheckpointDoesNotReviveIntent() async throws {
     let root = try checkpointDirectory()
@@ -623,6 +654,246 @@ func interruptedAckCheckpointDoesNotReviveIntent() async throws {
     let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
     #expect(await recovered.recoveryState().outbox.isEmpty)
     #expect(await recovered.recoveryState().lastIntentSequence == 3)
+}
+
+@Test("scope anchor is durable and exact before its first journal transition")
+func scopeAnchorPrecedesFirstJournalTransition() async throws {
+    let root = try checkpointDirectory()
+    let scope = checkpointScope()
+    let writer = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+
+    _ = try await writer.appendDelete(MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+
+    let anchorURL = checkpointScopeDirectory(in: root).appendingPathComponent("scope.anchor")
+    let anchor = try #require(
+        JSONSerialization.jsonObject(with: Data(contentsOf: anchorURL)) as? [String: Any])
+    let anchoredScope = try #require(anchor["scope"] as? [String: Any])
+    #expect(anchor["formatVersion"] as? Int == 1)
+    #expect(anchor["cacheKey"] as? String == scope.cacheKey)
+    #expect(anchoredScope["accountRecordName"] as? String == scope.accountRecordName)
+    #expect(anchoredScope["zoneOwnerName"] as? String == scope.zoneOwnerName)
+    #expect((anchor["integrityDigest"] as? String)?.count == 64)
+}
+
+@Test("anchor failure before the first journal append leaves an empty recovered snapshot")
+func anchorFailureBeforeFirstJournalAppendLeavesEmptyRecoveredSnapshot() async throws {
+    let root = try checkpointDirectory()
+    let scope = checkpointScope()
+    let scopeDirectory = root.appendingPathComponent(scope.cacheKey, isDirectory: true)
+    let failingWriter = try ShadowMirrorCheckpointWriter(
+        scope: scope,
+        rootDirectory: root,
+        failurePoint: .afterScopeAnchorWrite)
+
+    do {
+        _ = try await failingWriter.appendDelete(
+            MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+        Issue.record("Expected deterministic post-anchor failure")
+    } catch ShadowMirrorCheckpointWriterError.injectedFailure(.afterScopeAnchorWrite) {}
+
+    let anchorURL = scopeDirectory.appendingPathComponent("scope.anchor")
+    let anchor = try JSONDecoder().decode(
+        MirrorScopeAnchor.self, from: Data(contentsOf: anchorURL))
+    try anchor.validate(for: scope, in: scopeDirectory)
+    #expect(!FileManager.default.fileExists(
+        atPath: scopeDirectory.appendingPathComponent("journal.wal").path))
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+    let snapshot = await recovered.recoveredCheckpoint()
+    #expect(snapshot.hasValidatedAnchor)
+    #expect(snapshot.current == nil)
+    #expect(snapshot.recoveryState.outbox.isEmpty)
+    #expect(snapshot.recoveryState.tombstones.isEmpty)
+    #expect(snapshot.recoveryState.lastIntentSequence == 0)
+}
+
+@Test("reopening an anchored writer skips the first-anchor failure point")
+func reopeningAnchoredWriterSkipsFirstAnchorFailurePoint() async throws {
+    let root = try checkpointDirectory()
+    let scope = checkpointScope()
+    let firstWriter = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+    let firstSequence = try await firstWriter.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+
+    let reopenedWriter = try ShadowMirrorCheckpointWriter(
+        scope: scope,
+        rootDirectory: root,
+        failurePoint: .afterScopeAnchorWrite)
+    let secondSequence = try await reopenedWriter.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 2)
+
+    #expect(firstSequence == 1)
+    #expect(secondSequence == 2)
+    #expect(await reopenedWriter.recoveryState().lastIntentSequence == secondSequence)
+}
+
+@Test("scope anchor rejects tampering and mismatched scopes")
+func scopeAnchorRejectsTamperingAndMismatchedScopes() async throws {
+    let tamperedRoot = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: tamperedRoot)
+    _ = try await writer.appendDelete(MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+    let anchorURL = checkpointScopeDirectory(in: tamperedRoot).appendingPathComponent("scope.anchor")
+    var anchor = try #require(
+        JSONSerialization.jsonObject(with: Data(contentsOf: anchorURL)) as? [String: Any])
+    anchor["integrityDigest"] = String(repeating: "0", count: 64)
+    try JSONSerialization.data(withJSONObject: anchor).write(to: anchorURL, options: .atomic)
+
+    let quarantined = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: tamperedRoot)
+    #expect(await quarantined.recoveryState().outbox.isEmpty)
+    #expect(FileManager.default.fileExists(
+        atPath: tamperedRoot.appendingPathComponent("quarantine").path))
+
+    let mismatchRoot = try checkpointDirectory()
+    let owner = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: mismatchRoot)
+    _ = try await owner.appendDelete(MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+    let participantScope = MirrorScope(
+        accountRecordName: "user-b", zoneOwnerName: checkpointZone.ownerName,
+        zoneName: checkpointZone.zoneName, householdID: "household-a",
+        role: .participant, databaseScope: .shared)
+    let participant = try ShadowMirrorCheckpointWriter(
+        scope: participantScope, rootDirectory: mismatchRoot)
+    _ = try await participant.appendDelete(MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+    let participantAnchor = mismatchRoot.appendingPathComponent(participantScope.cacheKey)
+        .appendingPathComponent("scope.anchor")
+    let ownerAnchor = checkpointScopeDirectory(in: mismatchRoot).appendingPathComponent("scope.anchor")
+    try FileManager.default.removeItem(at: ownerAnchor)
+    try FileManager.default.copyItem(at: participantAnchor, to: ownerAnchor)
+
+    let mismatched = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(), rootDirectory: mismatchRoot)
+    #expect(await mismatched.recoveryState().outbox.isEmpty)
+    #expect(FileManager.default.fileExists(
+        atPath: mismatchRoot.appendingPathComponent("quarantine").path))
+}
+
+@Test("checkpoint recovery replays the contiguous suffix above its manifest high-water")
+func checkpointRecoveryReplaysJournalSuffix() async throws {
+    let root = try checkpointDirectory()
+    let record = checkpointRecord()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    _ = try await writer.appendSave(record, mutationGeneration: 1, changedFields: ["name"])
+    try await writer.publish(
+        records: [record],
+        engineState: MirrorEngineState(
+            serialization: Data([1]), coverageRevision: 1, zoneEnsured: true))
+    let deleteSequence = try await writer.appendDelete(
+        MirrorRecordIdentity(record), mutationGeneration: 2)
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let state = await recovered.recoveryState()
+    #expect(try await recovered.loadCurrent() != nil)
+    #expect(state.lastIntentSequence == deleteSequence)
+    #expect(state.outbox.map(\.operation) == [.delete])
+    #expect(state.tombstones == [MirrorRecordIdentity(record)])
+}
+
+@Test("anchored journal without current recovers only durable intents")
+func anchoredJournalWithoutCurrentRecoversDurableIntents() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let state = await recovered.recoveryState()
+    #expect(FileManager.default.fileExists(
+        atPath: checkpointScopeDirectory(in: root).appendingPathComponent("scope.anchor").path))
+    #expect(try await recovered.loadCurrent() == nil)
+    #expect(state.lastIntentSequence == sequence)
+    #expect(state.outbox.map(\.sequence) == [sequence])
+}
+
+@Test("recovered checkpoint snapshot exposes a read-only recovery-only plan")
+func recoveredCheckpointSnapshotExposesRecoveryOnlyPlan() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+
+    let snapshot = await writer.recoveredCheckpoint()
+    #expect(snapshot.scope == checkpointScope())
+    #expect(snapshot.current == nil)
+    #expect(snapshot.hasValidatedAnchor)
+    #expect(snapshot.isRecoveryOnly)
+    #expect(snapshot.recoveryState.lastIntentSequence == sequence)
+    #expect(snapshot.recoveryState.outbox.map(\.sequence) == [sequence])
+}
+
+@Test("known scope recovers legacy unanchored journal without selecting anonymous bytes")
+func knownScopeRecoversLegacyUnanchoredJournal() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let sequence = try await writer.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+    try FileManager.default.removeItem(
+        at: checkpointScopeDirectory(in: root).appendingPathComponent("scope.anchor"))
+
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let snapshot = await recovered.recoveredCheckpoint()
+    #expect(!snapshot.hasValidatedAnchor)
+    #expect(snapshot.isRecoveryOnly)
+    #expect(try await recovered.loadCurrent() == nil)
+    #expect(snapshot.recoveryState.lastIntentSequence == sequence)
+    #expect(snapshot.recoveryState.outbox.map(\.operation) == [.delete])
+}
+
+@Test("a journal append failure fences the writer before later transitions")
+func journalAppendFailureFencesWriter() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let firstSequence = try await writer.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 1)
+    let journalURL = checkpointScopeDirectory(in: root).appendingPathComponent("journal.wal")
+    let journalBeforeFailure = try Data(contentsOf: journalURL)
+
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o400], ofItemAtPath: journalURL.path)
+    defer {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+    }
+
+    await #expect(throws: (any Error).self) {
+        _ = try await writer.appendDelete(
+            MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 2)
+    }
+
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+    await #expect(throws: ShadowMirrorCheckpointWriterError.fenced) {
+        _ = try await writer.appendDelete(
+            MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 3)
+    }
+
+    #expect(try Data(contentsOf: journalURL) == journalBeforeFailure)
+    let recovered = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    #expect(await recovered.recoveryState().lastIntentSequence == firstSequence)
+}
+
+@Test("recovery truncates a torn tail before a later append")
+func recoveryTruncatesTornTailBeforeLaterAppend() async throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let saveSequence = try await writer.appendSave(
+        checkpointRecord(), mutationGeneration: 1, changedFields: ["name"])
+    let journalURL = checkpointScopeDirectory(in: root).appendingPathComponent("journal.wal")
+    let handle = try FileHandle(forWritingTo: journalURL)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data([0, 0, 0]))
+    try handle.synchronize()
+    try handle.close()
+
+    let repaired = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let deleteSequence = try await repaired.appendDelete(
+        MirrorRecordIdentity(checkpointRecord()), mutationGeneration: 2)
+    let restarted = try ShadowMirrorCheckpointWriter(scope: checkpointScope(), rootDirectory: root)
+    let state = await restarted.recoveryState()
+    #expect(saveSequence == 1)
+    #expect(deleteSequence == 2)
+    #expect(state.lastIntentSequence == deleteSequence)
+    #expect(state.outbox.map(\.operation) == [.delete])
 }
 
 @Test("torn final journal frame is ignored during recovery")

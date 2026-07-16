@@ -50,11 +50,78 @@ public struct MirrorScope: Codable, Equatable, Hashable, Sendable {
 
     public func matches(_ other: MirrorScope) -> Bool { self == other }
 
+    public func validate() throws {
+        guard formatVersion == Self.currentFormatVersion,
+              containerIdentifier == Self.currentContainerIdentifier,
+              !accountRecordName.isEmpty,
+              !zoneOwnerName.isEmpty,
+              !zoneName.isEmpty,
+              !householdID.isEmpty,
+              (role == .owner && databaseScope == .private)
+                || (role == .participant && databaseScope == .shared) else {
+            throw MirrorCheckpointError.scopeMismatch
+        }
+    }
+
     public var cacheKey: String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try! encoder.encode(self)
         return ShadowMirrorDigest.sha256(data)
+    }
+}
+
+public struct MirrorScopeAnchor: Codable, Equatable, Sendable {
+    public static let currentFormatVersion = 1
+
+    public let formatVersion: Int
+    public let scope: MirrorScope
+    public let cacheKey: String
+    public let integrityDigest: String
+
+    public init(scope: MirrorScope) throws {
+        try scope.validate()
+        formatVersion = Self.currentFormatVersion
+        self.scope = scope
+        cacheKey = scope.cacheKey
+        integrityDigest = try Self.integrityDigest(
+            formatVersion: formatVersion,
+            scope: scope,
+            cacheKey: cacheKey)
+    }
+
+    public func validate(for expectedScope: MirrorScope, in scopeDirectory: URL) throws {
+        try expectedScope.validate()
+        try scope.validate()
+        guard formatVersion == Self.currentFormatVersion,
+              scope == expectedScope,
+              cacheKey == scope.cacheKey,
+              scopeDirectory.lastPathComponent == cacheKey,
+              integrityDigest == (try Self.integrityDigest(
+                  formatVersion: formatVersion,
+                  scope: scope,
+                  cacheKey: cacheKey)) else {
+            throw MirrorCheckpointError.scopeMismatch
+        }
+    }
+
+    private static func integrityDigest(
+        formatVersion: Int,
+        scope: MirrorScope,
+        cacheKey: String
+    ) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return ShadowMirrorDigest.sha256(try encoder.encode(IntegrityPayload(
+            formatVersion: formatVersion,
+            scope: scope,
+            cacheKey: cacheKey)))
+    }
+
+    private struct IntegrityPayload: Codable {
+        let formatVersion: Int
+        let scope: MirrorScope
+        let cacheKey: String
     }
 }
 

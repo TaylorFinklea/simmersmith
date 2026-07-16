@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 
 public enum ShadowMirrorCheckpointFailurePoint: Equatable, Sendable {
+    case afterScopeAnchorWrite
     case afterRecordsWrite
     case afterStateWrite
     case afterManifestWrite
@@ -22,6 +23,17 @@ public struct ShadowMirrorCheckpointRecoveryState: Equatable, Sendable {
     public let lastIntentSequence: UInt64
 }
 
+public struct ShadowMirrorCheckpointRecoveredSnapshot: Equatable, Sendable {
+    public let scope: MirrorScope
+    public let current: MirrorCheckpointBundle?
+    public let recoveryState: ShadowMirrorCheckpointRecoveryState
+    public let hasValidatedAnchor: Bool
+
+    public var isRecoveryOnly: Bool {
+        current == nil && recoveryState.lastIntentSequence > 0
+    }
+}
+
 public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     public let scope: MirrorScope
 
@@ -34,6 +46,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     private var outbox: [MirrorOutboxIntent]
     private var tombstones: Set<MirrorRecordIdentity>
     private var lastIntentSequence: UInt64
+    private var currentBundle: MirrorCheckpointBundle?
+    private var hasValidatedAnchor: Bool
     private var fenced = false
 
     public init(
@@ -41,6 +55,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         rootDirectory: URL,
         failurePoint: ShadowMirrorCheckpointFailurePoint? = nil
     ) throws {
+        try scope.validate()
         self.scope = scope
         self.failurePoint = failurePoint
         self.scopeDirectory = rootDirectory
@@ -57,6 +72,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         self.outbox = recovered.outbox
         self.tombstones = recovered.tombstones
         self.lastIntentSequence = recovered.lastIntentSequence
+        self.currentBundle = recovered.bundle
+        self.hasValidatedAnchor = recovered.hasValidatedAnchor
     }
 
     @discardableResult
@@ -246,6 +263,18 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             lastIntentSequence: lastIntentSequence)
     }
 
+    public func recoveredCheckpoint() async -> ShadowMirrorCheckpointRecoveredSnapshot {
+        await onStateQueueWithoutThrow { self.recoveredCheckpointLocked() }
+    }
+
+    private func recoveredCheckpointLocked() -> ShadowMirrorCheckpointRecoveredSnapshot {
+        ShadowMirrorCheckpointRecoveredSnapshot(
+            scope: scope,
+            current: currentBundle,
+            recoveryState: recoveryStateLocked(),
+            hasValidatedAnchor: hasValidatedAnchor)
+    }
+
     public func publish(records: [CKRecord], engineState: MirrorEngineState) async throws {
         let recoveryState = await recoveryState()
         try await publish(records: records, engineState: engineState, recoveryState: recoveryState)
@@ -389,6 +418,10 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         stateQueue.sync { recoveryStateLocked() }
     }
 
+    public func recoveredCheckpointSynchronously() throws -> ShadowMirrorCheckpointRecoveredSnapshot {
+        stateQueue.sync { recoveredCheckpointLocked() }
+    }
+
     public func loadCurrentSynchronously() throws -> MirrorCheckpointBundle? {
         try stateQueue.sync { try Self.loadCurrent(in: scopeDirectory, scope: scope) }
     }
@@ -483,6 +516,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         outbox = recovered.outbox
         tombstones = recovered.tombstones
         lastIntentSequence = recovered.lastIntentSequence
+        currentBundle = recovered.bundle
+        hasValidatedAnchor = recovered.hasValidatedAnchor
     }
 
     private func clearLocked() throws {
@@ -496,6 +531,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         outbox = []
         tombstones = []
         lastIntentSequence = 0
+        currentBundle = nil
+        hasValidatedAnchor = false
         try Self.synchronizeDirectory(parent)
         DispatchQueue.global(qos: .utility).async {
             try? FileManager.default.removeItem(at: retired)
@@ -508,6 +545,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         outbox = []
         tombstones = []
         lastIntentSequence = 0
+        currentBundle = nil
+        hasValidatedAnchor = false
     }
 
     private func waitForPublications() async {
@@ -612,7 +651,17 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         var nextOutbox = outbox
         var nextTombstones = tombstones
         try Self.apply(transition, to: &nextOutbox, tombstones: &nextTombstones)
-        try Self.appendJournal(transition, in: scopeDirectory)
+        if !hasValidatedAnchor {
+            try Self.persistScopeAnchor(for: scope, in: scopeDirectory)
+            try failIfNeeded(.afterScopeAnchorWrite)
+        }
+        do {
+            try Self.appendJournal(transition, in: scopeDirectory)
+        } catch {
+            fenceSynchronously()
+            throw error
+        }
+        hasValidatedAnchor = true
         outbox = nextOutbox
         tombstones = nextTombstones
         lastIntentSequence = transition.sequence
@@ -656,17 +705,22 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     }
 
     private static func recover(in scopeDirectory: URL, scope: MirrorScope) throws -> RecoveredState {
+        let anchor = try loadScopeAnchor(in: scopeDirectory, scope: scope)
         let bundle = try loadCurrent(in: scopeDirectory, scope: scope)
         var outbox = bundle?.outbox ?? []
         var tombstones = Set(bundle?.tombstones ?? [])
         let highWater = bundle?.manifest.lastIntentSequence ?? 0
-        let journal = try readJournal(in: scopeDirectory)
+        let journal = try readJournal(in: scopeDirectory, repairingIncompleteTail: true)
         var lastSequence = highWater
-        var previousSequence: UInt64?
+        var previousJournalSequence: UInt64?
+        var previousSuffixSequence: UInt64?
         for transition in journal {
-            if let previousSequence {
-                guard previousSequence < UInt64.max,
-                      transition.sequence == previousSequence + 1 else {
+            guard transition.sequence > 0 else {
+                throw MirrorCheckpointError.invalidManifest
+            }
+            if let previousJournalSequence {
+                guard previousJournalSequence < UInt64.max,
+                      transition.sequence == previousJournalSequence + 1 else {
                     throw MirrorCheckpointError.invalidManifest
                 }
             } else if transition.sequence > highWater {
@@ -675,19 +729,34 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
                     throw MirrorCheckpointError.invalidManifest
                 }
             }
-            guard transition.sequence > 0 else {
+            previousJournalSequence = transition.sequence
+            guard transition.sequence > highWater else { continue }
+            let precedingSequence = previousSuffixSequence ?? highWater
+            guard precedingSequence < UInt64.max,
+                  transition.sequence == precedingSequence + 1 else {
                 throw MirrorCheckpointError.invalidManifest
             }
-            previousSequence = transition.sequence
-            lastSequence = max(lastSequence, transition.sequence)
-            if transition.sequence > highWater {
-                try apply(transition, to: &outbox, tombstones: &tombstones)
-            }
+            previousSuffixSequence = transition.sequence
+            lastSequence = transition.sequence
+            try apply(transition, to: &outbox, tombstones: &tombstones)
         }
         return RecoveredState(
+            bundle: bundle,
+            hasValidatedAnchor: anchor != nil,
             outbox: outbox.sorted { $0.sequence < $1.sequence },
             tombstones: tombstones,
             lastIntentSequence: lastSequence)
+    }
+
+    private static func loadScopeAnchor(
+        in scopeDirectory: URL,
+        scope: MirrorScope
+    ) throws -> MirrorScopeAnchor? {
+        let url = scopeDirectory.appendingPathComponent("scope.anchor")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let anchor = try JSONDecoder().decode(MirrorScopeAnchor.self, from: Data(contentsOf: url))
+        try anchor.validate(for: scope, in: scopeDirectory)
+        return anchor
     }
 
     private static func loadCurrent(in scopeDirectory: URL, scope: MirrorScope) throws -> MirrorCheckpointBundle? {
@@ -897,6 +966,26 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         return replacement
     }
 
+    /// Persists the exact scope supplied by CloudKit discovery. This never infers a scope from
+    /// the directory name; it only verifies that the known scope's cache key names this directory.
+    public static func persistScopeAnchor(for scope: MirrorScope, in scopeDirectory: URL) throws {
+        try scope.validate()
+        guard scopeDirectory.lastPathComponent == scope.cacheKey else {
+            throw MirrorCheckpointError.scopeMismatch
+        }
+        try FileManager.default.createDirectory(at: scopeDirectory, withIntermediateDirectories: true)
+        try synchronizeDirectory(scopeDirectory.deletingLastPathComponent())
+        if let anchor = try loadScopeAnchor(in: scopeDirectory, scope: scope) {
+            guard anchor.scope == scope else { throw MirrorCheckpointError.scopeMismatch }
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try writeDurable(
+            try encoder.encode(try MirrorScopeAnchor(scope: scope)),
+            to: scopeDirectory.appendingPathComponent("scope.anchor"))
+    }
+
     private static func appendJournal(_ transition: JournalTransition, in scopeDirectory: URL) throws {
         let journalURL = scopeDirectory.appendingPathComponent("journal.wal")
         let journalAlreadyExisted = FileManager.default.fileExists(atPath: journalURL.path)
@@ -916,14 +1005,20 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         }
     }
 
-    private static func readJournal(in scopeDirectory: URL) throws -> [JournalTransition] {
+    private static func readJournal(
+        in scopeDirectory: URL,
+        repairingIncompleteTail: Bool = false
+    ) throws -> [JournalTransition] {
         let journalURL = scopeDirectory.appendingPathComponent("journal.wal")
         guard FileManager.default.fileExists(atPath: journalURL.path) else { return [] }
         let data = try Data(contentsOf: journalURL)
         var offset = 0
         var transitions: [JournalTransition] = []
         while offset < data.count {
-            guard data.count - offset >= JournalFrame.headerLength else { break }
+            guard data.count - offset >= JournalFrame.headerLength else {
+                if repairingIncompleteTail { try truncateJournal(at: journalURL, to: offset) }
+                break
+            }
             let length = data[offset..<(offset + 8)].reduce(UInt64(0)) {
                 ($0 << 8) | UInt64($1)
             }
@@ -932,7 +1027,10 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             }
             let payloadStart = offset + JournalFrame.headerLength
             let payloadEnd = payloadStart + Int(length)
-            guard payloadEnd <= data.count else { break }
+            guard payloadEnd <= data.count else {
+                if repairingIncompleteTail { try truncateJournal(at: journalURL, to: offset) }
+                break
+            }
             let checksum = data[(offset + 8)..<(offset + JournalFrame.headerLength)]
             let payload = data[payloadStart..<payloadEnd]
             guard Data(checksum) == Data(SHA256.hash(data: payload)) else {
@@ -948,6 +1046,14 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             offset = payloadEnd
         }
         return transitions
+    }
+
+    private static func truncateJournal(at url: URL, to offset: Int) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: UInt64(offset))
+        try handle.synchronize()
+        try synchronizeDirectory(url.deletingLastPathComponent())
     }
 
     private static func compactJournal(in scopeDirectory: URL, through highWater: UInt64) throws {
@@ -1100,11 +1206,18 @@ private struct ShadowMirrorGenerationInput: @unchecked Sendable {
 }
 
 private struct RecoveredState {
+    var bundle: MirrorCheckpointBundle?
+    var hasValidatedAnchor: Bool
     var outbox: [MirrorOutboxIntent]
     var tombstones: Set<MirrorRecordIdentity>
     var lastIntentSequence: UInt64
 
-    static let empty = Self(outbox: [], tombstones: [], lastIntentSequence: 0)
+    static let empty = Self(
+        bundle: nil,
+        hasValidatedAnchor: false,
+        outbox: [],
+        tombstones: [],
+        lastIntentSequence: 0)
 }
 
 private struct JournalFrame {
