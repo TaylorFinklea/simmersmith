@@ -47,6 +47,12 @@ let package = Package(
                 .product(name: "BallastMock", package: "Ballast"),
             ]
         ),
+        .executableTarget(
+            name: "VoiceBaselinePreflight",
+            dependencies: [
+                "SimmerSmithBallastAdapter",
+            ]
+        ),
         .testTarget(
             name: "SimmerSmithBallastAdapterTests",
             dependencies: [
