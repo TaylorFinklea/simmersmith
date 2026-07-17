@@ -313,6 +313,7 @@ public struct MirrorDeliveryState: Codable, Equatable, Sendable {
         case pending
         case sent
         case blockedPermanent
+        case supersededByRemoteDelete
     }
 
     public let state: State
@@ -333,6 +334,14 @@ public struct MirrorDeliveryState: Codable, Equatable, Sendable {
 
     public static func blockedPermanent(sequence: UInt64, generation: UInt64) -> Self {
         Self(state: .blockedPermanent, sentSequence: sequence, sentGeneration: generation)
+    }
+
+    /// Terminal: a remote delete superseded this local save before authority. The archived
+    /// payload stays available to diagnostics/recovery evidence only — it is excluded from
+    /// projection overlay, tombstones, and engine pending changes, and contributes to
+    /// intervention rather than a retryable pending count.
+    public static func supersededByRemoteDelete(sequence: UInt64, generation: UInt64) -> Self {
+        Self(state: .supersededByRemoteDelete, sentSequence: sequence, sentGeneration: generation)
     }
 }
 
@@ -394,12 +403,48 @@ public struct MirrorOutboxIntent: Codable, Equatable, Sendable {
             guard delivery.sentSequence == nil, delivery.sentGeneration == nil else {
                 throw MirrorCheckpointError.invalidOutbox("pending delivery carries a send stamp")
             }
-        case .sent, .blockedPermanent:
+        case .sent, .blockedPermanent, .supersededByRemoteDelete:
             guard delivery.sentSequence == sequence,
                   delivery.sentGeneration == mutationGeneration else {
                 throw MirrorCheckpointError.invalidOutbox("delivery stamp does not identify the exact intent")
             }
+            guard delivery.state != .supersededByRemoteDelete || operation == .save else {
+                throw MirrorCheckpointError.invalidOutbox("remote-delete supersession requires a save intent")
+            }
         }
+    }
+}
+
+/// Durable evidence that a post-checkpoint transition removed (or terminally resolved) a local
+/// intent. P2d's engine reconciliation may drop a serialized pending change only when one of
+/// these proofs — or a terminal outbox row — covers it; a stale serialized pending without a
+/// proof is an invariant breach that fails closed.
+public struct MirrorOutboxRemovalProof: Codable, Equatable, Hashable, Sendable {
+    public enum Reason: String, Codable, Equatable, Hashable, Sendable {
+        case acknowledged
+        case terminalFailure
+        case remoteDeleteSupersession
+        case supersededByNewerMutation
+    }
+
+    public let identity: MirrorRecordIdentity
+    public let operation: MirrorOutboxIntent.Operation
+    public let sequence: UInt64
+    public let mutationGeneration: UInt64
+    public let reason: Reason
+
+    public init(
+        identity: MirrorRecordIdentity,
+        operation: MirrorOutboxIntent.Operation,
+        sequence: UInt64,
+        mutationGeneration: UInt64,
+        reason: Reason
+    ) {
+        self.identity = identity
+        self.operation = operation
+        self.sequence = sequence
+        self.mutationGeneration = mutationGeneration
+        self.reason = reason
     }
 }
 
@@ -631,6 +676,22 @@ public struct MirrorCheckpointBundle: Codable, Equatable, Sendable {
         guard ShadowMirrorCanonicalDigest.engineState(engineState) == manifest.engineStateDigest else {
             throw MirrorCheckpointError.invalidManifest
         }
+    }
+}
+
+/// Pins every asset root a materialized bootstrap still references — journal-asset sequence
+/// directories and the selected generation — until the constructed session has rebound or
+/// released those records. Publication-time journal-asset cleanup skips pinned sequences.
+/// Intentional lifecycle root clearing (account boundary, reset) overrides leases.
+public struct MirrorGenerationLease: Equatable, Sendable {
+    public let id: UUID
+    public let generationID: String?
+    public let pinnedJournalAssetSequences: Set<UInt64>
+
+    public init(id: UUID, generationID: String?, pinnedJournalAssetSequences: Set<UInt64>) {
+        self.id = id
+        self.generationID = generationID
+        self.pinnedJournalAssetSequences = pinnedJournalAssetSequences
     }
 }
 

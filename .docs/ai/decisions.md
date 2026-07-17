@@ -1953,3 +1953,31 @@ complete restore path preserves P1's fail-closed control while making the slow f
 from the visible launch path. The authority and lifecycle gates trade some offline capability for
 cross-account privacy and prevent stale cached absence from creating, cascading, or resurrecting
 CloudKit data.
+
+## 2026-07-17 — P2c SDK probe runs in the app-target suite; State.Serialization decode is a weak gate
+
+**Decision.** The spec §3.3 real-engine serialization probe lives in `SimmerSmithTests`
+(simulator-hosted, entitled app), not the CloudKit package suite. Empirically, constructing any
+`CKContainer` in the unsigned `swift test` host executes a hard `brk` trap inside CloudKit
+(EXC_BREAKPOINT, uncatchable) before an engine exists — a platform constraint, not an SDK-contract
+failure. The §8 "package/app matrix" already spans both suites; P2c's package verify stays
+`swift test --package-path SimmerSmithCloudKit`, with the probe exercised by every app-suite run
+(P2e+ verify commands), which also satisfies "rerun after any SDK/Xcode change."
+
+Second finding: `CKSyncEngine.State.Serialization`'s `Codable` init accepts arbitrary opaque
+bytes — garbage decodes without throwing. The P2c decode proof (materializer decodes the stored
+bytes) is therefore necessary but nearly vacuous; the genuine local gate is P2d's post-construction
+reconciliation of engine pending state against the normalized durable plan, and the genuine token
+gate stays the §8 signed-device resume proof. Package-suite happy paths decode a genuine
+serialization captured by the probe (fixture in `ShadowMirrorBootstrapCatalogTests`); if an SDK
+update changes the format, that fixture stops decoding and surfaces the probe rerun requirement.
+
+Probe environment pinned 2026-07-17: Xcode 26.6 (17F113), macOS 26.5.2, iOS simulator runtime
+26.5 (23F77), Swift 6.3.3. Probe result: non-automatic construction, `stateUpdate` after
+`state.add`, byte-identical JSON re-encode, exact pending-set reconstruction in a second engine,
+and clean `state.add`/`state.remove` reconciliation all hold.
+
+**Why.** Moving the probe to the only host that can construct CloudKit objects preserves the
+spec's stop-gate semantics with real evidence instead of a vacuous or skipped package test, and
+recording the decode-is-not-validation finding prevents P2d from treating a successful decode as
+proof the cached engine state is usable.

@@ -64,6 +64,7 @@
 		44E38C2516B05904385EBA7D /* SyncStatusCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D07381CBBD434447DD7638 /* SyncStatusCenter.swift */; };
 		4706C35EAD6EE2D739E87D76 /* AppState+TopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93F63F17E10C86615058DC2D /* AppState+TopBar.swift */; };
 		48D2EA94C48A2183C278FFCC /* EventMigrationLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8E58D8B9A530AEDFB06F7B /* EventMigrationLoader.swift */; };
+		491032C16BAE13D3674AD52F /* CKSyncEngineStateProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FAB53948D0498A468FBBD71 /* CKSyncEngineStateProbeTests.swift */; };
 		4A8C79F7471AAC3982276DF8 /* MealSidesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6E839108F9DCE492AA99BF /* MealSidesSheet.swift */; };
 		4C91E2DD9E73ADB2C2368E55 /* AIModelPickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0D0AAFBAF82AC7D28D5B48 /* AIModelPickerRow.swift */; };
 		4CF05AC011653346C8E53F4E /* GenerableWeeklyPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA5A5CF5A8521A76BBBD312 /* GenerableWeeklyPlan.swift */; };
@@ -251,6 +252,7 @@
 		0C7199A2250CBA7830AFF57E /* RecipePairingsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipePairingsCard.swift; sourceTree = "<group>"; };
 		0EB04939FB5023B9B9329266 /* EventRepository+DomainTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EventRepository+DomainTypes.swift"; sourceTree = "<group>"; };
 		0F280ACD08CECCD7EE691A5A /* PantryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryRepository.swift; sourceTree = "<group>"; };
+		0FAB53948D0498A468FBBD71 /* CKSyncEngineStateProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKSyncEngineStateProbeTests.swift; sourceTree = "<group>"; };
 		10345947B6DFB4A0CF0527E0 /* TimeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeBadge.swift; sourceTree = "<group>"; };
 		10F2651453388012A92A0B07 /* IngredientMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientMigrationTests.swift; sourceTree = "<group>"; };
 		110AEC64598ED262B55BD768 /* BrandToolbarBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandToolbarBadge.swift; sourceTree = "<group>"; };
@@ -853,6 +855,7 @@
 				B3C1557635CE8F27CA36E8AE /* AIServiceIdentityTests.swift */,
 				434AA486950AE0B67E188B5E /* AppStateAssistantContextTests.swift */,
 				DD9738854B45484418C30796 /* BaselineRunnerControllerTests.swift */,
+				0FAB53948D0498A468FBBD71 /* CKSyncEngineStateProbeTests.swift */,
 				111DA57109DA2D2F93F73076 /* EventRepositoryTests.swift */,
 				10F2651453388012A92A0B07 /* IngredientMigrationTests.swift */,
 				D2B44BD9684625B260FED074 /* IngredientRepositoryTests.swift */,
@@ -1061,6 +1064,7 @@
 				6C79143E9A33F973090BAAA3 /* AIServiceIdentityTests.swift in Sources */,
 				D17E53C946EE778F1CFA6E2F /* AppStateAssistantContextTests.swift in Sources */,
 				A781F380D61742E8CEE137FA /* BaselineRunnerControllerTests.swift in Sources */,
+				491032C16BAE13D3674AD52F /* CKSyncEngineStateProbeTests.swift in Sources */,
 				D0EFF83A41BF21A2786E39CA /* EventRepositoryTests.swift in Sources */,
 				368BEC84777371321A7ED052 /* IngredientMigrationTests.swift in Sources */,
 				9A1B24BD9D96779C225C0DB6 /* IngredientRepositoryTests.swift in Sources */,

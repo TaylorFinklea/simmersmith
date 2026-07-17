@@ -10,6 +10,8 @@ public enum ShadowMirrorCheckpointFailurePoint: Equatable, Sendable {
     case afterStateWrite
     case afterManifestWrite
     case afterPointerPublication
+    case beforeNormalizationAppend
+    case afterNormalizationAppend
 }
 
 public enum ShadowMirrorCheckpointWriterError: Error, Equatable {
@@ -34,6 +36,14 @@ public struct ShadowMirrorCheckpointRecoveredSnapshot: Equatable, Sendable {
     }
 }
 
+/// The writer's recovered state after spec §3.2 restart normalization: no `sent` rows remain,
+/// each record identity carries at most one retryable pending change, and every post-checkpoint
+/// removal or terminal resolution is covered by a durable proof.
+public struct ShadowMirrorNormalizedBootstrapState: Equatable, Sendable {
+    public let snapshot: ShadowMirrorCheckpointRecoveredSnapshot
+    public let removalProofs: [MirrorOutboxRemovalProof]
+}
+
 public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     public let scope: MirrorScope
 
@@ -48,6 +58,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     private var lastIntentSequence: UInt64
     private var currentBundle: MirrorCheckpointBundle?
     private var hasValidatedAnchor: Bool
+    private var removalProofs: [MirrorOutboxRemovalProof]
+    private var leases: [UUID: MirrorGenerationLease] = [:]
     private var fenced = false
 
     public init(
@@ -74,6 +86,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         self.lastIntentSequence = recovered.lastIntentSequence
         self.currentBundle = recovered.bundle
         self.hasValidatedAnchor = recovered.hasValidatedAnchor
+        self.removalProofs = recovered.removalProofs
     }
 
     @discardableResult
@@ -252,6 +265,108 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         return transitionSequence
     }
 
+    @discardableResult
+    public func markSupersededByRemoteDelete(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) async throws -> UInt64 {
+        try await onStateQueue {
+            try self.markSupersededByRemoteDeleteLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration)
+        }
+    }
+
+    @discardableResult
+    private func markSupersededByRemoteDeleteLocked(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try requireActive()
+        let transitionSequence = try nextSequence()
+        try append(.supersededByRemoteDelete(
+            sequence: transitionSequence,
+            supersededSequence: sequence,
+            mutationGeneration: mutationGeneration))
+        return transitionSequence
+    }
+
+    /// Spec §3.2 restart normalization on the writer's serial state lane: durably supersede
+    /// every older `sent` intent, return the latest still-`sent` mutation to `pending` with a
+    /// restart-retry transition, and leave terminal rows untouched. Each transition is appended
+    /// and fsynced before the in-memory apply; a crash between the two replays it exactly once
+    /// on the next recovery.
+    public func normalizeForBootstrap() async throws -> ShadowMirrorNormalizedBootstrapState {
+        try await onStateQueue { try self.normalizeLocked() }
+    }
+
+    public func normalizeForBootstrapSynchronously() throws -> ShadowMirrorNormalizedBootstrapState {
+        try stateQueue.sync { try normalizeLocked() }
+    }
+
+    private func normalizeLocked() throws -> ShadowMirrorNormalizedBootstrapState {
+        try requireActive()
+        while let transition = try nextNormalizationTransitionLocked() {
+            try appendCommitting(
+                transition,
+                beforeAppend: .beforeNormalizationAppend,
+                afterAppend: .afterNormalizationAppend)
+        }
+        return ShadowMirrorNormalizedBootstrapState(
+            snapshot: recoveredCheckpointLocked(),
+            removalProofs: removalProofs)
+    }
+
+    private func nextNormalizationTransitionLocked() throws -> JournalTransition? {
+        let ordered = outbox.sorted { $0.sequence < $1.sequence }
+        var groups: [MirrorRecordIdentity: [MirrorOutboxIntent]] = [:]
+        var groupOrder: [MirrorRecordIdentity] = []
+        for row in ordered where row.delivery.state != .supersededByRemoteDelete {
+            if groups[Self.identity(of: row)] == nil {
+                groupOrder.append(Self.identity(of: row))
+            }
+            groups[Self.identity(of: row), default: []].append(row)
+        }
+        for identity in groupOrder {
+            let group = groups[identity]!
+            for older in group.dropLast() {
+                guard older.delivery.state == .sent else {
+                    throw MirrorCheckpointError.invalidOutbox(
+                        "an older effective intent survived without being sent")
+                }
+                return .supersededByNewerMutation(
+                    sequence: try nextSequence(),
+                    supersededSequence: older.sequence,
+                    mutationGeneration: older.mutationGeneration)
+            }
+            if let latest = group.last, latest.delivery.state == .sent {
+                return .restartRetry(
+                    sequence: try nextSequence(),
+                    retriedSequence: latest.sequence,
+                    mutationGeneration: latest.mutationGeneration)
+            }
+        }
+        return nil
+    }
+
+    public func acquireGenerationLeaseSynchronously(
+        generationID: String?,
+        pinnedJournalAssetSequences: Set<UInt64>
+    ) -> MirrorGenerationLease {
+        stateQueue.sync {
+            let lease = MirrorGenerationLease(
+                id: UUID(),
+                generationID: generationID,
+                pinnedJournalAssetSequences: pinnedJournalAssetSequences)
+            leases[lease.id] = lease
+            return lease
+        }
+    }
+
+    public func releaseGenerationLeaseSynchronously(_ id: UUID) {
+        stateQueue.sync { _ = leases.removeValue(forKey: id) }
+    }
+
     public func recoveryState() async -> ShadowMirrorCheckpointRecoveryState {
         await onStateQueueWithoutThrow { self.recoveryStateLocked() }
     }
@@ -414,6 +529,17 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         }
     }
 
+    public func markSupersededByRemoteDeleteSynchronously(
+        sequence: UInt64,
+        mutationGeneration: UInt64
+    ) throws -> UInt64 {
+        try stateQueue.sync {
+            try self.markSupersededByRemoteDeleteLocked(
+                sequence: sequence,
+                mutationGeneration: mutationGeneration)
+        }
+    }
+
     public func recoveryStateSynchronously() throws -> ShadowMirrorCheckpointRecoveryState {
         stateQueue.sync { recoveryStateLocked() }
     }
@@ -511,13 +637,17 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             through: recoveryState.lastIntentSequence)
         try Self.removeJournalAssets(
             in: scopeDirectory,
-            through: recoveryState.lastIntentSequence)
+            through: recoveryState.lastIntentSequence,
+            excluding: leases.values.reduce(into: Set<UInt64>()) {
+                $0.formUnion($1.pinnedJournalAssetSequences)
+            })
         let recovered = try Self.recover(in: scopeDirectory, scope: scope)
         outbox = recovered.outbox
         tombstones = recovered.tombstones
         lastIntentSequence = recovered.lastIntentSequence
         currentBundle = recovered.bundle
         hasValidatedAnchor = recovered.hasValidatedAnchor
+        removalProofs = recovered.removalProofs
     }
 
     private func clearLocked() throws {
@@ -533,6 +663,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         lastIntentSequence = 0
         currentBundle = nil
         hasValidatedAnchor = false
+        removalProofs = []
         try Self.synchronizeDirectory(parent)
         DispatchQueue.global(qos: .utility).async {
             try? FileManager.default.removeItem(at: retired)
@@ -547,6 +678,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         lastIntentSequence = 0
         currentBundle = nil
         hasValidatedAnchor = false
+        removalProofs = []
     }
 
     private func waitForPublications() async {
@@ -647,14 +779,25 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     }
 
     private func append(_ transition: JournalTransition) throws {
+        try appendCommitting(transition)
+    }
+
+    private func appendCommitting(
+        _ transition: JournalTransition,
+        beforeAppend: ShadowMirrorCheckpointFailurePoint? = nil,
+        afterAppend: ShadowMirrorCheckpointFailurePoint? = nil
+    ) throws {
         try transition.validateShape()
         var nextOutbox = outbox
         var nextTombstones = tombstones
-        try Self.apply(transition, to: &nextOutbox, tombstones: &nextTombstones)
+        var nextProofs = removalProofs
+        try Self.apply(
+            transition, to: &nextOutbox, tombstones: &nextTombstones, proofs: &nextProofs)
         if !hasValidatedAnchor {
             try Self.persistScopeAnchor(for: scope, in: scopeDirectory)
             try failIfNeeded(.afterScopeAnchorWrite)
         }
+        if let beforeAppend { try failIfNeeded(beforeAppend) }
         do {
             try Self.appendJournal(transition, in: scopeDirectory)
         } catch {
@@ -662,8 +805,19 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             throw error
         }
         hasValidatedAnchor = true
+        if let afterAppend {
+            do {
+                try failIfNeeded(afterAppend)
+            } catch {
+                // The transition is durable but not applied in memory; this writer's sequence
+                // accounting is now behind the journal, so it must never append again.
+                fenceSynchronously()
+                throw error
+            }
+        }
         outbox = nextOutbox
         tombstones = nextTombstones
+        removalProofs = nextProofs
         lastIntentSequence = transition.sequence
     }
 
@@ -714,6 +868,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         var lastSequence = highWater
         var previousJournalSequence: UInt64?
         var previousSuffixSequence: UInt64?
+        var removalProofs: [MirrorOutboxRemovalProof] = []
         for transition in journal {
             guard transition.sequence > 0 else {
                 throw MirrorCheckpointError.invalidManifest
@@ -738,14 +893,15 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             }
             previousSuffixSequence = transition.sequence
             lastSequence = transition.sequence
-            try apply(transition, to: &outbox, tombstones: &tombstones)
+            try apply(transition, to: &outbox, tombstones: &tombstones, proofs: &removalProofs)
         }
         return RecoveredState(
             bundle: bundle,
             hasValidatedAnchor: anchor != nil,
             outbox: outbox.sorted { $0.sequence < $1.sequence },
             tombstones: tombstones,
-            lastIntentSequence: lastSequence)
+            lastIntentSequence: lastSequence,
+            removalProofs: removalProofs)
     }
 
     private static func loadScopeAnchor(
@@ -778,7 +934,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     private static func apply(
         _ transition: JournalTransition,
         to outbox: inout [MirrorOutboxIntent],
-        tombstones: inout Set<MirrorRecordIdentity>
+        tombstones: inout Set<MirrorRecordIdentity>,
+        proofs: inout [MirrorOutboxRemovalProof]
     ) throws {
         switch transition.kind {
         case .mutation:
@@ -793,8 +950,15 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             let targetIdentity = Self.identity(of: intent)
             outbox.removeAll { existing in
                 guard Self.identity(of: existing) == targetIdentity else { return false }
-                return existing.delivery.state == .pending
-                    || existing.delivery.state == .blockedPermanent
+                guard existing.delivery.state == .pending
+                    || existing.delivery.state == .blockedPermanent else { return false }
+                proofs.append(MirrorOutboxRemovalProof(
+                    identity: targetIdentity,
+                    operation: existing.operation,
+                    sequence: existing.sequence,
+                    mutationGeneration: existing.mutationGeneration,
+                    reason: .supersededByNewerMutation))
+                return true
             }
             outbox.append(intent)
             switch intent.operation {
@@ -880,6 +1044,96 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
                 delivery: .blockedPermanent(
                     sequence: acknowledgedSequence,
                     generation: mutationGeneration))
+            proofs.append(MirrorOutboxRemovalProof(
+                identity: identity(of: intent),
+                operation: intent.operation,
+                sequence: intent.sequence,
+                mutationGeneration: intent.mutationGeneration,
+                reason: .terminalFailure))
+        case .restartRetry:
+            guard let retriedSequence = transition.acknowledgedSequence,
+                  let mutationGeneration = transition.acknowledgedMutationGeneration,
+                  transition.intent == nil, transition.replacementRecord == nil else {
+                throw MirrorCheckpointError.invalidOutbox("journal restart retry is malformed")
+            }
+            guard let index = outbox.firstIndex(where: {
+                $0.sequence == retriedSequence && $0.mutationGeneration == mutationGeneration
+            }), outbox[index].delivery == .sent(
+                sequence: retriedSequence, generation: mutationGeneration) else {
+                throw MirrorCheckpointError.invalidOutbox(
+                    "restart retry does not match an exact sent intent")
+            }
+            let intent = outbox[index]
+            outbox[index] = MirrorOutboxIntent(
+                sequence: intent.sequence,
+                mutationGeneration: intent.mutationGeneration,
+                operation: intent.operation,
+                record: intent.record,
+                tombstone: intent.tombstone,
+                changedFields: intent.changedFields,
+                clearedFields: intent.clearedFields,
+                delivery: .pending)
+        case .supersededByNewerMutation:
+            guard let supersededSequence = transition.acknowledgedSequence,
+                  let mutationGeneration = transition.acknowledgedMutationGeneration,
+                  transition.intent == nil, transition.replacementRecord == nil else {
+                throw MirrorCheckpointError.invalidOutbox("journal supersession is malformed")
+            }
+            guard let index = outbox.firstIndex(where: {
+                $0.sequence == supersededSequence && $0.mutationGeneration == mutationGeneration
+            }), outbox[index].delivery == .sent(
+                sequence: supersededSequence, generation: mutationGeneration) else {
+                throw MirrorCheckpointError.invalidOutbox(
+                    "supersession does not match an exact sent intent")
+            }
+            let superseded = outbox[index]
+            let supersededIdentity = identity(of: superseded)
+            guard outbox.contains(where: {
+                $0.sequence > superseded.sequence && identity(of: $0) == supersededIdentity
+            }) else {
+                throw MirrorCheckpointError.invalidOutbox(
+                    "supersession has no newer durable mutation for the identity")
+            }
+            outbox.remove(at: index)
+            proofs.append(MirrorOutboxRemovalProof(
+                identity: supersededIdentity,
+                operation: superseded.operation,
+                sequence: superseded.sequence,
+                mutationGeneration: superseded.mutationGeneration,
+                reason: .supersededByNewerMutation))
+        case .supersededByRemoteDelete:
+            guard let supersededSequence = transition.acknowledgedSequence,
+                  let mutationGeneration = transition.acknowledgedMutationGeneration,
+                  transition.intent == nil, transition.replacementRecord == nil else {
+                throw MirrorCheckpointError.invalidOutbox("journal remote-delete supersession is malformed")
+            }
+            guard let index = outbox.firstIndex(where: {
+                $0.sequence == supersededSequence && $0.mutationGeneration == mutationGeneration
+            }), outbox[index].operation == .save,
+                outbox[index].delivery == .pending
+                    || outbox[index].delivery == .sent(
+                        sequence: supersededSequence, generation: mutationGeneration) else {
+                throw MirrorCheckpointError.invalidOutbox(
+                    "remote-delete supersession requires an exact pending or sent save intent")
+            }
+            let intent = outbox[index]
+            outbox[index] = MirrorOutboxIntent(
+                sequence: intent.sequence,
+                mutationGeneration: intent.mutationGeneration,
+                operation: intent.operation,
+                record: intent.record,
+                tombstone: intent.tombstone,
+                changedFields: intent.changedFields,
+                clearedFields: intent.clearedFields,
+                delivery: .supersededByRemoteDelete(
+                    sequence: intent.sequence,
+                    generation: intent.mutationGeneration))
+            proofs.append(MirrorOutboxRemovalProof(
+                identity: identity(of: intent),
+                operation: intent.operation,
+                sequence: intent.sequence,
+                mutationGeneration: intent.mutationGeneration,
+                reason: .remoteDeleteSupersession))
         case .acknowledgement:
             guard let acknowledgedSequence = transition.acknowledgedSequence,
                   let mutationGeneration = transition.acknowledgedMutationGeneration,
@@ -895,6 +1149,12 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             }
             let acknowledged = outbox.remove(at: index)
             let acknowledgedIdentity = identity(of: acknowledged)
+            proofs.append(MirrorOutboxRemovalProof(
+                identity: acknowledgedIdentity,
+                operation: acknowledged.operation,
+                sequence: acknowledged.sequence,
+                mutationGeneration: acknowledged.mutationGeneration,
+                reason: .acknowledged))
             let newerSaveIndex = outbox.indices
                 .filter {
                     outbox[$0].sequence > acknowledged.sequence
@@ -1065,18 +1325,50 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         try writeDurable(data, to: scopeDirectory.appendingPathComponent("journal.wal"))
     }
 
-    private static func removeJournalAssets(in scopeDirectory: URL, through highWater: UInt64) throws {
+    private static func removeJournalAssets(
+        in scopeDirectory: URL,
+        through highWater: UInt64,
+        excluding leasedSequences: Set<UInt64> = []
+    ) throws {
         let assetRoot = scopeDirectory.appendingPathComponent("journal-assets", isDirectory: true)
         guard FileManager.default.fileExists(atPath: assetRoot.path) else { return }
         for child in try FileManager.default.contentsOfDirectory(
             at: assetRoot,
             includingPropertiesForKeys: nil
         ) {
-            guard let sequence = UInt64(child.lastPathComponent), sequence <= highWater else { continue }
+            guard let sequence = UInt64(child.lastPathComponent), sequence <= highWater,
+                  !leasedSequences.contains(sequence) else { continue }
             try FileManager.default.removeItem(at: child)
         }
         try synchronizeDirectory(assetRoot)
         try synchronizeDirectory(scopeDirectory)
+    }
+
+    /// Full-validation peek for a pre-P2 directory that carries a committed `current` generation
+    /// but no scope anchor. The scope is taken only from the validated bundle's own manifest and
+    /// must re-derive this exact directory name; a journal alone can never produce a scope.
+    static func validatedPreP2Scope(in scopeDirectory: URL) -> MirrorScope? {
+        do {
+            let pointer = scopeDirectory.appendingPathComponent("current")
+            guard FileManager.default.fileExists(atPath: pointer.path) else { return nil }
+            let generationID = try String(contentsOf: pointer, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !generationID.isEmpty,
+                  !generationID.contains("/"),
+                  !generationID.contains("..") else { return nil }
+            let generationDirectory = scopeDirectory
+                .appendingPathComponent("generations", isDirectory: true)
+                .appendingPathComponent(generationID, isDirectory: true)
+            let persisted = try JSONDecoder().decode(
+                PersistedManifest.self,
+                from: Data(contentsOf: generationDirectory.appendingPathComponent("manifest.json")))
+            let scope = persisted.manifest.scope
+            guard scopeDirectory.lastPathComponent == scope.cacheKey else { return nil }
+            _ = try loadGeneration(at: generationDirectory, scope: scope)
+            return scope
+        } catch {
+            return nil
+        }
     }
 
     private static func frame(for payload: Data) -> Data {
@@ -1211,13 +1503,15 @@ private struct RecoveredState {
     var outbox: [MirrorOutboxIntent]
     var tombstones: Set<MirrorRecordIdentity>
     var lastIntentSequence: UInt64
+    var removalProofs: [MirrorOutboxRemovalProof]
 
     static let empty = Self(
         bundle: nil,
         hasValidatedAnchor: false,
         outbox: [],
         tombstones: [],
-        lastIntentSequence: 0)
+        lastIntentSequence: 0,
+        removalProofs: [])
 }
 
 private struct JournalFrame {
@@ -1232,6 +1526,9 @@ private struct JournalTransition: Codable {
         case transientFailure
         case blockedPermanent
         case acknowledgement
+        case restartRetry
+        case supersededByNewerMutation
+        case supersededByRemoteDelete
     }
 
     let sequence: UInt64
@@ -1256,7 +1553,8 @@ private struct JournalTransition: Codable {
             }
             try intent.validate()
             if let record = intent.record { _ = try record.decode() }
-        case .sent, .blockedPermanent:
+        case .sent, .blockedPermanent, .restartRetry, .supersededByNewerMutation,
+             .supersededByRemoteDelete:
             guard intent == nil,
                   let acknowledgedSequence,
                   let acknowledgedMutationGeneration,
@@ -1343,6 +1641,48 @@ private struct JournalTransition: Codable {
             kind: .blockedPermanent,
             intent: nil,
             acknowledgedSequence: sentSequence,
+            acknowledgedMutationGeneration: mutationGeneration,
+            replacementRecord: nil)
+    }
+
+    static func restartRetry(
+        sequence: UInt64,
+        retriedSequence: UInt64,
+        mutationGeneration: UInt64
+    ) -> Self {
+        Self(
+            sequence: sequence,
+            kind: .restartRetry,
+            intent: nil,
+            acknowledgedSequence: retriedSequence,
+            acknowledgedMutationGeneration: mutationGeneration,
+            replacementRecord: nil)
+    }
+
+    static func supersededByNewerMutation(
+        sequence: UInt64,
+        supersededSequence: UInt64,
+        mutationGeneration: UInt64
+    ) -> Self {
+        Self(
+            sequence: sequence,
+            kind: .supersededByNewerMutation,
+            intent: nil,
+            acknowledgedSequence: supersededSequence,
+            acknowledgedMutationGeneration: mutationGeneration,
+            replacementRecord: nil)
+    }
+
+    static func supersededByRemoteDelete(
+        sequence: UInt64,
+        supersededSequence: UInt64,
+        mutationGeneration: UInt64
+    ) -> Self {
+        Self(
+            sequence: sequence,
+            kind: .supersededByRemoteDelete,
+            intent: nil,
+            acknowledgedSequence: supersededSequence,
             acknowledgedMutationGeneration: mutationGeneration,
             replacementRecord: nil)
     }
