@@ -28,6 +28,7 @@ AuthKey*.p8
 .release-ios.env
 client_*.apps.googleusercontent.com.plist
 GoogleService-Info.plist
+.worktrees/
 
 # Loose design / brand exploration assets at repo root — keep local,
 # don't ship in the tree. Anything that becomes the official mark
