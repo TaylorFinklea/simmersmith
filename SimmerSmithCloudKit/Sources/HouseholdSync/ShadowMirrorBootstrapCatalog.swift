@@ -75,6 +75,36 @@ public struct MirrorRecoveryPlan {
     public let journalHighWater: UInt64
     public let interventionCount: Int
     public let lease: MirrorGenerationLease
+
+    public init(
+        scope: MirrorScope,
+        outbox: [MirrorOutboxIntent],
+        pendingChanges: [MirrorNormalizedPendingChange],
+        removalProofs: [MirrorOutboxRemovalProof],
+        maxMutationGenerationByIdentity: [MirrorRecordIdentity: UInt64],
+        journalHighWater: UInt64,
+        interventionCount: Int,
+        lease: MirrorGenerationLease
+    ) {
+        self.scope = scope
+        self.outbox = outbox
+        self.pendingChanges = pendingChanges
+        self.removalProofs = removalProofs
+        self.maxMutationGenerationByIdentity = maxMutationGenerationByIdentity
+        self.journalHighWater = journalHighWater
+        self.interventionCount = interventionCount
+        self.lease = lease
+    }
+}
+
+public struct MirrorRecoveryCandidate {
+    public let plan: MirrorRecoveryPlan
+    public let writer: ShadowMirrorCheckpointWriter
+
+    public init(plan: MirrorRecoveryPlan, writer: ShadowMirrorCheckpointWriter) {
+        self.plan = plan
+        self.writer = writer
+    }
 }
 
 public struct MirrorBootstrapCatalogResult {
@@ -130,6 +160,27 @@ public enum ShadowMirrorBootstrapCatalog {
             let scopeDirectory = rootDirectory
                 .appendingPathComponent(selected.scope.cacheKey, isDirectory: true)
             if let bundle = normalized.snapshot.current {
+                // Legacy participant generations may carry an old Boolean `zoneEnsured` set
+                // by a local save. They retain their WAL as recovery-only, but never render
+                // cached content until a matching successful fetch writes typed proof.
+                if selected.scope.role == .participant,
+                   bundle.engineState.participantFetchProof?.isVerified != true {
+                    let lease = writer.acquireGenerationLeaseSynchronously(
+                        generationID: nil,
+                        pinnedJournalAssetSequences: Set(
+                            normalized.snapshot.recoveryState.outbox.map(\.sequence)))
+                    do {
+                        let plan = try ShadowMirrorBootstrapMaterializer.materializeRecoveryPlan(
+                            normalized: normalized,
+                            scopeDirectory: scopeDirectory,
+                            lease: lease)
+                        return MirrorBootstrapCatalogResult(
+                            outcome: .recoveryOnly(plan, writer: writer), diagnostics: [])
+                    } catch {
+                        writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
+                        return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
+                    }
+                }
                 let lease = writer.acquireGenerationLeaseSynchronously(
                     generationID: bundle.manifest.generationID,
                     pinnedJournalAssetSequences: Set(
@@ -143,8 +194,7 @@ public enum ShadowMirrorBootstrapCatalog {
                     return MirrorBootstrapCatalogResult(
                         outcome: .cached(bootstrap, writer: writer), diagnostics: [])
                 } catch {
-                    writer.releaseGenerationLeaseSynchronously(lease.id)
-                    try? writer.fenceAndQuarantineSynchronously()
+                    writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
                     return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
                 }
             }
@@ -161,8 +211,7 @@ public enum ShadowMirrorBootstrapCatalog {
                     return MirrorBootstrapCatalogResult(
                         outcome: .recoveryOnly(plan, writer: writer), diagnostics: [])
                 } catch {
-                    writer.releaseGenerationLeaseSynchronously(lease.id)
-                    try? writer.fenceAndQuarantineSynchronously()
+                    writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
                     return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
                 }
             }
@@ -305,7 +354,11 @@ enum ShadowMirrorBootstrapMaterializer {
             generationID: bundle.manifest.generationID,
             records: store.keys.sorted().map { store[$0]! },
             engineStateSerialization: serialization,
-            zoneEnsured: bundle.engineState.zoneEnsured,
+            zoneEnsured: MirrorZoneEnsuredPolicy.value(
+                role: scope.role,
+                recoveredZoneEnsured: bundle.engineState.zoneEnsured,
+                checkpointProof: bundle.engineState.participantFetchProof,
+                fetch: .unverified),
             outbox: recoveryState.outbox,
             pendingChanges: plan.pendingChanges,
             removalProofs: normalized.removalProofs,
@@ -419,6 +472,104 @@ enum ShadowMirrorBootstrapMaterializer {
         case .save: return intent.record!.identity
         case .delete: return intent.tombstone!
         }
+    }
+}
+
+/// Fully validates a recovery-only overlay before the live store or engine state changes. The
+/// nil-state caller applies the returned values synchronously, so an invalid second intent cannot
+/// leave the first intent visible or enqueued.
+enum MirrorRecoveryPlanOverlay {
+    struct Application {
+        let recordsToSave: [CKRecord]
+        let recordIDsToDelete: [CKRecord.ID]
+        let pendingChanges: [MirrorNormalizedPendingChange]
+    }
+
+    static func prepare(
+        plan: MirrorRecoveryPlan,
+        zoneID: CKRecordZone.ID
+    ) throws -> Application {
+        try plan.scope.validate()
+        guard plan.scope.zoneOwnerName == zoneID.ownerName,
+              plan.scope.zoneName == zoneID.zoneName else {
+            throw MirrorCheckpointError.scopeMismatch
+        }
+
+        var recordsToSave: [CKRecord] = []
+        var recordIDsToDelete: [CKRecord.ID] = []
+        var expectedPending: [String: MirrorOutboxIntent.Operation] = [:]
+        for intent in plan.outbox.sorted(by: { $0.sequence < $1.sequence }) {
+            try intent.validate()
+            let identity: MirrorRecordIdentity
+            switch intent.operation {
+            case .save:
+                guard let envelope = intent.record else {
+                    throw MirrorCheckpointError.invalidOutbox("save intent has no record")
+                }
+                identity = envelope.identity
+                let record = try envelope.decode()
+                guard MirrorRecordIdentity(record) == identity else {
+                    throw MirrorCheckpointError.invalidOutbox("save envelope identity mismatch")
+                }
+                guard identity.zoneOwnerName == plan.scope.zoneOwnerName,
+                      identity.zoneName == plan.scope.zoneName else {
+                    throw MirrorCheckpointError.scopeMismatch
+                }
+                if intent.delivery.state != .supersededByRemoteDelete {
+                    recordsToSave.append(record)
+                }
+            case .delete:
+                guard let tombstone = intent.tombstone else {
+                    throw MirrorCheckpointError.invalidOutbox("delete intent has no tombstone")
+                }
+                identity = tombstone
+                guard identity.zoneOwnerName == plan.scope.zoneOwnerName,
+                      identity.zoneName == plan.scope.zoneName else {
+                    throw MirrorCheckpointError.scopeMismatch
+                }
+                if intent.delivery.state != .supersededByRemoteDelete {
+                    recordIDsToDelete.append(CKRecord.ID(recordName: identity.recordName, zoneID: zoneID))
+                }
+            }
+
+            switch intent.delivery.state {
+            case .pending:
+                let key = "\(identity.zoneOwnerName)|\(identity.zoneName)|\(identity.recordName)"
+                guard expectedPending[key] == nil else {
+                    throw MirrorCheckpointError.invalidOutbox(
+                        "more than one retryable recovery intent for a record ID")
+                }
+                expectedPending[key] = intent.operation
+            case .blockedPermanent, .supersededByRemoteDelete:
+                break
+            case .sent:
+                throw MirrorCheckpointError.invalidOutbox(
+                    "a sent row survived recovery normalization")
+            }
+        }
+
+        var normalizedPending: [String: MirrorOutboxIntent.Operation] = [:]
+        for change in plan.pendingChanges {
+            let identity = change.identity
+            guard identity.zoneOwnerName == plan.scope.zoneOwnerName,
+                  identity.zoneName == plan.scope.zoneName else {
+                throw MirrorCheckpointError.scopeMismatch
+            }
+            let key = "\(identity.zoneOwnerName)|\(identity.zoneName)|\(identity.recordName)"
+            guard normalizedPending[key] == nil else {
+                throw MirrorCheckpointError.invalidOutbox(
+                    "duplicate normalized recovery pending change")
+            }
+            normalizedPending[key] = change.operation
+        }
+        guard normalizedPending == expectedPending else {
+            throw MirrorCheckpointError.invalidOutbox(
+                "normalized recovery pending changes do not match durable intents")
+        }
+        return Application(
+            recordsToSave: recordsToSave,
+            recordIDsToDelete: recordIDsToDelete,
+            pendingChanges: plan.pendingChanges)
     }
 }
 #endif

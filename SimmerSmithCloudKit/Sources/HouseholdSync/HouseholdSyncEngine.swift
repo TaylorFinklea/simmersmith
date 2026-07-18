@@ -1,6 +1,5 @@
 #if canImport(CloudKit)
 import CloudKit
-import Darwin
 import Foundation
 import HouseholdRecords
 import OSLog
@@ -32,6 +31,110 @@ public struct SyncFailure: Sendable {
     }
 }
 
+/// Buffers automatic engine callbacks until one complete handler set is installed. This closes
+/// the construction-to-session-dispatch window where a cached engine can activate and receive
+/// CloudKit events before AppState has an authority sink.
+enum HouseholdSyncEngineCallback: Sendable {
+    case storeChanged
+    case syncError(SyncFailure)
+    case recordSaved(String)
+    case durabilityFailure(MirrorDurabilityFailure)
+    case participantRevoked
+    case accountChanged
+}
+
+final class HouseholdSyncEngineCallbackRelay: @unchecked Sendable {
+    typealias Handlers = (
+        storeChanged: (@Sendable () -> Void)?,
+        syncError: (@Sendable (SyncFailure) -> Void)?,
+        recordSaved: (@Sendable (String) -> Void)?,
+        durabilityFailure: (@Sendable (MirrorDurabilityFailure) -> Void)?,
+        participantRevoked: (@Sendable () -> Void)?,
+        accountChanged: (@Sendable () -> Void)?
+    )
+
+    private let lock = NSLock()
+    private var handlers: Handlers?
+    private var buffered: [HouseholdSyncEngineCallback] = []
+    private var isDraining = false
+
+    func install(_ handlers: Handlers) {
+        let shouldDrain = lock.withLock { () -> Bool in
+            self.handlers = handlers
+            guard !isDraining, !buffered.isEmpty else { return false }
+            isDraining = true
+            return true
+        }
+        if shouldDrain { drain() }
+    }
+
+    func clear() {
+        lock.withLock {
+            handlers = nil
+            buffered = []
+        }
+    }
+
+    func emit(_ event: HouseholdSyncEngineCallback) {
+        let shouldDrain = lock.withLock { () -> Bool in
+            buffered.append(event)
+            guard handlers != nil, !isDraining else { return false }
+            isDraining = true
+            return true
+        }
+        if shouldDrain { drain() }
+    }
+
+    private func drain() {
+        while true {
+            let next = lock.withLock { () -> (HouseholdSyncEngineCallback, Handlers)? in
+                guard let handlers, !buffered.isEmpty else {
+                    isDraining = false
+                    return nil
+                }
+                return (buffered.removeFirst(), handlers)
+            }
+            guard let (event, handlers) = next else { return }
+            deliver(event, to: handlers)
+        }
+    }
+
+    private func deliver(_ event: HouseholdSyncEngineCallback, to handlers: Handlers) {
+        switch event {
+        case .storeChanged:
+            handlers.storeChanged?()
+        case .syncError(let failure):
+            handlers.syncError?(failure)
+        case .recordSaved(let recordName):
+            handlers.recordSaved?(recordName)
+        case .durabilityFailure(let failure):
+            handlers.durabilityFailure?(failure)
+        case .participantRevoked:
+            handlers.participantRevoked?()
+        case .accountChanged:
+            handlers.accountChanged?()
+        }
+    }
+}
+
+/// Per-batch capture of the exact local generation whose payload CKSyncEngine selected. The
+/// record provider is `@Sendable`, so the snapshot owns its own lock rather than mutating a
+/// captured dictionary. A later local save may advance the engine generation without changing
+/// the generation attached to this already-built outbound payload.
+private final class OutboundBatchGenerationSnapshot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generations: [CKRecord.ID: Int] = [:]
+
+    func capture(_ generation: Int, for recordID: CKRecord.ID) {
+        guard generation > 0 else { return }
+        lock.withLock { generations[recordID] = generation }
+    }
+
+    func generation(for recordID: CKRecord.ID) -> Int? {
+        lock.withLock { generations[recordID] }
+    }
+}
+
 /// SP-A Phase 2a — the household zone's single `CKSyncEngine` stack.
 ///
 /// Spec §4.2: one household zone = ONE sync stack (two stacks racing the change token
@@ -54,18 +157,45 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private var shadowMirror: ShadowMirrorRuntime?
     private var shadowCoverageRevision: UInt64 = 0
     private var shadowStateHistory: [
-        (serialization: Data, coverageRevision: UInt64, zoneEnsured: Bool)
+        (
+            serialization: Data,
+            coverageRevision: UInt64,
+            zoneEnsured: Bool,
+            participantFetchProof: MirrorParticipantFetchCheckpointProof?
+        )
     ] = []
-    private var shadowCompletedFetch: (records: [CKRecord], coverageRevision: UInt64, zoneEnsured: Bool)?
+    private var shadowCompletedFetch: (
+        records: [CKRecord],
+        coverageRevision: UInt64,
+        zoneEnsured: Bool,
+        participantFetchProof: MirrorParticipantFetchCheckpointProof?
+    )?
     private var shadowFetchEpochOpen = false
+    private var participantFetchProof: MirrorParticipantFetchProof = .unverified
+    private var participantCheckpointProof: MirrorParticipantFetchCheckpointProof?
     private var shadowCaptureAllowed = true
     private var shadowMissedLocalMutation = false
+    /// Cached bootstrap and successful recovery overlay sessions depend on their durable
+    /// outbox. Unlike P1's diagnostic mirror, they must reject a mutation when the WAL cannot
+    /// record it before the live store and sync-engine state change.
+    private var durableMirrorRequired = false
+    /// A materialized bootstrap/recovery lease pins all CKAsset and WAL roots referenced by the
+    /// active store/runtime. It remains owned for the entire session and is released only after
+    /// the runtime is fenced and active record/pending references are discarded at teardown.
+    private var activeMirrorLease: (writer: ShadowMirrorCheckpointWriter, id: UUID)?
+    /// A signed-out cached scope cannot be moved while CKSyncEngine may still retain an outbound
+    /// CKAsset payload. Keep the root and lease until this engine owner is disposed.
+    private var clearShadowRootOnDeinit: URL?
     private var shadowRootDirectory: URL?
     /// Owner engines own their zone (create it lazily, recreate on loss). A PARTICIPANT
     /// engine (shared DB) does NOT own the zone — it must never enqueue `.saveZone` nor
     /// recreate a zone it can't create, and a zone deletion means the share was revoked.
     private let ownsZone: Bool
+    /// P2e keeps cached sessions fail-closed for destructive data-plane operations. P2f replaces
+    /// this blanket mode with exact current-session authority.
+    public let dataPlaneMode: HouseholdDataPlaneMode
     private let log = Logger(subsystem: "app.simmersmith.cloud", category: "HouseholdSync")
+    private let callbackRelay = HouseholdSyncEngineCallbackRelay()
 
     private var syncEngine: CKSyncEngine!
     private let zoneEnsuredLock = NSLock()
@@ -77,6 +207,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// Nil on the P1 nil-state control path — those engines take today's exact code paths.
     private let bootstrapGate: MirrorBootstrapDelegateGate?
     private var bootstrapCandidateState: MirrorBootstrapCandidate?
+    private var recoveryPlanApplied = false
 
     /// Optional sticky field-merger (Phase 4). When set, records whose type it `handles`
     /// are field-merged at the fetch + serverRecordChanged seams instead of blanket LWW.
@@ -86,13 +217,25 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// (`fetchedRecordZoneChanges`) or by server-authoritative record replacements
     /// (`sentRecordZoneChanges`). Set by `HouseholdSession`/`RecipeRepository` to trigger
     /// a cache refresh. Nil in tests — no behavioral change when unset.
-    public var onStoreChanged: (@Sendable () -> Void)?
+    public var onStoreChanged: (@Sendable () -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
 
     /// Called when a record save fails with an error the engine classifies as permanent (see
     /// `SyncFailure.Kind`) — i.e. one it will NOT silently re-enqueue. Called off-main from the
     /// delegate, mirroring `onStoreChanged`. Nil in tests and until a caller (simmersmith-qrt)
     /// wires it up — no behavioral change when unset.
-    public var onSyncError: (@Sendable (SyncFailure) -> Void)?
+    public var onSyncError: (@Sendable (SyncFailure) -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
+
+    /// Called when a cache-first mutation is rejected because its WAL append could not be made
+    /// durable. This is intentionally separate from a server CKError: no local store or pending
+    /// engine state changed, so callers can offer a retry/intervention without misclassifying it
+    /// as a remote sync failure.
+    public var onMirrorDurabilityFailure: (@Sendable (MirrorDurabilityFailure) -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
 
     /// Called once per record whose pending change the server CONFIRMED — both
     /// `sentRecordZoneChanges.savedRecords` (share records excluded) and `.deletedRecordIDs`.
@@ -104,7 +247,59 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// clear a stale failure; a delete that never fired here would wedge the banner forever.
     /// Called off-main, mirroring `onStoreChanged`/`onSyncError`. Nil in tests and until a caller
     /// wires it up — no behavioral change when unset.
-    public var onRecordSaved: (@Sendable (String) -> Void)?
+    public var onRecordSaved: (@Sendable (String) -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
+
+    /// Called when CloudKit removes/revokes the participant's shared zone. AppState clears its
+    /// durable participant marker and advances the session epoch before returning to owner boot.
+    public var onParticipantRevoked: (@Sendable () -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
+
+    /// Called after sign-out/account switch has fenced the old account's full shadow root.
+    public var onAccountChanged: (@Sendable () -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
+
+    /// Installs all consumer callbacks atomically and drains automatic callbacks in the exact
+    /// order received. HouseholdSession uses this rather than individual property assignments.
+    public func installEventHandlers(
+        onStoreChanged: (@Sendable () -> Void)?,
+        onSyncError: (@Sendable (SyncFailure) -> Void)?,
+        onRecordSaved: (@Sendable (String) -> Void)?,
+        onMirrorDurabilityFailure: (@Sendable (MirrorDurabilityFailure) -> Void)?,
+        onParticipantRevoked: (@Sendable () -> Void)? = nil,
+        onAccountChanged: (@Sendable () -> Void)? = nil
+    ) {
+        callbackRelay.install((
+            storeChanged: onStoreChanged,
+            syncError: onSyncError,
+            recordSaved: onRecordSaved,
+            durabilityFailure: onMirrorDurabilityFailure,
+            participantRevoked: onParticipantRevoked,
+            accountChanged: onAccountChanged))
+    }
+
+    public func clearEventHandlers() {
+        onStoreChanged = nil
+        onSyncError = nil
+        onRecordSaved = nil
+        onMirrorDurabilityFailure = nil
+        onParticipantRevoked = nil
+        onAccountChanged = nil
+        callbackRelay.clear()
+    }
+
+    private func installLegacyEventHandlers() {
+        callbackRelay.install((
+            storeChanged: onStoreChanged,
+            syncError: onSyncError,
+            recordSaved: onRecordSaved,
+            durabilityFailure: onMirrorDurabilityFailure,
+            participantRevoked: onParticipantRevoked,
+            accountChanged: onAccountChanged))
+    }
 
     // simmersmith-dkj: per-record LOCAL MUTATION GENERATION. `save()` bumps a record's
     // generation; `nextRecordZoneChangeBatch` stamps the generation each outgoing payload was
@@ -127,12 +322,26 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return UInt64(localGeneration[id, default: 0])
     }
 
-    @discardableResult
-    private func stampSentGenerationLocked(_ id: CKRecord.ID) -> UInt64? {
-        let generation = localGeneration[id, default: 0]
-        guard generation > 0 else { return nil }
+    /// Durably transition the exact local generation to sent before CKSyncEngine may receive its
+    /// payload. Cached/recovery sessions fail closed; P1 preserves its diagnostic-only mirror.
+    private func prepareSentGenerationLocked(
+        _ id: CKRecord.ID,
+        generation: Int?
+    ) -> Bool {
+        guard let generation, generation > 0 else { return !durableMirrorRequired }
+        let mutationGeneration = UInt64(generation)
+        let transitionAccepted: Bool
+        if let shadowMirror {
+            transitionAccepted = shadowMirror.markSent(
+                recordID: id,
+                mutationGeneration: mutationGeneration) || !durableMirrorRequired
+        } else {
+            transitionAccepted = !durableMirrorRequired
+        }
+        guard transitionAccepted else { return false }
         sentGeneration[id] = generation
-        return UInt64(generation)
+        shadowCoverageRevision &+= 1
+        return true
     }
 
     /// The generation the outgoing payload was built from plus whether a newer local mutation
@@ -163,15 +372,18 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         automaticSync: Bool = false,
         ownsZone: Bool = true,
         merger: RecordMerger? = nil,
-        shadowMirrorRootDirectory: URL? = nil
+        shadowMirrorRootDirectory: URL? = nil,
+        dataPlaneMode: HouseholdDataPlaneMode = .normal
     ) {
         self.database = database
         self.zoneID = zoneID
         self.store = store
         self.stateURL = stateURL
         self.ownsZone = ownsZone
+        self.dataPlaneMode = dataPlaneMode
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.bootstrapGate = nil
+        self.durableMirrorRequired = dataPlaneMode == .cached
         // simmersmith-c7r: assign BEFORE `self.syncEngine` is constructed below. With
         // `automaticSync == true`, CKSyncEngine can deliver `handleEvent` on its own
         // background queue the instant it exists — if `merger` were still nil at that
@@ -207,7 +419,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         automaticSync: Bool = false,
         merger: RecordMerger? = nil,
         bootstrapCandidate candidate: MirrorBootstrapCandidate,
-        shadowMirrorRootDirectory: URL? = nil
+        shadowMirrorRootDirectory: URL? = nil,
+        dataPlaneMode: HouseholdDataPlaneMode = .cached
     ) throws {
         self.database = database
         self.zoneID = zoneID
@@ -216,6 +429,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         // The bootstrap scope's role decides zone ownership; validation below pins the scope
         // against the caller's live identity and this engine's zone.
         self.ownsZone = candidate.bootstrap.scope.role == .owner
+        self.dataPlaneMode = dataPlaneMode
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.merger = merger
         do {
@@ -230,6 +444,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         }
         self.bootstrapGate = MirrorBootstrapDelegateGate()
         self.bootstrapCandidateState = candidate
+        self.durableMirrorRequired = true
 
         // Spec §3.3 step 1: the complete runtime exists before the candidate engine does.
         // Generation publication stays structurally fenced while the gate is closed — every
@@ -287,6 +502,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         } catch {
             rejectBootstrapCandidate(candidate, gate: gate)
             throw error
+        }
+        shadowMirrorLock.withLock {
+            activeMirrorLease = (candidate.writer, candidate.bootstrap.lease.id)
         }
         bootstrapCandidateState = nil
         note("bootstrap gate open")
@@ -347,8 +565,107 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         store: HouseholdLocalStore
     ) {
         store.removeAll()
-        candidate.writer.releaseGenerationLeaseSynchronously(candidate.bootstrap.lease.id)
-        try? candidate.writer.fenceAndQuarantineSynchronously()
+        candidate.writer.quarantineAndReleaseGenerationLeaseSynchronously(
+            candidate.bootstrap.lease.id)
+    }
+
+    /// Apply a recovery-only WAL plan after the nil-state engine has completed its authoritative
+    /// full fetch. The base remains server-rendered until this one-shot overlay, which installs
+    /// the continuing writer/runtime and enqueues normalized changes exactly once.
+    public func applyRecoveryPlan(
+        _ plan: MirrorRecoveryPlan,
+        writer: ShadowMirrorCheckpointWriter
+    ) throws {
+        guard !recoveryPlanApplied else { throw MirrorBootstrapEngineError.activationUnavailable }
+        // Decode and cross-check every durable payload before mutating either the fetched store
+        // or CKSyncEngine state. A malformed later row must not publish a partial recovery.
+        let overlay = try MirrorRecoveryPlanOverlay.prepare(plan: plan, zoneID: zoneID)
+        let runtime = ShadowMirrorRuntime(writer: writer)
+        let publication = try shadowMirrorLock.withLock { () throws -> ShadowMirrorPublication? in
+            guard !recoveryPlanApplied else { throw MirrorBootstrapEngineError.activationUnavailable }
+            for record in overlay.recordsToSave {
+                store.setRecord(record)
+            }
+            for recordID in overlay.recordIDsToDelete {
+                store.removeRecord(recordID)
+            }
+            localGeneration = MirrorBootstrapReconciler.seededLocalGenerations(
+                from: plan.maxMutationGenerationByIdentity)
+            shadowMirror?.park()
+            shadowMirror = runtime
+            durableMirrorRequired = true
+            shadowCaptureAllowed = true
+            shadowMissedLocalMutation = false
+            shadowCoverageRevision &+= 1
+            let snapshot = (
+                records: store.allRecords(),
+                coverageRevision: shadowCoverageRevision,
+                zoneEnsured: zoneEnsuredValue(),
+                participantFetchProof: participantCheckpointProof)
+            shadowCompletedFetch = snapshot
+            runtime.beginFetchEpoch()
+            _ = try runtime.completeFetchEpoch(
+                records: snapshot.records,
+                coverageRevision: snapshot.coverageRevision,
+                zoneEnsured: snapshot.zoneEnsured)
+            var recoveryPublication: ShadowMirrorPublication?
+            for state in shadowStateHistory {
+                if let candidate = try runtime.observeStateUpdate(
+                    state.serialization,
+                    coverageRevision: state.coverageRevision,
+                    zoneEnsured: state.zoneEnsured,
+                    participantFetchProof: state.participantFetchProof) {
+                    recoveryPublication = candidate
+                }
+            }
+            for change in overlay.pendingChanges {
+                let recordID = CKRecord.ID(recordName: change.identity.recordName, zoneID: zoneID)
+                switch change.operation {
+                case .save:
+                    syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                case .delete:
+                    syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+                }
+            }
+            activeMirrorLease = (writer, plan.lease.id)
+            recoveryPlanApplied = true
+            // Publish only after the validated overlay and every pending change have been
+            // installed, never from the pre-overlay fetched snapshot.
+            return recoveryPublication
+        }
+        if let publication { publishShadowAsync(runtime: runtime, publication: publication) }
+    }
+
+    deinit {
+        var activeLease: (writer: ShadowMirrorCheckpointWriter, id: UUID)?
+        var candidateLease: (writer: ShadowMirrorCheckpointWriter, id: UUID)?
+        let rootToClear = shadowMirrorLock.withLock { () -> URL? in
+            shadowMirror?.fence()
+            shadowMirror = nil
+            // The store is the engine-owned CKAsset reference. A batch already handed to
+            // CKSyncEngine is released only when `syncEngine` is disposed below.
+            store.removeAll()
+            activeLease = activeMirrorLease
+            activeMirrorLease = nil
+            if let candidate = bootstrapCandidateState {
+                candidateLease = (candidate.writer, candidate.bootstrap.lease.id)
+                bootstrapCandidateState = nil
+            }
+            return clearShadowRootOnDeinit
+        }
+        // Stored properties outlive a deinit body by default. Dispose CKSyncEngine explicitly
+        // before dropping the lease or moving its asset root so an outbound batch cannot retain
+        // a CKAsset whose source path has already disappeared.
+        syncEngine = nil
+        if let activeLease {
+            activeLease.writer.releaseGenerationLeaseSynchronously(activeLease.id)
+        }
+        if let candidateLease {
+            candidateLease.writer.releaseGenerationLeaseSynchronously(candidateLease.id)
+        }
+        if let rootToClear {
+            try? ShadowMirrorCheckpointWriter.completeRootClearSynchronously(rootToClear)
+        }
     }
 
     /// P1's active engine always starts from a nil token and performs the existing full fetch.
@@ -399,7 +716,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 if let candidate = try runtime.observeStateUpdate(
                     state.serialization,
                     coverageRevision: state.coverageRevision,
-                    zoneEnsured: state.zoneEnsured), publication == nil {
+                    zoneEnsured: state.zoneEnsured,
+                    participantFetchProof: state.participantFetchProof), publication == nil {
                     publication = candidate
                 }
             }
@@ -410,19 +728,80 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
     /// Sign-out/account change clears a fully fenced scope. P1 failures are diagnostic-only:
     /// callers preserve the active engine and full-fetch behavior even if a cache cannot clear.
-    public func clearShadowMirror() {
+    @discardableResult
+    public func clearShadowMirror() -> Bool {
         shadowMirrorLock.lock(); defer { shadowMirrorLock.unlock() }
+        var rootRetirementDurable = true
         shadowCaptureAllowed = false
+        if let shadowRootDirectory {
+            do {
+                try ShadowMirrorCheckpointWriter.requestRootClearSynchronously(shadowRootDirectory)
+            } catch {
+                rootRetirementDurable = false
+                note("shadow root clear marker failed")
+                callbackRelay.emit(.durabilityFailure(MirrorDurabilityFailure()))
+            }
+        }
         // Fence synchronously so no stale pointer can install, but do not wait on a whole-cache
-        // asset build from HouseholdSession's main-actor teardown. Moving the root makes every
-        // in-flight candidate unreachable; its final install also fails the writer fence.
-        shadowMirror?.fence()
+        // asset build from HouseholdSession's main-actor teardown. P1 can move the root now;
+        // an active cached/recovery lease defers that move until engine disposal so an outbound
+        // CKAsset payload cannot lose its file while CKSyncEngine still retains it.
+        if let shadowMirror {
+            // Request retirement through the writer so an active asset lease gets both an
+            // in-process fence and a durable deferred-clear marker. A same-process rebootstrap
+            // then rejects the scope without moving it; a later process clears it before scan.
+            do {
+                try shadowMirror.requestClear()
+            } catch {
+                shadowMirror.fence()
+            }
+        } else if let activeMirrorLease {
+            // A parked cached/recovery runtime has already been detached, but its writer still
+            // owns the lease and must receive the same deferred-clear request.
+            try? activeMirrorLease.writer.fenceAndRequestClearSynchronously()
+        }
         shadowMirror = nil
+        discardActiveMirrorReferencesLocked()
+        if activeMirrorLease != nil {
+            clearShadowRootOnDeinit = shadowRootDirectory
+        }
         shadowStateHistory = []
         shadowCompletedFetch = nil
         shadowFetchEpochOpen = false
-        if let shadowRootDirectory {
-            Self.clearShadowRoot(shadowRootDirectory)
+        participantFetchProof = .unverified
+        participantCheckpointProof = nil
+        if activeMirrorLease == nil, let shadowRootDirectory {
+            do {
+                try ShadowMirrorCheckpointWriter.completeRootClearSynchronously(shadowRootDirectory)
+            } catch {
+                rootRetirementDurable = false
+            }
+        }
+        return rootRetirementDurable
+    }
+
+    /// Revocation retires only this participant scope, not sibling owner/participant scopes under
+    /// the same account root. Its lease keeps assets stable until engine disposal completes move.
+    private func retireActiveShadowScope() -> Bool {
+        shadowMirrorLock.withLock {
+            shadowCaptureAllowed = false
+            do {
+                if let shadowMirror {
+                    try shadowMirror.requestClear()
+                } else if let activeMirrorLease {
+                    try activeMirrorLease.writer.fenceAndRequestClearSynchronously()
+                }
+            } catch {
+                return false
+            }
+            shadowMirror = nil
+            discardActiveMirrorReferencesLocked()
+            shadowStateHistory = []
+            shadowCompletedFetch = nil
+            shadowFetchEpochOpen = false
+            participantFetchProof = .unverified
+            participantCheckpointProof = nil
+            return true
         }
     }
 
@@ -434,9 +813,33 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         shadowCaptureAllowed = false
         shadowMirror?.park()
         shadowMirror = nil
+        discardActiveMirrorReferencesLocked()
         shadowStateHistory = []
         shadowCompletedFetch = nil
         shadowFetchEpochOpen = false
+        participantFetchProof = .unverified
+        participantCheckpointProof = nil
+    }
+
+    /// Remove local payload references and future pending work at detach. A batch already handed
+    /// to CKSyncEngine may outlive this call, so the generation lease remains pinned until engine
+    /// disposal; only then may post-teardown cleanup reclaim the root.
+    private func discardActiveMirrorReferencesLocked() {
+        store.removeAll()
+        let pending = syncEngine.state.pendingRecordZoneChanges
+        if !pending.isEmpty {
+            syncEngine.state.remove(pendingRecordZoneChanges: pending)
+        }
+        let databaseChanges = syncEngine.state.pendingDatabaseChanges
+        if !databaseChanges.isEmpty {
+            syncEngine.state.remove(pendingDatabaseChanges: databaseChanges)
+        }
+    }
+
+    private func releaseActiveMirrorLeaseLocked() {
+        guard let lease = activeMirrorLease else { return }
+        activeMirrorLease = nil
+        lease.writer.releaseGenerationLeaseSynchronously(lease.id)
     }
 
     private func mutateStoreUnderShadowGate(
@@ -453,7 +856,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         shadowMirrorLock.withLock {
             let coverageRevision = shadowCoverageRevision
             let ensured = zoneEnsuredValue()
-            shadowStateHistory.append((data, coverageRevision, ensured))
+            let participantProof = participantCheckpointProof
+            shadowStateHistory.append((data, coverageRevision, ensured, participantProof))
             if shadowStateHistory.count > 256 {
                 shadowStateHistory.removeFirst(shadowStateHistory.count - 256)
             }
@@ -462,7 +866,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 if let publication = try runtime.observeStateUpdate(
                     data,
                     coverageRevision: coverageRevision,
-                    zoneEnsured: ensured
+                    zoneEnsured: ensured,
+                    participantFetchProof: participantProof
                 ) {
                     captured = (runtime, publication)
                 }
@@ -479,6 +884,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         shadowMirrorLock.withLock {
             shadowFetchEpochOpen = true
             shadowCompletedFetch = nil
+            participantFetchProof = .unverified
+            participantCheckpointProof = nil
             shadowMirror?.beginFetchEpoch()
         }
     }
@@ -491,10 +898,33 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             let snapshot = (
                 records: store.allRecords(),
                 coverageRevision: shadowCoverageRevision,
-                zoneEnsured: zoneEnsuredValue())
+                zoneEnsured: MirrorZoneEnsuredPolicy.value(
+                    role: ownsZone ? .owner : .participant,
+                    recoveredZoneEnsured: zoneEnsuredValue(),
+                    checkpointProof: participantCheckpointProof,
+                    fetch: ownsZone ? .verified : participantFetchProof),
+                participantFetchProof: participantCheckpointProof)
             shadowCompletedFetch = snapshot
+            // A state update may arrive before `didFetchRecordZoneChanges`; bind the typed
+            // proof to the latest covered serialization before the checkpoint runtime sees it.
+            if let proof = snapshot.participantFetchProof,
+               let index = shadowStateHistory.indices.last(where: {
+                   shadowStateHistory[$0].coverageRevision <= snapshot.coverageRevision
+               }) {
+                let state = shadowStateHistory[index]
+                shadowStateHistory[index] = (
+                    state.serialization,
+                    state.coverageRevision,
+                    state.zoneEnsured,
+                    proof)
+            }
             guard let runtime = shadowMirror else { return }
             do {
+                if let proof = snapshot.participantFetchProof {
+                    try runtime.bindParticipantFetchProof(
+                        proof,
+                        coverageRevision: snapshot.coverageRevision)
+                }
                 if let publication = try runtime.completeFetchEpoch(
                     records: snapshot.records,
                     coverageRevision: snapshot.coverageRevision,
@@ -528,63 +958,91 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return zoneEnsured
     }
 
-    private static func clearShadowRoot(_ root: URL) {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: root.path) else { return }
-        let retired = root.deletingLastPathComponent()
-            .appendingPathComponent(".shadow-mirror-clearing-\(UUID().uuidString)", isDirectory: true)
-        do {
-            try fileManager.moveItem(at: root, to: retired)
-            let parent = root.deletingLastPathComponent()
-            let descriptor = Darwin.open(parent.path, O_RDONLY)
-            if descriptor >= 0 {
-                _ = Darwin.fsync(descriptor)
-                Darwin.close(descriptor)
-            }
-            DispatchQueue.global(qos: .utility).async {
-                try? FileManager.default.removeItem(at: retired)
-            }
-        } catch {}
-    }
-
     // MARK: Public mutation API
 
+    /// Must be called under `shadowMirrorLock`. Every path that creates a new local save intent
+    /// uses this same seam, including a fetched-conflict merge. P1 treats a failed diagnostic
+    /// append as non-blocking; cached/recovery sessions require the append before any generation,
+    /// store, or engine-state mutation.
+    private func appendSaveToMirrorBeforeMutationLocked(
+        _ record: CKRecord,
+        mutationGeneration: UInt64
+    ) -> Bool {
+        if let shadowMirror {
+            let appended = shadowMirror.appendSaveBeforeMutation(
+                record,
+                mutationGeneration: mutationGeneration)
+            return appended || !durableMirrorRequired
+        }
+        if durableMirrorRequired { return false }
+        shadowMissedLocalMutation = true
+        return true
+    }
+
     /// Stage a record save: write it locally, then tell the engine it's pending. The
-    /// zone is created lazily on the first save.
-    public func save(_ record: CKRecord) {
-        shadowMirrorLock.withLock {
-            let mutationGeneration = bumpGenerationLocked(record.recordID)
-            if let shadowMirror {
-                shadowMirror.appendSaveBeforeMutation(
-                    record,
-                    mutationGeneration: mutationGeneration)
-            } else {
-                shadowMissedLocalMutation = true
+    /// zone is created lazily on the first save. Cache-first/recovery sessions return `false`
+    /// before mutating when their durable WAL cannot accept the intent; P1 preserves its
+    /// historical diagnostic-only behavior and returns `true` after the normal mutation.
+    @discardableResult
+    public func save(_ record: CKRecord) -> Bool {
+        var durabilityFailure: MirrorDurabilityFailure?
+        let accepted = shadowMirrorLock.withLock { () -> Bool in
+            let nextGeneration = UInt64(localGeneration[record.recordID, default: 0] + 1)
+            guard appendSaveToMirrorBeforeMutationLocked(
+                record,
+                mutationGeneration: nextGeneration) else {
+                durabilityFailure = MirrorDurabilityFailure()
+                return false
             }
+            _ = bumpGenerationLocked(record.recordID)
             store.setRecord(record)
             // simmersmith-c7r: `save()` can be called concurrently from multiple threads, so
             // the check-and-set remains atomic. The mirror gate also keeps the store payload,
             // its generation stamp, and CKSyncEngine pending ID in one logical mutation.
             zoneEnsuredLock.lock()
-            let shouldEnsureZone = !zoneEnsured
-            zoneEnsured = true
+            let shouldEnsureZone = ownsZone && !zoneEnsured
+            if ownsZone { zoneEnsured = true }
             zoneEnsuredLock.unlock()
-            if shouldEnsureZone, ownsZone {
+            if shouldEnsureZone {
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             }
             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             shadowCoverageRevision &+= 1
+            return true
         }
+        if let durabilityFailure {
+            note("cached save denied: WAL append failed")
+            callbackRelay.emit(.durabilityFailure(durabilityFailure))
+        }
+        return accepted
     }
 
     public func delete(_ recordID: CKRecord.ID) {
+        guard HouseholdDataPlanePolicy.allows(.delete, mode: dataPlaneMode) else {
+            note("destructive delete denied before authority")
+            return
+        }
+        var durabilityFailure: MirrorDurabilityFailure?
         shadowMirrorLock.withLock {
-            let mutationGeneration = bumpGenerationLocked(recordID)
+            let nextGeneration = UInt64(localGeneration[recordID, default: 0] + 1)
             if let record = store.record(for: recordID) {
-                shadowMirror?.appendDeleteBeforeMutation(
-                    MirrorRecordIdentity(record),
-                    mutationGeneration: mutationGeneration)
-                if shadowMirror == nil { shadowMissedLocalMutation = true }
+                if let shadowMirror {
+                    let appended = shadowMirror.appendDeleteBeforeMutation(
+                        MirrorRecordIdentity(record),
+                        mutationGeneration: nextGeneration)
+                    if !appended, durableMirrorRequired {
+                        durabilityFailure = MirrorDurabilityFailure()
+                        return
+                    }
+                } else if durableMirrorRequired {
+                    durabilityFailure = MirrorDurabilityFailure()
+                    return
+                } else {
+                    shadowMissedLocalMutation = true
+                }
+            } else if durableMirrorRequired {
+                durabilityFailure = MirrorDurabilityFailure()
+                return
             } else if let shadowMirror {
                 // A record ID does not carry its record type, so inventing a tombstone here
                 // would fail to supersede a later save of the real identity. Disable this
@@ -593,9 +1051,14 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             } else {
                 shadowMissedLocalMutation = true
             }
+            _ = bumpGenerationLocked(recordID)
             store.removeRecord(recordID)
             syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
             shadowCoverageRevision &+= 1
+        }
+        if let durabilityFailure {
+            note("cached delete denied: WAL append failed")
+            callbackRelay.emit(.durabilityFailure(durabilityFailure))
         }
     }
 
@@ -605,6 +1068,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// event→meal→ingredient, baseIngredient→variation). The sweep lives ONLY here on the
     /// issuing engine — the fetch handler stays the untouched LWW seam.
     public func deleteCascading(_ recordID: CKRecord.ID) {
+        guard HouseholdDataPlanePolicy.allows(.deleteCascading, mode: dataPlaneMode) else {
+            note("destructive cascade denied before authority")
+            return
+        }
         deleteCascading(recordID, visited: [])
     }
 
@@ -645,9 +1112,15 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         try await operationGate.withLock { try await self.syncEngine.sendChanges() }
     }
 
+    /// Exact number of record changes still queued (e.g. rebased saves awaiting retry).
+    /// App authority displays/counts this value rather than collapsing it to a Boolean.
+    public var pendingRecordChangeCount: Int {
+        syncEngine.state.pendingRecordZoneChanges.count
+    }
+
     /// True while record changes are still queued (e.g. a rebased save awaiting retry).
     public var hasPendingRecordChanges: Bool {
-        !syncEngine.state.pendingRecordZoneChanges.isEmpty
+        pendingRecordChangeCount > 0
     }
 
     /// Send repeatedly until nothing is pending. A per-record conflict (serverRecordChanged)
@@ -704,35 +1177,49 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
         guard await awaitBootstrapGate("batch") else { return nil }
-        let pending = syncEngine.state.pendingRecordZoneChanges.filter {
-            context.options.scope.contains($0)
+        let generationSnapshot = OutboundBatchGenerationSnapshot()
+        let pending = shadowMirrorLock.withLock { () -> [CKSyncEngine.PendingRecordZoneChange] in
+            let selected = syncEngine.state.pendingRecordZoneChanges.filter {
+                context.options.scope.contains($0)
+            }
+            // Deletes have no record-provider callback. Capture their exact generation together
+            // with the pending-state snapshot so a concurrent save cannot relabel an old delete.
+            for change in selected {
+                if case .deleteRecord(let recordID) = change {
+                    generationSnapshot.capture(
+                        localGeneration[recordID, default: 0],
+                        for: recordID)
+                }
+            }
+            return selected
         }
         let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
-            // simmersmith-dkj: stamp the generation the OUTGOING payload was built from. The ack
-            // for this batch compares against the store's generation at that later moment; an
-            // intervening `save()` will have bumped it, which is what tells us the ack is stale.
             self.shadowMirrorLock.withLock {
                 guard let record = self.store.record(for: recordID) else { return nil }
-                if let mutationGeneration = self.stampSentGenerationLocked(recordID) {
-                    self.shadowMirror?.markSent(
-                        recordID: recordID,
-                        mutationGeneration: mutationGeneration)
-                    self.shadowCoverageRevision &+= 1
-                }
+                // Capture the payload and its generation under the same lock. If a later save
+                // lands before this batch is returned, its higher generation remains pending and
+                // the old acknowledgement takes the stale-rebase path instead of consuming it.
+                generationSnapshot.capture(
+                    self.localGeneration[recordID, default: 0],
+                    for: recordID)
                 return record
             }
         }
         guard let batch else { return nil }
-        // The initializer may cap a large pending set. Stamp only the deletes it actually chose,
-        // exactly as save stamping is gated by its record-provider callback; a deferred delete
-        // must remain pending rather than being mistaken for an in-flight generation.
-        for recordID in batch.recordIDsToDelete {
-            shadowMirrorLock.withLock {
-                guard let mutationGeneration = stampSentGenerationLocked(recordID) else { return }
-                shadowMirror?.markSent(
-                    recordID: recordID,
-                    mutationGeneration: mutationGeneration)
-                shadowCoverageRevision &+= 1
+        // The initializer may cap a large pending set. Transition only the exact save/delete
+        // payloads it selected, and transition every one before returning anything to CloudKit.
+        // A partial WAL failure returns no batch; cached/recovery remains intervention-blocked
+        // rather than sending an intent whose durable delivery state is still pending.
+        let selectedRecordIDs = batch.recordsToSave.map(\.recordID) + batch.recordIDsToDelete
+        for recordID in selectedRecordIDs {
+            let generation = generationSnapshot.generation(for: recordID)
+            let accepted = shadowMirrorLock.withLock {
+                prepareSentGenerationLocked(recordID, generation: generation)
+            }
+            guard accepted else {
+                note("cached send denied: WAL sent transition failed")
+                callbackRelay.emit(.durabilityFailure(MirrorDurabilityFailure()))
+                return nil
             }
         }
         return batch
@@ -746,59 +1233,91 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             observeShadowState(update.stateSerialization)
 
         case .fetchedRecordZoneChanges(let changes):
-            let pendingSaves = pendingSaveIDs()
             for modification in changes.modifications {
                 let remote = modification.record
                 // The zone-wide CKShare record lives in the shared zone and loops back
                 // through fetched changes on the owner engine — never ingest it as data.
                 if Self.isShareRecord(remote) { continue }
-                let hasPendingEdit = pendingSaves.contains(remote.recordID)
-                // Field-merge ONLY on a genuine concurrent edit — i.e. we hold an UNSYNCED local
-                // edit for this record. Without a pending edit the remote is authoritative (a
-                // peer's later write, including a deliberate unmerge that clears event_quantity);
-                // merging our stale local would resurrect dropped state via the sticky rules.
-                // (The other side of a conflict — our save losing the race — is handled at the
-                // serverRecordChanged seam.)
-                if hasPendingEdit, let merger, merger.handles(remote.recordType),
-                   let local = store.record(for: remote.recordID) {
-                    let result = merger.resolve(local: local, remote: remote)
-                    shadowMirrorLock.withLock {
-                        let mutationGeneration = bumpGenerationLocked(result.record.recordID)
-                        if let shadowMirror {
-                            shadowMirror.appendSaveBeforeMutation(
-                                result.record,
-                                mutationGeneration: mutationGeneration)
-                        } else {
-                            shadowMissedLocalMutation = true
+                var durabilityFailure: MirrorDurabilityFailure?
+                shadowMirrorLock.withLock {
+                    // Recheck pending state and read/mutate the store under the same gate as
+                    // save(). A local save arriving before this lock is therefore merged/skipped;
+                    // one arriving afterward sees the fetched record and cannot be overwritten.
+                    let hasPendingEdit = hasPendingSaveLocked(remote.recordID)
+                    if hasPendingEdit, let merger, merger.handles(remote.recordType),
+                       let local = store.record(for: remote.recordID) {
+                        let result = merger.resolve(local: local, remote: remote)
+                        let nextGeneration = UInt64(
+                            localGeneration[result.record.recordID, default: 0] + 1)
+                        guard appendSaveToMirrorBeforeMutationLocked(
+                            result.record,
+                            mutationGeneration: nextGeneration) else {
+                            durabilityFailure = MirrorDurabilityFailure()
+                            return
                         }
+                        _ = bumpGenerationLocked(result.record.recordID)
                         store.setRecord(result.record)
                         if result.needsResave {
                             syncEngine.state.add(
                                 pendingRecordZoneChanges: [.saveRecord(result.record.recordID)])
                         }
                         shadowCoverageRevision &+= 1
+                        note("merged fetched \(remote.recordID.recordName) resave=\(result.needsResave)")
+                        return
                     }
-                    note("merged fetched \(remote.recordID.recordName) resave=\(result.needsResave)")
-                    continue
-                }
-                // A pending edit on a non-merge record must reach the server first (don't let the
-                // fetch clobber it; the conflict surfaces as serverRecordChanged on send).
-                if hasPendingEdit {
-                    note("skip fetched mod (local pending) \(remote.recordID.recordName)")
-                    continue
-                }
-                mutateStoreUnderShadowGate {
+                    // A pending edit on a non-merge record must reach the server first (don't let
+                    // the fetch clobber it; the conflict surfaces as serverRecordChanged on send).
+                    guard !hasPendingEdit else {
+                        note("skip fetched mod (local pending) \(remote.recordID.recordName)")
+                        return
+                    }
                     store.applyRemoteModification(remote)
+                    shadowCoverageRevision &+= 1
+                    note("fetched mod \(remote.recordID.recordName)")
                 }
-                note("fetched mod \(remote.recordID.recordName)")
+                if let durabilityFailure {
+                    note("cached fetched merge denied: WAL append failed")
+                    callbackRelay.emit(.durabilityFailure(durabilityFailure))
+                }
             }
             for deletion in changes.deletions {
-                mutateStoreUnderShadowGate {
+                var durabilityFailure: MirrorDurabilityFailure?
+                var supersededCachedSave = false
+                shadowMirrorLock.withLock {
+                    let pendingSave = hasPendingSaveLocked(deletion.recordID)
+                    if durableMirrorRequired, hasPendingRecordChangeLocked(deletion.recordID) {
+                        let transitioned = shadowMirror?.resolveRemoteDelete(
+                            recordID: deletion.recordID) == true
+                        guard transitioned else {
+                            durabilityFailure = MirrorDurabilityFailure()
+                            return
+                        }
+                        syncEngine.state.remove(pendingRecordZoneChanges: [
+                            .saveRecord(deletion.recordID),
+                            .deleteRecord(deletion.recordID),
+                        ])
+                        sentGeneration.removeValue(forKey: deletion.recordID)
+                        supersededCachedSave = pendingSave
+                    }
+                    // P1 remains exact: fetched deletion removes the store record even if its
+                    // diagnostic engine still has a pending save. Cached/recovery first writes
+                    // the terminal WAL transition above so restart cannot resurrect it.
                     store.removeRecord(deletion.recordID)
+                    shadowCoverageRevision &+= 1
+                    note("fetched del \(deletion.recordID.recordName)")
                 }
-                note("fetched del \(deletion.recordID.recordName)")
+                if let durabilityFailure {
+                    note("cached fetched delete denied: WAL transition failed")
+                    callbackRelay.emit(.durabilityFailure(durabilityFailure))
+                } else if supersededCachedSave {
+                    callbackRelay.emit(.syncError(SyncFailure(
+                        recordName: deletion.recordID.recordName,
+                        code: .unknownItem,
+                        kind: .permanent,
+                        message: "A cached change was removed on another device and needs attention.")))
+                }
             }
-            onStoreChanged?()
+            callbackRelay.emit(.storeChanged)
 
         case .sentRecordZoneChanges(let sent):
             // Adopt the server-authoritative record for each ack — guarding the seam
@@ -814,6 +1333,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 // this payload went out. The common case (no interleaved edit) still takes the
                 // server record verbatim, exactly as before.
                 var staleAck = false
+                var durabilityFailure: MirrorDurabilityFailure?
                 shadowMirrorLock.withLock {
                     let sent = consumeSentGenerationLocked(saved.recordID)
                     staleAck = sent.isStale
@@ -830,20 +1350,34 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                     } else {
                         toStore = saved
                     }
+                    let transitionAccepted: Bool
                     if let mutationGeneration = sent.generation {
-                        shadowMirror?.acknowledge(
-                            recordID: saved.recordID,
-                            mutationGeneration: mutationGeneration,
-                            rebasedRecord: shadowRebase)
-                    } else if shadowMirror != nil {
+                        if let shadowMirror {
+                            transitionAccepted = shadowMirror.acknowledge(
+                                recordID: saved.recordID,
+                                mutationGeneration: mutationGeneration,
+                                rebasedRecord: shadowRebase) || !durableMirrorRequired
+                        } else {
+                            transitionAccepted = !durableMirrorRequired
+                        }
+                    } else {
                         shadowMirror?.invalidate()
+                        transitionAccepted = !durableMirrorRequired
+                    }
+                    guard transitionAccepted else {
+                        durabilityFailure = MirrorDurabilityFailure()
+                        return
                     }
                     if let toStore { store.setRecord(toStore) }
                     shadowCoverageRevision &+= 1
                 }
+                if let durabilityFailure {
+                    callbackRelay.emit(.durabilityFailure(durabilityFailure))
+                    continue
+                }
                 if staleAck { note("stale ack rebased \(saved.recordID.recordName)") }
                 note("saved \(saved.recordID.recordName)=\(saved["value"] as? String ?? "?")")
-                onRecordSaved?(saved.recordID.recordName)
+                callbackRelay.emit(.recordSaved(saved.recordID.recordName))
             }
             // simmersmith-ioj (lead amendment): a DELETE of the failed record resolves its
             // failure exactly as well as a re-save does — the user removed the data rather than
@@ -851,17 +1385,34 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // save of that recordName ever fires, so the permanent-failure banner (which a clean
             // tick deliberately no longer clears) would persist for the rest of the session.
             for deletedID in sent.deletedRecordIDs {
+                var durabilityFailure: MirrorDurabilityFailure?
                 shadowMirrorLock.withLock {
                     let sent = consumeSentGenerationLocked(deletedID)
+                    let transitionAccepted: Bool
                     if let mutationGeneration = sent.generation {
-                        shadowMirror?.acknowledge(recordID: deletedID, mutationGeneration: mutationGeneration)
-                        shadowCoverageRevision &+= 1
-                    } else if shadowMirror != nil {
+                        if let shadowMirror {
+                            transitionAccepted = shadowMirror.acknowledge(
+                                recordID: deletedID,
+                                mutationGeneration: mutationGeneration) || !durableMirrorRequired
+                        } else {
+                            transitionAccepted = !durableMirrorRequired
+                        }
+                    } else {
                         shadowMirror?.invalidate()
+                        transitionAccepted = !durableMirrorRequired
                     }
+                    guard transitionAccepted else {
+                        durabilityFailure = MirrorDurabilityFailure()
+                        return
+                    }
+                    shadowCoverageRevision &+= 1
+                }
+                if let durabilityFailure {
+                    callbackRelay.emit(.durabilityFailure(durabilityFailure))
+                    continue
                 }
                 note("deleted \(deletedID.recordName)")
-                onRecordSaved?(deletedID.recordName)
+                callbackRelay.emit(.recordSaved(deletedID.recordName))
             }
             for failure in sent.failedRecordSaves {
                 note("FAILED \(failure.record.recordID.recordName) code=\(failure.error.code.rawValue)")
@@ -871,7 +1422,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 note("FAILED delete \(recordID.recordName) code=\(error.code.rawValue)")
                 handleFailedDelete(recordID: recordID, error: error)
             }
-            onStoreChanged?()
+            callbackRelay.emit(.storeChanged)
 
         case .accountChange(let change):
             handleAccountChange(change)
@@ -882,11 +1433,17 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // !ownsZone so an owner's own zone-deletion (e.g. factory reset) never wipes
             // the owner mirror through this path — owners keep today's no-op behavior.
             if !ownsZone, changes.deletions.contains(where: { $0.zoneID == zoneID }) {
-                mutateStoreUnderShadowGate {
-                    store.removeAll()
+                if retireActiveShadowScope() {
+                    mutateStoreUnderShadowGate {
+                        store.removeAll()
+                    }
+                    callbackRelay.emit(.storeChanged)
+                    callbackRelay.emit(.participantRevoked)
+                    note("participant shared zone revoked \(zoneID.zoneName)")
+                } else {
+                    callbackRelay.emit(.durabilityFailure(MirrorDurabilityFailure()))
+                    note("participant revocation retirement failed closed")
                 }
-                onStoreChanged?()
-                note("participant shared zone revoked \(zoneID.zoneName)")
             }
 
         case .willFetchChanges:
@@ -898,8 +1455,24 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         // Lifecycle / no-op for Phase 2a.
         case .willSendChanges, .didSendChanges,
              .sentDatabaseChanges,
-             .willFetchRecordZoneChanges, .didFetchRecordZoneChanges:
+             .willFetchRecordZoneChanges:
             break
+
+        case .didFetchRecordZoneChanges(let changes):
+            guard !ownsZone else { break }
+            let observed = MirrorParticipantFetchObservation.proof(
+                role: .participant,
+                expectedZoneID: zoneID,
+                fetchedZoneID: changes.zoneID,
+                error: changes.error)
+            shadowMirrorLock.withLock {
+                if observed == .verified || observed == .failed {
+                    participantFetchProof = observed
+                }
+                if observed == .verified {
+                    participantCheckpointProof = MirrorParticipantFetchCheckpointProof(fetch: .verified)
+                }
+            }
 
         @unknown default:
             break
@@ -912,12 +1485,23 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         record.recordType == "cloudkit.share" || record.recordID.recordName == CKRecordNameZoneWideShare
     }
 
-    private func pendingSaveIDs() -> Set<CKRecord.ID> {
-        var ids = Set<CKRecord.ID>()
-        for change in syncEngine.state.pendingRecordZoneChanges {
-            if case .saveRecord(let id) = change { ids.insert(id) }
+    /// Call only while holding `shadowMirrorLock`; save/delete update pending state under it.
+    private func hasPendingSaveLocked(_ recordID: CKRecord.ID) -> Bool {
+        syncEngine.state.pendingRecordZoneChanges.contains { change in
+            if case .saveRecord(let id) = change { return id == recordID }
+            return false
         }
-        return ids
+    }
+
+    private func hasPendingRecordChangeLocked(_ recordID: CKRecord.ID) -> Bool {
+        syncEngine.state.pendingRecordZoneChanges.contains { change in
+            switch change {
+            case .saveRecord(let id), .deleteRecord(let id):
+                return id == recordID
+            @unknown default:
+                return false
+            }
+        }
     }
 
     // MARK: Conflict + failure handling
@@ -942,20 +1526,22 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         mutationGeneration: UInt64?,
         isStale: Bool,
         resolution: ShadowDeliveryResolution
-    ) {
+    ) -> Bool {
         guard let mutationGeneration else {
-            if shadowMirror != nil { shadowMirror?.invalidate() }
-            return
+            shadowMirror?.invalidate()
+            return !durableMirrorRequired
         }
+        guard let shadowMirror else { return !durableMirrorRequired }
+        let transitioned: Bool
         switch resolution {
         case .retry(let replacement):
             if isStale {
-                shadowMirror?.acknowledge(
+                transitioned = shadowMirror.acknowledge(
                     recordID: recordID,
                     mutationGeneration: mutationGeneration,
                     rebasedRecord: replacement)
             } else {
-                shadowMirror?.markDeliveryFailure(
+                transitioned = shadowMirror.markDeliveryFailure(
                     recordID: recordID,
                     mutationGeneration: mutationGeneration,
                     permanent: false,
@@ -963,27 +1549,43 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
         case .blocked:
             if isStale {
-                shadowMirror?.acknowledge(
+                transitioned = shadowMirror.acknowledge(
                     recordID: recordID,
                     mutationGeneration: mutationGeneration,
                     rebasedRecord: store.record(for: recordID))
             } else {
-                shadowMirror?.markDeliveryFailure(
+                transitioned = shadowMirror.markDeliveryFailure(
                     recordID: recordID,
                     mutationGeneration: mutationGeneration,
                     permanent: true)
             }
         case .consumed(let replacement):
-            shadowMirror?.acknowledge(
+            transitioned = shadowMirror.acknowledge(
                 recordID: recordID,
                 mutationGeneration: mutationGeneration,
                 rebasedRecord: isStale ? replacement : nil)
         }
+        return transitioned || !durableMirrorRequired
     }
 
     private func handleFailedSave(_ failure: CKSyncEngine.Event.SentRecordZoneChanges.FailedRecordSave) {
         let recordID = failure.record.recordID
         var surfacedFailure: SyncFailure?
+        var durabilityFailure: MirrorDurabilityFailure?
+        func resolveDurably(
+            generation: UInt64?,
+            isStale: Bool,
+            resolution: ShadowDeliveryResolution
+        ) -> Bool {
+            let resolved = resolveShadowDeliveryLocked(
+                recordID: recordID,
+                mutationGeneration: generation,
+                isStale: isStale,
+                resolution: resolution)
+            if !resolved { durabilityFailure = MirrorDurabilityFailure() }
+            return resolved
+        }
+
         shadowMirrorLock.withLock {
             let sent = consumeSentGenerationLocked(recordID)
             let current = store.record(for: recordID)
@@ -992,102 +1594,101 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 // The newer local operation wins the race against this older wire payload. A
                 // newer delete stays deleted; a newer save is rebased onto server system fields.
                 guard let serverRecord = failure.error.serverRecord else {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: sent.isStale,
-                        resolution: .blocked)
+                        resolution: .blocked) else { return }
                     shadowCoverageRevision &+= 1
                     return
                 }
                 if sent.isStale, current == nil {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: true,
-                        resolution: .consumed(nil))
+                        resolution: .consumed(nil)) else { return }
                 } else if let merger, merger.handles(serverRecord.recordType) {
                     let result = merger.resolve(
                         local: sent.isStale ? (current ?? failure.record) : failure.record,
                         remote: serverRecord)
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: sent.isStale,
-                        resolution: .retry(result.record))
+                        resolution: .retry(result.record)) else { return }
                     store.setRecord(result.record)
                     syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 } else if let current {
                     if sent.isStale {
                         let rebased = Self.rebaseAckedRecord(acked: serverRecord, current: current)
-                        resolveShadowDeliveryLocked(
-                            recordID: recordID,
-                            mutationGeneration: sent.generation,
+                        guard resolveDurably(
+                            generation: sent.generation,
                             isStale: true,
-                            resolution: .retry(rebased))
+                            resolution: .retry(rebased)) else { return }
                         store.setRecord(rebased)
                         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                     } else {
                         let decision = Self.rebaseNonMergerRecord(local: current, server: serverRecord)
-                        resolveShadowDeliveryLocked(
-                            recordID: recordID,
-                            mutationGeneration: sent.generation,
+                        guard resolveDurably(
+                            generation: sent.generation,
                             isStale: false,
-                            resolution: decision.reEnqueue ? .retry(decision.record) : .consumed(nil))
+                            resolution: decision.reEnqueue
+                                ? .retry(decision.record) : .consumed(nil)) else { return }
                         store.setRecord(decision.record)
                         if decision.reEnqueue {
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                         }
                     }
                 } else {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: false,
-                        resolution: .consumed(nil))
+                        resolution: .consumed(nil)) else { return }
                     store.setRecord(serverRecord)
                 }
 
             case .zoneNotFound, .userDeletedZone:
                 // Re-create the zone and re-enqueue the save — OWNER ONLY. A participant cannot
                 // create the owner's zone; for it this means the share is gone.
-                if ownsZone, !(sent.isStale && current == nil) {
+                if ownsZone,
+                   HouseholdDataPlanePolicy.allows(.zoneRecreation, mode: dataPlaneMode),
+                   !(sent.isStale && current == nil) {
                     let retryRecord = sent.isStale ? current : failure.record
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: sent.isStale,
-                        resolution: .retry(retryRecord))
+                        resolution: .retry(retryRecord)) else { return }
                     syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
                     syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 } else {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: sent.isStale,
-                        resolution: sent.isStale ? .consumed(current) : .blocked)
+                        resolution: sent.isStale ? .consumed(current) : .blocked) else { return }
+                    if ownsZone, dataPlaneMode == .cached {
+                        surfacedFailure = SyncFailure(
+                            recordName: recordID.recordName,
+                            code: failure.error.code,
+                            kind: .permanent,
+                            message: Self.userMessage(for: failure.error.code))
+                    }
                 }
 
             case .unknownItem:
                 if sent.isStale, let current {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: true,
-                        resolution: .retry(current))
+                        resolution: .retry(current)) else { return }
                     syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 } else if sent.isStale {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: true,
-                        resolution: .consumed(nil))
+                        resolution: .consumed(nil)) else { return }
                 } else {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: false,
-                        resolution: .blocked)
+                        resolution: .blocked) else { return }
                     store.removeRecord(recordID)
                 }
 
@@ -1098,26 +1699,23 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 switch Self.classifyFailure(code) {
                 case .transient:
                     if sent.isStale, current == nil {
-                        resolveShadowDeliveryLocked(
-                            recordID: recordID,
-                            mutationGeneration: sent.generation,
+                        guard resolveDurably(
+                            generation: sent.generation,
                             isStale: true,
-                            resolution: .consumed(nil))
+                            resolution: .consumed(nil)) else { return }
                     } else {
                         let retryRecord = sent.isStale ? current : failure.record
-                        resolveShadowDeliveryLocked(
-                            recordID: recordID,
-                            mutationGeneration: sent.generation,
+                        guard resolveDurably(
+                            generation: sent.generation,
                             isStale: sent.isStale,
-                            resolution: .retry(retryRecord))
+                            resolution: .retry(retryRecord)) else { return }
                         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                     }
                 case .permanent:
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: sent.isStale,
-                        resolution: sent.isStale ? .consumed(current) : .blocked)
+                        resolution: sent.isStale ? .consumed(current) : .blocked) else { return }
                     surfacedFailure = SyncFailure(
                         recordName: recordID.recordName,
                         code: code,
@@ -1127,49 +1725,64 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             shadowCoverageRevision &+= 1
         }
-        if let surfacedFailure { onSyncError?(surfacedFailure) }
+        if let durabilityFailure {
+            callbackRelay.emit(.durabilityFailure(durabilityFailure))
+            return
+        }
+        if let surfacedFailure { callbackRelay.emit(.syncError(surfacedFailure)) }
     }
 
     private func handleFailedDelete(recordID: CKRecord.ID, error: CKError) {
         var surfacedFailure: SyncFailure?
+        var durabilityFailure: MirrorDurabilityFailure?
         var resolvedRecordName: String?
+        func resolveDurably(
+            generation: UInt64?,
+            isStale: Bool,
+            resolution: ShadowDeliveryResolution
+        ) -> Bool {
+            let resolved = resolveShadowDeliveryLocked(
+                recordID: recordID,
+                mutationGeneration: generation,
+                isStale: isStale,
+                resolution: resolution)
+            if !resolved { durabilityFailure = MirrorDurabilityFailure() }
+            return resolved
+        }
+
         shadowMirrorLock.withLock {
             let sent = consumeSentGenerationLocked(recordID)
             switch Self.classifyFailedDelete(error.code) {
             case .consumed:
                 // The record (or its entire zone) is already absent, so the requested end state
                 // has been reached even though CloudKit reported the delete as a failure.
-                resolveShadowDeliveryLocked(
-                    recordID: recordID,
-                    mutationGeneration: sent.generation,
+                guard resolveDurably(
+                    generation: sent.generation,
                     isStale: sent.isStale,
-                    resolution: .consumed(nil))
+                    resolution: .consumed(nil)) else { return }
                 resolvedRecordName = recordID.recordName
 
             case .retry:
                 if sent.isStale {
                     // A newer save/delete owns the current pending slot. Consume only this old
                     // wire attempt; its exact durable successor remains in the outbox.
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: true,
-                        resolution: .consumed(nil))
+                        resolution: .consumed(nil)) else { return }
                 } else {
-                    resolveShadowDeliveryLocked(
-                        recordID: recordID,
-                        mutationGeneration: sent.generation,
+                    guard resolveDurably(
+                        generation: sent.generation,
                         isStale: false,
-                        resolution: .retry(nil))
+                        resolution: .retry(nil)) else { return }
                     syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
                 }
 
             case .blocked:
-                resolveShadowDeliveryLocked(
-                    recordID: recordID,
-                    mutationGeneration: sent.generation,
+                guard resolveDurably(
+                    generation: sent.generation,
                     isStale: sent.isStale,
-                    resolution: sent.isStale ? .consumed(nil) : .blocked)
+                    resolution: sent.isStale ? .consumed(nil) : .blocked) else { return }
                 surfacedFailure = SyncFailure(
                     recordName: recordID.recordName,
                     code: error.code,
@@ -1178,8 +1791,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             shadowCoverageRevision &+= 1
         }
-        if let surfacedFailure { onSyncError?(surfacedFailure) }
-        if let resolvedRecordName { onRecordSaved?(resolvedRecordName) }
+        if let durabilityFailure {
+            callbackRelay.emit(.durabilityFailure(durabilityFailure))
+            return
+        }
+        if let surfacedFailure { callbackRelay.emit(.syncError(surfacedFailure)) }
+        if let resolvedRecordName { callbackRelay.emit(.recordSaved(resolvedRecordName)) }
     }
 
     static func classifyFailedDelete(_ code: CKError.Code) -> FailedDeleteDisposition {
@@ -1315,6 +1932,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             mutateStoreUnderShadowGate {
                 store.removeAll()
             }
+            callbackRelay.emit(.accountChanged)
         case .signIn:
             break
         @unknown default:

@@ -1,7 +1,9 @@
 import CloudKit
 import Foundation
 import HouseholdSync
+import SimmerSmithKit
 import Testing
+@testable import SimmerSmith
 
 // e0a P2 spec §3.3: real-engine proof of gated resumable construction. The package suite pins
 // the pure reconciliation core; these tests prove the wiring against a genuine CKSyncEngine —
@@ -11,7 +13,7 @@ import Testing
 // the delegate gate, and the on-disk scope are asserted.
 
 private let bootstrapZone = CKRecordZone.ID(
-    zoneName: "household", ownerName: CKCurrentUserDefaultName)
+    zoneName: "household-bootstrap-household", ownerName: CKCurrentUserDefaultName)
 
 private func bootstrapScope() -> MirrorScope {
     MirrorScope(
@@ -88,7 +90,14 @@ private func captureSerialization(
         database: makeDatabase(), stateSerialization: nil, delegate: delegate)
     configuration.automaticallySync = false
     let engine = CKSyncEngine(configuration)
-    engine.state.add(pendingRecordZoneChanges: pending)
+    if pending.isEmpty {
+        let probe = CKSyncEngine.PendingRecordZoneChange.saveRecord(
+            CKRecord.ID(recordName: "serialization-probe", zoneID: bootstrapZone))
+        engine.state.add(pendingRecordZoneChanges: [probe])
+        engine.state.remove(pendingRecordZoneChanges: [probe])
+    } else {
+        engine.state.add(pendingRecordZoneChanges: pending)
+    }
     let expected = Set(pending)
     let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     var captured: Data?
@@ -252,6 +261,7 @@ func bootstrapUnprovenPendingRejectsAndQuarantines() async throws {
     // Rejection cleared the store before content could render and quarantined the exact scope.
     #expect(engine.bootstrapGateOutcome == .rejected)
     #expect(store.allRecords().isEmpty)
+    #expect(writer.activeGenerationLeaseCount == 0)
     let reopened = ShadowMirrorBootstrapCatalog.open(
         request: .owner(accountRecordName: "bootstrap-probe-account"), rootDirectory: root)
     guard case .none = reopened.outcome else {
@@ -271,6 +281,90 @@ func bootstrapUnprovenPendingRejectsAndQuarantines() async throws {
         automaticSync: false)
     #expect(!fallback.hasPendingRecordChanges)
     #expect(store.allRecords().isEmpty)
+}
+
+@Test("recovery overlay rejects every invalid intent before mutating the fetched store")
+func recoveryOverlayIsFailClosedAndAtomic() throws {
+    let root = try bootstrapRoot()
+    let writer = try ShadowMirrorCheckpointWriter(scope: bootstrapScope(), rootDirectory: root)
+    let valid = try ShadowMirrorRecordEnvelope.archive(
+        bootstrapRecord("valid"), in: root.appendingPathComponent("assets", isDirectory: true))
+    let validIntent = MirrorOutboxIntent(
+        sequence: 1, mutationGeneration: 1, operation: .save, record: valid,
+        changedFields: ["name"])
+    // This malformed save used to be skipped by `try? envelope.decode()` while the valid save
+    // was still applied and recovery was marked complete.
+    let invalidIntent = MirrorOutboxIntent(
+        sequence: 2, mutationGeneration: 2, operation: .save, record: nil,
+        changedFields: ["name"])
+    let plan = MirrorRecoveryPlan(
+        scope: bootstrapScope(),
+        outbox: [validIntent, invalidIntent],
+        pendingChanges: [],
+        removalProofs: [],
+        maxMutationGenerationByIdentity: [:],
+        journalHighWater: 2,
+        interventionCount: 0,
+        lease: writer.acquireGenerationLeaseSynchronously(
+            generationID: nil, pinnedJournalAssetSequences: []))
+    let store = HouseholdLocalStore()
+    let engine = HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false)
+
+    #expect(throws: MirrorCheckpointError.self) {
+        try engine.applyRecoveryPlan(plan, writer: writer)
+    }
+    #expect(store.allRecords().isEmpty)
+    #expect(!engine.hasPendingRecordChanges)
+}
+
+@Test("recovery overlay installs every normalized save and delete exactly once after the fetch barrier")
+func recoveryOverlayInstallsDurablePlanOnce() throws {
+    let root = try bootstrapRoot()
+    let writer = try ShadowMirrorCheckpointWriter(scope: bootstrapScope(), rootDirectory: root)
+    let savedRecord = bootstrapRecord("recovered-save", value: "durable")
+    let savedIdentity = MirrorRecordIdentity(savedRecord)
+    let deletedIdentity = MirrorRecordIdentity(bootstrapRecord("recovered-delete"))
+    let envelope = try ShadowMirrorRecordEnvelope.archive(
+        savedRecord, in: root.appendingPathComponent("assets", isDirectory: true))
+    let plan = MirrorRecoveryPlan(
+        scope: bootstrapScope(),
+        outbox: [
+            MirrorOutboxIntent(
+                sequence: 1, mutationGeneration: 1, operation: .save, record: envelope,
+                changedFields: ["name"]),
+            MirrorOutboxIntent(
+                sequence: 2, mutationGeneration: 1, operation: .delete, tombstone: deletedIdentity),
+        ],
+        pendingChanges: [
+            MirrorNormalizedPendingChange(identity: savedIdentity, operation: .save),
+            MirrorNormalizedPendingChange(identity: deletedIdentity, operation: .delete),
+        ],
+        removalProofs: [],
+        maxMutationGenerationByIdentity: [savedIdentity: 1, deletedIdentity: 1],
+        journalHighWater: 2,
+        interventionCount: 0,
+        lease: writer.acquireGenerationLeaseSynchronously(
+            generationID: nil, pinnedJournalAssetSequences: []))
+    let store = HouseholdLocalStore()
+    let engine = HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false)
+
+    try engine.applyRecoveryPlan(plan, writer: writer)
+    #expect(store.record(for: savedRecord.recordID)?["name"] as? String == "durable")
+    #expect(store.record(for: CKRecord.ID(recordName: "recovered-delete", zoneID: bootstrapZone)) == nil)
+    #expect(Set(engine.canonicalPendingChangesSnapshot()) == Set(plan.pendingChanges.map(MirrorEnginePendingChange.init)))
+    #expect(throws: MirrorBootstrapEngineError.activationUnavailable) {
+        try engine.applyRecoveryPlan(plan, writer: writer)
+    }
 }
 
 @Test("the closed gate holds real delegate callbacks until activation opens it")
@@ -323,4 +417,239 @@ func bootstrapGateHoldsDelegateCallbacksUntilOpen() async throws {
         drained.firstIndex { $0.hasPrefix("bootstrap gate queued") })
     let openIndex = try #require(drained.firstIndex { $0 == "bootstrap gate open" })
     #expect(queuedIndex < openIndex)
+}
+
+@MainActor
+@Test("cached bootstrap rejects a failed WAL append before mutating store or pending state while P1 remains diagnostic-only")
+func cachedWALFailureFailsClosedBeforeMutation() async throws {
+    let serialization = try await captureSerialization(pending: [])
+    let root = try bootstrapRoot()
+    let sourceWriter = try ShadowMirrorCheckpointWriter(scope: bootstrapScope(), rootDirectory: root)
+    try await sourceWriter.publish(
+        records: [bootstrapRecord("cached-base")],
+        engineState: MirrorEngineState(
+            serialization: serialization, coverageRevision: 1, zoneEnsured: true))
+    let failingWriter = try ShadowMirrorCheckpointWriter(
+        scope: bootstrapScope(),
+        rootDirectory: root,
+        failurePoint: .beforeJournalAppend)
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "bootstrap-probe-account"), rootDirectory: root)
+    guard case .cached(let bootstrap, let sourceLeaseWriter) = result.outcome else {
+        Issue.record("expected a materialized cached bootstrap")
+        return
+    }
+    defer { sourceLeaseWriter.releaseGenerationLeaseSynchronously(bootstrap.lease.id) }
+    let session = HouseholdSession(
+        householdID: bootstrap.scope.householdID,
+        bootstrapCandidate: MirrorBootstrapCandidate(
+            bootstrap: bootstrap,
+            writer: failingWriter,
+            expectedIdentity: bootstrapExpectedIdentity()))
+    defer { session.detach() }
+    #expect(session.isCachedBootstrap)
+    let cached = session.engine
+    let rejectedRecord = bootstrapRecord("must-not-mutate")
+    let pendingBefore = cached.canonicalPendingChangesSnapshot()
+
+    #expect(!cached.save(rejectedRecord))
+    #expect(session.store.record(for: rejectedRecord.recordID) == nil)
+    #expect(cached.canonicalPendingChangesSnapshot() == pendingBefore)
+
+    // The engine→session handoff must retain this automatic callback until AppState installs
+    // its dispatcher; otherwise the rejected mutation has no retry/intervention signal.
+    await Task.yield()
+    var authorityEvents: [HouseholdAuthorityEvent] = []
+    session.onAuthorityEvent = { authorityEvents.append($0) }
+    await Task.yield()
+    #expect(authorityEvents == [
+        .intervention("Couldn't save this cached change safely. Retry when storage is available.")
+    ])
+
+    let p1Store = HouseholdLocalStore()
+    let p1 = HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: p1Store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false)
+    let p1Record = bootstrapRecord("p1-still-saves")
+    #expect(p1.save(p1Record))
+    #expect(p1Store.record(for: p1Record.recordID) != nil)
+    #expect(p1.hasPendingRecordChanges)
+}
+
+@Test("recovery overlay also rejects a failed WAL append before local mutation")
+func recoveryWALFailureFailsClosedBeforeMutation() throws {
+    let root = try bootstrapRoot()
+    let writer = try ShadowMirrorCheckpointWriter(
+        scope: bootstrapScope(),
+        rootDirectory: root,
+        failurePoint: .beforeJournalAppend)
+    let plan = MirrorRecoveryPlan(
+        scope: bootstrapScope(),
+        outbox: [],
+        pendingChanges: [],
+        removalProofs: [],
+        maxMutationGenerationByIdentity: [:],
+        journalHighWater: 0,
+        interventionCount: 0,
+        lease: writer.acquireGenerationLeaseSynchronously(
+            generationID: nil,
+            pinnedJournalAssetSequences: []))
+    let store = HouseholdLocalStore()
+    let engine = HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false)
+    try engine.applyRecoveryPlan(plan, writer: writer)
+    let record = bootstrapRecord("recovery-must-not-mutate")
+
+    #expect(!engine.save(record))
+    #expect(store.record(for: record.recordID) == nil)
+    #expect(!engine.hasPendingRecordChanges)
+}
+
+@Test("recovery delete rejects a failed WAL append before local mutation")
+func recoveryDeleteWALFailureFailsClosedBeforeMutation() throws {
+    let root = try bootstrapRoot()
+    let writer = try ShadowMirrorCheckpointWriter(
+        scope: bootstrapScope(),
+        rootDirectory: root,
+        failurePoint: .beforeJournalAppend)
+    let plan = MirrorRecoveryPlan(
+        scope: bootstrapScope(),
+        outbox: [],
+        pendingChanges: [],
+        removalProofs: [],
+        maxMutationGenerationByIdentity: [:],
+        journalHighWater: 0,
+        interventionCount: 0,
+        lease: writer.acquireGenerationLeaseSynchronously(
+            generationID: nil,
+            pinnedJournalAssetSequences: []))
+    let store = HouseholdLocalStore()
+    let fetchedRecord = bootstrapRecord("recovery-delete-must-not-mutate")
+    store.setRecord(fetchedRecord)
+    let engine = HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false)
+    try engine.applyRecoveryPlan(plan, writer: writer)
+
+    engine.delete(fetchedRecord.recordID)
+
+    #expect(store.record(for: fetchedRecord.recordID) != nil)
+    #expect(!engine.hasPendingRecordChanges)
+}
+
+@MainActor
+@Test("owner and participant recovery use the production AppState direct-pending-intervention publication path")
+func ownerAndParticipantRecoveryAuthorityProductionPath() throws {
+    let participantZone = CKRecordZone.ID(
+        zoneName: "household-participant-recovery",
+        ownerName: "participant-owner")
+    let cases: [(HouseholdSessionRole, MirrorScope)] = [
+        (
+            .owner,
+            MirrorScope(
+                accountRecordName: "owner-account",
+                zoneOwnerName: CKCurrentUserDefaultName,
+                zoneName: "household-owner-recovery",
+                householdID: "owner-recovery",
+                role: .owner,
+                databaseScope: .private)),
+        (
+            .participant(sharedZoneID: participantZone),
+            MirrorScope(
+                accountRecordName: "participant-account",
+                zoneOwnerName: participantZone.ownerName,
+                zoneName: participantZone.zoneName,
+                householdID: "participant-recovery",
+                role: .participant,
+                databaseScope: .shared)),
+    ]
+
+    for (role, scope) in cases {
+        let root = try bootstrapRoot()
+        let writer = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+        let lease = writer.acquireGenerationLeaseSynchronously(
+            generationID: nil,
+            pinnedJournalAssetSequences: [])
+        let plan = MirrorRecoveryPlan(
+            scope: scope,
+            outbox: [],
+            pendingChanges: [],
+            removalProofs: [],
+            maxMutationGenerationByIdentity: [:],
+            journalHighWater: 0,
+            interventionCount: 1,
+            lease: lease)
+        let session = HouseholdSession(
+            householdID: scope.householdID,
+            role: role,
+            recoveryCandidate: MirrorRecoveryCandidate(plan: plan, writer: writer))
+        let first = CKRecord(
+            recordType: "Recipe",
+            recordID: CKRecord.ID(recordName: "pending-1", zoneID: session.zoneID))
+        let second = CKRecord(
+            recordType: "Recipe",
+            recordID: CKRecord.ID(recordName: "pending-2", zoneID: session.zoneID))
+        #expect(session.engine.save(first))
+        #expect(session.engine.save(second))
+        session.syncPhase = .synced(Date(timeIntervalSince1970: 200))
+
+        let state = AppState(
+            modelContainer: try makeSimmerSmithModelContainer(inMemory: true),
+            cacheFirstLaunchEnabled: false)
+        state.householdSession = session
+        state.publishDirectHouseholdAuthority(session: session, epoch: state.sessionBootEpoch)
+
+        #expect(session.engine.pendingRecordChangeCount == 2)
+        #expect(state.householdAuthority == .intervention(
+            message: "1 durable change needs attention."))
+        session.detach()
+        writer.releaseGenerationLeaseSynchronously(lease.id)
+    }
+}
+
+@Test("successful cached leases stay pinned through park and release only when the engine owner is disposed")
+func cachedLeaseReleasesAtTeardownOnly() async throws {
+    let serialization = try await captureSerialization(pending: [])
+    let root = try bootstrapRoot()
+    let sourceWriter = try ShadowMirrorCheckpointWriter(scope: bootstrapScope(), rootDirectory: root)
+    try await sourceWriter.publish(
+        records: [bootstrapRecord("cached-base")],
+        engineState: MirrorEngineState(
+            serialization: serialization, coverageRevision: 1, zoneEnsured: true))
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "bootstrap-probe-account"), rootDirectory: root)
+    guard case .cached(let bootstrap, let writer) = result.outcome else {
+        Issue.record("expected a materialized cached bootstrap")
+        return
+    }
+    #expect(writer.activeGenerationLeaseCount == 1)
+    var engine: HouseholdSyncEngine? = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: HouseholdLocalStore(),
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        bootstrapCandidate: MirrorBootstrapCandidate(
+            bootstrap: bootstrap,
+            writer: writer,
+            expectedIdentity: bootstrapExpectedIdentity()))
+    try engine?.activateBootstrapCandidate()
+    #expect(writer.activeGenerationLeaseCount == 1)
+
+    engine?.parkShadowMirror()
+    #expect(writer.activeGenerationLeaseCount == 1)
+    engine?.parkShadowMirror()
+    #expect(writer.activeGenerationLeaseCount == 1)
+    engine = nil
+    #expect(writer.activeGenerationLeaseCount == 0)
 }

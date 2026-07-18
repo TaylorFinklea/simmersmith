@@ -123,11 +123,15 @@ func participantExactZoneSelection() async throws {
             accountRecordName: "user-b",
             markerZone: MirrorZoneReference(ownerName: "owner-x", zoneName: "household")),
         rootDirectory: root)
-    guard case .cached(let bootstrap, _) = matched.outcome else {
-        Issue.record("expected cached participant bootstrap, got \(matched.outcome)")
+    // A legacy participant checkpoint carries only the old Boolean zone proof. It must
+    // retain its durable intent as recovery-only and take a safe full fetch; it must never
+    // render from the legacy Boolean or be quarantined merely for lacking the typed proof.
+    guard case .recoveryOnly(let plan, _) = matched.outcome else {
+        Issue.record("expected recovery-only legacy participant bootstrap, got \(matched.outcome)")
         return
     }
-    #expect(bootstrap.scope == participantScope())
+    #expect(plan.scope == participantScope())
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
 
     let wrongZone = ShadowMirrorBootstrapCatalog.open(
         request: .participant(

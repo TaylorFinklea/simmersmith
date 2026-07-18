@@ -12,6 +12,21 @@ import CloudKitProvisioning
 //
 // The safety rules live in `HouseholdZoneProvisioner.classifyLeftovers` (pure, unit-tested);
 // this is the wiring that decides WHEN the pass runs and what — if anything — reaches the UI.
+enum LeftoverHouseholdCleanupPolicy {
+    static func allows(
+        requestEpoch: Int,
+        currentEpoch: Int,
+        sessionMatches: Bool,
+        isOwner: Bool,
+        isCachedBootstrap: Bool
+    ) -> Bool {
+        requestEpoch == currentEpoch
+            && sessionMatches
+            && isOwner
+            && !isCachedBootstrap
+    }
+}
+
 extension AppState {
     /// Kick the cleanup pass, if discovery saw any leftovers. Fire-and-forget by design:
     ///
@@ -27,10 +42,25 @@ extension AppState {
     /// Clearing the ids up front makes a repeat call (a foreground retry re-booting the session)
     /// a no-op rather than a second concurrent pass over the same zones.
     func scheduleLeftoverHouseholdCleanup(keeping householdID: String) {
+        guard let session = householdSession,
+              CachedHouseholdSystemOperationPolicy.allows(
+                .leftoverCleanup,
+                isCachedBootstrap: session.isCachedBootstrap) else { return }
         guard !pendingLeftoverHouseholdIDs.isEmpty else { return }
+        let requestEpoch = sessionBootEpoch
         pendingLeftoverHouseholdIDs = []
-        Task { [weak self] in
-            await self?.cleanUpLeftoverHouseholds(keeping: householdID)
+        Task { @MainActor [weak self, weak session] in
+            guard let self, let session,
+                  LeftoverHouseholdCleanupPolicy.allows(
+                    requestEpoch: requestEpoch,
+                    currentEpoch: self.sessionBootEpoch,
+                    sessionMatches: self.householdSession === session,
+                    isOwner: session.role.isOwner,
+                    isCachedBootstrap: session.isCachedBootstrap) else { return }
+            await self.cleanUpLeftoverHouseholds(
+                keeping: householdID,
+                session: session,
+                requestEpoch: requestEpoch)
         }
     }
 
@@ -44,11 +74,29 @@ extension AppState {
     /// survives cleanup and surfaces in Settings. A zone we merely couldn't READ stays silent:
     /// a transient CloudKit hiccup must never masquerade as a fork (and it is retried next
     /// launch anyway).
-    func cleanUpLeftoverHouseholds(keeping householdID: String) async {
+    func cleanUpLeftoverHouseholds(
+        keeping householdID: String,
+        session: HouseholdSession,
+        requestEpoch: Int
+    ) async {
         do {
             let outcome = try await HouseholdZoneProvisioner()
-                .deleteEmptyHouseholdZones(keeping: householdID)
+                .deleteEmptyHouseholdZones(keeping: householdID) { @MainActor [weak self, weak session] in
+                    guard let self, let session else { return false }
+                    return LeftoverHouseholdCleanupPolicy.allows(
+                        requestEpoch: requestEpoch,
+                        currentEpoch: self.sessionBootEpoch,
+                        sessionMatches: self.householdSession === session,
+                        isOwner: session.role.isOwner,
+                        isCachedBootstrap: session.isCachedBootstrap)
+                }
 
+            guard LeftoverHouseholdCleanupPolicy.allows(
+                requestEpoch: requestEpoch,
+                currentEpoch: sessionBootEpoch,
+                sessionMatches: householdSession === session,
+                isOwner: session.role.isOwner,
+                isCachedBootstrap: session.isCachedBootstrap) else { return }
             forkedHouseholdIDs = outcome.dataBearingHouseholdIDs
 
             guard !outcome.isEmpty else { return }
@@ -56,6 +104,8 @@ extension AppState {
                 + "household(s): \(outcome.deletedHouseholdIDs.joined(separator: ", ")) · "
                 + "kept \(outcome.dataBearingHouseholdIDs.count) holding data · "
                 + "\(outcome.unreadableHouseholdIDs.count) unreadable (retried next launch)")
+        } catch is CancellationError {
+            return
         } catch {
             // Nothing was deleted — the delete is the last step and it throws as a unit. Stay
             // quiet and let the next launch retry.

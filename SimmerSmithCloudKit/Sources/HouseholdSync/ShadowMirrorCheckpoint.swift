@@ -481,11 +481,37 @@ public struct MirrorEngineState: Codable, Equatable, Sendable {
     public let serialization: Data
     public let coverageRevision: UInt64
     public let zoneEnsured: Bool
+    /// Nil is a legacy checkpoint. Participant cache eligibility requires the versioned typed
+    /// proof below; owner eligibility remains compatible with `zoneEnsured`.
+    public let participantFetchProof: MirrorParticipantFetchCheckpointProof?
 
-    public init(serialization: Data, coverageRevision: UInt64, zoneEnsured: Bool) {
+    public init(
+        serialization: Data,
+        coverageRevision: UInt64,
+        zoneEnsured: Bool,
+        participantFetchProof: MirrorParticipantFetchCheckpointProof? = nil
+    ) {
         self.serialization = serialization
         self.coverageRevision = coverageRevision
         self.zoneEnsured = zoneEnsured
+        self.participantFetchProof = participantFetchProof
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case serialization
+        case coverageRevision
+        case zoneEnsured
+        case participantFetchProof
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        serialization = try values.decode(Data.self, forKey: .serialization)
+        coverageRevision = try values.decode(UInt64.self, forKey: .coverageRevision)
+        zoneEnsured = try values.decode(Bool.self, forKey: .zoneEnsured)
+        participantFetchProof = try values.decodeIfPresent(
+            MirrorParticipantFetchCheckpointProof.self,
+            forKey: .participantFetchProof)
     }
 }
 
@@ -765,6 +791,13 @@ public enum ShadowMirrorCanonicalDigest {
         writer.append(state.serialization)
         writer.append(state.coverageRevision)
         writer.append(state.zoneEnsured ? "zone-ensured" : "zone-not-ensured")
+        // Preserve the v1 digest for a missing proof so valid legacy participant bytes stay
+        // readable as recovery-only. Typed proof extends the digest only for new checkpoints.
+        if let proof = state.participantFetchProof {
+            writer.append("participant-fetch-proof")
+            writer.append(proof.formatVersion)
+            writer.append(proof.fetch.rawValue)
+        }
         return ShadowMirrorDigest.sha256(writer.data)
     }
 }

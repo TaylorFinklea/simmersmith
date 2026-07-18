@@ -188,6 +188,9 @@ func migrateIngredientsIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
 ) async {
+    guard CachedHouseholdSystemOperationPolicy.allows(
+        .migration,
+        isCachedBootstrap: session.isCachedBootstrap) else { return }
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: ingredientMigrationScope),
         zoneID: session.zoneID

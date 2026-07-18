@@ -300,7 +300,10 @@ public struct HouseholdZoneProvisioner {
     /// Throws if the delete fails, leaving every zone intact — the pass is idempotent, so the
     /// caller's recovery is simply to try again next launch.
     @discardableResult
-    public func deleteEmptyHouseholdZones(keeping: String) async throws -> CleanupOutcome {
+    public func deleteEmptyHouseholdZones(
+        keeping: String,
+        shouldDelete: @escaping @Sendable () async -> Bool = { true }
+    ) async throws -> CleanupOutcome {
         let db = container.privateCloudDatabase
         let zones = try await db.allRecordZones()
 
@@ -317,6 +320,7 @@ public struct HouseholdZoneProvisioner {
         let outcome = Self.classifyLeftovers(censused, keeping: keeping)
         let toDelete = outcome.deletedHouseholdIDs.compactMap { zoneIDsByHousehold[$0] }
         if !toDelete.isEmpty {
+            guard await shouldDelete() else { throw CancellationError() }
             _ = try await db.modifyRecordZones(saving: [], deleting: toDelete)
         }
         return outcome

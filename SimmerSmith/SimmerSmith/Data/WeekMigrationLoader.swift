@@ -78,6 +78,9 @@ func migrateWeeksIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
 ) async {
+    guard CachedHouseholdSystemOperationPolicy.allows(
+        .migration,
+        isCachedBootstrap: session.isCachedBootstrap) else { return }
     // Gate: skip if the receipt is already present (migrated on this or another device).
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: weekMigrationScope),

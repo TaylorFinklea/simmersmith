@@ -285,6 +285,17 @@ final class AppState {
 
     /// Current phase of the iCloud-native launch gate.
     var householdLaunchPhase: HouseholdLaunchPhase = .resolving
+    /// Orthogonal authority state: cached content can be visible before reconciliation.
+    var householdAuthority: HouseholdAuthorityState = .none
+    /// Independent per-user private-plane availability. Cached household content may render
+    /// while this remains loading or unavailable.
+    var personalDataReadiness: PersonalDataReadiness = .unavailable
+    /// The intentionally deferred cached private-plane open. It is cancelled at teardown so a
+    /// successor session cannot receive a stale repository reload.
+    @ObservationIgnored var cachedPrivatePlaneTask: Task<Void, Never>?
+    /// Resolved once at construction and injected through the session boot path.
+    let cacheFirstLaunchEnabled: Bool
+    static let cacheFirstLaunchOverrideKey = "sm.cacheFirstLaunchOverride"
 
     /// Single source of truth: this build is CloudKit-only. Features not yet
     /// migrated to CloudKit (Weeks / Grocery / Events / Profile / AI) render
@@ -317,7 +328,8 @@ final class AppState {
     init(
         modelContainer: ModelContainer,
         settingsStore: ConnectionSettingsStore = .shared,
-        apiClient: SimmerSmithAPIClient? = nil
+        apiClient: SimmerSmithAPIClient? = nil,
+        cacheFirstLaunchEnabled: Bool? = nil
     ) {
         self.settingsStore = settingsStore
         let connection = settingsStore.load()
@@ -325,6 +337,28 @@ final class AppState {
         self.authTokenDraft = connection.authToken
         self.cacheStore = SimmerSmithCacheStore(modelContainer: modelContainer)
         self.apiClient = apiClient ?? SimmerSmithAPIClient(settingsStore: settingsStore)
+        self.cacheFirstLaunchEnabled = cacheFirstLaunchEnabled ?? Self.resolveCacheFirstLaunchPolicy()
+    }
+
+    private static func resolveCacheFirstLaunchPolicy() -> Bool {
+        #if DEBUG
+        let receipt: CacheFirstReceiptEnvironment = .debug
+        let isDebug = true
+        #else
+        let receipt: CacheFirstReceiptEnvironment
+        switch Bundle.main.appStoreReceiptURL?.lastPathComponent {
+        case "sandboxReceipt": receipt = .sandbox
+        case "receipt": receipt = .appStore
+        default: receipt = .unknown
+        }
+        let isDebug = false
+        #endif
+        let override = UserDefaults.standard.object(forKey: cacheFirstLaunchOverrideKey) as? Bool
+        return CacheFirstLaunchPolicy.resolve(
+            staticDefault: false,
+            installOverride: override,
+            receipt: receipt,
+            isDebug: isDebug).enabled
     }
 
     var hasSavedConnection: Bool {
@@ -661,4 +695,161 @@ final class AppState {
     var hasCachedContent: Bool {
         profile != nil || currentWeek != nil || !recipes.isEmpty || !exports.isEmpty
     }
+}
+
+/// Receipt environment used to resolve the test-only cache-first launch policy.
+enum CacheFirstReceiptEnvironment: Equatable {
+    case debug
+    case sandbox
+    case appStore
+    case unknown
+}
+
+/// Pure launch policy. The shipping default is intentionally off; only DEBUG or a sandbox
+/// receipt may honor the install-local override.
+struct CacheFirstLaunchPolicy: Equatable {
+    let enabled: Bool
+
+    static func resolve(
+        staticDefault: Bool,
+        installOverride: Bool?,
+        receipt: CacheFirstReceiptEnvironment,
+        isDebug: Bool
+    ) -> CacheFirstLaunchPolicy {
+        guard isDebug || receipt == .sandbox else {
+            return CacheFirstLaunchPolicy(enabled: staticDefault && receipt == .appStore)
+        }
+        return CacheFirstLaunchPolicy(enabled: installOverride ?? staticDefault)
+    }
+}
+
+/// Household content availability is intentionally separate from sync authority.
+enum HouseholdAuthorityState: Equatable {
+    case none
+    case reconciling(cachedAt: Date)
+    case current(Date)
+    case offlineCached(cachedAt: Date)
+    case pending(count: Int)
+    case degraded(message: String)
+    case intervention(message: String)
+}
+
+/// Foreground must not treat a visible cached session as terminal when its previous
+/// reconciliation was offline or degraded. The retry itself still goes through AppState's
+/// serialized boot queue so it cannot overlap an adoption or another boot operation.
+enum CachedForegroundRetryPolicy {
+    static func shouldRetry(hasCachedSession: Bool, authority: HouseholdAuthorityState) -> Bool {
+        guard hasCachedSession else { return false }
+        switch authority {
+        case .offlineCached, .degraded:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// Direct/recovery publication is explicit: a successful direct boot becomes current first,
+/// then reports the exact durable pending count, then terminally surfaces any intervention.
+/// An offline direct boot remains content-compatible but never claims current authority.
+enum DirectHouseholdAuthorityPlan {
+    static func events(
+        isSynchronized: Bool,
+        pendingCount: Int,
+        interventionCount: Int,
+        now: Date
+    ) -> [HouseholdAuthorityEvent] {
+        guard isSynchronized else {
+            return [.degraded("Household sync is offline.")]
+        }
+        var events: [HouseholdAuthorityEvent] = [
+            .directReady(now),
+            .pending(count: pendingCount),
+        ]
+        if interventionCount > 0 {
+            let noun = interventionCount == 1 ? "change" : "changes"
+            let verb = interventionCount == 1 ? "needs" : "need"
+            events.append(.intervention("\(interventionCount) durable \(noun) \(verb) attention."))
+        }
+        return events
+    }
+}
+
+/// P2e's complete fail-closed inventory for local-absence and system operations. P2f replaces
+/// this blanket cached-session denial with exact authority/lifecycle checks.
+enum CachedHouseholdSystemOperation: CaseIterable {
+    case migration
+    case currentWeekCreation
+    case repair
+    case leftoverCleanup
+    case factoryReset
+    case ownerShareCreation
+    case backupRestore
+}
+
+enum CachedHouseholdSystemOperationPolicy {
+    static func allows(
+        _ operation: CachedHouseholdSystemOperation,
+        isCachedBootstrap: Bool
+    ) -> Bool {
+        !isCachedBootstrap
+    }
+}
+
+enum PersonalDataReadiness: Equatable {
+    case unavailable
+    case loading
+    case ready
+}
+
+enum HouseholdAuthorityEvent: Equatable {
+    case cachedReady(Date)
+    case directReady(Date)
+    case reconciliationSucceeded(Date)
+    case reconciliationFailed(String)
+    case retry(Date)
+    case pending(count: Int)
+    case degraded(String)
+    case intervention(String)
+    case resolveIntervention(Date)
+    case teardown
+}
+
+/// Pure, epoch-aware authority reducer. Callers pass the captured epoch and exact session
+/// identity after every await; stale events are no-ops and cannot resurrect a torn-down session.
+enum HouseholdAuthorityReducer {
+    static func reduce(
+        _ state: HouseholdAuthorityState,
+        event: HouseholdAuthorityEvent,
+        epoch: Int,
+        currentEpoch: Int,
+        sessionMatches: Bool,
+        now: Date = Date()
+    ) -> HouseholdAuthorityState {
+        guard epoch == currentEpoch, sessionMatches else { return state }
+        if case .teardown = event { return .none }
+        if case .intervention(let message) = event { return .intervention(message: message) }
+        if case .intervention = state {
+            guard case .resolveIntervention(let date) = event else { return state }
+            return .current(date)
+        }
+        switch event {
+        case .cachedReady(let date): return .reconciling(cachedAt: date)
+        case .directReady(let date): return .current(date)
+        case .reconciliationSucceeded(let date):
+            if case .pending = state { return state }
+            return .current(date)
+        case .reconciliationFailed:
+            if case .reconciling(let date) = state { return .offlineCached(cachedAt: date) }
+            return .degraded(message: "Household reconciliation failed.")
+        case .retry(let date): return .reconciling(cachedAt: date)
+        case .pending(let count):
+            if count > 0 { return .pending(count: count) }
+            if case .pending = state { return .current(now) }
+            return state
+        case .degraded(let message): return .degraded(message: message)
+        case .intervention, .resolveIntervention, .teardown: return state
+        }
+    }
+
 }

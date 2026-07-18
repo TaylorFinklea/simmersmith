@@ -2007,3 +2007,30 @@ publication-fence flag would duplicate what the gate already guarantees and coul
 quarantined at the seam on every launch — safe but wasteful (full fetch each boot, cache never
 sticks). P2e/P2f should either demote such checkpoints to recovery-only at the catalog or give
 participant scopes their own zone-ensured semantics before the opt-in device gate.
+
+## 2026-07-18 — P2e cached boot stays default-off and treats durable state as authority, not convenience
+
+**Decision.** P2e adds only an injected/testable cache-first switch; the shipping default remains
+off and there is no UI or TestFlight override. An owner may render only an exact account-bound
+owner/private checkpoint. A participant may render only after a typed proof records a successful
+fetch of that exact shared zone; legacy Boolean `zoneEnsured` never grants participant authority
+and instead yields recovery-only. Recovery-only always completes the existing nil-state P1 full
+fetch before atomically overlaying the durable plan.
+
+Every cached/recovery mutation and delivery transition must be durable before local mutation or
+CloudKit handoff, including conflict rebases, sent markers, acknowledgements, failures, and remote
+delete supersession. Cached sessions deny repair, dedupe, migration, absence-derived creation,
+zone recreation, cleanup, and reset entry points. A generation lease pins checkpoint and WAL
+asset roots through engine/batch teardown; scope/root retirement becomes durable deferred work
+while any process lease remains. Account change and participant revocation increment the boot
+epoch before teardown so stale async work cannot restore authority.
+
+Cached authority is published before buffered authority callbacks drain, while legacy store,
+repair, and sync-status callbacks remain immediate. `SyncStatusCenter` keeps its P1 Boolean
+pending contract (`0`/`1`); only the new authority projection receives exact counts.
+
+**Why.** P2e is allowed to improve cold-launch visibility but not to reinterpret stale absence,
+lose durable intent, expose participant data without positive server proof, or weaken the exact P1
+fallback. Keeping the feature default-off and making every unsafe ambiguity fail closed leaves
+P2f/P2g to add broader authority/lifecycle behavior and performance evidence without turning this
+test-only slice into a release control.

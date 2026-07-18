@@ -94,6 +94,12 @@ extension AppState {
     /// Idempotent / re-runnable: re-running re-wipes then re-imports; the receipts make every
     /// loader a safe retry and the wipe makes the whole thing safe to repeat.
     func startFreshFromFly(appleIdentityToken: String) async {
+        guard CachedHouseholdSystemOperationPolicy.allows(
+            .factoryReset,
+            isCachedBootstrap: householdSession?.isCachedBootstrap == true) else {
+            startFreshState = .failed("Finish household reconciliation before resetting.")
+            return
+        }
         // 1. AUTH FIRST — fail before wiping if the token is bad.
         startFreshState = .running(progress: "Signing in to your account…")
 
@@ -128,7 +134,12 @@ extension AppState {
         //    Holding `privateStore` in scope across teardown + mint keeps the container alive so the
         //    export has the best chance to run before the new container mirrors the DB.
         startFreshState = .running(progress: "Erasing CloudKit households…")
-        let privateStore = householdSession?.privateStore
+        guard let resetSession = householdSession else {
+            discardOneShotJWT()
+            startFreshState = .failed("Couldn't access the active household session.")
+            return
+        }
+        let privateStore = resetSession.privateStore
 
         // simmersmith-glw: quiesce the repair scheduler BEFORE the zone wipe. Unlike the
         // sync `deactivate()` used by sign-out/adopt teardown (`HouseholdSession.clearState()`
@@ -137,7 +148,20 @@ extension AppState {
         // Without this, a repair pass's mid-flight save can hit `.zoneNotFound` right after
         // `deleteAllHouseholdZones()` below, and `HouseholdSyncEngine.handleFailedSave`'s
         // owner-path zone RE-CREATION resurrects the zone this step is about to delete.
-        await householdSession?.repairScheduler.quiesce()
+        await resetSession.repairScheduler.quiesce()
+        guard householdSession === resetSession else {
+            discardOneShotJWT()
+            startFreshState = .failed("The household session changed during reset.")
+            return
+        }
+        // Retire the cache root before deleting server zones. A crash after the remote wipe must
+        // never leave the pre-reset household selectable on next launch.
+        let shadowCacheRetired = resetSession.invalidateShadowCacheForDestructiveReset()
+        guard shadowCacheRetired else {
+            discardOneShotJWT()
+            startFreshState = .failed("Couldn't safely retire the local household cache.")
+            return
+        }
 
         let provisioner = HouseholdZoneProvisioner()
         do {

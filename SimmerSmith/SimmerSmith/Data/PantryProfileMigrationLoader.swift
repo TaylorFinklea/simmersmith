@@ -76,6 +76,9 @@ func migratePantryProfileIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
 ) async {
+    guard CachedHouseholdSystemOperationPolicy.allows(
+        .migration,
+        isCachedBootstrap: session.isCachedBootstrap) else { return }
     // Gate: skip if the private-plane receipt is already present. A nil privateStore means
     // the private plane didn't boot (iCloud unavailable or container creation failed) —
     // leave the receipt unstamped so the next launch with a working private plane retries.

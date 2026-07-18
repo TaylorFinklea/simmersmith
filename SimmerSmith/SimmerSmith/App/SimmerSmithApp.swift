@@ -90,7 +90,10 @@ struct SimmerSmithApp: App {
             // unavailable or transient error), retry whenever the user foregrounds —
             // they may have signed into iCloud in Settings and come back.
             #if canImport(CloudKit)
-            if newPhase == .active && appState.householdLaunchPhase != .ready {
+            if newPhase == .active && (
+                appState.householdLaunchPhase != .ready
+                    || appState.shouldRetryCachedHouseholdOnForeground
+            ) {
                 Task { await appState.ensureHouseholdSession() }
             }
             // Drain a pending accepted share on every foreground — even when already .ready —

@@ -88,3 +88,41 @@ performance evidence; P2h adds device-gate evidence.
 - Carried forward: read-only-participant `zoneEnsured == false` checkpoints reject+quarantine
   on every launch (safe, wasteful) — P2e/P2f must demote to recovery-only at the catalog or
   revisit participant zone-ensured semantics (decisions.md flag).
+
+## P2e — test-only cached app boot/state
+
+- Shipping policy remains default-off and injected; no UI, TestFlight control, release, schema,
+  or build-number change. Gate-off owner/participant construction preserves the P1 nil-state,
+  full-fetch, `ownsZone`, repair, repository, and Boolean pending-status behavior.
+- Owner selection requires the exact CloudKit account plus one owner/private scope. Participant
+  selection requires the exact share marker plus a typed successful fetch proof for that shared
+  zone; legacy participant checkpoints are recovery-only. Recovery completes the P1 full fetch
+  before atomically validating and overlaying every durable intent.
+- Cached boot activates the gated engine, wires repositories, publishes cached authority and
+  readiness, then reconciles. Callback relay ordering is serialized; cached authority establishes
+  its baseline before buffered authority events drain, while legacy store/repair/status effects
+  remain immediate. Epoch and exact-session checks fence every async publication, private-plane
+  reload, retry, account change, and participant revocation.
+- Cached/recovery save, delete, conflict rebase, sent, acknowledge, delivery-failure, and remote
+  deletion transitions fail closed before active mutation or CloudKit handoff. Mixed WAL state is
+  retained for restart normalization when a later transition fails. Cached sessions also deny
+  repair, manual grocery dedupe, migrations, absence-derived week creation, zone recreation,
+  leftover cleanup, and factory reset until durable retirement succeeds.
+- Generation leases pin checkpoint and WAL asset roots through `CKSyncEngine` and retained batch
+  teardown. Scope/root clear or quarantine writes a durable deferred marker while any process
+  lease remains; deinit disposes the engine before releasing its lease or moving asset roots.
+- Final correction after the first full signed suite: the WAL-failure test now creates its
+  failure-injected writer before cached lease acquisition, matching the intentional prohibition
+  on opening a new writer for a leased scope.
+- Independent final review: `APPROVED` after complete `git diff HEAD` inspection.
+- Verify 2026-07-18:
+  - `swift test --package-path SimmerSmithCloudKit` — **632 passed**.
+  - `swift test --package-path SimmerSmithKit` — **187 passed, 8 skipped**.
+  - signed `xcodebuild test ... -only-testing:SimmerSmithTests` — **152 Swift Testing tests
+    passed**; expected accountless-simulator CloudKit logs only.
+  - `xcodebuild build ... -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` —
+    **BUILD SUCCEEDED**.
+  - exact focused P2e regressions and `git diff --check HEAD` — passed.
+- Residual release evidence is intentionally deferred: authenticated device behavior and default-on
+  remain P2h gates. The temporary local Ballast resolution symlink used for app verification was
+  removed and is not part of the candidate.

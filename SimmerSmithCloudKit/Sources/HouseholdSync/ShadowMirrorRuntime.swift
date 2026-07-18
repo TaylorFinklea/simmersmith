@@ -45,6 +45,7 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
         let serialization: Data
         let coverageRevision: UInt64
         let zoneEnsured: Bool
+        let participantFetchProof: MirrorParticipantFetchCheckpointProof?
     }
 
     private let writer: ShadowMirrorCheckpointWriter
@@ -97,18 +98,40 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
     func observeStateUpdate(
         _ serialization: Data,
         coverageRevision: UInt64,
-        zoneEnsured: Bool
+        zoneEnsured: Bool,
+        participantFetchProof: MirrorParticipantFetchCheckpointProof? = nil
     ) throws -> ShadowMirrorPublication? {
         lock.lock(); defer { lock.unlock() }
         guard !fenced else { return nil }
         stateHistory.append(StateSnapshot(
             serialization: serialization,
             coverageRevision: coverageRevision,
-            zoneEnsured: zoneEnsured))
+            zoneEnsured: zoneEnsured,
+            participantFetchProof: participantFetchProof))
         if stateHistory.count > 256 {
             stateHistory.removeFirst(stateHistory.count - 256)
         }
         return try capturePublicationIfCovered()
+    }
+
+    /// Bind typed participant evidence to the latest state boundary covered by this fetch before
+    /// that boundary can publish. `didFetchRecordZoneChanges` can arrive after `.stateUpdate`;
+    /// mutating only the engine's parallel history would otherwise persist stale nil proof here.
+    func bindParticipantFetchProof(
+        _ proof: MirrorParticipantFetchCheckpointProof,
+        coverageRevision: UInt64
+    ) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !fenced,
+              let index = stateHistory.indices.last(where: {
+                  stateHistory[$0].coverageRevision <= coverageRevision
+              }) else { return }
+        let state = stateHistory[index]
+        stateHistory[index] = StateSnapshot(
+            serialization: state.serialization,
+            coverageRevision: state.coverageRevision,
+            zoneEnsured: state.zoneEnsured,
+            participantFetchProof: proof)
     }
 
     /// Publish a previously captured boundary without holding the engine mirror gate. Later
@@ -183,7 +206,7 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
                 clearedFields: Array(changedKeys.subtracting(presentKeys)))
             return true
         } catch {
-            quarantineLocked()
+            fencePreservingRecoveryLocked()
             return false
         }
     }
@@ -199,7 +222,7 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
             _ = try writer.appendDeleteSynchronously(tombstone, mutationGeneration: mutationGeneration)
             return true
         } catch {
-            quarantineLocked()
+            fencePreservingRecoveryLocked()
             return false
         }
     }
@@ -231,6 +254,46 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
                     mutationGeneration: mutationGeneration,
                     rebasedRecord: rebasedRecord)
             }
+    }
+
+    /// A fetched server deletion resolves every unsent/in-flight intent for the identity. Saves
+    /// become terminally superseded; deletes are acknowledged (marking pending rows sent first)
+    /// because the observed remote absence confirms their desired outcome.
+    @discardableResult
+    public func resolveRemoteDelete(recordID: CKRecord.ID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !fenced, cacheReady else { return false }
+        do {
+            let intents = try writer.recoveryStateSynchronously().outbox.filter {
+                ($0.delivery.state == .pending || $0.delivery.state == .sent)
+                    && Self.matches($0, recordID: recordID)
+            }
+            guard !intents.isEmpty else {
+                quarantineLocked()
+                return false
+            }
+            for intent in intents {
+                switch intent.operation {
+                case .save:
+                    _ = try writer.markSupersededByRemoteDeleteSynchronously(
+                        sequence: intent.sequence,
+                        mutationGeneration: intent.mutationGeneration)
+                case .delete:
+                    if intent.delivery.state == .pending {
+                        _ = try writer.markSentSynchronously(
+                            sequence: intent.sequence,
+                            mutationGeneration: intent.mutationGeneration)
+                    }
+                    _ = try writer.acknowledgeSynchronously(
+                        sequence: intent.sequence,
+                        mutationGeneration: intent.mutationGeneration)
+                }
+            }
+            return true
+        } catch {
+            fencePreservingRecoveryLocked()
+            return false
+        }
     }
 
     @discardableResult
@@ -271,6 +334,17 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
         writer.fenceSynchronously()
     }
 
+    /// Teardown-safe clear request. Unlike `clear()`, this does not wait for an in-flight
+    /// generation build; the writer fence prevents that build from installing afterward.
+    public func requestClear() throws {
+        lock.lock(); defer { lock.unlock() }
+        fenced = true
+        try writer.fenceAndRequestClearSynchronously()
+        completedFetch = nil
+        stateHistory = []
+        cacheReady = false
+    }
+
     public func clear() throws {
         lock.lock(); defer { lock.unlock() }
         fenced = true
@@ -292,7 +366,8 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
             engineState: MirrorEngineState(
                 serialization: latestState.serialization,
                 coverageRevision: latestState.coverageRevision,
-                zoneEnsured: latestState.zoneEnsured),
+                zoneEnsured: latestState.zoneEnsured,
+                participantFetchProof: latestState.participantFetchProof),
             recoveryState: try writer.recoveryStateSynchronously())
         publicationOutstanding = true
         self.completedFetch = nil
@@ -355,9 +430,19 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
             try transition(intent)
             return true
         } catch {
-            quarantineLocked()
+            // A filesystem transition failure does not prove the previously durable WAL is
+            // corrupt. Fence this session but leave the scope in place so earlier batch rows
+            // already marked sent can be normalized to restart-retry on the next launch.
+            fencePreservingRecoveryLocked()
             return false
         }
+    }
+
+    private func fencePreservingRecoveryLocked() {
+        cacheReady = false
+        guard !fenced else { return }
+        fenced = true
+        writer.fenceSynchronously()
     }
 
     private func quarantineLocked() {

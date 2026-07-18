@@ -333,6 +333,9 @@ extension AppState {
     func dedupeGrocery(weekID: String) async throws {
         #if canImport(CloudKit)
         if let groceryRepo = groceryRepository {
+            guard CachedHouseholdSystemOperationPolicy.allows(
+                .repair,
+                isCachedBootstrap: householdSession?.isCachedBootstrap == true) else { return }
             _ = groceryRepo.dedupe(weekID: weekID)
             householdSession?.repairScheduler.signal()
             weekRepository?.reload()

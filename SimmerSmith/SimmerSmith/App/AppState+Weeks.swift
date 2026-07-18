@@ -186,6 +186,9 @@ extension AppState {
     /// active plan. `asMealUpdateRequest()` preserves each `mealId`, so the carry-over is
     /// deterministic (no duplicate meal records if two devices do it).
     func ensureCurrentCloudKitWeek() async {
+        guard CachedHouseholdSystemOperationPolicy.allows(
+            .currentWeekCreation,
+            isCachedBootstrap: householdSession?.isCachedBootstrap == true) else { return }
         guard let repo = weekRepository else { return }
         let today = Date()
 

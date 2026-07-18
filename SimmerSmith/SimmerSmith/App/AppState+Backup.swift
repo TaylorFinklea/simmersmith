@@ -20,9 +20,12 @@ extension AppState {
 
     enum BackupRestoreError: LocalizedError {
         case noSession
+        case cachedBootstrapDenied
         var errorDescription: String? {
             switch self {
             case .noSession: return "Your household isn't loaded yet — try again in a moment."
+            case .cachedBootstrapDenied:
+                return "Finish household reconciliation before restoring a backup."
             }
         }
     }
@@ -148,6 +151,11 @@ extension AppState {
     /// now but absent from the backup are LEFT ALONE — restoring can only bring data back.
     func restoreHousehold(from backup: HouseholdBackup) async throws {
         guard let session = householdSession else { throw BackupRestoreError.noSession }
+        guard CachedHouseholdSystemOperationPolicy.allows(
+            .backupRestore,
+            isCachedBootstrap: session.isCachedBootstrap) else {
+            throw BackupRestoreError.cachedBootstrapDenied
+        }
         syncPhase = .loading
         // Reconcile first so the upsert merges against current server state.
         try await session.engine.fetchChanges()

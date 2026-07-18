@@ -7,6 +7,17 @@ import SimmerSmithKit
 import CloudKitProvisioning
 import HouseholdSync
 
+enum HouseholdSessionInterventionCountPolicy {
+    static func resolve(
+        cachedBootstrapActivated: Bool,
+        cachedCandidateCount: Int?,
+        recoveryCandidateCount: Int?
+    ) -> Int {
+        if cachedBootstrapActivated { return cachedCandidateCount ?? 0 }
+        return recoveryCandidateCount ?? 0
+    }
+}
+
 /// Whether this session OWNS the household zone (its own private DB) or PARTICIPATES in
 /// someone else's shared zone (the shared DB). Default `.owner` preserves every existing
 /// call site. A participant carries the owner's zone ID, recovered from CKShare metadata
@@ -16,6 +27,34 @@ enum HouseholdSessionRole: Equatable {
     case owner
     case participant(sharedZoneID: CKRecordZone.ID)
     var isOwner: Bool { if case .owner = self { return true } else { return false } }
+}
+
+/// Small ordered handoff used by the engine→session authority bridge. Legacy session effects
+/// are applied immediately; only the authority projection waits for AppState's dispatcher and
+/// then drains exactly once in arrival order.
+final class OrderedCallbackBuffer<Event> {
+    private var sink: ((Event) -> Void)?
+    private var pending: [Event] = []
+
+    func submit(_ event: Event) {
+        if let sink {
+            sink(event)
+        } else {
+            pending.append(event)
+        }
+    }
+
+    func install(_ sink: @escaping (Event) -> Void) {
+        self.sink = sink
+        let events = pending
+        pending = []
+        events.forEach(sink)
+    }
+
+    func clear() {
+        sink = nil
+        pending = []
+    }
 }
 
 /// SP-C: the single app-lifetime owner of the household CloudKit planes.
@@ -44,6 +83,44 @@ final class HouseholdSession {
     /// construction) keep compiling without a center — nil means "no-op, no behavioral
     /// change", mirroring `engine.onStoreChanged`/`onSyncError` being nil by default.
     private let syncStatusCenter: SyncStatusCenter?
+    private enum EngineCallback {
+        case storeChanged(pendingCount: Int)
+        case syncError(SyncFailure)
+        case recordSaved(String)
+        case durabilityFailure(MirrorDurabilityFailure)
+        case participantRevoked
+        case accountChanged
+    }
+    private let authorityEventBuffer = OrderedCallbackBuffer<HouseholdAuthorityEvent>()
+    private let participantRevocationBuffer = OrderedCallbackBuffer<Void>()
+    private let accountChangeBuffer = OrderedCallbackBuffer<Void>()
+    var onAuthorityEvent: ((HouseholdAuthorityEvent) -> Void)? {
+        didSet {
+            if let onAuthorityEvent {
+                authorityEventBuffer.install(onAuthorityEvent)
+            } else {
+                authorityEventBuffer.clear()
+            }
+        }
+    }
+    var onParticipantRevoked: (() -> Void)? {
+        didSet {
+            if let onParticipantRevoked {
+                participantRevocationBuffer.install { _ in onParticipantRevoked() }
+            } else {
+                participantRevocationBuffer.clear()
+            }
+        }
+    }
+    var onAccountChanged: (() -> Void)? {
+        didSet {
+            if let onAccountChanged {
+                accountChangeBuffer.install { _ in onAccountChanged() }
+            } else {
+                accountChangeBuffer.clear()
+            }
+        }
+    }
     /// SP-A Phase 4/5 follow-up (simmersmith-gju) — debounced cross-record repair layer
     /// (WeekRepairAdapter + EventMergeAdapter.dedupeWeekGrocery), previously only reachable
     /// from the DEBUG screen. Signaled on every post-fetch/post-send change below, and
@@ -83,7 +160,16 @@ final class HouseholdSession {
     private let stateURL: URL
     /// Scoped P1 shadow generations live beside, but never replace, the legacy active-engine
     /// state token. A new session receives a complete `MirrorScope` only after identity resolves.
-    private let shadowMirrorRootURL: URL
+    let shadowMirrorRootURL: URL
+    /// True only when a verified P2e candidate was constructed and activated. A rejected
+    /// candidate falls back to the existing nil-state/full-fetch engine.
+    let isCachedBootstrap: Bool
+    let isRecoveryOnly: Bool
+    /// Recovery-only content remains non-renderable until the nil-state full fetch and atomic
+    /// durable overlay both succeed. A transient fetch failure must not wire `.ready`.
+    private(set) var recoveryOnlyFetchSucceeded = false
+    let cachedInterventionCount: Int
+    private let recoveryCandidate: MirrorRecoveryCandidate?
     /// Invalidated by clear/detach so a late account-identity callback cannot re-enable an old
     /// writer after this session has been torn down or parked for adoption.
     private var shadowCaptureNonce = UUID()
@@ -93,13 +179,24 @@ final class HouseholdSession {
     /// Mirrors the sync-engine lifecycle; repositories and UI observe this.
     var syncPhase: AppState.SyncPhase = .idle
 
+    enum CachedHouseholdReconciliationOutcome: Equatable {
+        case succeeded(pendingCount: Int)
+        case failed
+    }
+
     /// Bumped after every remote change batch or authoritative server write so that
     /// @Observable consumers (repositories, views) know to re-read the store.
     var storeRevision: Int = 0
 
     // MARK: — Init
 
-    init(householdID: String, role: HouseholdSessionRole = .owner, syncStatusCenter: SyncStatusCenter? = nil) {
+    init(
+        householdID: String,
+        role: HouseholdSessionRole = .owner,
+        syncStatusCenter: SyncStatusCenter? = nil,
+        bootstrapCandidate: MirrorBootstrapCandidate? = nil,
+        recoveryCandidate: MirrorRecoveryCandidate? = nil
+    ) {
         let containerID = "iCloud.app.simmersmith.cloud"
         let container = CKContainer(identifier: containerID)
         // Owner reads/writes its OWN private DB; a participant reaches the owner's zone
@@ -154,22 +251,63 @@ final class HouseholdSession {
         // start delivering background `handleEvent` callbacks — closing the race where an
         // early remote change fell through to blanket LWW instead of `FieldMergeResolver`.
         let store = HouseholdLocalStore()
-        let engine = HouseholdSyncEngine(
-            database: database,
-            zoneID: zoneID,
-            store: store,
-            stateURL: stateURL,
-            automaticSync: true,
-            ownsZone: role.isOwner,
-            merger: DispatchingMerger([
-                GrocerySyncMerger(),
-                EventGrocerySyncMerger(),
-                EventSyncMerger(),
-            ]),
-            shadowMirrorRootDirectory: shadowMirrorRootURL
-        )
+        let merger = DispatchingMerger([
+            GrocerySyncMerger(),
+            EventGrocerySyncMerger(),
+            EventSyncMerger(),
+        ])
+        let engine: HouseholdSyncEngine
+        let cachedBootstrap: Bool
+        if let bootstrapCandidate {
+            do {
+                let candidateEngine = try HouseholdSyncEngine(
+                    database: database,
+                    zoneID: zoneID,
+                    store: store,
+                    stateURL: stateURL,
+                    automaticSync: true,
+                    merger: merger,
+                    bootstrapCandidate: bootstrapCandidate,
+                    shadowMirrorRootDirectory: shadowMirrorRootURL,
+                    dataPlaneMode: .cached)
+                try candidateEngine.activateBootstrapCandidate()
+                engine = candidateEngine
+                cachedBootstrap = true
+            } catch {
+                engine = HouseholdSyncEngine(
+                    database: database,
+                    zoneID: zoneID,
+                    store: store,
+                    stateURL: stateURL,
+                    automaticSync: true,
+                    ownsZone: role.isOwner,
+                    merger: merger,
+                    shadowMirrorRootDirectory: shadowMirrorRootURL,
+                    dataPlaneMode: .normal)
+                cachedBootstrap = false
+            }
+        } else {
+            engine = HouseholdSyncEngine(
+                database: database,
+                zoneID: zoneID,
+                store: store,
+                stateURL: stateURL,
+                automaticSync: true,
+                ownsZone: role.isOwner,
+                merger: merger,
+                shadowMirrorRootDirectory: shadowMirrorRootURL,
+                dataPlaneMode: .normal)
+            cachedBootstrap = false
+        }
         self.store = store
         self.engine = engine
+        self.isCachedBootstrap = cachedBootstrap
+        self.isRecoveryOnly = recoveryCandidate != nil && !cachedBootstrap
+        self.cachedInterventionCount = HouseholdSessionInterventionCountPolicy.resolve(
+            cachedBootstrapActivated: cachedBootstrap,
+            cachedCandidateCount: bootstrapCandidate?.bootstrap.interventionCount,
+            recoveryCandidateCount: recoveryCandidate?.plan.interventionCount)
+        self.recoveryCandidate = recoveryCandidate
         self.repairScheduler = RepairScheduler.householdRepairs(
             engine: engine, zoneID: zoneID, ownsZone: role.isOwner
         )
@@ -178,45 +316,75 @@ final class HouseholdSession {
         // Construction mirrors CloudKitDebugView.runPublicCatalogCheck (line 1092).
         self.catalog = PublicCatalogReader(database: container.publicCloudDatabase)
 
-        // simmersmith-c7r: wired LAST — after every stored property has a value — since
-        // capturing `self` in a closure (even weakly) requires `self` to be fully
-        // initialized first. Closes the same background-delivery race as the merger: the
-        // closure exists before `start()` runs, so an automatic-sync event that fires
-        // before `start()` still has a live signal to call.
-        engine.onStoreChanged = { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.storeRevision += 1
-                self.repairScheduler.signal()
-                // simmersmith-qrt: piggyback the sync-status feed on the same per-event
-                // signal — no new engine API. Pending count is the boolean
-                // `hasPendingRecordChanges` (0/1, per spec); no pending work left after
-                // this batch is treated as a success tick.
-                let pendingCount = self.engine.hasPendingRecordChanges ? 1 : 0
-                self.syncStatusCenter?.setPendingCount(pendingCount)
-                if pendingCount == 0 {
-                    self.syncStatusCenter?.recordSyncSuccess(Date())
+        // Install all handlers atomically after every stored property exists. The engine keeps
+        // construction-time automatic callbacks in order until this point; this session keeps
+        // them again until AppState installs its authority dispatcher.
+        engine.installEventHandlers(
+            onStoreChanged: { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.receiveEngineCallback(.storeChanged(
+                        pendingCount: self.engine.pendingRecordChangeCount))
                 }
+            },
+            onSyncError: { [weak self] failure in
+                Task { @MainActor in
+                    self?.receiveEngineCallback(.syncError(failure))
+                }
+            },
+            onRecordSaved: { [weak self] recordName in
+                Task { @MainActor in
+                    self?.receiveEngineCallback(.recordSaved(recordName))
+                }
+            },
+            onMirrorDurabilityFailure: { [weak self] failure in
+                Task { @MainActor in
+                    self?.receiveEngineCallback(.durabilityFailure(failure))
+                }
+            },
+            onParticipantRevoked: { [weak self] in
+                Task { @MainActor in
+                    self?.receiveEngineCallback(.participantRevoked)
+                }
+            },
+            onAccountChanged: { [weak self] in
+                Task { @MainActor in
+                    self?.receiveEngineCallback(.accountChanged)
+                }
+            })
+    }
+
+    private func receiveEngineCallback(_ event: EngineCallback) {
+        // Preserve P1's pre-P2e behavior even before AppState installs an authority dispatcher:
+        // observable store, repair, and status effects happen immediately and are never dropped.
+        // Only authority events are buffered so cached boot can establish `.cachedReady` first.
+        switch event {
+        case .storeChanged(let pendingCount):
+            storeRevision += 1
+            repairScheduler.signal()
+            // Preserve SyncStatusCenter's P1 boolean 0/1 contract. The authority reducer is
+            // the only P2e consumer of the exact count.
+            syncStatusCenter?.setPendingCount(pendingCount == 0 ? 0 : 1)
+            if pendingCount == 0 {
+                syncStatusCenter?.recordSyncSuccess(Date())
             }
-        }
-        // simmersmith-qrt: wired alongside `onStoreChanged` above (same "must be non-nil
-        // before automaticSync can deliver a background event" rationale as the merger —
-        // see the simmersmith-c7r note on `merger` earlier in this initializer). Nil'd
-        // wherever `onStoreChanged` is nil'd (see `clearState()`/`detach()` below).
-        engine.onSyncError = { [weak self] failure in
-            Task { @MainActor in
-                self?.syncStatusCenter?.recordFailure(failure)
+            authorityEventBuffer.submit(.pending(count: pendingCount))
+        case .syncError(let failure):
+            syncStatusCenter?.recordFailure(failure)
+            switch failure.kind {
+            case .permanent:
+                authorityEventBuffer.submit(.intervention(failure.message))
+            case .transient:
+                authorityEventBuffer.submit(.degraded(failure.message))
             }
-        }
-        // simmersmith-ioj: a permanent failure (see `recordFailure` above) persists across
-        // clean sync ticks by design — its only clear path is the SAME record later saving
-        // successfully. Wired alongside `onStoreChanged`/`onSyncError` for the same reason
-        // (must be non-nil before automaticSync can deliver a background event); nil'd
-        // wherever those are nil'd below.
-        engine.onRecordSaved = { [weak self] recordName in
-            Task { @MainActor in
-                self?.syncStatusCenter?.recordSaveSucceeded(recordName: recordName)
-            }
+        case .recordSaved(let recordName):
+            syncStatusCenter?.recordSaveSucceeded(recordName: recordName)
+        case .durabilityFailure(let failure):
+            authorityEventBuffer.submit(.intervention(failure.message))
+        case .participantRevoked:
+            participantRevocationBuffer.submit(())
+        case .accountChanged:
+            accountChangeBuffer.submit(())
         }
     }
 
@@ -228,38 +396,40 @@ final class HouseholdSession {
         syncPhase = .loading  // AppState.SyncPhase.loading
 
         // P1 shadow capture is deliberately best-effort and never gates active-engine creation
-        // or the first full fetch. If CloudKit cannot immediately resolve an account identity,
-        // this session simply remains shadow-disabled; no persisted cache reaches the live store.
-        let shadowCaptureNonce = shadowCaptureNonce
-        let shadowRole: MirrorRole = role.isOwner ? .owner : .participant
-        let shadowZoneID = zoneID
-        let shadowHouseholdID = householdID
-        let shadowRootURL = shadowMirrorRootURL
-        Task { @MainActor [weak self] in
-            let accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
-            guard let scope = ShadowMirrorScopeFactory.make(
-                    accountRecordName: accountRecordName,
-                    zoneID: shadowZoneID,
-                    householdID: shadowHouseholdID,
-                    role: shadowRole) else {
-                return
+        // or the first full fetch. A supplied cached/recovery writer is the continuity source;
+        // a generic late identity task must never park or replace it with a pre-overlay runtime.
+        if !isCachedBootstrap && !isRecoveryOnly {
+            let shadowCaptureNonce = shadowCaptureNonce
+            let shadowRole: MirrorRole = role.isOwner ? .owner : .participant
+            let shadowZoneID = zoneID
+            let shadowHouseholdID = householdID
+            let shadowRootURL = shadowMirrorRootURL
+            Task { @MainActor [weak self] in
+                let accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
+                guard let scope = ShadowMirrorScopeFactory.make(
+                        accountRecordName: accountRecordName,
+                        zoneID: shadowZoneID,
+                        householdID: shadowHouseholdID,
+                        role: shadowRole) else {
+                    return
+                }
+                guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return }
+                try? await self.engine.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
             }
-            guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return }
-            try? await self.engine.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
         }
 
-        // 0. Boot the per-user PRIVATE plane (NSPCKC). Independent of the household
-        //    CKSyncEngine boot below — a failure here (or there) must not take the other
-        //    down. Construction can throw if iCloud is unavailable or the store fails to
-        //    open; on throw we leave `privateContainer` nil and the household plane still
-        //    works. NSPCKC then syncs automatically once it's created (no fetch kick here).
-        do {
-            privateContainer = try makeSimmerSmithPrivatePlaneContainer()
-        } catch {
-            privateContainer = nil
-            print("[HouseholdSession] private plane container create failed: \(error)")
+        if isCachedBootstrap {
+            // Cached household content is already materialized and activated. Do not ensure a
+            // zone or fetch before repositories are wired; AppState starts reconciliation after
+            // publishing the cached projection. Preserve the P1 SyncStatusCenter boot snapshot
+            // even though this branch deliberately skips the full-fetch tail below.
+            syncStatusCenter?.setPendingCount(engine.hasPendingRecordChanges ? 1 : 0)
+            syncPhase = .loading
+            return
         }
 
+        // Gate-off/P1 preserves the original private-plane-before-household-fetch ordering.
+        openPrivatePlane()
         do {
             // 1. Ensure the zone exists (idempotent) — OWNER ONLY. A participant does NOT
             //    own the zone (it lives in the owner's account, reached via the shared DB),
@@ -279,6 +449,17 @@ final class HouseholdSession {
 
             // 3. Initial fetch to populate the local store from the server.
             try await engine.fetchChanges()
+            if let recoveryCandidate {
+                do {
+                    try engine.applyRecoveryPlan(recoveryCandidate.plan, writer: recoveryCandidate.writer)
+                    recoveryOnlyFetchSucceeded = true
+                } catch {
+                    // Invalid durable payloads are corruption, unlike a transient fetch error.
+                    recoveryCandidate.writer.quarantineAndReleaseGenerationLeaseSynchronously(
+                        recoveryCandidate.plan.lease.id)
+                    throw error
+                }
+            }
 
             // simmersmith-vda: arm repairs only now — the fetch above RETURNED, so the store
             // holds the complete zone for this launch and a destructive pass can no longer
@@ -290,17 +471,59 @@ final class HouseholdSession {
             // deliberate: the store may then fill incrementally via automaticSync and is
             // never known-complete this launch; repair is opportunistic hygiene and runs on
             // the next healthy launch instead.
-            repairScheduler.activate()
+            if CachedHouseholdSystemOperationPolicy.allows(
+                .repair,
+                isCachedBootstrap: isCachedBootstrap) {
+                repairScheduler.activate()
+            }
             syncPhase = .synced(Date())
             syncStatusCenter?.setPendingCount(engine.hasPendingRecordChanges ? 1 : 0)
             syncStatusCenter?.recordSyncSuccess(Date())
         } catch {
+            if let recoveryCandidate {
+                // A transient full-fetch failure is not corruption. Preserve the exact durable
+                // plan for the next retry; only release this session's lease/writer instance.
+                recoveryCandidate.writer.releaseGenerationLeaseSynchronously(recoveryCandidate.plan.lease.id)
+                recoveryCandidate.writer.fenceSynchronously()
+            }
             // iCloud unavailable, network error, etc. — degrade gracefully.
             syncPhase = .offline
         }
     }
 
+    /// Open the independent per-user private plane. Cached household content never awaits this
+    /// operation; callers may reload private repositories after checking their boot epoch.
+    func openPrivatePlane() {
+        guard privateContainer == nil else { return }
+        do {
+            privateContainer = try makeSimmerSmithPrivatePlaneContainer()
+        } catch {
+            privateContainer = nil
+            print("[HouseholdSession] private plane container create failed: \(error)")
+        }
+    }
+
+    /// Reconcile a cached candidate after its repositories and projections are visible.
+    /// The caller owns epoch/session checks around this await.
+    func reconcileCachedHousehold() async -> CachedHouseholdReconciliationOutcome {
+        guard isCachedBootstrap else { return .failed }
+        do {
+            try await engine.fetchChanges()
+            syncPhase = .synced(Date())
+            return .succeeded(pendingCount: engine.pendingRecordChangeCount)
+        } catch {
+            syncPhase = .offline
+            return .failed
+        }
+    }
+
     // MARK: — Teardown
+
+    /// Fence and durably retire cache state before a destructive server-side zone wipe starts.
+    /// The full session/token teardown still happens after the remote operation completes.
+    func invalidateShadowCacheForDestructiveReset() -> Bool {
+        engine.clearShadowMirror()
+    }
 
     /// Delete the durable sync-engine state token. Called on sign-out so a DIFFERENT
     /// household signed in on this device cannot inherit the prior household's sync
@@ -319,9 +542,10 @@ final class HouseholdSession {
         engine.clearShadowMirror()
         try? FileManager.default.removeItem(at: stateURL)
         repairScheduler.deactivate()
-        engine.onStoreChanged = nil
-        engine.onSyncError = nil
-        engine.onRecordSaved = nil
+        engine.clearEventHandlers()
+        authorityEventBuffer.clear()
+        participantRevocationBuffer.clear()
+        accountChangeBuffer.clear()
     }
 
     /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
@@ -334,9 +558,10 @@ final class HouseholdSession {
         shadowCaptureNonce = UUID()
         engine.parkShadowMirror()
         repairScheduler.deactivate()
-        engine.onStoreChanged = nil
-        engine.onSyncError = nil
-        engine.onRecordSaved = nil
+        engine.clearEventHandlers()
+        authorityEventBuffer.clear()
+        participantRevocationBuffer.clear()
+        accountChangeBuffer.clear()
     }
 }
 #endif

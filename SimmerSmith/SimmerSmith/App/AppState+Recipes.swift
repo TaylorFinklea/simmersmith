@@ -33,7 +33,13 @@ extension AppState {
         // Flipping to `.ready` here would be premature — RootView would show MainTabView
         // before that boot's mirrors/current-week creation land. Only fast-path when nothing
         // else is actively resolving.
-        if householdSession != nil {
+        if let session = householdSession {
+            if CachedForegroundRetryPolicy.shouldRetry(
+                hasCachedSession: session.isCachedBootstrap,
+                authority: householdAuthority) {
+                await retryCachedHouseholdReconciliation(onlyIfNeeded: true)
+                return
+            }
             if householdLaunchPhase != .resolving {
                 householdLaunchPhase = .ready
             }
@@ -72,6 +78,16 @@ extension AppState {
         // private DB's zones), so it happens here rather than as a pre-task guard. The
         // discover-before-create ordering is load-bearing (spec §7): minting a new zone
         // when `household-<existingId>` already exists would orphan the migrated recipes.
+        // P2e resolves the account identity before selecting any cached scope.
+        let accountRecordName: String?
+        if cacheFirstLaunchEnabled {
+            accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
+            // Account identity is an async lifecycle boundary. A teardown during this lookup
+            // must not select or open a prior scope after the epoch has moved.
+            guard sessionBootEpoch == requestEpoch else { return }
+        } else {
+            accountRecordName = nil
+        }
 
         // PARTICIPANT-FIRST (accept-before-mint, sharing spec §6): if the user just
         // accepted a share (PendingShareInbox) or has a saved participant marker, this
@@ -86,22 +102,72 @@ extension AppState {
             return
         }
 
-        // 1. Resolve the household id: discover first, mint only if none exists.
-        guard let householdID = await resolveHouseholdID(requestEpoch: requestEpoch) else {
+        // 1. Resolve the household id: discover first, mint only if none exists. A verified
+        // cached candidate may bypass the zone census because its exact scope is already named.
+        let cachedCandidate: MirrorBootstrapCandidate?
+        let recoveryCandidate: MirrorRecoveryCandidate?
+        if let accountRecordName, cacheFirstLaunchEnabled {
+            let selection = bootstrapSelection(
+                accountRecordName: accountRecordName,
+                request: .owner(accountRecordName: accountRecordName),
+                expectedRole: .owner,
+                expectedZone: nil)
+            cachedCandidate = selection.cachedCandidate
+            recoveryCandidate = selection.recoveryCandidate
+        } else {
+            cachedCandidate = nil
+            recoveryCandidate = nil
+        }
+        let householdID: String?
+        if let cachedHouseholdID = cachedCandidate?.bootstrap.scope.householdID {
+            householdID = cachedHouseholdID
+        } else if let recoveryHouseholdID = recoveryCandidate?.plan.scope.householdID {
+            householdID = recoveryHouseholdID
+        } else {
+            householdID = await resolveHouseholdID(requestEpoch: requestEpoch)
+        }
+        guard let householdID else {
             // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
             // was already set inside resolveHouseholdID() before returning nil. Leave
             // the session unset so a later retry can call ensureHouseholdSession() again.
             return
         }
 
-        let session = HouseholdSession(householdID: householdID, syncStatusCenter: self.syncStatusCenter)
+        let session = HouseholdSession(
+            householdID: householdID,
+            syncStatusCenter: self.syncStatusCenter,
+            bootstrapCandidate: cachedCandidate,
+            recoveryCandidate: recoveryCandidate)
         await session.start()
+
+        // Recovery-only durable intents may overlay only after a successful nil-state full
+        // fetch. A transient failure keeps the exact plan recoverable but cannot wire or render.
+        guard !session.isRecoveryOnly || session.recoveryOnlyFetchSucceeded else {
+            session.detach()
+            return
+        }
 
         // simmersmith-7in: re-check after session.start() — a teardown mid-provisioning must
         // not fall through into the migration writes below (they would land in the PRIOR
         // user's household zone). Detach what start() built rather than migrating into it.
         guard sessionBootEpoch == requestEpoch else {
             session.detach()
+            return
+        }
+
+        // Cached content is wired and published before its first reconciliation. P2e keeps
+        // migration/repair/week-creation entry points denied for this entire session.
+        if session.isCachedBootstrap {
+            await wireHouseholdRepositories(session: session, requestEpoch: requestEpoch)
+            guard sessionBootEpoch == requestEpoch, householdSession === session else {
+                session.detach()
+                return
+            }
+            publishCachedHouseholdAuthority(session: session, epoch: requestEpoch)
+            guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+            householdLaunchPhase = .ready
+            scheduleCachedPrivatePlaneOpen(session: session, requestEpoch: requestEpoch)
+            scheduleCachedReconciliation(session: session, requestEpoch: requestEpoch)
             return
         }
 
@@ -137,10 +203,14 @@ extension AppState {
         // simmersmith-7in: wireHouseholdRepositories may have already aborted internally
         // (stale epoch after its own await) — don't let this redundant flip resurrect .ready,
         // and don't schedule the leftover-household sweep for a session we just tore down.
-        guard sessionBootEpoch == requestEpoch else { return }
+        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        installAuthorityDispatcher(for: session, epoch: requestEpoch)
+        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
 
         // SP-C identity slice (spec §1.3): signal RootView that the household is
         // resolved and the app is ready to show MainTabView.
+        publishDirectHouseholdAuthority(session: session, epoch: requestEpoch)
+        personalDataReadiness = session.privateStore == nil ? .unavailable : .ready
         householdLaunchPhase = .ready
 
         // simmersmith-auc: sweep the leftover empty households from earlier builds. Kicked
@@ -149,17 +219,15 @@ extension AppState {
         scheduleLeftoverHouseholdCleanup(keeping: householdID)
     }
 
-    /// Build + wire all repositories for a booted session (OWNER or PARTICIPANT) and flip
-    /// the launch phase to .ready. Extracted from `ensureHouseholdSession` so the owner-boot
-    /// and the participant-adopt paths wire identically. Owner-only steps (current-week
-    /// creation) are gated on the session role so a participant adopts the owner's weeks.
+    /// Build + wire all repositories for a booted session (OWNER or PARTICIPANT). The caller
+    /// alone publishes authority and `.ready` after this returns, so cached content never has a
+    /// visible authority-`.none` frame. Owner-only steps (current-week creation) are gated on
+    /// the session role so a participant adopts the owner's weeks.
     ///
-    /// `requestEpoch` (simmersmith-7in): the caller's epoch snapshot, re-checked after this
-    /// function's one await (`ensureCurrentCloudKitWeek`) before flipping `householdLaunchPhase`
-    /// to `.ready` — a sign-out mid-await must not resurrect `.ready` over the teardown's
-    /// `.resolving`. `householdSession = session` below already commits synchronously (before
-    /// this await), so a stale request has nothing left to detach here — the guard's only job
-    /// is to stop the phase flip.
+    /// `requestEpoch` (simmersmith-7in): the caller's epoch snapshot is re-checked after this
+    /// function's one await (`ensureCurrentCloudKitWeek`). `householdSession = session` below
+    /// commits synchronously before that await; a stale request must stop before the caller
+    /// publishes authority or launch readiness.
     func wireHouseholdRepositories(session: HouseholdSession, requestEpoch: Int) async {
         let recipeRepo = RecipeRepository(session: session)
         let metadataRepo = MetadataRepository(session: session)
@@ -225,7 +293,10 @@ extension AppState {
         // The OWNER owns the current week (create today's if none covers it, carrying over
         // in-memory meals). A PARTICIPANT adopts the owner's weeks — it must NOT auto-create
         // (that would race the first shared fetch and could fork a duplicate week).
-        if session.role.isOwner {
+        if session.role.isOwner,
+           CachedHouseholdSystemOperationPolicy.allows(
+            .currentWeekCreation,
+            isCachedBootstrap: session.isCachedBootstrap) {
             await ensureCurrentCloudKitWeek()
         }
 
@@ -243,7 +314,221 @@ extension AppState {
         syncAIDraftsFromRepo()
         loadAssistantPromptOverrides()
 
-        householdLaunchPhase = .ready
+    }
+
+    struct BootstrapSelection {
+        let cachedCandidate: MirrorBootstrapCandidate?
+        let recoveryCandidate: MirrorRecoveryCandidate?
+    }
+
+    /// Opens the catalog exactly once and transfers the one returned writer/lease into one
+    /// terminal launch outcome. Ineligible-but-valid bytes are fenced and released (not
+    /// quarantined); catalog-detected corruption remains the catalog's exact-scope concern.
+    func bootstrapSelection(
+        accountRecordName: String,
+        request: MirrorBootstrapRequest,
+        expectedRole: MirrorRole,
+        expectedZone: MirrorZoneReference?
+    ) -> BootstrapSelection {
+        let root = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!.appendingPathComponent("HouseholdSync/shadow-mirror", isDirectory: true)
+        let result = ShadowMirrorBootstrapCatalog.open(request: request, rootDirectory: root)
+        switch result.outcome {
+        case .none:
+            return BootstrapSelection(cachedCandidate: nil, recoveryCandidate: nil)
+        case .cached(let bootstrap, let writer):
+            let zone = expectedZone ?? MirrorZoneReference(
+                ownerName: bootstrap.scope.zoneOwnerName,
+                zoneName: bootstrap.scope.zoneName)
+            let expected = MirrorBootstrapExpectedIdentity(
+                accountRecordName: accountRecordName,
+                role: expectedRole,
+                zone: zone,
+                participantMarkerZone: expectedRole == .participant ? expectedZone : nil)
+            guard bootstrap.scope.accountRecordName == accountRecordName,
+                  bootstrap.scope.role == expectedRole,
+                  bootstrap.scope.zoneOwnerName == zone.ownerName,
+                  bootstrap.scope.zoneName == zone.zoneName else {
+                writer.releaseGenerationLeaseSynchronously(bootstrap.lease.id)
+                writer.fenceSynchronously()
+                return BootstrapSelection(cachedCandidate: nil, recoveryCandidate: nil)
+            }
+            return BootstrapSelection(
+                cachedCandidate: MirrorBootstrapCandidate(
+                    bootstrap: bootstrap, writer: writer, expectedIdentity: expected),
+                recoveryCandidate: nil)
+        case .recoveryOnly(let plan, let writer):
+            let zoneMatches: Bool
+            if let expectedZone {
+                zoneMatches = plan.scope.zoneOwnerName == expectedZone.ownerName
+                    && plan.scope.zoneName == expectedZone.zoneName
+            } else {
+                zoneMatches = plan.scope.role == expectedRole
+            }
+            guard plan.scope.accountRecordName == accountRecordName,
+                  plan.scope.role == expectedRole,
+                  zoneMatches else {
+                writer.releaseGenerationLeaseSynchronously(plan.lease.id)
+                writer.fenceSynchronously()
+                return BootstrapSelection(cachedCandidate: nil, recoveryCandidate: nil)
+            }
+            return BootstrapSelection(
+                cachedCandidate: nil,
+                recoveryCandidate: MirrorRecoveryCandidate(plan: plan, writer: writer))
+        }
+    }
+
+    func installAuthorityDispatcher(for session: HouseholdSession, epoch: Int) {
+        session.onAuthorityEvent = { [weak self, weak session] event in
+            guard let self, let session else { return }
+            self.dispatchHouseholdAuthority(event, epoch: epoch, session: session)
+        }
+        session.onParticipantRevoked = { [weak self, weak session] in
+            guard let self, let session,
+                  epoch == self.sessionBootEpoch,
+                  self.householdSession === session else { return }
+            self.handleParticipantRevocation()
+        }
+        session.onAccountChanged = { [weak self, weak session] in
+            guard let self, let session,
+                  epoch == self.sessionBootEpoch,
+                  self.householdSession === session else { return }
+            self.handleHouseholdAccountChange()
+        }
+    }
+
+    /// Establish the cached baseline before installing the dispatcher. Installing drains every
+    /// construction-time engine callback synchronously; reversing these two steps would let a
+    /// later `.cachedReady` overwrite an already-buffered pending state.
+    func publishCachedHouseholdAuthority(session: HouseholdSession, epoch: Int) {
+        dispatchHouseholdAuthority(.cachedReady(.now), epoch: epoch, session: session)
+        installAuthorityDispatcher(for: session, epoch: epoch)
+        guard session.cachedInterventionCount > 0 else { return }
+        let count = session.cachedInterventionCount
+        let noun = count == 1 ? "change" : "changes"
+        let verb = count == 1 ? "needs" : "need"
+        dispatchHouseholdAuthority(
+            .intervention("\(count) cached \(noun) \(verb) attention."),
+            epoch: epoch,
+            session: session)
+    }
+
+    func dispatchHouseholdAuthority(
+        _ event: HouseholdAuthorityEvent,
+        epoch: Int,
+        session: HouseholdSession
+    ) {
+        householdAuthority = HouseholdAuthorityReducer.reduce(
+            householdAuthority,
+            event: event,
+            epoch: epoch,
+            currentEpoch: sessionBootEpoch,
+            sessionMatches: householdSession === session)
+    }
+
+    /// Publish direct/recovery authority in one verified order. Keeping this separate from
+    /// launch readiness preserves P1's content timing while preventing an offline start from
+    /// advertising `.current` authority.
+    func publishDirectHouseholdAuthority(
+        session: HouseholdSession,
+        epoch: Int
+    ) {
+        let isSynchronized: Bool
+        if case .synced = session.syncPhase {
+            isSynchronized = true
+        } else {
+            isSynchronized = false
+        }
+        for event in DirectHouseholdAuthorityPlan.events(
+            isSynchronized: isSynchronized,
+            pendingCount: session.engine.pendingRecordChangeCount,
+            interventionCount: session.cachedInterventionCount,
+            now: .now) {
+            dispatchHouseholdAuthority(event, epoch: epoch, session: session)
+        }
+    }
+
+    func reloadPrivatePlaneIfCurrent(session: HouseholdSession, requestEpoch: Int) {
+        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        profileRepository?.reload()
+        preferenceRepository?.reload()
+        mirrorProfileFromRepository()
+        mirrorPreferencesFromRepository()
+        syncAIDraftsFromRepo()
+        loadAssistantPromptOverrides()
+    }
+
+    /// Cached household readiness is published before this intentionally deferred main-actor
+    /// turn. Creating the SwiftData container can synchronously block, so opening it directly
+    /// after `.ready` would still prevent SwiftUI from rendering the cached household first.
+    func scheduleCachedPrivatePlaneOpen(session: HouseholdSession, requestEpoch: Int) {
+        cachedPrivatePlaneTask?.cancel()
+        personalDataReadiness = .loading
+        cachedPrivatePlaneTask = Task { @MainActor [weak self, weak session] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let session,
+                  self.sessionBootEpoch == requestEpoch,
+                  self.householdSession === session else { return }
+            session.openPrivatePlane()
+            guard !Task.isCancelled,
+                  self.sessionBootEpoch == requestEpoch,
+                  self.householdSession === session else { return }
+            self.reloadPrivatePlaneIfCurrent(session: session, requestEpoch: requestEpoch)
+            self.personalDataReadiness = session.privateStore == nil ? .unavailable : .ready
+        }
+    }
+
+    /// Reconciliation always enters through the boot queue so a foreground retry cannot
+    /// overlap a participant adoption or another boot. There is no user-visible control here.
+    func retryCachedHouseholdReconciliation(onlyIfNeeded: Bool = false) async {
+        let requestEpoch = sessionBootEpoch
+        await sessionBootQueue.enqueue { [weak self] in
+            await self?.retryCachedHouseholdReconciliationOp(
+                requestEpoch: requestEpoch,
+                onlyIfNeeded: onlyIfNeeded)
+        }.value
+    }
+
+    func scheduleCachedReconciliation(session: HouseholdSession, requestEpoch: Int) {
+        Task { @MainActor [weak self, weak session] in
+            guard let self, let session,
+                  self.sessionBootEpoch == requestEpoch,
+                  self.householdSession === session else { return }
+            await self.retryCachedHouseholdReconciliation()
+        }
+    }
+
+    private func retryCachedHouseholdReconciliationOp(
+        requestEpoch: Int,
+        onlyIfNeeded: Bool
+    ) async {
+        guard sessionBootEpoch == requestEpoch,
+              let session = householdSession,
+              session.isCachedBootstrap else { return }
+        guard !onlyIfNeeded || CachedForegroundRetryPolicy.shouldRetry(
+            hasCachedSession: true,
+            authority: householdAuthority) else { return }
+        dispatchHouseholdAuthority(.retry(.now), epoch: requestEpoch, session: session)
+        let outcome = await session.reconcileCachedHousehold()
+        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        switch outcome {
+        case .succeeded(let pendingCount):
+            dispatchHouseholdAuthority(.reconciliationSucceeded(.now), epoch: requestEpoch, session: session)
+            // A pending callback may have preceded success; publish the exact final count after
+            // success so `.current` never overwrites unresolved local work.
+            dispatchHouseholdAuthority(.pending(count: pendingCount), epoch: requestEpoch, session: session)
+        case .failed:
+            dispatchHouseholdAuthority(.reconciliationFailed("offline"), epoch: requestEpoch, session: session)
+        }
+    }
+
+    /// True when a foreground App lifecycle event must route through the serialized cached
+    /// retry rather than treating visible cached content as a finished session.
+    var shouldRetryCachedHouseholdOnForeground: Bool {
+        CachedForegroundRetryPolicy.shouldRetry(
+            hasCachedSession: householdSession?.isCachedBootstrap == true,
+            authority: householdAuthority)
     }
 
     /// SP-C identity slice (spec §1.2): resolve the CloudKit household id with NO Fly
@@ -404,13 +689,27 @@ extension AppState {
     /// Tear down the CloudKit session + repositories and delete the durable engine
     /// state so a different household signed in on this device cannot inherit the
     /// prior sync token. Called from sign-out (`clearHouseholdContext`).
-    func teardownHouseholdSession() {
+    func teardownHouseholdSession(clearShadowRoot: Bool = true) {
         // simmersmith-0gf blocking-finding fix: bump FIRST, before anything else. A boot op
         // already queued (or awaiting mid-flight) on `sessionBootQueue` captured the epoch
         // at request time; bumping it here makes every such op stale so it aborts instead of
         // re-wiring a session (or repos) this teardown is about to tear down.
+        let tearingDownSession = householdSession
         sessionBootEpoch += 1
-        householdSession?.clearState()
+        cachedPrivatePlaneTask?.cancel()
+        cachedPrivatePlaneTask = nil
+        personalDataReadiness = .unavailable
+        householdAuthority = HouseholdAuthorityReducer.reduce(
+            householdAuthority,
+            event: .teardown,
+            epoch: sessionBootEpoch,
+            currentEpoch: sessionBootEpoch,
+            sessionMatches: tearingDownSession != nil && householdSession === tearingDownSession)
+        if clearShadowRoot {
+            householdSession?.clearState()
+        } else {
+            householdSession?.detach()
+        }
         householdSession = nil
         // simmersmith-qrt (adversarial fix): without this, a stale `.stalled`/`.joined`
         // participant-join verdict (or a stale failure) from a prior session survives into

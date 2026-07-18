@@ -87,6 +87,9 @@ func migrateRecipesIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
 ) async {
+    guard CachedHouseholdSystemOperationPolicy.allows(
+        .migration,
+        isCachedBootstrap: session.isCachedBootstrap) else { return }
     // Gate: skip if already migrated on this device (or another device synced
     // the receipt into this device's local store during session.start()).
     let receiptID = CKRecord.ID(
