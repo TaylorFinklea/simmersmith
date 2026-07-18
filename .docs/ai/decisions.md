@@ -1981,3 +1981,29 @@ and clean `state.add`/`state.remove` reconciliation all hold.
 spec's stop-gate semantics with real evidence instead of a vacuous or skipped package test, and
 recording the decode-is-not-validation finding prevents P2d from treating a successful decode as
 proof the cached engine state is usable.
+
+## 2026-07-17 — P2d engine seam: uniform candidate quarantine, structural publication fence
+
+**Decision.** Three calls inside spec §3.3's bounds. (1) *Any* candidate failure at the engine
+construction seam — identity/marker recheck, missing `zoneEnsured`, database-state or
+pending-set reconciliation — takes one uniform path: gate rejected, store cleared, generation
+lease released, exact scope quarantined (moved under `quarantine/`, bytes preserved), error
+rethrown for nil-state fallback. No softer "release-only" branch for identity mismatch.
+(2) The bootstrap publication fence is structural, not a separate mechanism: every capture that
+could publish a generation flows through a gated delegate callback (`stateUpdate`/fetch epochs),
+so a closed gate *is* the fence; pinned by the app-suite gate-hold test. (3) Construction is
+two-phase — gated `init(bootstrapCandidate:)` then one-shot `activateBootstrapCandidate()` —
+because reconciliation must read direct engine state after the engine exists, and the externally
+observable closed-gate window is also what lets a real-engine test prove the gate holds genuine
+delegate callbacks (per the 2026-07-17 app-suite precedent, real-engine tests live in
+`SimmerSmithTests`; the package pins the pure reconciler/gate/validation core).
+
+**Why.** Uniform failure handling is spec-literal ("the exact scope is quarantined"), keeps the
+fail-closed matrix small, and quarantine preserves evidence rather than deleting it. A separate
+publication-fence flag would duplicate what the gate already guarantees and could drift from it.
+
+**Flag for P2e/P2f.** A participant that never made a local edit checkpoints
+`zoneEnsured == false` (only `save()` sets it), so its cached candidate is rejected and
+quarantined at the seam on every launch — safe but wasteful (full fetch each boot, cache never
+sticks). P2e/P2f should either demote such checkpoints to recovery-only at the catalog or give
+participant scopes their own zone-ensured semantics before the opt-in device gate.

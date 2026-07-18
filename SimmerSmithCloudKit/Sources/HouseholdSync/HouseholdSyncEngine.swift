@@ -71,6 +71,13 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private let zoneEnsuredLock = NSLock()
     private var zoneEnsured = false
 
+    /// P2 bootstrap seam (spec §3.3). Non-nil only for an engine constructed from a verified
+    /// `MirrorBootstrapCandidate`; every delegate entry point waits behind it until
+    /// `activateBootstrapCandidate()` proves the engine's direct state against the durable plan.
+    /// Nil on the P1 nil-state control path — those engines take today's exact code paths.
+    private let bootstrapGate: MirrorBootstrapDelegateGate?
+    private var bootstrapCandidateState: MirrorBootstrapCandidate?
+
     /// Optional sticky field-merger (Phase 4). When set, records whose type it `handles`
     /// are field-merged at the fetch + serverRecordChanged seams instead of blanket LWW.
     public var merger: RecordMerger?
@@ -164,6 +171,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         self.stateURL = stateURL
         self.ownsZone = ownsZone
         self.shadowRootDirectory = shadowMirrorRootDirectory
+        self.bootstrapGate = nil
         // simmersmith-c7r: assign BEFORE `self.syncEngine` is constructed below. With
         // `automaticSync == true`, CKSyncEngine can deliver `handleEvent` on its own
         // background queue the instant it exists — if `merger` were still nil at that
@@ -179,6 +187,168 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         )
         configuration.automaticallySync = automaticSync
         self.syncEngine = CKSyncEngine(configuration)
+    }
+
+    // MARK: P2 gated resumable construction (spec §3.3)
+
+    /// Constructs a candidate engine from one verified bootstrap. Store content, per-record
+    /// mutation generations, zone state, and the continuing checkpoint runtime are ready before
+    /// the `CKSyncEngine` exists; the engine receives the bootstrap serialization instead of
+    /// nil, and every delegate entry point waits behind the closed gate. The candidate is inert
+    /// until `activateBootstrapCandidate()` proves its direct state against the durable plan.
+    ///
+    /// Candidate validation failure quarantines the exact scope, releases its generation
+    /// lease, clears the store, and throws — the caller falls back to the nil-state engine.
+    public init(
+        database: CKDatabase,
+        zoneID: CKRecordZone.ID,
+        store: HouseholdLocalStore,
+        stateURL: URL,
+        automaticSync: Bool = false,
+        merger: RecordMerger? = nil,
+        bootstrapCandidate candidate: MirrorBootstrapCandidate,
+        shadowMirrorRootDirectory: URL? = nil
+    ) throws {
+        self.database = database
+        self.zoneID = zoneID
+        self.store = store
+        self.stateURL = stateURL
+        // The bootstrap scope's role decides zone ownership; validation below pins the scope
+        // against the caller's live identity and this engine's zone.
+        self.ownsZone = candidate.bootstrap.scope.role == .owner
+        self.shadowRootDirectory = shadowMirrorRootDirectory
+        self.merger = merger
+        do {
+            try MirrorBootstrapReconciler.validateCandidate(
+                scope: candidate.bootstrap.scope,
+                zoneEnsured: candidate.bootstrap.zoneEnsured,
+                expected: candidate.expectedIdentity,
+                engineZoneID: zoneID)
+        } catch {
+            Self.failBootstrapCandidate(candidate, store: store)
+            throw error
+        }
+        self.bootstrapGate = MirrorBootstrapDelegateGate()
+        self.bootstrapCandidateState = candidate
+
+        // Spec §3.3 step 1: the complete runtime exists before the candidate engine does.
+        // Generation publication stays structurally fenced while the gate is closed — every
+        // capture that could publish flows through a gated delegate callback.
+        store.removeAll()
+        for record in candidate.bootstrap.records {
+            store.setRecord(record)
+        }
+        localGeneration = MirrorBootstrapReconciler.seededLocalGenerations(
+            from: candidate.bootstrap.maxMutationGenerationByIdentity)
+        zoneEnsured = candidate.bootstrap.zoneEnsured
+        shadowMirror = ShadowMirrorRuntime(writer: candidate.writer)
+
+        var configuration = CKSyncEngine.Configuration(
+            database: database,
+            stateSerialization: candidate.bootstrap.engineStateSerialization,
+            delegate: self
+        )
+        configuration.automaticallySync = automaticSync
+        self.syncEngine = CKSyncEngine(configuration)
+    }
+
+    /// Spec §3.3 steps 4–6: canonicalize the candidate engine's direct pending state, diff it
+    /// against the normalized durable plan through the public `state.remove`/`state.add` APIs,
+    /// require an exact reprojection, then open the gate. Any failure rejects the candidate:
+    /// the gate terminally discards queued delegate work, the store is cleared before content
+    /// can render, the exact scope is quarantined, its lease is released, and the error is
+    /// rethrown so the caller constructs a fresh nil-state/full-fetch engine.
+    public func activateBootstrapCandidate() throws {
+        guard let gate = bootstrapGate, gate.resolvedOutcome == nil,
+              let candidate = bootstrapCandidateState else {
+            throw MirrorBootstrapEngineError.activationUnavailable
+        }
+        do {
+            try MirrorBootstrapReconciler.validateDatabaseState(
+                serialized: canonicalPendingDatabaseChanges())
+            let actions = try MirrorBootstrapReconciler.planRecordZoneReconciliation(
+                serialized: canonicalPendingRecordZoneChanges(),
+                plan: candidate.bootstrap.pendingChanges,
+                removalProofs: candidate.bootstrap.removalProofs,
+                scope: candidate.bootstrap.scope)
+            if !actions.removals.isEmpty {
+                syncEngine.state.remove(
+                    pendingRecordZoneChanges: actions.removals.map(\.pendingRecordZoneChange))
+            }
+            if !actions.additions.isEmpty {
+                syncEngine.state.add(
+                    pendingRecordZoneChanges: actions.additions.map(\.pendingRecordZoneChange))
+            }
+            try MirrorBootstrapReconciler.verifyExactReprojection(
+                serialized: canonicalPendingRecordZoneChanges(),
+                plan: candidate.bootstrap.pendingChanges)
+            try MirrorBootstrapReconciler.validateDatabaseState(
+                serialized: canonicalPendingDatabaseChanges())
+        } catch {
+            rejectBootstrapCandidate(candidate, gate: gate)
+            throw error
+        }
+        bootstrapCandidateState = nil
+        note("bootstrap gate open")
+        gate.resolve(.open)
+    }
+
+    /// Terminal outcome of this engine's bootstrap gate; nil while unresolved or when this is
+    /// a nil-state control engine.
+    public var bootstrapGateOutcome: MirrorBootstrapDelegateGate.Outcome? {
+        bootstrapGate?.resolvedOutcome
+    }
+
+    /// Canonical projection of the engine's current pending record-zone changes. Diagnostics
+    /// plus the app-target bootstrap tests — the package host cannot read a real engine state.
+    public func canonicalPendingChangesSnapshot() -> [MirrorEnginePendingChange] {
+        syncEngine.state.pendingRecordZoneChanges.compactMap { MirrorEnginePendingChange($0) }
+    }
+
+    private func canonicalPendingRecordZoneChanges() throws -> [MirrorEnginePendingChange] {
+        try syncEngine.state.pendingRecordZoneChanges.map { change in
+            guard let canonical = MirrorEnginePendingChange(change) else {
+                throw MirrorBootstrapReconciliationError.unknownPendingChangeCase
+            }
+            return canonical
+        }
+    }
+
+    private func canonicalPendingDatabaseChanges() throws -> [MirrorEngineDatabaseChange] {
+        try syncEngine.state.pendingDatabaseChanges.map { change in
+            guard let canonical = MirrorEngineDatabaseChange(change) else {
+                throw MirrorBootstrapReconciliationError.unknownDatabaseChangeCase
+            }
+            return canonical
+        }
+    }
+
+    private func rejectBootstrapCandidate(
+        _ candidate: MirrorBootstrapCandidate,
+        gate: MirrorBootstrapDelegateGate
+    ) {
+        note("bootstrap gate rejected")
+        gate.resolve(.rejected)
+        shadowMirrorLock.withLock {
+            shadowCaptureAllowed = false
+            shadowMirror = nil
+            localGeneration = [:]
+            sentGeneration = [:]
+            store.removeAll()
+            shadowCoverageRevision &+= 1
+        }
+        zoneEnsuredLock.withLock { zoneEnsured = false }
+        bootstrapCandidateState = nil
+        Self.failBootstrapCandidate(candidate, store: store)
+    }
+
+    private static func failBootstrapCandidate(
+        _ candidate: MirrorBootstrapCandidate,
+        store: HouseholdLocalStore
+    ) {
+        store.removeAll()
+        candidate.writer.releaseGenerationLeaseSynchronously(candidate.bootstrap.lease.id)
+        try? candidate.writer.fenceAndQuarantineSynchronously()
     }
 
     /// P1's active engine always starts from a nil token and performs the existing full fetch.
@@ -501,10 +671,39 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
     // MARK: CKSyncEngineDelegate
 
+    /// An automatic engine may call back the instant it exists (spec §3.3 step 3): every
+    /// delegate entry point waits behind the closed bootstrap gate. A rejected candidate's
+    /// queued work releases into no-op/discard behavior; the nil-gate control path is the
+    /// exact P1 code.
+    private func awaitBootstrapGate(_ entry: String) async -> Bool {
+        guard let bootstrapGate else { return true }
+        if bootstrapGate.resolvedOutcome == nil {
+            note("bootstrap gate queued \(entry)")
+        }
+        guard await bootstrapGate.awaitOutcome() == .open else {
+            note("bootstrap gate discarded \(entry)")
+            return false
+        }
+        return true
+    }
+
+    /// Implemented (rather than inherited as a default) so a candidate engine's imminent fetch
+    /// also waits behind the gate. The returned value is the context's own options — the same
+    /// defaults the SDK uses when this method is not implemented — so the nil-gate control
+    /// path is behaviorally unchanged.
+    public func nextFetchChangesOptions(
+        _ context: CKSyncEngine.FetchChangesContext,
+        syncEngine: CKSyncEngine
+    ) async -> CKSyncEngine.FetchChangesOptions {
+        _ = await awaitBootstrapGate("fetch-options")
+        return context.options
+    }
+
     public func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        guard await awaitBootstrapGate("batch") else { return nil }
         let pending = syncEngine.state.pendingRecordZoneChanges.filter {
             context.options.scope.contains($0)
         }
@@ -540,6 +739,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     }
 
     public func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
+        guard await awaitBootstrapGate("event") else { return }
         switch event {
         case .stateUpdate(let update):
             Self.saveState(update.stateSerialization, to: stateURL)

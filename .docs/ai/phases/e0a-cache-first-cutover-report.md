@@ -49,3 +49,42 @@ performance evidence; P2h adds device-gate evidence.
   them collectable by the next publish. Verified by test across two publishes.
 - Verify: `swift test --package-path SimmerSmithCloudKit` — 598 tests, run 5×; app suite 122
   tests (probe included) on SimmerSmithSim.
+
+## P2d — gated resumable engine construction (spec §3.3)
+
+- Package core (`ShadowMirrorBootstrapEngineSeam.swift`): canonical record-ID-level projection
+  of the public `PendingRecordZoneChange`/`PendingDatabaseChange` cases (unknown future cases
+  fail closed); `MirrorBootstrapDelegateGate` with terminal latching open/rejected outcomes;
+  `MirrorBootstrapReconciler` — proof-gated removals (identity+operation must match a
+  `MirrorOutboxRemovalProof`), additions for missing targets, foreign-zone and
+  duplicate-record-ID fail-closed, empty-pending-database requirement, exact-reprojection
+  verify, live-identity candidate recheck (account/role/zone/marker/engine-zone, owner blocked
+  while a participant marker exists), and generation seeding above every recovered intent
+  generation. 19 package tests.
+- Engine wiring (`HouseholdSyncEngine`): two-phase seam. Gated `init(bootstrapCandidate:)`
+  validates identity + `zoneEnsured`, hydrates the store, seeds generations, installs the
+  continuing `ShadowMirrorRuntime` on the catalog's writer — all before the `CKSyncEngine`
+  exists — then constructs with the bootstrap serialization. One-shot
+  `activateBootstrapCandidate()` reconciles direct engine state via public
+  `state.remove`/`state.add`, requires exact reprojection + empty database set, then opens the
+  gate. Any failure: gate rejected (queued delegate work discards), store cleared, lease
+  released, exact scope quarantined, error rethrown for nil-state fallback. All three delegate
+  entry points (`handleEvent`, `nextRecordZoneChangeBatch`, new `nextFetchChangesOptions`)
+  await the gate; nil-gate control engines take the exact P1 paths (the new
+  `nextFetchChangesOptions` returns `context.options`, the SDK default).
+- Publication fence is structural: every generation-publishing capture flows through a gated
+  delegate callback, so the closed gate defers publication until open/rejected (decisions.md
+  2026-07-17).
+- Real-engine evidence (`SimmerSmithTests/HouseholdSyncEngineBootstrapTests`, same pinned SDK
+  as the probe — Xcode 26.6 (17F113) · iOS sim 26.5): genuine captured serialization → writer
+  checkpoint → catalog → gated construction → activation with reconciled pending set exactly
+  equal to the durable plan; activation adds a plan operation the serialization predates; an
+  unproven serialized pending rejects/quarantines/falls back to a nil-state engine; and the
+  closed gate provably held a live `CKSyncEngine` delegate callback (`sendChanges` queued
+  behind the gate, drained after open — the released send then failed only on the accountless
+  sim's "Not Authenticated", confirming the delegate path genuinely ran).
+- Verify: package suite 617 tests ×5; app suite 126 tests; generic iOS build. All green
+  2026-07-17.
+- Carried forward: read-only-participant `zoneEnsured == false` checkpoints reject+quarantine
+  on every launch (safe, wasteful) — P2e/P2f must demote to recovery-only at the catalog or
+  revisit participant zone-ensured semantics (decisions.md flag).
