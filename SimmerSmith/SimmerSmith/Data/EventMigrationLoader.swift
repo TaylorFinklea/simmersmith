@@ -55,6 +55,34 @@ func eventMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
     expectedCount == fetchedCount
 }
 
+private enum EventMigrationPersistenceError: Error {
+    case writeRejected
+}
+
+@MainActor
+struct EventMigrationRunner {
+    let writeData: () throws -> Void
+    let isDataComplete: () -> Bool
+    let drain: () async throws -> Void
+    let saveReceipt: () throws -> Void
+
+    func run() async -> DeferredMigrationCompletion {
+        do {
+            try writeData()
+            try await drain()
+        } catch {
+            return .retryable
+        }
+        guard isDataComplete() else { return .retryable }
+        do {
+            try saveReceipt()
+        } catch {
+            return .retryable
+        }
+        return .complete
+    }
+}
+
 // MARK: - Migration entry point
 
 /// Pull all events (+ meals, ingredients, attendees, event-grocery) and guests from Fly
@@ -69,16 +97,16 @@ func eventMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
 func migrateEventsIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
-) async {
+) async -> DeferredMigrationCompletion {
     guard CachedHouseholdSystemOperationPolicy.allows(
         .migration,
-        isCachedBootstrap: session.isCachedBootstrap) else { return }
+        isAuthoritative: session.hasCurrentAuthority) else { return .retryable }
     // Gate: skip if the receipt is already present (migrated on this or another device).
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: eventMigrationScope),
         zoneID: session.zoneID
     )
-    guard session.store.record(for: receiptID) == nil else { return }
+    guard session.store.record(for: receiptID) == nil else { return .complete }
 
     // Fetch the guest roster first. includeInactive: true so deactivated guests still
     // arrive (their .guest records in CloudKit let attendee refs resolve correctly).
@@ -88,7 +116,7 @@ func migrateEventsIfNeeded(
         guests = try await apiClient.fetchGuests(includeInactive: true)
     } catch {
         // Network unavailable or Fly token invalid — leave receipt unstamped for retry.
-        return
+        return .retryable
     }
 
     // Fetch the list of all user event summaries from Fly. A failure here likewise
@@ -97,24 +125,7 @@ func migrateEventsIfNeeded(
     do {
         summaries = try await apiClient.fetchEvents()
     } catch {
-        return
-    }
-
-    // If both collections are empty, stamp the receipt and return cleanly so the
-    // next launch doesn't retry a no-op.
-    guard !guests.isEmpty || !summaries.isEmpty else {
-        let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
-        receipt["scope"] = eventMigrationScope as CKRecordValue
-        session.engine.save(receipt)
-        try? await session.engine.sendUntilDrained()
-        return
-    }
-
-    // Write guests FIRST — attendee records ref guest records, so the guest records
-    // must already exist in the zone when attendees are written.
-    for guest in guests {
-        let guestValue = EventRecordMapper.record(from: guest)
-        session.engine.save(HouseholdRecordCodec.encode(guestValue, zoneID: session.zoneID))
+        return .retryable
     }
 
     // Fetch per-event detail (meals + ingredients + attendees + grocery) in parallel,
@@ -153,29 +164,52 @@ func migrateEventsIfNeeded(
         return results
     }
 
-    // Write each event and its children. Order within an event:
-    // .event → .eventMeal → .eventMealIngredient → .eventAttendee → EventGroceryItem.
-    // This is write-before-read safe: the engine's PK-preserving upserts mean a crash
-    // at any point leaves the receipt unstamped, so the retry is fully idempotent.
-    for event in fullEvents {
+    let dataComplete = eventMigrationIsComplete(
+        expectedCount: summaries.count,
+        fetchedCount: fullEvents.count
+    )
+    let runner = EventMigrationRunner(
+        writeData: {
+            // Write guests FIRST — attendee records ref guest records, so the guest records
+            // must already exist in the zone when attendees are written.
+            for guest in guests {
+                let guestValue = EventRecordMapper.record(from: guest)
+                guard session.engine.save(HouseholdRecordCodec.encode(guestValue, zoneID: session.zoneID)) else {
+                    throw EventMigrationPersistenceError.writeRejected
+                }
+            }
+
+            // Write each event and its children. Order within an event:
+            // .event → .eventMeal → .eventMealIngredient → .eventAttendee → EventGroceryItem.
+            // This is write-before-read safe: the engine's PK-preserving upserts mean a crash
+            // at any point leaves the receipt unstamped, so the retry is fully idempotent.
+            for event in fullEvents {
         let mapped = EventRecordMapper.records(from: event)
 
         // Write the .event root record.
-        session.engine.save(HouseholdRecordCodec.encode(mapped.event, zoneID: session.zoneID))
+        guard session.engine.save(HouseholdRecordCodec.encode(mapped.event, zoneID: session.zoneID)) else {
+            throw EventMigrationPersistenceError.writeRejected
+        }
 
         // Write .eventMeal children.
         for mealValue in mapped.meals {
-            session.engine.save(HouseholdRecordCodec.encode(mealValue, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(mealValue, zoneID: session.zoneID)) else {
+                throw EventMigrationPersistenceError.writeRejected
+            }
         }
 
         // Write .eventMealIngredient grandchildren.
         for ingredientValue in mapped.ingredients {
-            session.engine.save(HouseholdRecordCodec.encode(ingredientValue, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(ingredientValue, zoneID: session.zoneID)) else {
+                throw EventMigrationPersistenceError.writeRejected
+            }
         }
 
         // Write .eventAttendee children (det-keyed <eventID>_<guestID>).
         for attendeeValue in mapped.attendees {
-            session.engine.save(HouseholdRecordCodec.encode(attendeeValue, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(attendeeValue, zoneID: session.zoneID)) else {
+                throw EventMigrationPersistenceError.writeRejected
+            }
         }
 
         // Write EventGroceryItem records via EventGroceryCodec.
@@ -237,32 +271,27 @@ func migrateEventsIfNeeded(
                 modifiedAt: 0   // no clock in the Fly payload; first real device edit wins
             )
             let ckRecord = EventGroceryCodec.makeRecord(mergeItem, zoneID: session.zoneID)
-            session.engine.save(ckRecord)
+            guard session.engine.save(ckRecord) else {
+                throw EventMigrationPersistenceError.writeRejected
+            }
         }
-    }
-
-    // RECEIPT-BLOCKING RULE (mirrors RecipeMigrationLoader / WeekMigrationLoader): any
-    // event whose detail fetch failed above is silently missing from fullEvents (the
-    // task group uses try?). Compare the fetched count against the expected count from
-    // summaries; on any drop, everything fetched is still saved (loop above already
-    // ran) and drained, but the receipt is withheld so the next launch retries the
-    // whole migration (idempotent — the engine's PK-preserving upserts dedupe re-writes).
-    let droppedEvents = summaries.count - fullEvents.count
-    guard eventMigrationIsComplete(expectedCount: summaries.count, fetchedCount: fullEvents.count) else {
+            }
+        },
+        isDataComplete: { dataComplete },
+        drain: { try await session.engine.sendUntilDrained() },
+        saveReceipt: {
+            let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
+            receipt["scope"] = eventMigrationScope as CKRecordValue
+            guard session.engine.save(receipt) else {
+                throw EventMigrationPersistenceError.writeRejected
+            }
+        }
+    )
+    let completion = await runner.run()
+    if completion == .retryable, !dataComplete {
+        let droppedEvents = summaries.count - fullEvents.count
         log.error("event migration dropped \(droppedEvents, privacy: .public) of \(summaries.count, privacy: .public) events; receipt withheld for retry")
-        try? await session.engine.sendUntilDrained()
-        return
     }
-
-    // Stamp the receipt LAST — mirrors the crash-safety invariant in WeekMigrationLoader
-    // and HouseholdMigrationRunner.migrate(): a crash before this leaves no receipt,
-    // so the retry re-runs (idempotent via PK-preserving upserts).
-    let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
-    receipt["scope"] = eventMigrationScope as CKRecordValue
-    session.engine.save(receipt)
-
-    // Drain: push all saves to CloudKit. An explicit drain ensures the write reaches the
-    // server before the first EventRepository.reload() reads the store.
-    try? await session.engine.sendUntilDrained()
+    return completion
 }
 #endif

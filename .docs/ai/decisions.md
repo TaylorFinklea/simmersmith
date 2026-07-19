@@ -2034,3 +2034,38 @@ lose durable intent, expose participant data without positive server proof, or w
 fallback. Keeping the feature default-off and making every unsafe ambiguity fail closed leaves
 P2f/P2g to add broader authority/lifecycle behavior and performance evidence without turning this
 test-only slice into a release control.
+
+## 2026-07-19 — P2f lifecycle authority is session-local, crash-replayable, and account-bound
+
+**Decision.** Data-plane authority belongs to one engine/session object and is revocable, never to
+a global cached-mode Boolean. A cached session starts denied; only reconciliation for the same
+epoch and exact session may promote it. The first typed lifecycle event synchronously revokes that
+authority, waits for any cache mutation already inside the gate, fences later explicit-operation
+results, and advances AppState through an epoch-first non-ready handoff. Deferred migrations,
+repair, cleanup, and absence-derived work run as claimable session-local stages only after
+promotion; interruption abandons the stage for serialized retry rather than marking it complete.
+
+Account boundaries and factory reset clear the whole shadow root; participant revocation and
+unexpected owner-zone deletion clear only the validated exact scope. Each handoff is recorded in
+an integrity-bound lifecycle transaction outside that root before invalidation. A transaction is
+idempotently replayed but never overwritten by different work; malformed or conflicting bytes
+fail closed. Namespace invalidation is the durable boundary: the active root/scope becomes a
+non-catalog retired sibling and its parent is synchronized before any successor session may enter;
+recursive deletion is retryable cleanup.
+
+An accepted participant marker must be durably stored before parking the owner or publishing a
+participant. Marker failure leaves the owner untouched and keeps the join retryable; adoption
+failure after that boundary retains the marker for restart recovery. Factory-reset remote deletion
+is bound to the account recorded by its transaction: verify before enumeration, immediately before
+mutation, and after return. Replacement boot carries the same expected account and rejects a
+switch immediately after identity lookup, before participant handling, cache selection, discovery,
+or mint. Completing a reset against one account can therefore never create a zone in another.
+
+P1e's signed-device prerequisite remains open, so P2f does not add an opt-in control and the
+shipping cache-first default remains off.
+
+**Why.** A process-local flag cannot survive a crash between teardown steps, and a global authority
+bit can be accidentally reused by a successor session. Persisting the exact transition before
+namespace invalidation makes every suspension and restart resume toward less exposure. Binding
+both destructive deletion and replacement minting to one verified CloudKit account closes the
+last cross-account window after the reset transaction itself is complete.

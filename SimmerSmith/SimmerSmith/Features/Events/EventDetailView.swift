@@ -441,7 +441,13 @@ struct EventDetailView: View {
                     .foregroundStyle(SMColor.textTertiary)
                 Spacer()
                 Button("Refresh") {
-                    Task { try? await appState.refreshEventGrocery(eventID: event.eventId) }
+                    Task {
+                        do {
+                            _ = try await appState.refreshEventGrocery(eventID: event.eventId)
+                        } catch {
+                            appState.lastErrorMessage = error.localizedDescription
+                        }
+                    }
                 }
                 .font(SMFont.caption)
                 .foregroundStyle(SMColor.primary)

@@ -61,6 +61,34 @@ func weekMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
     expectedCount == fetchedCount
 }
 
+private enum WeekMigrationPersistenceError: Error {
+    case writeRejected
+}
+
+@MainActor
+struct WeekMigrationRunner {
+    let writeData: () throws -> Void
+    let isDataComplete: () -> Bool
+    let drain: () async throws -> Void
+    let saveReceipt: () throws -> Void
+
+    func run() async -> DeferredMigrationCompletion {
+        do {
+            try writeData()
+            try await drain()
+        } catch {
+            return .retryable
+        }
+        guard isDataComplete() else { return .retryable }
+        do {
+            try saveReceipt()
+        } catch {
+            return .retryable
+        }
+        return .complete
+    }
+}
+
 // MARK: - Migration entry point
 
 /// Pull all weeks (+ meals, sides, grocery) from Fly and write them into the
@@ -77,16 +105,16 @@ func weekMigrationIsComplete(expectedCount: Int, fetchedCount: Int) -> Bool {
 func migrateWeeksIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
-) async {
+) async -> DeferredMigrationCompletion {
     guard CachedHouseholdSystemOperationPolicy.allows(
         .migration,
-        isCachedBootstrap: session.isCachedBootstrap) else { return }
+        isAuthoritative: session.hasCurrentAuthority) else { return .retryable }
     // Gate: skip if the receipt is already present (migrated on this or another device).
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: weekMigrationScope),
         zoneID: session.zoneID
     )
-    guard session.store.record(for: receiptID) == nil else { return }
+    guard session.store.record(for: receiptID) == nil else { return .complete }
 
     // Fetch the list of all user weeks from Fly. Use limit=100 to capture
     // users with many historical weeks in one round-trip. A failure here aborts
@@ -96,17 +124,7 @@ func migrateWeeksIfNeeded(
         summaries = try await apiClient.fetchWeeks(limit: 100)
     } catch {
         // Network unavailable or Fly token invalid — leave receipt unstamped for retry.
-        return
-    }
-
-    guard !summaries.isEmpty else {
-        // No weeks to migrate — stamp the receipt and return cleanly so the
-        // next launch doesn't retry a no-op.
-        let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
-        receipt["scope"] = weekMigrationScope as CKRecordValue
-        session.engine.save(receipt)
-        try? await session.engine.sendUntilDrained()
-        return
+        return .retryable
     }
 
     // Fetch per-week detail (meals + grocery) in parallel, bounded by concurrency.
@@ -144,24 +162,36 @@ func migrateWeeksIfNeeded(
         return results
     }
 
-    // Write each week: primary .week record → .weekMeal children → .weekMealSide
-    // grandchildren → GroceryItem records. Order within a week is write-before-read
-    // safe (engine upserts are PK-preserving; a crash at any point leaves the receipt
-    // unstamped so the retry is fully idempotent).
-    for week in weekSnapshots {
+    let dataComplete = weekMigrationIsComplete(
+        expectedCount: summaries.count,
+        fetchedCount: weekSnapshots.count
+    )
+    let runner = WeekMigrationRunner(
+        writeData: {
+            // Write each week: primary .week record → .weekMeal children → .weekMealSide
+            // grandchildren → GroceryItem records. Order within a week is write-before-read
+            // safe (engine upserts are PK-preserving; a crash at any point leaves the receipt
+            // unstamped so the retry is fully idempotent).
+            for week in weekSnapshots {
         let mapped = WeekRecordMapper.records(from: week)
 
         // Write the .week record.
-        session.engine.save(HouseholdRecordCodec.encode(mapped.week, zoneID: session.zoneID))
+        guard session.engine.save(HouseholdRecordCodec.encode(mapped.week, zoneID: session.zoneID)) else {
+            throw WeekMigrationPersistenceError.writeRejected
+        }
 
         // Write .weekMeal children.
         for mealValue in mapped.meals {
-            session.engine.save(HouseholdRecordCodec.encode(mealValue, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(mealValue, zoneID: session.zoneID)) else {
+                throw WeekMigrationPersistenceError.writeRejected
+            }
         }
 
         // Write .weekMealSide grandchildren.
         for sideValue in mapped.sides {
-            session.engine.save(HouseholdRecordCodec.encode(sideValue, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(sideValue, zoneID: session.zoneID)) else {
+                throw WeekMigrationPersistenceError.writeRejected
+            }
         }
 
         // Write GroceryItem records via GroceryCodec.
@@ -204,33 +234,27 @@ func migrateWeeksIfNeeded(
                 modifiedAt: 0   // no clock in the Fly payload
             )
             let ckRecord = GroceryCodec.makeRecord(mergeItem, zoneID: session.zoneID)
-            session.engine.save(ckRecord)
+            guard session.engine.save(ckRecord) else {
+                throw WeekMigrationPersistenceError.writeRejected
+            }
         }
-    }
-
-    // RECEIPT-BLOCKING RULE (mirrors RecipeMigrationLoader): any week whose detail
-    // fetch failed above is silently missing from weekSnapshots (the task group
-    // uses try?). Compare the fetched count against the expected count from
-    // summaries; on any drop, everything fetched is still saved (loop above already
-    // ran) and drained, but the receipt is withheld so the next launch retries the
-    // whole migration (idempotent — the engine's PK-preserving upserts dedupe re-writes).
-    let droppedWeeks = summaries.count - weekSnapshots.count
-    guard weekMigrationIsComplete(expectedCount: summaries.count, fetchedCount: weekSnapshots.count) else {
+            }
+        },
+        isDataComplete: { dataComplete },
+        drain: { try await session.engine.sendUntilDrained() },
+        saveReceipt: {
+            let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
+            receipt["scope"] = weekMigrationScope as CKRecordValue
+            guard session.engine.save(receipt) else {
+                throw WeekMigrationPersistenceError.writeRejected
+            }
+        }
+    )
+    let completion = await runner.run()
+    if completion == .retryable, !dataComplete {
+        let droppedWeeks = summaries.count - weekSnapshots.count
         log.error("week migration dropped \(droppedWeeks, privacy: .public) of \(summaries.count, privacy: .public) weeks; receipt withheld for retry")
-        try? await session.engine.sendUntilDrained()
-        return
     }
-
-    // Stamp the receipt LAST — mirrors the crash-safety invariant in
-    // HouseholdMigrationRunner.migrate(): a crash before this leaves no receipt,
-    // so the retry re-runs (the engine's PK-preserving upserts make it idempotent).
-    let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
-    receipt["scope"] = weekMigrationScope as CKRecordValue
-    session.engine.save(receipt)
-
-    // Drain: push all saves to CloudKit. The engine's automaticSync also fires in
-    // the background, but an explicit drain ensures the write reaches the server
-    // before the first WeekRepository.reload() reads the store.
-    try? await session.engine.sendUntilDrained()
+    return completion
 }
 #endif

@@ -498,8 +498,8 @@ func clearingShadowRuntimeFencesStaleCallbacks() async throws {
     #expect(try await writer.loadCurrent() == nil)
 }
 
-@Test("parking a shadow scope fences callbacks without deleting its checkpoint")
-func parkingShadowRuntimePreservesCheckpoint() async throws {
+@Test("generic parking fences callbacks without persisting an adoption marker")
+func genericParkingPreservesASelectableCheckpoint() async throws {
     let root = try runtimeDirectory()
     let writer = try ShadowMirrorCheckpointWriter(scope: runtimeScope(), rootDirectory: root)
     let runtime = ShadowMirrorRuntime(writer: writer)
@@ -513,6 +513,9 @@ func parkingShadowRuntimePreservesCheckpoint() async throws {
         records: [runtimeRecord()], coverageRevision: 2, zoneEnsured: true)
 
     #expect(try await writer.loadCurrent()?.manifest.generationID == parkedGeneration)
+    let reopened = try ShadowMirrorCheckpointWriter(
+        scope: runtimeScope(), rootDirectory: root)
+    #expect(try await reopened.loadCurrent()?.manifest.generationID == parkedGeneration)
 }
 
 private func publishBoundary(runtime: ShadowMirrorRuntime, records: [CKRecord]) async throws {

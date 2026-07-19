@@ -40,6 +40,24 @@ import SimmerSmithKit
 private let recipeMigrationScope = "recipes"
 private let imageFetchConcurrency = 6
 
+/// Enforces the migration receipt's write-last invariant. Required recipe data
+/// must reach CloudKit before a receipt can make the import appear complete.
+@MainActor
+struct RecipeMigrationReceiptRunner {
+    let drainRequiredData: () async throws -> Void
+    let saveReceipt: () -> Bool
+
+    func run() async -> DeferredMigrationCompletion {
+        do {
+            try await drainRequiredData()
+        } catch {
+            return .retryable
+        }
+
+        return saveReceipt() ? .complete : .retryable
+    }
+}
+
 // MARK: - MIME detection
 
 /// Detect image MIME type from the leading bytes of `data`.
@@ -85,18 +103,19 @@ func recipeMemoryMigrationRow(recipeID: String, memory: RecipeMemory) -> Househo
 @MainActor
 func migrateRecipesIfNeeded(
     session: HouseholdSession,
-    apiClient: SimmerSmithAPIClient
-) async {
+    apiClient: SimmerSmithAPIClient,
+    requiredDataDrain: (() async throws -> Void)? = nil
+) async -> DeferredMigrationCompletion {
     guard CachedHouseholdSystemOperationPolicy.allows(
         .migration,
-        isCachedBootstrap: session.isCachedBootstrap) else { return }
+        isAuthoritative: session.hasCurrentAuthority) else { return .retryable }
     // Gate: skip if already migrated on this device (or another device synced
     // the receipt into this device's local store during session.start()).
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: recipeMigrationScope),
         zoneID: session.zoneID
     )
-    guard session.store.record(for: receiptID) == nil else { return }
+    guard session.store.record(for: receiptID) == nil else { return .complete }
 
     // Fetch recipes (list endpoint includes ingredients + steps).
     let recipes: [RecipeSummary]
@@ -105,7 +124,7 @@ func migrateRecipesIfNeeded(
     } catch {
         // Network unavailable or Fly down — skip migration this launch.
         // The receipt is not stamped so migration will retry next launch.
-        return
+        return .retryable
     }
 
     // Fetch metadata (cuisines / tags / units → ManagedListItems).
@@ -135,19 +154,27 @@ func migrateRecipesIfNeeded(
                 ],
                 refs: [:]
             )
-            session.engine.save(HouseholdRecordCodec.encode(row, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(row, zoneID: session.zoneID)) else {
+                return .retryable
+            }
         }
     }
 
     // Write recipe + child records via the canonical RecipeRecordMapper.
     for recipe in recipes {
         let mapped = RecipeRecordMapper.records(from: recipe)
-        session.engine.save(HouseholdRecordCodec.encode(mapped.recipe, zoneID: session.zoneID))
+        guard session.engine.save(HouseholdRecordCodec.encode(mapped.recipe, zoneID: session.zoneID)) else {
+            return .retryable
+        }
         for ing in mapped.ingredients {
-            session.engine.save(HouseholdRecordCodec.encode(ing, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(ing, zoneID: session.zoneID)) else {
+                return .retryable
+            }
         }
         for step in mapped.steps {
-            session.engine.save(HouseholdRecordCodec.encode(step, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(step, zoneID: session.zoneID)) else {
+                return .retryable
+            }
         }
     }
 
@@ -274,7 +301,9 @@ func migrateRecipesIfNeeded(
             case .success(let memories):
                 for memory in memories {
                     let row = recipeMemoryMigrationRow(recipeID: recipeID, memory: memory)
-                    session.engine.save(HouseholdRecordCodec.encode(row, zoneID: session.zoneID))
+                    guard session.engine.save(HouseholdRecordCodec.encode(row, zoneID: session.zoneID)) else {
+                        return .retryable
+                    }
                     fetchedMemories.append((recipeID: recipeID, memory: memory))
                 }
             case .failure:
@@ -350,20 +379,29 @@ func migrateRecipesIfNeeded(
     // retries the whole migration (idempotent per the crash-safety note
     // below). Photos stay pure best-effort and never block the receipt.
     if memoriesFetchFailed {
-        try? await session.engine.sendUntilDrained()
-        return
+        do {
+            try await session.engine.sendUntilDrained()
+        } catch {
+            return .retryable
+        }
+        return .retryable
     }
 
-    // Stamp the receipt LAST — mirrors HouseholdMigrationRunner.migrate() crash-safety
-    // invariant: a crash mid-import leaves no receipt, so the retry reprocesses everything
-    // (the engine's PK-preserving upserts make the retry idempotent via serverRecordChanged).
-    let receipt = CKRecord(recordType: HouseholdMigrationRunner.receiptType, recordID: receiptID)
-    receipt["scope"] = recipeMigrationScope as CKRecordValue
-    session.engine.save(receipt)
-
-    // Drain: push all saves to CloudKit. The engine's automaticSync also fires in the
-    // background, but an explicit drain here ensures the write reaches the server
-    // before the first recipeRepository.reload() reads the store.
-    try? await session.engine.sendUntilDrained()
+    // Drain all required data BEFORE stamping the receipt. A failed drain must
+    // leave the migration retryable rather than publishing a false completion.
+    let receiptRunner = RecipeMigrationReceiptRunner(
+        drainRequiredData: requiredDataDrain ?? {
+            try await session.engine.sendUntilDrained()
+        },
+        saveReceipt: {
+            let receipt = CKRecord(
+                recordType: HouseholdMigrationRunner.receiptType,
+                recordID: receiptID
+            )
+            receipt["scope"] = recipeMigrationScope as CKRecordValue
+            return session.engine.save(receipt)
+        }
+    )
+    return await receiptRunner.run()
 }
 #endif

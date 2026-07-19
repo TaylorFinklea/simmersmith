@@ -797,7 +797,7 @@ func runEventWeekCheck() async -> String {
         let event = GroceryMerge.Event(recordName: ev, name: "Party")
         let eventRows = [GroceryMerge.EventGroceryItem(recordName: e1, eventQuantity: 3, baseIngredientID: "b1", normalizedName: "tomato", unit: "cup"),
                          GroceryMerge.EventGroceryItem(recordName: e2, eventQuantity: 5, ingredientName: "Balloons", normalizedName: "balloons", unit: "ea")]
-        let merged = adapter.merge(event: event, eventRows: eventRows, intoWeek: week)
+        let merged = try adapter.merge(event: event, eventRows: eventRows, intoWeek: week)
         try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await syncBUntil { bGrocery(gTomato)?.eventQuantity == 3 && bEventOnly() != nil }
         try expect(bGrocery(gTomato)?.eventQuantity == 3, "B: tomato event_quantity not 3")
@@ -807,7 +807,7 @@ func runEventWeekCheck() async -> String {
         // UNMERGE (event now linked to the week).
         let linkedEvent = GroceryMerge.Event(recordName: ev, name: "Party", linkedWeekID: week)
         let createdName = bEventOnly()?.recordName
-        let unmergeOut = adapter.unmerge(event: linkedEvent, eventRows: merged.eventRows, fromWeek: week)
+        let unmergeOut = try adapter.unmerge(event: linkedEvent, eventRows: merged.eventRows, fromWeek: week)
         try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await syncBUntil { bGrocery(gTomato)?.eventQuantity == nil && bEventOnly() == nil }
         if bGrocery(gTomato)?.eventQuantity != nil || bEventOnly() != nil {
@@ -868,7 +868,7 @@ func runDedupeRepairCheck() async -> String {
         log.append("B sees 2 duplicate tomato rows ✅")
 
         // Repair on A → keeper rolls up, loser tombstoned.
-        let result = adapter.dedupeWeekGrocery(weekID: week)
+        let result = try adapter.dedupeWeekGrocery(weekID: week)
         try await engineA.sendUntilDrained(); try await engineA.fetchChanges()
         _ = try await syncBUntil { bGrocery(ga)?.totalQuantity == 5 && bGrocery(gb)?.isUserRemoved == true }
         try expect(bGrocery(ga)?.totalQuantity == 5, "B: keeper not rolled up to 5")
@@ -877,7 +877,7 @@ func runDedupeRepairCheck() async -> String {
         log.append("dedupe → keeper qty=5 + loser TOMBSTONED (not deleted), B converges ✅")
 
         // Idempotent re-run.
-        let again = adapter.dedupeWeekGrocery(weekID: week)
+        let again = try adapter.dedupeWeekGrocery(weekID: week)
         try expect(again.tombstoned.isEmpty, "re-run produced new tombstones (\(again.tombstoned.count))")
         log.append("re-run → no new tombstones, no double-count (idempotent) ✅")
 
@@ -1083,7 +1083,10 @@ func runWeekRepairCheck() async -> String {
         save(.week, ["id": wA, "week_start": "2026-06-29", "week_end": "2026-07-05"])
         save(.weekMeal, ["id": m1, "week_id": wA, "day_name": "Monday", "slot": "dinner", "sort_order": NSNumber(value: 0), "recipe_name": "A"])
         save(.weekMeal, ["id": m2, "week_id": wA, "day_name": "Monday", "slot": "dinner", "sort_order": NSNumber(value: 1), "recipe_name": "B"])
-        let moved = adapter.repairSlots(weekID: wA, slots: ["breakfast", "lunch", "dinner", "snack"])
+        let moved = try adapter.repairSlots(
+            weekID: wA,
+            slots: ["breakfast", "lunch", "dinner", "snack"]
+        )
         try expect(slotA(m1) == "dinner" && slotA(m2) == "breakfast" && moved.count == 1,
                    "slot repair: m1=\(slotA(m1) ?? "?") m2=\(slotA(m2) ?? "?") moved=\(moved.count)")
         log.append("slot-swap → keeper M1 stays 'dinner', M2 moved to free 'breakfast' (1 re-saved) ✅")
@@ -1102,7 +1105,7 @@ func runWeekRepairCheck() async -> String {
             save(.weekChangeBatch, ["id": "B\(i)-\(sfx)", "week_id": wA, "created_at": "2026-06-\(day)T00:00:00Z", "summary": "s\(i)"])
         }
         save(.weekChangeEvent, ["id": e0, "batch_id": b0, "entity_type": "WeekMeal", "field_name": "slot"])
-        let pruned = adapter.pruneAudit(weekID: wA, keep: 2)
+        let pruned = try adapter.pruneAudit(weekID: wA, keep: 2)
         try expect(pruned.prune.count == 2 && pruned.keep.count == 2, "prune counts: \(pruned)")
         try expect(storeA.record(for: gid(b0)) == nil && storeA.record(for: gid(e0)) == nil,
                    "prune cascade: oldest batch + its event should be swept")
@@ -2023,7 +2026,11 @@ func runEventsRepoCheck() async -> String {
         // Run the merge via EventMergeAdapter
         let mergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party")
         let adapter = EventMergeAdapter(engine: engineA, zoneID: zoneID)
-        let mergeOutcome = adapter.merge(event: mergeEvent, eventRows: [egTomatoItem, egBalloons], intoWeek: weekID)
+        let mergeOutcome = try adapter.merge(
+            event: mergeEvent,
+            eventRows: [egTomatoItem, egBalloons],
+            intoWeek: weekID
+        )
 
         try await engineA.sendUntilDrained()
         try await engineA.fetchChanges()
@@ -2051,8 +2058,8 @@ func runEventsRepoCheck() async -> String {
         let linkedMergeEvent = GroceryMerge.Event(recordName: eventID, name: "Test Party",
                                                    linkedWeekID: weekID)
         let updatedEventRows = mergeOutcome.eventRows
-        let unmergeOutcome = adapter.unmerge(event: linkedMergeEvent, eventRows: updatedEventRows,
-                                              fromWeek: weekID)
+        let unmergeOutcome = try adapter.unmerge(event: linkedMergeEvent, eventRows: updatedEventRows,
+                                                  fromWeek: weekID)
         try await engineA.sendUntilDrained()
         try await engineA.fetchChanges()
 

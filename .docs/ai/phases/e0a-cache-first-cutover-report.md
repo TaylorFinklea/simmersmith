@@ -126,3 +126,41 @@ performance evidence; P2h adds device-gate evidence.
 - Residual release evidence is intentionally deferred: authenticated device behavior and default-on
   remain P2h gates. The temporary local Ballast resolution symlink used for app verification was
   removed and is not part of the candidate.
+
+## P2f — authority, conflict, and lifecycle hardening
+
+- Replaced P2e's blanket data-plane denial with revocable exact-session authority. Cached sessions
+  remain denied until the same epoch/session reconciles; lifecycle callbacks synchronously revoke
+  authority, wait out in-flight cache mutations, fence later explicit operation results, and emit
+  typed account/revocation/owner-zone events. Direct delete/cascade, migration, repair, cleanup,
+  and absence-derived creation now share that authority boundary.
+- Remote deletion terminally supersedes a pre-authority local save without resurrection; current
+  deletes acknowledge normally. Reconciliation promotes only the still-current session, then runs
+  the staged migration/repair/system tail once. Failure or teardown abandons the claimed stage for
+  a serialized foreground retry instead of duplicating work.
+- Account change, participant revocation, and unexpected owner-zone deletion start with one
+  non-suspending epoch-first publication teardown. Integrity-bound lifecycle transactions outside
+  the mirror root make exact-scope or whole-root invalidation replayable; malformed/conflicting
+  transactions block entry. Atomic non-catalog retirement plus synchronized parent directories
+  keeps invalidated generations unselectable even if recursive cleanup fails.
+- Share adoption durably saves the exact account-bound participant marker before owner parking or
+  participant publication. A marker-write failure leaves the owner intact and the join retryable;
+  a later adoption failure retains the marker so restart cannot reopen the parked owner scope.
+- Factory reset writes its whole-root transaction before invalidation, binds it to the authorizing
+  CloudKit account, and validates that account before zone enumeration, immediately before remote
+  deletion, after deletion returns, and before replacement discovery/mint. Server failure or an
+  identity/epoch change remains visible and cannot report completion or create a household in a
+  successor account; tokenless restart replay is idempotent and requires explicit import recovery.
+- Independent review found and closed the marker-before-owner-retirement gap, reset deletion account
+  race, and post-transaction replacement-mint account race. Final app and package reviews:
+  `APPROVED`.
+- Verify 2026-07-19:
+  - `swift test --package-path SimmerSmithCloudKit` — **673 passed**.
+  - `swift test --package-path SimmerSmithKit` — **187 passed, 8 skipped**.
+  - focused signed lifecycle regressions — **24 tests in 4 suites passed**.
+  - signed `xcodebuild test ... -only-testing:SimmerSmithTests` — **221 tests in 46
+    suites passed**; expected accountless-simulator CloudKit logs only.
+  - `xcodebuild build ... -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` —
+    **BUILD SUCCEEDED**; `git diff --check` clean.
+- P1e remains a human device gate, so P2f intentionally adds no named-device/cache-first opt-in and
+  makes no release, schema, or build-number change. Shipping default remains off; P2g is next.

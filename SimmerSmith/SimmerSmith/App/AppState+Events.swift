@@ -70,7 +70,8 @@ extension AppState {
     func deleteGuest(_ guest: Guest) async throws {
         #if canImport(CloudKit)
         if let repo = guestRepository {
-            repo.deleteGuest(guest.guestId)
+            let result = repo.deleteGuest(guest.guestId)
+            guard result == .allowed else { throw result }
             mirrorGuestsFromRepository()
             return
         }
@@ -131,7 +132,7 @@ extension AppState {
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.createEvent(
+            guard let event = try repo.createEvent(
                 name: name,
                 eventDate: eventDate,
                 occasion: occasion,
@@ -177,7 +178,7 @@ extension AppState {
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.updateEvent(
+            guard let event = try repo.updateEvent(
                 eventID: eventID,
                 name: name,
                 eventDate: eventDate,
@@ -216,7 +217,8 @@ extension AppState {
     func deleteEvent(_ event: EventSummary) async throws {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            repo.deleteEvent(eventID: event.eventId)
+            let result = try repo.deleteEvent(eventID: event.eventId)
+            guard result == .allowed else { throw result }
             eventSummaries.removeAll { $0.eventId == event.eventId }
             eventDetails.removeValue(forKey: event.eventId)
             return
@@ -239,7 +241,7 @@ extension AppState {
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.addEventMeal(
+            guard let event = try repo.addEventMeal(
                 eventID: eventID,
                 role: role,
                 recipeName: recipeName,
@@ -286,7 +288,7 @@ extension AppState {
     ) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.updateEventMeal(
+            guard let event = try repo.updateEventMeal(
                 eventID: eventID,
                 mealID: mealID,
                 role: role,
@@ -327,7 +329,7 @@ extension AppState {
     func deleteEventMeal(eventID: String, mealID: String) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.deleteEventMeal(eventID: eventID, mealID: mealID) else {
+            guard let event = try repo.deleteEventMeal(eventID: eventID, mealID: mealID) else {
                 throw NSError(
                     domain: "SimmerSmith.EventRepository",
                     code: 404,
@@ -424,7 +426,7 @@ extension AppState {
     func refreshEventGrocery(eventID: String) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            repo.refreshEventGrocery(eventID: eventID)
+            try repo.refreshEventGrocery(eventID: eventID)
             mirrorEventsFromRepository()
             if let event = repo.event(forId: eventID) {
                 return event
@@ -446,7 +448,7 @@ extension AppState {
     func mergeEventGroceryIntoWeek(eventID: String, weekID: String) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.mergeEventGroceryIntoWeek(eventID: eventID, weekID: weekID) else {
+            guard let event = try repo.mergeEventGroceryIntoWeek(eventID: eventID, weekID: weekID) else {
                 throw NSError(
                     domain: "SimmerSmith.EventRepository",
                     code: 404,
@@ -467,7 +469,7 @@ extension AppState {
     func unmergeEventGroceryFromWeek(eventID: String, weekID: String) async throws -> Event {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            guard let event = repo.unmergeEventGroceryFromWeek(eventID: eventID, weekID: weekID) else {
+            guard let event = try repo.unmergeEventGroceryFromWeek(eventID: eventID, weekID: weekID) else {
                 throw NSError(
                     domain: "SimmerSmith.EventRepository",
                     code: 404,

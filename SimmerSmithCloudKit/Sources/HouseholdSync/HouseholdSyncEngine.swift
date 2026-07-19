@@ -39,8 +39,7 @@ enum HouseholdSyncEngineCallback: Sendable {
     case syncError(SyncFailure)
     case recordSaved(String)
     case durabilityFailure(MirrorDurabilityFailure)
-    case participantRevoked
-    case accountChanged
+    case lifecycle(HouseholdSyncLifecycleEvent)
 }
 
 final class HouseholdSyncEngineCallbackRelay: @unchecked Sendable {
@@ -50,7 +49,8 @@ final class HouseholdSyncEngineCallbackRelay: @unchecked Sendable {
         recordSaved: (@Sendable (String) -> Void)?,
         durabilityFailure: (@Sendable (MirrorDurabilityFailure) -> Void)?,
         participantRevoked: (@Sendable () -> Void)?,
-        accountChanged: (@Sendable () -> Void)?
+        accountChanged: (@Sendable () -> Void)?,
+        lifecycleEvent: (@Sendable (HouseholdSyncLifecycleEvent) -> Void)?
     )
 
     private let lock = NSLock()
@@ -109,10 +109,108 @@ final class HouseholdSyncEngineCallbackRelay: @unchecked Sendable {
             handlers.recordSaved?(recordName)
         case .durabilityFailure(let failure):
             handlers.durabilityFailure?(failure)
-        case .participantRevoked:
-            handlers.participantRevoked?()
-        case .accountChanged:
-            handlers.accountChanged?()
+        case .lifecycle(let event):
+            if let lifecycleEvent = handlers.lifecycleEvent {
+                lifecycleEvent(event)
+            } else {
+                switch event {
+                case .participantRevocation:
+                    handlers.participantRevoked?()
+                case .accountBoundary:
+                    handlers.accountChanged?()
+                case .unexpectedOwnerZoneDeletion:
+                    break
+                }
+            }
+        }
+    }
+}
+
+/// Deterministic package seam for the four explicit CKSyncEngine entry-point shapes. Production
+/// supplies the SDK calls; tests suspend those closures across a lifecycle transition so every
+/// public path proves the same post-await authority invariant without contacting CloudKit.
+enum HouseholdSyncExplicitOperationDriver {
+    static func fetchChanges(
+        gate: AsyncSerialGate,
+        lifecycleFence: HouseholdSyncLifecycleFence,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        try await performSingle(
+            gate: gate,
+            lifecycleFence: lifecycleFence,
+            operation: operation)
+    }
+
+    static func sendChanges(
+        gate: AsyncSerialGate,
+        lifecycleFence: HouseholdSyncLifecycleFence,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        try await performSingle(
+            gate: gate,
+            lifecycleFence: lifecycleFence,
+            operation: operation)
+    }
+
+    static func sync(
+        gate: AsyncSerialGate,
+        lifecycleFence: HouseholdSyncLifecycleFence,
+        fetch: @escaping @Sendable () async throws -> Void,
+        send: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        guard !lifecycleFence.isFrozen else {
+            throw HouseholdDataPlaneResult.notAuthoritative
+        }
+        try await gate.withLock {
+            try await lifecycleFence.performExplicitOperation(fetch)
+            try await lifecycleFence.performExplicitOperation(send)
+        }
+    }
+
+    static func sendUntilDrained(
+        gate: AsyncSerialGate,
+        lifecycleFence: HouseholdSyncLifecycleFence,
+        maxPasses: Int,
+        pendingRecordChangeCount: @escaping @Sendable () -> Int,
+        send: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        guard !lifecycleFence.isFrozen else {
+            throw HouseholdDataPlaneResult.notAuthoritative
+        }
+        try await gate.withLock {
+            for _ in 0..<max(0, maxPasses) {
+                guard !lifecycleFence.isFrozen else {
+                    throw HouseholdDataPlaneResult.notAuthoritative
+                }
+                do {
+                    try await lifecycleFence.performExplicitOperation(send)
+                    if pendingRecordChangeCount() == 0 { return }
+                } catch {
+                    if lifecycleFence.isFrozen {
+                        throw HouseholdDataPlaneResult.notAuthoritative
+                    }
+                    if pendingRecordChangeCount() == 0 { throw error }
+                }
+            }
+            guard !lifecycleFence.isFrozen else {
+                throw HouseholdDataPlaneResult.notAuthoritative
+            }
+            try HouseholdSyncEngine.requireDrained(
+                pendingRecordChangeCount: pendingRecordChangeCount(),
+                maxPasses: maxPasses)
+        }
+    }
+
+    private static func performSingle(
+        gate: AsyncSerialGate,
+        lifecycleFence: HouseholdSyncLifecycleFence,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        guard !lifecycleFence.isFrozen else {
+            throw HouseholdDataPlaneResult.notAuthoritative
+        }
+        try await gate.withLock {
+            try await lifecycleFence.performExplicitOperation(operation)
         }
     }
 }
@@ -194,6 +292,11 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// P2e keeps cached sessions fail-closed for destructive data-plane operations. P2f replaces
     /// this blanket mode with exact current-session authority.
     public let dataPlaneMode: HouseholdDataPlaneMode
+    /// Owned by the `HouseholdSession` that constructed this engine. A stale repository can keep
+    /// the engine alive, but it cannot regain destructive authority after that session revokes it.
+    private let sessionAuthority: HouseholdSessionAuthority
+    private let lifecycleFence: HouseholdSyncLifecycleFence
+    private let activeMirrorScope = HouseholdSyncActiveMirrorScopeSnapshot()
     private let log = Logger(subsystem: "app.simmersmith.cloud", category: "HouseholdSync")
     private let callbackRelay = HouseholdSyncEngineCallbackRelay()
 
@@ -257,8 +360,15 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         didSet { installLegacyEventHandlers() }
     }
 
-    /// Called after sign-out/account switch has fenced the old account's full shadow root.
+    /// Legacy account-boundary callback. The engine has frozen in-memory activity, but AppState
+    /// still owns epoch-first projection teardown and durable whole-root invalidation.
     public var onAccountChanged: (@Sendable () -> Void)? {
+        didSet { installLegacyEventHandlers() }
+    }
+
+    /// Typed lifecycle boundary delivered only after the engine has synchronously revoked its
+    /// authority and fenced outbound/cache mutation. Prefer this over the legacy split callbacks.
+    public var onLifecycleEvent: (@Sendable (HouseholdSyncLifecycleEvent) -> Void)? {
         didSet { installLegacyEventHandlers() }
     }
 
@@ -270,7 +380,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         onRecordSaved: (@Sendable (String) -> Void)?,
         onMirrorDurabilityFailure: (@Sendable (MirrorDurabilityFailure) -> Void)?,
         onParticipantRevoked: (@Sendable () -> Void)? = nil,
-        onAccountChanged: (@Sendable () -> Void)? = nil
+        onAccountChanged: (@Sendable () -> Void)? = nil,
+        onLifecycleEvent: (@Sendable (HouseholdSyncLifecycleEvent) -> Void)? = nil
     ) {
         callbackRelay.install((
             storeChanged: onStoreChanged,
@@ -278,7 +389,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             recordSaved: onRecordSaved,
             durabilityFailure: onMirrorDurabilityFailure,
             participantRevoked: onParticipantRevoked,
-            accountChanged: onAccountChanged))
+            accountChanged: onAccountChanged,
+            lifecycleEvent: onLifecycleEvent))
     }
 
     public func clearEventHandlers() {
@@ -288,6 +400,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         onMirrorDurabilityFailure = nil
         onParticipantRevoked = nil
         onAccountChanged = nil
+        onLifecycleEvent = nil
         callbackRelay.clear()
     }
 
@@ -298,7 +411,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             recordSaved: onRecordSaved,
             durabilityFailure: onMirrorDurabilityFailure,
             participantRevoked: onParticipantRevoked,
-            accountChanged: onAccountChanged))
+            accountChanged: onAccountChanged,
+            lifecycleEvent: onLifecycleEvent))
     }
 
     // simmersmith-dkj: per-record LOCAL MUTATION GENERATION. `save()` bumps a record's
@@ -364,7 +478,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         traceLock.lock(); trace.append(s); traceLock.unlock()
     }
 
-    public init(
+    public convenience init(
         database: CKDatabase,
         zoneID: CKRecordZone.ID,
         store: HouseholdLocalStore,
@@ -373,14 +487,77 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         ownsZone: Bool = true,
         merger: RecordMerger? = nil,
         shadowMirrorRootDirectory: URL? = nil,
-        dataPlaneMode: HouseholdDataPlaneMode = .normal
+        dataPlaneMode: HouseholdDataPlaneMode = .normal,
+        authority: HouseholdSessionAuthority? = nil
     ) {
+        try! self.init(
+            database: database,
+            zoneID: zoneID,
+            store: store,
+            stateURL: stateURL,
+            automaticSync: automaticSync,
+            ownsZone: ownsZone,
+            merger: merger,
+            shadowMirrorRootDirectory: shadowMirrorRootDirectory,
+            dataPlaneMode: dataPlaneMode,
+            authority: authority,
+            validatedInitialMirrorScope: nil)
+    }
+
+    /// Constructs a nil-state or recovery engine with its exact account/role/database scope
+    /// installed before automatic CKSyncEngine callbacks can report a lifecycle boundary.
+    /// Recovery callers pass `plan.scope`; ordinary no-candidate callers pass the CloudKit-
+    /// resolved scope. Cached candidates use their dedicated initializer below.
+    public convenience init(
+        database: CKDatabase,
+        zoneID: CKRecordZone.ID,
+        store: HouseholdLocalStore,
+        stateURL: URL,
+        automaticSync: Bool = false,
+        ownsZone: Bool,
+        initialMirrorScope: MirrorScope,
+        merger: RecordMerger? = nil,
+        shadowMirrorRootDirectory: URL? = nil,
+        dataPlaneMode: HouseholdDataPlaneMode = .normal,
+        authority: HouseholdSessionAuthority? = nil
+    ) throws {
+        try self.init(
+            database: database,
+            zoneID: zoneID,
+            store: store,
+            stateURL: stateURL,
+            automaticSync: automaticSync,
+            ownsZone: ownsZone,
+            merger: merger,
+            shadowMirrorRootDirectory: shadowMirrorRootDirectory,
+            dataPlaneMode: dataPlaneMode,
+            authority: authority,
+            validatedInitialMirrorScope: initialMirrorScope)
+    }
+
+    private init(
+        database: CKDatabase,
+        zoneID: CKRecordZone.ID,
+        store: HouseholdLocalStore,
+        stateURL: URL,
+        automaticSync: Bool,
+        ownsZone: Bool,
+        merger: RecordMerger?,
+        shadowMirrorRootDirectory: URL?,
+        dataPlaneMode: HouseholdDataPlaneMode,
+        authority: HouseholdSessionAuthority?,
+        validatedInitialMirrorScope: MirrorScope?
+    ) throws {
         self.database = database
         self.zoneID = zoneID
         self.store = store
         self.stateURL = stateURL
         self.ownsZone = ownsZone
         self.dataPlaneMode = dataPlaneMode
+        let sessionAuthority = authority ?? HouseholdSessionAuthority(
+            initiallyAuthoritative: dataPlaneMode == .normal)
+        self.sessionAuthority = sessionAuthority
+        self.lifecycleFence = HouseholdSyncLifecycleFence(authority: sessionAuthority)
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.bootstrapGate = nil
         self.durableMirrorRequired = dataPlaneMode == .cached
@@ -391,6 +568,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         // remote change could race in and fall through to blanket LWW instead of
         // `FieldMergeResolver`, corrupting sticky grocery/event fields.
         self.merger = merger
+        if let validatedInitialMirrorScope {
+            try activeMirrorScope.installValidated(
+                validatedInitialMirrorScope,
+                expectedZoneID: zoneID,
+                ownsZone: ownsZone)
+        }
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -399,6 +582,36 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         )
         configuration.automaticallySync = automaticSync
         self.syncEngine = CKSyncEngine(configuration)
+    }
+
+    /// The authoritative outcome for a data-plane seam. `save` remains WAL-backed and available
+    /// while cached content reconciles; destructive and system-owned operations require the
+    /// capability held by the exact current session.
+    public func dataPlaneResult(for operation: HouseholdDataPlaneOperation) -> HouseholdDataPlaneResult {
+        guard !lifecycleFence.isFrozen else { return .notAuthoritative }
+        return sessionAuthority.result(for: operation)
+    }
+
+    /// AppState calls this only after it revalidates its captured boot epoch and object identity.
+    @discardableResult
+    public func promoteSessionAuthority() -> Bool {
+        sessionAuthority.promote()
+    }
+
+    /// Synchronous so the lifecycle handoff can revoke stale repositories before any await.
+    public func revokeSessionAuthority() {
+        sessionAuthority.revoke()
+    }
+
+    public var hasSessionAuthority: Bool {
+        sessionAuthority.allowsAuthoritativeOperations
+    }
+
+    /// Exact validated scope owned by this session's active mirror. Lifecycle handlers capture
+    /// this synchronously before any await; nil means no scoped mirror was ever attached and must
+    /// never be replaced by a zone-only inference.
+    public var activeMirrorScopeSnapshot: MirrorScope? {
+        activeMirrorScope.value
     }
 
     // MARK: P2 gated resumable construction (spec §3.3)
@@ -420,7 +633,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         merger: RecordMerger? = nil,
         bootstrapCandidate candidate: MirrorBootstrapCandidate,
         shadowMirrorRootDirectory: URL? = nil,
-        dataPlaneMode: HouseholdDataPlaneMode = .cached
+        dataPlaneMode: HouseholdDataPlaneMode = .cached,
+        authority: HouseholdSessionAuthority? = nil
     ) throws {
         self.database = database
         self.zoneID = zoneID
@@ -430,6 +644,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         // against the caller's live identity and this engine's zone.
         self.ownsZone = candidate.bootstrap.scope.role == .owner
         self.dataPlaneMode = dataPlaneMode
+        let sessionAuthority = authority ?? HouseholdSessionAuthority(
+            initiallyAuthoritative: dataPlaneMode == .normal)
+        self.sessionAuthority = sessionAuthority
+        self.lifecycleFence = HouseholdSyncLifecycleFence(authority: sessionAuthority)
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.merger = merger
         do {
@@ -442,6 +660,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             Self.failBootstrapCandidate(candidate, store: store)
             throw error
         }
+        try activeMirrorScope.installValidated(
+            candidate.bootstrap.scope,
+            expectedZoneID: zoneID,
+            ownsZone: ownsZone)
         self.bootstrapGate = MirrorBootstrapDelegateGate()
         self.bootstrapCandidateState = candidate
         self.durableMirrorRequired = true
@@ -473,7 +695,19 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// the gate terminally discards queued delegate work, the store is cleared before content
     /// can render, the exact scope is quarantined, its lease is released, and the error is
     /// rethrown so the caller constructs a fresh nil-state/full-fetch engine.
-    public func activateBootstrapCandidate() throws {
+    @discardableResult
+    public func activateBootstrapCandidate() throws -> MirrorBootstrapDelegateGate.Outcome {
+        guard lifecycleFence.beginActivity() else {
+            guard let gate = bootstrapGate,
+                  gate.resolvedOutcome == nil,
+                  bootstrapCandidateState != nil,
+                  gate.resolve(.discarded) else {
+                throw MirrorBootstrapEngineError.activationUnavailable
+            }
+            note("bootstrap gate discarded by lifecycle boundary")
+            return .discarded
+        }
+        defer { lifecycleFence.endActivity() }
         guard let gate = bootstrapGate, gate.resolvedOutcome == nil,
               let candidate = bootstrapCandidateState else {
             throw MirrorBootstrapEngineError.activationUnavailable
@@ -509,6 +743,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         bootstrapCandidateState = nil
         note("bootstrap gate open")
         gate.resolve(.open)
+        return .open
     }
 
     /// Terminal outcome of this engine's bootstrap gate; nil while unresolved or when this is
@@ -576,10 +811,18 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         _ plan: MirrorRecoveryPlan,
         writer: ShadowMirrorCheckpointWriter
     ) throws {
+        guard lifecycleFence.beginActivity() else {
+            throw HouseholdDataPlaneResult.notAuthoritative
+        }
+        defer { lifecycleFence.endActivity() }
         guard !recoveryPlanApplied else { throw MirrorBootstrapEngineError.activationUnavailable }
         // Decode and cross-check every durable payload before mutating either the fetched store
         // or CKSyncEngine state. A malformed later row must not publish a partial recovery.
         let overlay = try MirrorRecoveryPlanOverlay.prepare(plan: plan, zoneID: zoneID)
+        try activeMirrorScope.installValidated(
+            plan.scope,
+            expectedZoneID: zoneID,
+            ownsZone: ownsZone)
         let runtime = ShadowMirrorRuntime(writer: writer)
         let publication = try shadowMirrorLock.withLock { () throws -> ShadowMirrorPublication? in
             guard !recoveryPlanApplied else { throw MirrorBootstrapEngineError.activationUnavailable }
@@ -653,6 +896,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             return clearShadowRootOnDeinit
         }
+        // No candidate waiter may outlive its engine owner. Lifecycle-before-activation normally
+        // resolves this earlier; deinit is the terminal backstop for any abandoned candidate.
+        bootstrapGate?.resolve(.discarded)
         // Stored properties outlive a deinit body by default. Dispose CKSyncEngine explicitly
         // before dropping the lease or moving its asset root so an outbound batch cannot retain
         // a CKAsset whose source path has already disappeared.
@@ -678,6 +924,13 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// This never changes the active `CKSyncEngine` configuration or hydrates `store`; P1 keeps
     /// the existing nil-token/full-fetch boot path and only records an isolated shadow snapshot.
     public func enableShadowMirror(scope: MirrorScope, rootDirectory: URL) async throws {
+        guard lifecycleFence.beginActivity() else {
+            throw HouseholdDataPlaneResult.notAuthoritative
+        }
+        var activityEnded = false
+        defer {
+            if !activityEnded { lifecycleFence.endActivity() }
+        }
         let rootMatches = shadowMirrorLock.withLock {
             guard let configured = shadowRootDirectory else {
                 shadowRootDirectory = rootDirectory
@@ -687,13 +940,19 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         }
         guard rootMatches else { throw MirrorCheckpointError.scopeMismatch }
         guard shadowMirrorLock.withLock({ shadowCaptureAllowed }) else { return }
-        let writer = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: rootDirectory)
+        let writer = try ShadowMirrorCheckpointWriter(
+            scope: scope,
+            rootDirectory: rootDirectory)
+        try activeMirrorScope.installValidated(
+            scope,
+            expectedZoneID: zoneID,
+            ownsZone: ownsZone)
         let runtime = ShadowMirrorRuntime(writer: writer)
         let publication = try shadowMirrorLock.withLock { () throws -> ShadowMirrorPublication? in
             guard shadowCaptureAllowed else {
-                // A detach may have parked a valid owner generation while this identity lookup
-                // was constructing its runtime. Fence only this late writer; never delete the
-                // parked scope (or sibling account scopes) from the stale callback.
+                // A detach may have fenced this generation while identity lookup was constructing
+                // its runtime. Fence only this late writer; never delete the scope (or siblings)
+                // from the stale callback.
                 runtime.park()
                 return nil
             }
@@ -723,11 +982,45 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             return publication
         }
+        lifecycleFence.endActivity()
+        activityEnded = true
+        guard !lifecycleFence.isFrozen else {
+            runtime.fence()
+            return
+        }
         if let publication { try await runtime.publish(publication) }
     }
 
-    /// Sign-out/account change clears a fully fenced scope. P1 failures are diagnostic-only:
-    /// callers preserve the active engine and full-fetch behavior even if a cache cannot clear.
+    /// Freeze authority, cache publication, and pending outbound state before queuing AppState's
+    /// typed lifecycle callback. Deliberately does not clear the store or any durable namespace.
+    private func transitionToLifecycleBoundary(_ event: HouseholdSyncLifecycleEvent) {
+        lifecycleFence.transition(
+            to: event,
+            fenceCacheMutation: { [self] in
+                shadowMirrorLock.withLock {
+                    shadowCaptureAllowed = false
+                    if let shadowMirror {
+                        shadowMirror.fence()
+                    } else if let activeMirrorLease {
+                        activeMirrorLease.writer.fenceSynchronously()
+                    } else if let candidate = bootstrapCandidateState {
+                        candidate.writer.fenceSynchronously()
+                    }
+                    let recordChanges = syncEngine.state.pendingRecordZoneChanges
+                    if !recordChanges.isEmpty {
+                        syncEngine.state.remove(pendingRecordZoneChanges: recordChanges)
+                    }
+                    let databaseChanges = syncEngine.state.pendingDatabaseChanges
+                    if !databaseChanges.isEmpty {
+                        syncEngine.state.remove(pendingDatabaseChanges: databaseChanges)
+                    }
+                }
+            },
+            emit: { [self] event in
+                callbackRelay.emit(.lifecycle(event))
+            })
+    }
+
     @discardableResult
     public func clearShadowMirror() -> Bool {
         shadowMirrorLock.lock(); defer { shadowMirrorLock.unlock() }
@@ -780,38 +1073,15 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return rootRetirementDurable
     }
 
-    /// Revocation retires only this participant scope, not sibling owner/participant scopes under
-    /// the same account root. Its lease keeps assets stable until engine disposal completes move.
-    private func retireActiveShadowScope() -> Bool {
-        shadowMirrorLock.withLock {
-            shadowCaptureAllowed = false
-            do {
-                if let shadowMirror {
-                    try shadowMirror.requestClear()
-                } else if let activeMirrorLease {
-                    try activeMirrorLease.writer.fenceAndRequestClearSynchronously()
-                }
-            } catch {
-                return false
-            }
-            shadowMirror = nil
-            discardActiveMirrorReferencesLocked()
-            shadowStateHistory = []
-            shadowCompletedFetch = nil
-            shadowFetchEpochOpen = false
-            participantFetchProof = .unverified
-            participantCheckpointProof = nil
-            return true
-        }
-    }
-
-    /// Owner-to-participant adoption parks the old scope after fencing it, so a stale owner
-    /// callback cannot publish into the new participant session while the prior checkpoint stays
-    /// available only to a later scope-validated owner session.
+    /// Generic detachment only fences a scope. It must never write an owner-adoption marker:
+    /// participant revocation and stale construction cleanup use this path too.
     public func parkShadowMirror() {
         shadowMirrorLock.lock(); defer { shadowMirrorLock.unlock() }
         shadowCaptureAllowed = false
         shadowMirror?.park()
+        if shadowMirror == nil, let activeMirrorLease {
+            activeMirrorLease.writer.fenceSynchronously()
+        }
         shadowMirror = nil
         discardActiveMirrorReferencesLocked()
         shadowStateHistory = []
@@ -819,6 +1089,40 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         shadowFetchEpochOpen = false
         participantFetchProof = .unverified
         participantCheckpointProof = nil
+    }
+
+    /// Owner-to-participant adoption durably hides the exact owner scope before a successor
+    /// participant may construct. Failure leaves the old engine fenced and returns `false` so
+    /// AppState keeps the application non-ready instead of saving a participant marker.
+    @discardableResult
+    public func parkShadowMirrorForAdoption() -> Bool {
+        shadowMirrorLock.lock(); defer { shadowMirrorLock.unlock() }
+        shadowCaptureAllowed = false
+        do {
+            if let shadowMirror {
+                try shadowMirror.parkForAdoption()
+            } else if let activeMirrorLease {
+                try activeMirrorLease.writer.fenceAndPersistParkingSynchronously()
+            }
+        } catch {
+            shadowMirror?.fence()
+            shadowMirror = nil
+            discardActiveMirrorReferencesLocked()
+            shadowStateHistory = []
+            shadowCompletedFetch = nil
+            shadowFetchEpochOpen = false
+            participantFetchProof = .unverified
+            participantCheckpointProof = nil
+            return false
+        }
+        shadowMirror = nil
+        discardActiveMirrorReferencesLocked()
+        shadowStateHistory = []
+        shadowCompletedFetch = nil
+        shadowFetchEpochOpen = false
+        participantFetchProof = .unverified
+        participantCheckpointProof = nil
+        return true
     }
 
     /// Remove local payload references and future pending work at detach. A batch already handed
@@ -985,8 +1289,15 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// historical diagnostic-only behavior and returns `true` after the normal mutation.
     @discardableResult
     public func save(_ record: CKRecord) -> Bool {
+        guard lifecycleFence.beginActivity() else { return false }
+        defer { lifecycleFence.endActivity() }
+        guard dataPlaneResult(for: .save) == .allowed else {
+            note("save denied after session teardown")
+            return false
+        }
         var durabilityFailure: MirrorDurabilityFailure?
         let accepted = shadowMirrorLock.withLock { () -> Bool in
+            guard !lifecycleFence.isFrozen else { return false }
             let nextGeneration = UInt64(localGeneration[record.recordID, default: 0] + 1)
             guard appendSaveToMirrorBeforeMutationLocked(
                 record,
@@ -1017,11 +1328,22 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return accepted
     }
 
-    public func delete(_ recordID: CKRecord.ID) {
-        guard HouseholdDataPlanePolicy.allows(.delete, mode: dataPlaneMode) else {
+    @discardableResult
+    public func delete(_ recordID: CKRecord.ID) -> HouseholdDataPlaneResult {
+        guard lifecycleFence.beginActivity() else { return .notAuthoritative }
+        defer { lifecycleFence.endActivity() }
+        guard dataPlaneResult(for: .delete) == .allowed else {
             note("destructive delete denied before authority")
-            return
+            return .notAuthoritative
         }
+        return deleteWhileLifecycleActive(recordID)
+    }
+
+    /// Caller owns one lifecycle activity across this mutation. Cascade deletion uses the same
+    /// helper recursively so a boundary cannot split one requested subtree halfway through.
+    private func deleteWhileLifecycleActive(
+        _ recordID: CKRecord.ID
+    ) -> HouseholdDataPlaneResult {
         var durabilityFailure: MirrorDurabilityFailure?
         shadowMirrorLock.withLock {
             let nextGeneration = UInt64(localGeneration[recordID, default: 0] + 1)
@@ -1059,7 +1381,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         if let durabilityFailure {
             note("cached delete denied: WAL append failed")
             callbackRelay.emit(.durabilityFailure(durabilityFailure))
+            return .durabilityFailure(durabilityFailure)
         }
+        return .allowed
     }
 
     /// Delete a record AND sweep its local CASCADE subtree. CloudKit's `.deleteSelf` only
@@ -1067,22 +1391,29 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// recurses the local store's `.deleteSelf` edges (recipe→ingredient/step→child-step,
     /// event→meal→ingredient, baseIngredient→variation). The sweep lives ONLY here on the
     /// issuing engine — the fetch handler stays the untouched LWW seam.
-    public func deleteCascading(_ recordID: CKRecord.ID) {
-        guard HouseholdDataPlanePolicy.allows(.deleteCascading, mode: dataPlaneMode) else {
+    @discardableResult
+    public func deleteCascading(_ recordID: CKRecord.ID) -> HouseholdDataPlaneResult {
+        guard lifecycleFence.beginActivity() else { return .notAuthoritative }
+        defer { lifecycleFence.endActivity() }
+        guard dataPlaneResult(for: .deleteCascading) == .allowed else {
             note("destructive cascade denied before authority")
-            return
+            return .notAuthoritative
         }
-        deleteCascading(recordID, visited: [])
+        return deleteCascading(recordID, visited: [])
     }
 
-    private func deleteCascading(_ recordID: CKRecord.ID, visited: Set<String>) {
-        guard !visited.contains(recordID.recordName) else { return }
+    private func deleteCascading(
+        _ recordID: CKRecord.ID,
+        visited: Set<String>
+    ) -> HouseholdDataPlaneResult {
+        guard !visited.contains(recordID.recordName) else { return .allowed }
         var visited = visited
         visited.insert(recordID.recordName)
         for childID in store.recordIDsCascadingFrom(recordID.recordName) {
-            deleteCascading(childID, visited: visited)
+            let childResult = deleteCascading(childID, visited: visited)
+            guard childResult == .allowed else { return childResult }
         }
-        delete(recordID)
+        return deleteWhileLifecycleActive(recordID)
     }
 
     // simmersmith-vda: every EXPLICIT engine operation below runs under one AsyncSerialGate.
@@ -1098,18 +1429,25 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// Fetch remote changes then push local ones, as ONE gated unit. Manual drive for
     /// deterministic tests; the app can also rely on `automaticallySync`.
     public func sync() async throws {
-        try await operationGate.withLock {
-            try await self.syncEngine.fetchChanges()
-            try await self.syncEngine.sendChanges()
-        }
+        try await HouseholdSyncExplicitOperationDriver.sync(
+            gate: operationGate,
+            lifecycleFence: lifecycleFence,
+            fetch: { try await self.syncEngine.fetchChanges() },
+            send: { try await self.syncEngine.sendChanges() })
     }
 
     public func fetchChanges() async throws {
-        try await operationGate.withLock { try await self.syncEngine.fetchChanges() }
+        try await HouseholdSyncExplicitOperationDriver.fetchChanges(
+            gate: operationGate,
+            lifecycleFence: lifecycleFence,
+            operation: { try await self.syncEngine.fetchChanges() })
     }
 
     public func sendChanges() async throws {
-        try await operationGate.withLock { try await self.syncEngine.sendChanges() }
+        try await HouseholdSyncExplicitOperationDriver.sendChanges(
+            gate: operationGate,
+            lifecycleFence: lifecycleFence,
+            operation: { try await self.syncEngine.sendChanges() })
     }
 
     /// Exact number of record changes still queued (e.g. rebased saves awaiting retry).
@@ -1123,23 +1461,48 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         pendingRecordChangeCount > 0
     }
 
+    /// A bounded drain could not prove that all required record changes reached
+    /// CloudKit. Callers treat this as retryable and must not publish completion.
+    public enum DrainError: Error, Equatable, LocalizedError, Sendable {
+        case exhaustedPendingRecordChanges(pendingCount: Int, maxPasses: Int)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .exhaustedPendingRecordChanges(pendingCount, maxPasses):
+                return "CloudKit still has \(pendingCount) pending record changes after \(maxPasses) drain passes."
+            }
+        }
+    }
+
+    /// Pure post-loop proof seam. Package tests cannot construct a live
+    /// CKSyncEngine, but the production drain calls this against its exact state.
+    static func requireDrained(
+        pendingRecordChangeCount: Int,
+        maxPasses: Int
+    ) throws {
+        guard pendingRecordChangeCount == 0 else {
+            throw DrainError.exhaustedPendingRecordChanges(
+                pendingCount: pendingRecordChangeCount,
+                maxPasses: max(0, maxPasses)
+            )
+        }
+    }
+
     /// Send repeatedly until nothing is pending. A per-record conflict (serverRecordChanged)
     /// can both be delivered to the delegate (which re-enqueues a merged save) AND thrown from
     /// `sendChanges()`; catch it and keep draining while the delegate left pending work, so the
-    /// merged retry goes out. Rethrow only if nothing is pending (a real, unhandled failure).
-    /// The whole drain holds the operation gate — passes never interleave with another
-    /// explicit fetch/send (simmersmith-vda).
+    /// merged retry goes out. Rethrow immediately only if nothing is pending (a real,
+    /// unhandled failure); if the finite bound expires with work still pending, throw
+    /// `DrainError` rather than falsely reporting completion. The whole drain holds the
+    /// operation gate — passes never interleave with another explicit fetch/send
+    /// (simmersmith-vda).
     public func sendUntilDrained(maxPasses: Int = 8) async throws {
-        try await operationGate.withLock {
-            for _ in 0..<maxPasses {
-                do {
-                    try await self.syncEngine.sendChanges()
-                    if !self.hasPendingRecordChanges { return }
-                } catch {
-                    if !self.hasPendingRecordChanges { throw error }
-                }
-            }
-        }
+        try await HouseholdSyncExplicitOperationDriver.sendUntilDrained(
+            gate: operationGate,
+            lifecycleFence: lifecycleFence,
+            maxPasses: maxPasses,
+            pendingRecordChangeCount: { self.pendingRecordChangeCount },
+            send: { try await self.syncEngine.sendChanges() })
     }
 
     // MARK: CKSyncEngineDelegate
@@ -1176,9 +1539,13 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        guard !lifecycleFence.isFrozen else { return nil }
         guard await awaitBootstrapGate("batch") else { return nil }
+        guard lifecycleFence.beginActivity() else { return nil }
+        defer { lifecycleFence.endActivity() }
         let generationSnapshot = OutboundBatchGenerationSnapshot()
-        let pending = shadowMirrorLock.withLock { () -> [CKSyncEngine.PendingRecordZoneChange] in
+        let pending = shadowMirrorLock.withLock { () -> [CKSyncEngine.PendingRecordZoneChange]? in
+            guard !lifecycleFence.isFrozen else { return nil }
             let selected = syncEngine.state.pendingRecordZoneChanges.filter {
                 context.options.scope.contains($0)
             }
@@ -1193,8 +1560,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             return selected
         }
+        guard let pending else { return nil }
         let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
             self.shadowMirrorLock.withLock {
+                guard !self.lifecycleFence.isFrozen else { return nil }
                 guard let record = self.store.record(for: recordID) else { return nil }
                 // Capture the payload and its generation under the same lock. If a later save
                 // lands before this batch is returned, its higher generation remains pending and
@@ -1214,7 +1583,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         for recordID in selectedRecordIDs {
             let generation = generationSnapshot.generation(for: recordID)
             let accepted = shadowMirrorLock.withLock {
-                prepareSentGenerationLocked(recordID, generation: generation)
+                guard !lifecycleFence.isFrozen else { return false }
+                return prepareSentGenerationLocked(recordID, generation: generation)
             }
             guard accepted else {
                 note("cached send denied: WAL sent transition failed")
@@ -1225,8 +1595,84 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return batch
     }
 
+    /// Apply one fetched remote deletion through the same durable conflict path used by the
+    /// CKSyncEngine delegate. The direct entry point makes that production path testable without
+    /// manufacturing an SDK event payload.
+    public func handleFetchedRemoteDeletion(_ recordID: CKRecord.ID) {
+        guard lifecycleFence.beginActivity() else { return }
+        defer { lifecycleFence.endActivity() }
+        applyFetchedRemoteDeletion(recordID, emitStoreChanged: true)
+    }
+
+    private func applyFetchedRemoteDeletion(
+        _ recordID: CKRecord.ID,
+        emitStoreChanged: Bool
+    ) {
+        var durabilityFailure: MirrorDurabilityFailure?
+        var supersededCachedSave = false
+        shadowMirrorLock.withLock {
+            let pendingSave = hasPendingSaveLocked(recordID)
+            if durableMirrorRequired, hasPendingRecordChangeLocked(recordID) {
+                let transitioned = shadowMirror?.resolveRemoteDelete(recordID: recordID) == true
+                guard transitioned else {
+                    durabilityFailure = MirrorDurabilityFailure()
+                    return
+                }
+                syncEngine.state.remove(pendingRecordZoneChanges: [
+                    .saveRecord(recordID),
+                    .deleteRecord(recordID),
+                ])
+                sentGeneration.removeValue(forKey: recordID)
+                supersededCachedSave = pendingSave
+            }
+            // P1 remains exact: fetched deletion removes the store record even if its
+            // diagnostic engine still has a pending save. Cached/recovery first writes
+            // the terminal WAL transition above so restart cannot resurrect it.
+            store.removeRecord(recordID)
+            shadowCoverageRevision &+= 1
+            note("fetched del \(recordID.recordName)")
+        }
+        if let durabilityFailure {
+            note("cached fetched delete denied: WAL transition failed")
+            callbackRelay.emit(.durabilityFailure(durabilityFailure))
+        } else if supersededCachedSave {
+            callbackRelay.emit(.syncError(SyncFailure(
+                recordName: recordID.recordName,
+                code: .unknownItem,
+                kind: .permanent,
+                message: "A cached change was removed on another device and needs attention.")))
+        }
+        if emitStoreChanged {
+            callbackRelay.emit(.storeChanged)
+        }
+    }
+
     public func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
+        // Lifecycle boundaries bypass the bootstrap gate: a cached candidate must freeze before
+        // an account/revocation callback can wait behind activation or mutate/send more state.
+        switch event {
+        case .accountChange(let change):
+            handleAccountChange(change)
+            return
+        case .fetchedDatabaseChanges(let changes):
+            let lifecycleEvent = HouseholdSyncLifecyclePolicy.eventForZoneDeletion(
+                ownsZone: ownsZone,
+                activeZoneID: zoneID,
+                deletedZoneIDs: changes.deletions.map(\.zoneID))
+            if let lifecycleEvent {
+                transitionToLifecycleBoundary(lifecycleEvent)
+                note("household zone lifecycle deletion \(zoneID.zoneName)")
+            }
+            return
+        default:
+            break
+        }
         guard await awaitBootstrapGate("event") else { return }
+        guard lifecycleFence.beginActivity() else {
+            note("lifecycle-fenced event discarded")
+            return
+        }
+        defer { lifecycleFence.endActivity() }
         switch event {
         case .stateUpdate(let update):
             Self.saveState(update.stateSerialization, to: stateURL)
@@ -1281,41 +1727,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 }
             }
             for deletion in changes.deletions {
-                var durabilityFailure: MirrorDurabilityFailure?
-                var supersededCachedSave = false
-                shadowMirrorLock.withLock {
-                    let pendingSave = hasPendingSaveLocked(deletion.recordID)
-                    if durableMirrorRequired, hasPendingRecordChangeLocked(deletion.recordID) {
-                        let transitioned = shadowMirror?.resolveRemoteDelete(
-                            recordID: deletion.recordID) == true
-                        guard transitioned else {
-                            durabilityFailure = MirrorDurabilityFailure()
-                            return
-                        }
-                        syncEngine.state.remove(pendingRecordZoneChanges: [
-                            .saveRecord(deletion.recordID),
-                            .deleteRecord(deletion.recordID),
-                        ])
-                        sentGeneration.removeValue(forKey: deletion.recordID)
-                        supersededCachedSave = pendingSave
-                    }
-                    // P1 remains exact: fetched deletion removes the store record even if its
-                    // diagnostic engine still has a pending save. Cached/recovery first writes
-                    // the terminal WAL transition above so restart cannot resurrect it.
-                    store.removeRecord(deletion.recordID)
-                    shadowCoverageRevision &+= 1
-                    note("fetched del \(deletion.recordID.recordName)")
-                }
-                if let durabilityFailure {
-                    note("cached fetched delete denied: WAL transition failed")
-                    callbackRelay.emit(.durabilityFailure(durabilityFailure))
-                } else if supersededCachedSave {
-                    callbackRelay.emit(.syncError(SyncFailure(
-                        recordName: deletion.recordID.recordName,
-                        code: .unknownItem,
-                        kind: .permanent,
-                        message: "A cached change was removed on another device and needs attention.")))
-                }
+                applyFetchedRemoteDeletion(deletion.recordID, emitStoreChanged: false)
             }
             callbackRelay.emit(.storeChanged)
 
@@ -1424,27 +1836,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             }
             callbackRelay.emit(.storeChanged)
 
-        case .accountChange(let change):
-            handleAccountChange(change)
-
-        case .fetchedDatabaseChanges(let changes):
-            // A PARTICIPANT whose shared zone is deleted/revoked (owner removed them or
-            // deleted the share) must purge its local mirror. OWNER-SAFE: gated on
-            // !ownsZone so an owner's own zone-deletion (e.g. factory reset) never wipes
-            // the owner mirror through this path — owners keep today's no-op behavior.
-            if !ownsZone, changes.deletions.contains(where: { $0.zoneID == zoneID }) {
-                if retireActiveShadowScope() {
-                    mutateStoreUnderShadowGate {
-                        store.removeAll()
-                    }
-                    callbackRelay.emit(.storeChanged)
-                    callbackRelay.emit(.participantRevoked)
-                    note("participant shared zone revoked \(zoneID.zoneName)")
-                } else {
-                    callbackRelay.emit(.durabilityFailure(MirrorDurabilityFailure()))
-                    note("participant revocation retirement failed closed")
-                }
-            }
+        case .accountChange, .fetchedDatabaseChanges:
+            break
 
         case .willFetchChanges:
             beginShadowFetchEpoch()
@@ -1649,7 +2042,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 // Re-create the zone and re-enqueue the save — OWNER ONLY. A participant cannot
                 // create the owner's zone; for it this means the share is gone.
                 if ownsZone,
-                   HouseholdDataPlanePolicy.allows(.zoneRecreation, mode: dataPlaneMode),
+                   dataPlaneResult(for: .zoneRecreation) == .allowed,
                    !(sent.isStale && current == nil) {
                     let retryRecord = sent.isStale ? current : failure.record
                     guard resolveDurably(
@@ -1926,17 +2319,14 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
     private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
         switch change.changeType {
-        case .signOut, .switchAccounts:
-            // The local mirror belongs to the previous account — drop it.
-            clearShadowMirror()
-            mutateStoreUnderShadowGate {
-                store.removeAll()
-            }
-            callbackRelay.emit(.accountChanged)
+        case .signOut:
+            transitionToLifecycleBoundary(.accountBoundary(.signedOut))
+        case .switchAccounts:
+            transitionToLifecycleBoundary(.accountBoundary(.switchedAccounts))
         case .signIn:
             break
         @unknown default:
-            break
+            transitionToLifecycleBoundary(.accountBoundary(.unknown))
         }
     }
 

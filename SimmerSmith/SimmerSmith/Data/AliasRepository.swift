@@ -116,11 +116,14 @@ final class AliasRepository {
 
     /// Delete a term alias by its aliasId (the det-keyed recordName). Hard-deletes the
     /// CloudKit record — there is no soft-delete for aliases.
-    func deleteAlias(aliasId: String) {
+    @discardableResult
+    func deleteAlias(aliasId: String) -> HouseholdDataPlaneResult {
         let id = CKRecord.ID(recordName: aliasId, zoneID: session.zoneID)
-        session.engine.delete(id)
+        let result = session.engine.delete(id)
+        guard result == .allowed else { return result }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Write helpers

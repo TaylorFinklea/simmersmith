@@ -46,3 +46,87 @@ struct MigrationReceiptCompletenessTests {
         #expect(pantryProfileMigrationIsComplete(droppedCount: 0) == true)
     }
 }
+
+@MainActor
+struct RequiredWeekEventMigrationWriteTests {
+    @Test("a rejected first Week write is retryable and cannot stamp its receipt")
+    func rejectedFirstWeekWriteWithholdsReceipt() async {
+        var actions: [String] = []
+        let runner = WeekMigrationRunner(
+            writeData: {
+                actions.append("week")
+                throw RequiredMigrationWriteTestError.expected
+            },
+            isDataComplete: { true },
+            drain: { actions.append("drain") },
+            saveReceipt: { actions.append("receipt") }
+        )
+
+        let completion = await runner.run()
+
+        #expect(completion == .retryable)
+        #expect(actions == ["week"])
+    }
+
+    @Test("a rejected first Event write is retryable and cannot stamp its receipt")
+    func rejectedFirstEventWriteWithholdsReceipt() async {
+        var actions: [String] = []
+        let runner = EventMigrationRunner(
+            writeData: {
+                actions.append("event")
+                throw RequiredMigrationWriteTestError.expected
+            },
+            isDataComplete: { true },
+            drain: { actions.append("drain") },
+            saveReceipt: { actions.append("receipt") }
+        )
+
+        let completion = await runner.run()
+
+        #expect(completion == .retryable)
+        #expect(actions == ["event"])
+    }
+
+    @Test("a failed Week data drain withholds the receipt")
+    func failedWeekDataDrainWithholdsReceipt() async {
+        var actions: [String] = []
+        let runner = WeekMigrationRunner(
+            writeData: { actions.append("data") },
+            isDataComplete: { true },
+            drain: {
+                actions.append("drain")
+                throw RequiredMigrationWriteTestError.expected
+            },
+            saveReceipt: { actions.append("receipt") }
+        )
+
+        let completion = await runner.run()
+
+        #expect(completion == .retryable)
+        #expect(actions == ["data", "drain"])
+    }
+}
+
+private enum RequiredMigrationWriteTestError: Error {
+    case expected
+}
+
+@MainActor
+struct RecipeMigrationReceiptOrderingTests {
+    @Test("a failed required recipe data drain withholds the recipe receipt")
+    func failedRequiredDataDrainWithholdsReceipt() async {
+        var receiptSaveCount = 0
+        let runner = RecipeMigrationReceiptRunner(
+            drainRequiredData: { throw RequiredMigrationWriteTestError.expected },
+            saveReceipt: {
+                receiptSaveCount += 1
+                return true
+            }
+        )
+
+        let completion = await runner.run()
+
+        #expect(completion == .retryable)
+        #expect(receiptSaveCount == 0)
+    }
+}

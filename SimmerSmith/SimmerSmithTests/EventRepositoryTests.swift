@@ -28,7 +28,7 @@ struct EventRepositoryTests {
         let guestA = guests.upsertGuest(name: "Alex")
         let guestB = guests.upsertGuest(name: "Bailey")
 
-        let created = try #require(repo.createEvent(
+        let created = try #require(try repo.createEvent(
             name: "Dinner Party",
             attendees: [(guestID: guestA.guestId, plusOnes: 0)]
         ))
@@ -39,7 +39,7 @@ struct EventRepositoryTests {
 
         // Partner A's editor opened BEFORE guestB's add landed, so its source snapshot (and
         // therefore both its `attendees` and its `knownGuestIDs`) only ever contained guestA.
-        let saved = try #require(repo.updateEvent(
+        let saved = try #require(try repo.updateEvent(
             eventID: created.eventId,
             name: "Dinner Party (renamed)",
             eventDate: nil,
@@ -59,20 +59,21 @@ struct EventRepositoryTests {
     @Test
     func updateEventStillDeletesAnAttendeeTheCallerKnewAboutAndDropped() throws {
         let session = HouseholdSession(householdID: "event-known-drop-\(UUID().uuidString)")
+        #expect(session.promoteCachedAuthority())
         let guests = GuestRepository(session: session)
         let repo = EventRepository(session: session, guests: guests)
 
         let guestA = guests.upsertGuest(name: "Alex")
         let guestB = guests.upsertGuest(name: "Bailey")
 
-        let created = try #require(repo.createEvent(
+        let created = try #require(try repo.createEvent(
             name: "Dinner Party",
             attendees: [(guestID: guestA.guestId, plusOnes: 0), (guestID: guestB.guestId, plusOnes: 0)]
         ))
 
         // The caller's snapshot knew about BOTH guests and intentionally dropped guestB — a
         // real removal must still take effect.
-        let saved = try #require(repo.updateEvent(
+        let saved = try #require(try repo.updateEvent(
             eventID: created.eventId,
             name: created.name,
             eventDate: nil,
@@ -96,18 +97,19 @@ struct EventRepositoryTests {
         // the pre-fix code (a straight `attendees` replace) — this fix must not regress anyone
         // not yet migrated to pass a baseline.
         let session = HouseholdSession(householdID: "event-no-baseline-\(UUID().uuidString)")
+        #expect(session.promoteCachedAuthority())
         let guests = GuestRepository(session: session)
         let repo = EventRepository(session: session, guests: guests)
 
         let guestA = guests.upsertGuest(name: "Alex")
         let guestB = guests.upsertGuest(name: "Bailey")
 
-        let created = try #require(repo.createEvent(
+        let created = try #require(try repo.createEvent(
             name: "Dinner Party",
             attendees: [(guestID: guestA.guestId, plusOnes: 0), (guestID: guestB.guestId, plusOnes: 0)]
         ))
 
-        let saved = try #require(repo.updateEvent(
+        let saved = try #require(try repo.updateEvent(
             eventID: created.eventId,
             name: created.name,
             eventDate: nil,
@@ -129,7 +131,7 @@ struct EventRepositoryTests {
         let repo = EventRepository(session: session, guests: guests)
         let guestA = guests.upsertGuest(name: "Alex")
 
-        let created = try #require(repo.createEvent(
+        let created = try #require(try repo.createEvent(
             name: "Dinner Party",
             attendees: [(guestID: guestA.guestId, plusOnes: 1)]
         ))
@@ -139,7 +141,7 @@ struct EventRepositoryTests {
         let firstCreatedAt = try #require(firstRecord["createdAt"] as? Date)
         let firstUpdatedAt = try #require(firstRecord["updatedAt"] as? Date)
 
-        _ = repo.updateEvent(
+        _ = try repo.updateEvent(
             eventID: created.eventId,
             name: created.name,
             eventDate: nil,

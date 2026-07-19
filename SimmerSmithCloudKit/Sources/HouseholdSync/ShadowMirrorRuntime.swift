@@ -327,6 +327,15 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
         writer.fenceSynchronously()
     }
 
+    /// Owner-to-participant adoption is the only lifecycle path that persists a nonselectable
+    /// marker. Its failure is deliberately returned to the caller rather than treated as a
+    /// best-effort detach.
+    public func parkForAdoption() throws {
+        lock.lock(); defer { lock.unlock() }
+        fenced = true
+        try writer.fenceAndPersistParkingSynchronously()
+    }
+
     public func fence() {
         lock.lock(); defer { lock.unlock() }
         guard !fenced else { return }

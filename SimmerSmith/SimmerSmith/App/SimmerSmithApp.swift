@@ -41,6 +41,11 @@ struct SimmerSmithApp: App {
                     // so its BGAppRefreshTask handler can pull Reminders
                     // deltas while the app is backgrounded.
                     BackgroundSyncService.shared.attach(appState: appState)
+                    #if canImport(CloudKit)
+                    // Replay or fail closed on any crash-persisted account/reset/revocation
+                    // boundary before another await can hydrate or construct a household.
+                    await appState.replayPendingHouseholdLifecycleBeforeEntry()
+                    #endif
                     await appState.subscriptionStore.start()
                     // SP-C identity slice (spec §1.3): launch the iCloud-native session
                     // immediately, without requiring a Fly sign-in. This discovers (or
@@ -90,17 +95,17 @@ struct SimmerSmithApp: App {
             // unavailable or transient error), retry whenever the user foregrounds —
             // they may have signed into iCloud in Settings and come back.
             #if canImport(CloudKit)
-            if newPhase == .active && (
-                appState.householdLaunchPhase != .ready
-                    || appState.shouldRetryCachedHouseholdOnForeground
-            ) {
-                Task { await appState.ensureHouseholdSession() }
-            }
-            // Drain a pending accepted share on every foreground — even when already .ready —
-            // so a share accepted while the app was backgrounded (or missed by the cold-launch
-            // race) gets adopted. No-op when the inbox is empty.
             if newPhase == .active {
-                Task { await appState.processPendingShare() }
+                // One ordered foreground lane: lifecycle replay, session ensure/reconcile, then
+                // share adoption. Independent Tasks here used to race all three entry points.
+                Task {
+                    await appState.replayPendingHouseholdLifecycleBeforeEntry()
+                    if appState.householdLaunchPhase != .ready
+                        || appState.shouldRetryCachedHouseholdOnForeground {
+                        await appState.ensureHouseholdSession()
+                    }
+                    await appState.processPendingShare()
+                }
             }
             #endif
         }

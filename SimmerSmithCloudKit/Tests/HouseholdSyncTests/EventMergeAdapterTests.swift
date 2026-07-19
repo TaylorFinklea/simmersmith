@@ -4,7 +4,7 @@ import GroceryMerge
 @testable import HouseholdSync
 
 @Test("grocery dedupe adapter writes only changed keepers, tombstones, and repointed links")
-func groceryDedupeAdapterWritesExactRepairSet() {
+func groceryDedupeAdapterWritesExactRepairSet() throws {
     let result = ConflictRepair.dedupeGrocery(items: [
         GroceryItem(
             recordName: "G_single", unit: "cup", normalizedName: "tomato",
@@ -29,10 +29,10 @@ func groceryDedupeAdapterWritesExactRepairSet() {
     var groceryWrites: [GroceryItem] = []
     var eventWrites: [EventGroceryItem] = []
 
-    EventMergeAdapter.applyDedupeResult(
+    try EventMergeAdapter.applyDedupeResult(
         result,
-        saveGrocery: { groceryWrites.append($0) },
-        saveEventRow: { eventWrites.append($0) })
+        saveGrocery: { groceryWrites.append($0); return true },
+        saveEventRow: { eventWrites.append($0); return true })
 
     #expect(result.keepers.map(\.recordName) == ["G_changed_keep", "G_single", "G_static_keep"])
     #expect(groceryWrites.map(\.recordName)
@@ -52,18 +52,19 @@ private final class RepairWriteLoopHarness {
         self.items = Dictionary(uniqueKeysWithValues: items.map { ($0.recordName, $0) })
     }
 
-    func runPass() {
+    func runPass() throws {
         passCount += 1
         let result = ConflictRepair.dedupeGrocery(items: Array(items.values), eventLinks: [])
         var wrote = false
-        EventMergeAdapter.applyDedupeResult(
+        try EventMergeAdapter.applyDedupeResult(
             result,
             saveGrocery: {
                 items[$0.recordName] = $0
                 writeCount += 1
                 wrote = true
+                return true
             },
-            saveEventRow: { _ in })
+            saveEventRow: { _ in true })
         if wrote {
             scheduler?.signal()
         }
@@ -85,7 +86,7 @@ func groceryDedupeRepairDoesNotSignalItselfForever() async {
         ownsZone: false,
         debounceNanoseconds: 1_000_000,
         passes: .init(
-            nonDestructive: { harness.runPass() },
+            nonDestructive: { try harness.runPass() },
             destructive: {}))
     harness.scheduler = scheduler
     scheduler.activate()

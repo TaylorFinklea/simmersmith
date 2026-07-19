@@ -113,6 +113,24 @@ func deleteAllTargetsOnlyHouseholdZones() {
     #expect(HouseholdZoneProvisioner.householdZoneIDsToDelete(from: zoneNames) == ["a", "b"])
 }
 
+@Test("delete-all account gate accepts only the transaction-bound account")
+func deleteAllAccountBindingGate() throws {
+    try HouseholdZoneProvisioner.validateDeleteAllAccount(
+        expectedAccountRecordName: "bound-account",
+        currentAccountRecordName: "bound-account")
+
+    do {
+        try HouseholdZoneProvisioner.validateDeleteAllAccount(
+            expectedAccountRecordName: "bound-account",
+            currentAccountRecordName: "switched-account")
+        Issue.record("a switched CloudKit account must fail the delete-all gate")
+    } catch let error as HouseholdZoneProvisioner.DeleteAllAccountError {
+        #expect(error == .accountMismatch(
+            expected: "bound-account",
+            current: "switched-account"))
+    }
+}
+
 // simmersmith-auc — AUTOMATIC leftover cleanup. Discovery picks the richest zone and lists
 // the rest in `ignoredHouseholdIDs`; cleanup deletes the ones it can PROVE are empty. The
 // census feeding it is `Int?`, and the `nil` (couldn't read the zone) case is the whole

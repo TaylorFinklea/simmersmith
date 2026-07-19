@@ -306,6 +306,7 @@ struct RecipeMemoriesProductFlowTests {
         #expect(bytes == jpeg)
 
         // DELETE — what the section's confirm dialog calls; cascades the photo record.
+        #expect(session.promoteCachedAuthority())
         try await appState.deleteRecipeMemory(recipeID: recipeID, memoryID: created.id)
         let afterDelete = try await appState.refreshRecipeMemories(recipeID: recipeID)
         #expect(afterDelete.isEmpty)

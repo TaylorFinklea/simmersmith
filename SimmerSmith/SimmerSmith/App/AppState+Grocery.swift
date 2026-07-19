@@ -162,7 +162,12 @@ extension AppState {
     func toggleEventAutoMerge(eventID: String, enabled: Bool) async {
         #if canImport(CloudKit)
         if let repo = eventRepository {
-            _ = repo.toggleEventAutoMerge(eventID: eventID, enabled: enabled)
+            do {
+                _ = try repo.toggleEventAutoMerge(eventID: eventID, enabled: enabled)
+            } catch {
+                lastErrorMessage = error.localizedDescription
+                return
+            }
             mirrorEventsFromRepository()
             // Reload weeks so the grocery list reflects the merge/unmerge.
             weekRepository?.reload()
@@ -333,10 +338,14 @@ extension AppState {
     func dedupeGrocery(weekID: String) async throws {
         #if canImport(CloudKit)
         if let groceryRepo = groceryRepository {
-            guard CachedHouseholdSystemOperationPolicy.allows(
+            let authority = CachedHouseholdSystemOperationPolicy.result(
                 .repair,
-                isCachedBootstrap: householdSession?.isCachedBootstrap == true) else { return }
-            _ = groceryRepo.dedupe(weekID: weekID)
+                isAuthoritative: householdSession?.hasCurrentAuthority == true)
+            guard authority == .allowed else {
+                lastErrorMessage = authority.errorDescription
+                throw authority
+            }
+            _ = try groceryRepo.dedupe(weekID: weekID)
             householdSession?.repairScheduler.signal()
             weekRepository?.reload()
             mirrorWeekFromRepository()

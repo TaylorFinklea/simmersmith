@@ -20,12 +20,9 @@ extension AppState {
 
     enum BackupRestoreError: LocalizedError {
         case noSession
-        case cachedBootstrapDenied
         var errorDescription: String? {
             switch self {
             case .noSession: return "Your household isn't loaded yet — try again in a moment."
-            case .cachedBootstrapDenied:
-                return "Finish household reconciliation before restoring a backup."
             }
         }
     }
@@ -151,14 +148,23 @@ extension AppState {
     /// now but absent from the backup are LEFT ALONE — restoring can only bring data back.
     func restoreHousehold(from backup: HouseholdBackup) async throws {
         guard let session = householdSession else { throw BackupRestoreError.noSession }
-        guard CachedHouseholdSystemOperationPolicy.allows(
-            .backupRestore,
-            isCachedBootstrap: session.isCachedBootstrap) else {
-            throw BackupRestoreError.cachedBootstrapDenied
+        let requestEpoch = sessionBootEpoch
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
         }
         syncPhase = .loading
         // Reconcile first so the upsert merges against current server state.
-        try await session.engine.fetchChanges()
+        do {
+            try await householdSystemOperationExecutor.fetchChanges(session)
+        } catch {
+            guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+                throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+            }
+            throw error
+        }
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+        }
         // Drain any LOCAL edit still queued from before this restore started. CKRecord's
         // `modificationDate` is server-set and only updates once a save round-trips through
         // CloudKit, so a record with a pending-but-unsent edit still reports its stale
@@ -168,7 +174,17 @@ extension AppState {
         // that record's modificationDate first, so the guard sees the true modification time.
         // (This can't help while offline — nothing can be pushed — but closes the common
         // online-but-not-yet-synced window.)
-        try await session.engine.sendUntilDrained(maxPasses: 30)
+        do {
+            try await householdSystemOperationExecutor.drainChanges(session, 30)
+        } catch {
+            guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+                throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+            }
+            throw error
+        }
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+        }
         let merger = session.engine.merger
         for value in backup.records {
             let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
@@ -188,13 +204,27 @@ extension AppState {
                 // Overwrite the live record IN PLACE — preserves its change tag so the save
                 // doesn't conflict with the server copy.
                 HouseholdRecordCodec.apply(value, onto: existing, zoneID: session.zoneID)
-                session.engine.save(existing)
+                guard session.engine.save(existing) else {
+                    throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+                }
             } else {
                 // Re-create a deleted record from scratch.
-                session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+                guard session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID)) else {
+                    throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+                }
             }
         }
-        try await session.engine.sendUntilDrained(maxPasses: 30)
+        do {
+            try await householdSystemOperationExecutor.drainChanges(session, 30)
+        } catch {
+            guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+                throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+            }
+            throw error
+        }
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            throw CachedHouseholdSystemOperationResult.retryableNotAuthoritative
+        }
         if session.engine.hasPendingRecordChanges {
             // Records are saved locally + queued; background sync will finish the push.
             print("[Backup] restore still draining after 30 passes — background sync will finish")

@@ -110,12 +110,15 @@ final class GuestRepository {
 
     /// Delete a guest. Explicit single-record delete (the .guest type is a setNull target of
     /// attendees/meals — its references null out on the peers rather than cascading).
-    func deleteGuest(_ guestID: String) {
+    @discardableResult
+    func deleteGuest(_ guestID: String) -> HouseholdDataPlaneResult {
         let id = CKRecord.ID(recordName: guestID, zoneID: session.zoneID)
-        guard session.store.record(for: id) != nil else { return }
-        session.engine.delete(id)
+        guard session.store.record(for: id) != nil else { return .allowed }
+        let result = session.engine.delete(id)
+        guard result == .allowed else { return result }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Write helpers (mirror WeekRepository.upsertRecord)

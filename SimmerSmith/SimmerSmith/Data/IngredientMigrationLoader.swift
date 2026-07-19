@@ -8,16 +8,28 @@ import SimmerSmithKit
 
 private let ingredientMigrationScope = "ingredients"
 
+/// A deferred migration advances the cached-session tail only when its receipt boundary is
+/// complete. Retryable outcomes intentionally leave the same stage claimable on the next
+/// successful reconciliation.
+enum DeferredMigrationCompletion: Equatable {
+    case complete
+    case retryable
+}
+
+private enum DeferredMigrationPersistenceError: Error {
+    case writeRejected
+}
+
 @MainActor
 struct IngredientMigrationRunner {
     let hasReceipt: () -> Bool
     let fetch: () async throws -> IngredientMigrationExport
     let save: (HouseholdRecordValue) throws -> Void
     let drain: () async throws -> Void
-    let saveReceipt: () -> Void
+    let saveReceipt: () throws -> Void
 
-    func run() async {
-        guard !hasReceipt() else { return }
+    func run() async -> DeferredMigrationCompletion {
+        guard !hasReceipt() else { return .complete }
 
         let export: IngredientMigrationExport
         let records: (bases: [HouseholdRecordValue], variations: [HouseholdRecordValue])
@@ -32,11 +44,16 @@ struct IngredientMigrationRunner {
             }
             try await drain()
         } catch {
-            return
+            return .retryable
         }
 
-        saveReceipt()
+        do {
+            try saveReceipt()
+        } catch {
+            return .retryable
+        }
         try? await drain()
+        return .complete
     }
 }
 
@@ -187,10 +204,10 @@ private enum IngredientMigrationRecordMapper {
 func migrateIngredientsIfNeeded(
     session: HouseholdSession,
     apiClient: SimmerSmithAPIClient
-) async {
+) async -> DeferredMigrationCompletion {
     guard CachedHouseholdSystemOperationPolicy.allows(
         .migration,
-        isCachedBootstrap: session.isCachedBootstrap) else { return }
+        isAuthoritative: session.hasCurrentAuthority) else { return .retryable }
     let receiptID = CKRecord.ID(
         recordName: HouseholdMigrationRunner.receiptRecordName(scope: ingredientMigrationScope),
         zoneID: session.zoneID
@@ -199,7 +216,9 @@ func migrateIngredientsIfNeeded(
         hasReceipt: { session.store.record(for: receiptID) != nil },
         fetch: { try await apiClient.fetchIngredientMigrationExport() },
         save: { value in
-            session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            guard session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID)) else {
+                throw DeferredMigrationPersistenceError.writeRejected
+            }
         },
         drain: { try await session.engine.sendUntilDrained() },
         saveReceipt: {
@@ -208,9 +227,11 @@ func migrateIngredientsIfNeeded(
                 recordID: receiptID
             )
             receipt["scope"] = ingredientMigrationScope as CKRecordValue
-            session.engine.save(receipt)
+            guard session.engine.save(receipt) else {
+                throw DeferredMigrationPersistenceError.writeRejected
+            }
         }
     )
-    await runner.run()
+    return await runner.run()
 }
 #endif

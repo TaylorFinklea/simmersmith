@@ -1405,11 +1405,14 @@ private struct HouseholdSection: View {
                 Button {
                     let name = appState.currentHousehold?.name ?? ""
                     Task {
-                        if let package = await appState.prepareOwnerShare(
-                            title: name.isEmpty ? "SimmerSmith household" : name) {
+                        do {
+                            guard let package = try await appState.prepareOwnerShare(
+                                title: name.isEmpty ? "SimmerSmith household" : name) else { return }
                             // Present the native share sheet directly from the top VC (embedding
                             // it in a SwiftUI .sheet made it flash + self-dismiss).
                             CloudSharingPresenter.present(share: package.share, container: package.container)
+                        } catch {
+                            appState.lastErrorMessage = error.localizedDescription
                         }
                     }
                 } label: {

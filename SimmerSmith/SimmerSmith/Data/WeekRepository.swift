@@ -363,7 +363,11 @@ final class WeekRepository {
     /// in `meals`) — a concurrent write the caller's snapshot never saw is always kept. See
     /// `WeekMealDeletePolicy`.
     @discardableResult
-    func saveWeekMeals(weekID: String, meals: [MealUpdateRequest], knownMealIDs: Set<String>) -> WeekSnapshot? {
+    func saveWeekMeals(
+        weekID: String,
+        meals: [MealUpdateRequest],
+        knownMealIDs: Set<String>
+    ) throws -> WeekSnapshot? {
         let store = session.store
         let zoneID = session.zoneID
 
@@ -390,17 +394,29 @@ final class WeekRepository {
                 .map { $0.recordID.recordName }
         )
 
-        var newNames = Set<String>()
-        for request in meals {
-            let mealID = request.mealId ?? UUID().uuidString
-            newNames.insert(mealID)
-            upsertRecord(mealRecordValue(request, mealID: mealID, weekID: weekID))
+        let resolvedMeals = meals.map { request in
+            (request, request.mealId ?? UUID().uuidString)
         }
+        let newNames = Set(resolvedMeals.map { $0.1 })
 
         // Delete meals no longer present (individual delete; sides cascade with their parent meal).
         // Baseline-aware: only delete ids the caller's snapshot knew about AND dropped.
-        for name in WeekMealDeletePolicy.toDelete(existing: existingNames, desired: newNames, known: knownMealIDs) {
-            session.engine.deleteCascading(CKRecord.ID(recordName: name, zoneID: zoneID))
+        let deletedNames = WeekMealDeletePolicy.toDelete(
+            existing: existingNames,
+            desired: newNames,
+            known: knownMealIDs)
+        if !deletedNames.isEmpty {
+            let authorization = session.engine.dataPlaneResult(for: .deleteCascading)
+            guard authorization == .allowed else { throw authorization }
+        }
+        for (request, mealID) in resolvedMeals {
+            guard upsertRecord(mealRecordValue(request, mealID: mealID, weekID: weekID)) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for name in deletedNames {
+            let result = session.engine.deleteCascading(CKRecord.ID(recordName: name, zoneID: zoneID))
+            guard result == .allowed else { throw result }
         }
 
         reload()
@@ -430,10 +446,14 @@ final class WeekRepository {
 
     /// Delete a week and (cascading) its meals/sides/grocery. Used to self-heal an empty
     /// mis-aligned auto-created week (see AppState.ensureCurrentCloudKitWeek).
-    func deleteWeek(weekID: String) {
-        session.engine.deleteCascading(CKRecord.ID(recordName: weekID, zoneID: session.zoneID))
+    @discardableResult
+    func deleteWeek(weekID: String) -> HouseholdDataPlaneResult {
+        let result = session.engine.deleteCascading(
+            CKRecord.ID(recordName: weekID, zoneID: session.zoneID))
+        guard result == .allowed else { return result }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     /// Approve a week: stamp `status=approved` + `approvedAt`. Returns the reloaded snapshot.
@@ -518,10 +538,11 @@ final class WeekRepository {
 
     /// Delete a side. Returns the reloaded snapshot.
     @discardableResult
-    func deleteMealSide(weekID: String, sideID: String) -> WeekSnapshot? {
+    func deleteMealSide(weekID: String, sideID: String) throws -> WeekSnapshot? {
         let id = CKRecord.ID(recordName: sideID, zoneID: session.zoneID)
         guard session.store.record(for: id) != nil else { return week(forId: weekID) }
-        session.engine.delete(id)
+        let result = session.engine.delete(id)
+        guard result == .allowed else { throw result }
         reload()
         Task { [weak self] in await self?.drainSync() }
         return week(forId: weekID)
@@ -571,7 +592,7 @@ final class WeekRepository {
 
     // MARK: - Write helpers (mirror RecipeRepository.upsertRecord)
 
-    private func upsertRecord(_ value: HouseholdRecordValue) {
+    private func upsertRecord(_ value: HouseholdRecordValue) -> Bool {
         let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
         if let existing = session.store.record(for: id) {
             let refKinds = Dictionary(uniqueKeysWithValues: value.type.refs.map { ($0.name, $0.kind) })
@@ -594,9 +615,9 @@ final class WeekRepository {
                         recordID: CKRecord.ID(recordName: target, zoneID: session.zoneID), action: .deleteSelf)
                 }
             }
-            session.engine.save(existing)
+            return session.engine.save(existing)
         } else {
-            session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            return session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
         }
     }
 

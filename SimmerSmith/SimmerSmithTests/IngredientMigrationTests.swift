@@ -19,9 +19,10 @@ struct IngredientMigrationTests {
             saveReceipt: { actions.append("receipt") }
         )
 
-        await runner.run()
+        let completion = await runner.run()
 
         #expect(actions.isEmpty)
+        #expect(completion == .complete)
     }
 
     @Test
@@ -35,9 +36,10 @@ struct IngredientMigrationTests {
             saveReceipt: { actions.append("receipt") }
         )
 
-        await runner.run()
+        let completion = await runner.run()
 
         #expect(actions == ["fetch"])
+        #expect(completion == .retryable)
     }
 
     @Test
@@ -58,9 +60,10 @@ struct IngredientMigrationTests {
             saveReceipt: { actions.append("receipt") }
         )
 
-        await runner.run()
+        let completion = await runner.run()
 
         #expect(actions == ["fetch"])
+        #expect(completion == .retryable)
     }
 
     @Test
@@ -85,7 +88,7 @@ struct IngredientMigrationTests {
             saveReceipt: { actions.append("receipt") }
         )
 
-        await runner.run()
+        let completion = await runner.run()
 
         #expect(actions == [
             "fetch",
@@ -101,6 +104,7 @@ struct IngredientMigrationTests {
         #expect(rows[0].refs["mergedIntoID"] == "base-target")
         #expect(rows[1].refs["baseIngredient"] == "base-1")
         #expect(rows[1].refs["mergedIntoID"] == "variation-target")
+        #expect(completion == .complete)
 
         let zoneID = CKRecordZone.ID(zoneName: "household-test", ownerName: CKCurrentUserDefaultName)
         let variationRecord = HouseholdRecordCodec.encode(rows[1], zoneID: zoneID)
@@ -139,9 +143,10 @@ struct IngredientMigrationTests {
             }
         )
 
-        await runner.run()
+        let firstCompletion = await runner.run()
         #expect(!receiptPresent)
-        await runner.run()
+        #expect(firstCompletion == .retryable)
+        let secondCompletion = await runner.run()
 
         #expect(actions == [
             "BaseIngredient:base-1",
@@ -152,8 +157,10 @@ struct IngredientMigrationTests {
             "receipt",
             "drain",
         ])
-        await runner.run()
+        #expect(secondCompletion == .complete)
+        let thirdCompletion = await runner.run()
         #expect(actions.count == 7)
+        #expect(thirdCompletion == .complete)
     }
 
     @Test
@@ -167,9 +174,10 @@ struct IngredientMigrationTests {
             saveReceipt: { actions.append("receipt") }
         )
 
-        await runner.run()
+        let completion = await runner.run()
 
         #expect(actions == ["drain", "receipt", "drain"])
+        #expect(completion == .complete)
     }
 
     private enum TestFailure: Error {

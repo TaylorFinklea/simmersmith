@@ -8,6 +8,17 @@ import Foundation
 /// `com.apple.developer.icloud-container-identifiers` entitlement set to this
 /// container). `verifyRoundTrip` is the Phase 0 Verify.
 public struct HouseholdZoneProvisioner {
+    public enum DeleteAllAccountError: Error, Equatable, LocalizedError, Sendable {
+        case accountMismatch(expected: String, current: String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .accountMismatch:
+                return "The iCloud account changed during household deletion."
+            }
+        }
+    }
+
     public let container: CKContainer
     public init(containerIdentifier: String = "iCloud.app.simmersmith.cloud") {
         self.container = CKContainer(identifier: containerIdentifier)
@@ -336,13 +347,32 @@ public struct HouseholdZoneProvisioner {
         zoneNames.compactMap { householdID(fromZoneName: $0) }.sorted()
     }
 
+    /// Pure account-binding gate shared by the two live checks and headless tests.
+    public static func validateDeleteAllAccount(
+        expectedAccountRecordName: String,
+        currentAccountRecordName: String
+    ) throws {
+        guard !expectedAccountRecordName.isEmpty,
+              currentAccountRecordName == expectedAccountRecordName else {
+            throw DeleteAllAccountError.accountMismatch(
+                expected: expectedAccountRecordName,
+                current: currentAccountRecordName)
+        }
+    }
+
     /// Factory reset (SP-C clean-slate, spec §2): delete EVERY `household-*` zone in the
     /// private DB — no `keeping`, no ≤1-record filter (mirror of `deleteEmptyHouseholdZones`
     /// minus the guards). Returns the deleted ids (sorted). Destructive: the caller wipes
     /// before re-minting one fresh household and re-importing from Fly.
     @discardableResult
-    public func deleteAllHouseholdZones() async throws -> [String] {
+    public func deleteAllHouseholdZones(
+        expectedAccountRecordName: String
+    ) async throws -> [String] {
         let db = container.privateCloudDatabase
+        let accountBeforeEnumeration = try await container.userRecordID().recordName
+        try Self.validateDeleteAllAccount(
+            expectedAccountRecordName: expectedAccountRecordName,
+            currentAccountRecordName: accountBeforeEnumeration)
         let zones = try await db.allRecordZones()
         var toDelete: [CKRecordZone.ID] = []
         var deletedIDs: [String] = []
@@ -352,6 +382,10 @@ public struct HouseholdZoneProvisioner {
             deletedIDs.append(zone.zoneID.zoneName)
         }
         if !toDelete.isEmpty {
+            let accountBeforeDeletion = try await container.userRecordID().recordName
+            try Self.validateDeleteAllAccount(
+                expectedAccountRecordName: expectedAccountRecordName,
+                currentAccountRecordName: accountBeforeDeletion)
             _ = try await db.modifyRecordZones(saving: [], deleting: toDelete)
         }
         return deletedIDs.compactMap { Self.householdID(fromZoneName: $0) }.sorted()

@@ -29,6 +29,11 @@ enum HouseholdSessionRole: Equatable {
     var isOwner: Bool { if case .owner = self { return true } else { return false } }
 }
 
+struct HouseholdSessionLifecycleSnapshot: Equatable, Sendable {
+    let event: HouseholdSyncLifecycleEvent
+    let scope: MirrorScope?
+}
+
 /// Small ordered handoff used by the engine→session authority bridge. Legacy session effects
 /// are applied immediately; only the authority projection waits for AppState's dispatcher and
 /// then drains exactly once in arrival order.
@@ -54,6 +59,103 @@ final class OrderedCallbackBuffer<Event> {
     func clear() {
         sink = nil
         pending = []
+    }
+}
+
+/// Teardown-safe engine→AppState bridge. Engine callbacks retain this relay, not the Session,
+/// until every already-emitted lifecycle snapshot has crossed to MainActor. Detaching the first
+/// event therefore cannot drop a later stronger account boundary.
+final class HouseholdSessionLifecycleRelay: @unchecked Sendable {
+    typealias Sink = @MainActor @Sendable (HouseholdSessionLifecycleSnapshot) -> Void
+
+    private let lock = NSLock()
+    private var pending: [HouseholdSessionLifecycleSnapshot] = []
+    private var sink: Sink?
+    private var drainScheduled = false
+
+    func submit(_ snapshot: HouseholdSessionLifecycleSnapshot) {
+        let shouldSchedule = lock.withLock { () -> Bool in
+            pending.append(snapshot)
+            guard !drainScheduled else { return false }
+            drainScheduled = true
+            return true
+        }
+        if shouldSchedule { scheduleDrain() }
+    }
+
+    @MainActor
+    func install(_ sink: @escaping Sink) {
+        let shouldSchedule = lock.withLock { () -> Bool in
+            self.sink = sink
+            guard !pending.isEmpty, !drainScheduled else { return false }
+            drainScheduled = true
+            return true
+        }
+        if shouldSchedule { scheduleDrain() }
+    }
+
+    private func scheduleDrain() {
+        Task { @MainActor [self] in drain() }
+    }
+
+    @MainActor
+    private func drain() {
+        while true {
+            let next = lock.withLock { () -> (Sink, HouseholdSessionLifecycleSnapshot)? in
+                guard let sink, !pending.isEmpty else {
+                    drainScheduled = false
+                    return nil
+                }
+                return (sink, pending.removeFirst())
+            }
+            guard let (sink, snapshot) = next else { return }
+            sink(snapshot)
+        }
+    }
+}
+
+enum DeferredCachedSystemWorkStage: CaseIterable, Hashable {
+    case ingredientsMigration
+    case recipesMigration
+    case ownerCurrentWeek
+    case projectionReload
+    case repairActivation
+    case leftoverCleanup
+}
+
+/// Session-local progress for the cached authority tail. Completion advances only after that
+/// stage's async boundary returns; stale teardown abandons the claim with the session.
+struct DeferredCachedSystemWorkPlan {
+    private(set) var completed: Set<DeferredCachedSystemWorkStage> = []
+    private(set) var inFlight: DeferredCachedSystemWorkStage?
+
+    var hasPendingWork: Bool {
+        inFlight != nil || completed.count < DeferredCachedSystemWorkStage.allCases.count
+    }
+
+    mutating func claimNext(isAuthoritative: Bool) -> DeferredCachedSystemWorkStage? {
+        guard isAuthoritative, inFlight == nil else { return nil }
+        guard let stage = DeferredCachedSystemWorkStage.allCases.first(where: {
+            !completed.contains($0)
+        }) else { return nil }
+        inFlight = stage
+        return stage
+    }
+
+    mutating func complete(_ stage: DeferredCachedSystemWorkStage) {
+        guard inFlight == stage else { return }
+        completed.insert(stage)
+        inFlight = nil
+    }
+
+    mutating func abandon(_ stage: DeferredCachedSystemWorkStage) {
+        guard inFlight == stage else { return }
+        inFlight = nil
+    }
+
+    mutating func discard() {
+        completed = []
+        inFlight = nil
     }
 }
 
@@ -88,12 +190,10 @@ final class HouseholdSession {
         case syncError(SyncFailure)
         case recordSaved(String)
         case durabilityFailure(MirrorDurabilityFailure)
-        case participantRevoked
-        case accountChanged
     }
     private let authorityEventBuffer = OrderedCallbackBuffer<HouseholdAuthorityEvent>()
-    private let participantRevocationBuffer = OrderedCallbackBuffer<Void>()
-    private let accountChangeBuffer = OrderedCallbackBuffer<Void>()
+    private let lifecycleEventRelay = HouseholdSessionLifecycleRelay()
+    let lifecycleSourceID = UUID()
     var onAuthorityEvent: ((HouseholdAuthorityEvent) -> Void)? {
         didSet {
             if let onAuthorityEvent {
@@ -103,21 +203,10 @@ final class HouseholdSession {
             }
         }
     }
-    var onParticipantRevoked: (() -> Void)? {
+    var onLifecycleEvent: (@MainActor @Sendable (HouseholdSessionLifecycleSnapshot) -> Void)? {
         didSet {
-            if let onParticipantRevoked {
-                participantRevocationBuffer.install { _ in onParticipantRevoked() }
-            } else {
-                participantRevocationBuffer.clear()
-            }
-        }
-    }
-    var onAccountChanged: (() -> Void)? {
-        didSet {
-            if let onAccountChanged {
-                accountChangeBuffer.install { _ in onAccountChanged() }
-            } else {
-                accountChangeBuffer.clear()
+            if let onLifecycleEvent {
+                lifecycleEventRelay.install(onLifecycleEvent)
             }
         }
     }
@@ -170,9 +259,51 @@ final class HouseholdSession {
     private(set) var recoveryOnlyFetchSucceeded = false
     let cachedInterventionCount: Int
     private let recoveryCandidate: MirrorRecoveryCandidate?
+    private enum RecoveryCandidateDisposition: Equatable {
+        case pending
+        case applied
+        case released
+    }
+    private var recoveryCandidateDisposition: RecoveryCandidateDisposition
     /// Invalidated by clear/detach so a late account-identity callback cannot re-enable an old
     /// writer after this session has been torn down or parked for adoption.
     private var shadowCaptureNonce = UUID()
+    /// The cached boot tail belongs to one promoted session. It is intentionally session-local so
+    /// retries resume from their first incomplete operation and teardown discards its state.
+    private var deferredSystemWork = DeferredCachedSystemWorkPlan()
+
+    /// Exact engine-owned authority for this session. A cached session starts denied and only
+    /// AppState's epoch-and-identity checked reconciliation completion may promote it.
+    var hasCurrentAuthority: Bool { engine.hasSessionAuthority }
+
+    @discardableResult
+    func promoteCachedAuthority() -> Bool {
+        engine.promoteSessionAuthority()
+    }
+
+    func revokeAuthority() {
+        engine.revokeSessionAuthority()
+    }
+
+    func claimNextDeferredSystemWorkStage() -> DeferredCachedSystemWorkStage? {
+        deferredSystemWork.claimNext(isAuthoritative: hasCurrentAuthority)
+    }
+
+    func completeDeferredSystemWorkStage(_ stage: DeferredCachedSystemWorkStage) {
+        deferredSystemWork.complete(stage)
+    }
+
+    func abandonDeferredSystemWorkStage(_ stage: DeferredCachedSystemWorkStage) {
+        deferredSystemWork.abandon(stage)
+    }
+
+    func discardDeferredSystemWork() {
+        deferredSystemWork.discard()
+    }
+
+    var hasPendingDeferredSystemWork: Bool {
+        deferredSystemWork.hasPendingWork
+    }
 
     // MARK: — Observable state
 
@@ -190,13 +321,50 @@ final class HouseholdSession {
 
     // MARK: — Init
 
-    init(
+    convenience init(
         householdID: String,
         role: HouseholdSessionRole = .owner,
         syncStatusCenter: SyncStatusCenter? = nil,
         bootstrapCandidate: MirrorBootstrapCandidate? = nil,
         recoveryCandidate: MirrorRecoveryCandidate? = nil
     ) {
+        try! self.init(
+            householdID: householdID,
+            role: role,
+            initialMirrorScope: recoveryCandidate?.plan.scope ?? bootstrapCandidate?.bootstrap.scope,
+            allowUnscopedTestConstruction: true,
+            syncStatusCenter: syncStatusCenter,
+            bootstrapCandidate: bootstrapCandidate,
+            recoveryCandidate: recoveryCandidate)
+    }
+
+    convenience init(
+        householdID: String,
+        role: HouseholdSessionRole = .owner,
+        initialMirrorScope: MirrorScope,
+        syncStatusCenter: SyncStatusCenter? = nil,
+        bootstrapCandidate: MirrorBootstrapCandidate? = nil,
+        recoveryCandidate: MirrorRecoveryCandidate? = nil
+    ) throws {
+        try self.init(
+            householdID: householdID,
+            role: role,
+            initialMirrorScope: initialMirrorScope,
+            allowUnscopedTestConstruction: false,
+            syncStatusCenter: syncStatusCenter,
+            bootstrapCandidate: bootstrapCandidate,
+            recoveryCandidate: recoveryCandidate)
+    }
+
+    private init(
+        householdID: String,
+        role: HouseholdSessionRole,
+        initialMirrorScope: MirrorScope?,
+        allowUnscopedTestConstruction: Bool,
+        syncStatusCenter: SyncStatusCenter?,
+        bootstrapCandidate: MirrorBootstrapCandidate?,
+        recoveryCandidate: MirrorRecoveryCandidate?
+    ) throws {
         let containerID = "iCloud.app.simmersmith.cloud"
         let container = CKContainer(identifier: containerID)
         // Owner reads/writes its OWN private DB; a participant reaches the owner's zone
@@ -232,7 +400,10 @@ final class HouseholdSession {
         let stateFileName = role.isOwner ? "engine-state.json" : "engine-state-shared.json"
         let stateURL = syncDir.appendingPathComponent(stateFileName)
         self.stateURL = stateURL
-        self.shadowMirrorRootURL = syncDir.appendingPathComponent("shadow-mirror", isDirectory: true)
+        let shadowMirrorRootURL = syncDir.appendingPathComponent(
+            "shadow-mirror",
+            isDirectory: true)
+        self.shadowMirrorRootURL = shadowMirrorRootURL
 
         // simmersmith-r8q interim fix: the local store below is ALWAYS rebuilt fresh/empty
         // on every launch, but the sync-engine state token on disk persists — so a resumed
@@ -250,7 +421,8 @@ final class HouseholdSession {
         // `start()`) so it's non-nil the instant `automaticSync: true` lets CKSyncEngine
         // start delivering background `handleEvent` callbacks — closing the race where an
         // early remote change fell through to blanket LWW instead of `FieldMergeResolver`.
-        let store = HouseholdLocalStore()
+        let localStore = HouseholdLocalStore()
+        let authority = HouseholdSessionAuthority(initiallyAuthoritative: false)
         let merger = DispatchingMerger([
             GrocerySyncMerger(),
             EventGrocerySyncMerger(),
@@ -258,48 +430,81 @@ final class HouseholdSession {
         ])
         let engine: HouseholdSyncEngine
         let cachedBootstrap: Bool
-        if let bootstrapCandidate {
-            do {
-                let candidateEngine = try HouseholdSyncEngine(
+        let exactInitialScope = recoveryCandidate?.plan.scope
+            ?? initialMirrorScope
+            ?? bootstrapCandidate?.bootstrap.scope
+
+        func makeNormalEngine() throws -> HouseholdSyncEngine {
+            if let exactInitialScope {
+                return try HouseholdSyncEngine(
                     database: database,
                     zoneID: zoneID,
-                    store: store,
-                    stateURL: stateURL,
-                    automaticSync: true,
-                    merger: merger,
-                    bootstrapCandidate: bootstrapCandidate,
-                    shadowMirrorRootDirectory: shadowMirrorRootURL,
-                    dataPlaneMode: .cached)
-                try candidateEngine.activateBootstrapCandidate()
-                engine = candidateEngine
-                cachedBootstrap = true
-            } catch {
-                engine = HouseholdSyncEngine(
-                    database: database,
-                    zoneID: zoneID,
-                    store: store,
+                    store: localStore,
                     stateURL: stateURL,
                     automaticSync: true,
                     ownsZone: role.isOwner,
+                    initialMirrorScope: exactInitialScope,
                     merger: merger,
                     shadowMirrorRootDirectory: shadowMirrorRootURL,
-                    dataPlaneMode: .normal)
-                cachedBootstrap = false
+                    dataPlaneMode: .normal,
+                    authority: authority)
             }
-        } else {
-            engine = HouseholdSyncEngine(
+            // Test/debug compatibility only. Production AppState resolves and supplies the
+            // current account-bound scope before constructing every HouseholdSession.
+            guard allowUnscopedTestConstruction else {
+                throw MirrorCheckpointError.scopeMismatch
+            }
+            return HouseholdSyncEngine(
                 database: database,
                 zoneID: zoneID,
-                store: store,
+                store: localStore,
                 stateURL: stateURL,
                 automaticSync: true,
                 ownsZone: role.isOwner,
                 merger: merger,
                 shadowMirrorRootDirectory: shadowMirrorRootURL,
-                dataPlaneMode: .normal)
+                dataPlaneMode: .normal,
+                authority: authority)
+        }
+
+        if let bootstrapCandidate {
+            do {
+                let candidateEngine = try HouseholdSyncEngine(
+                    database: database,
+                    zoneID: zoneID,
+                    store: localStore,
+                    stateURL: stateURL,
+                    automaticSync: true,
+                    merger: merger,
+                    bootstrapCandidate: bootstrapCandidate,
+                    shadowMirrorRootDirectory: shadowMirrorRootURL,
+                    dataPlaneMode: .cached,
+                    authority: authority)
+                switch try candidateEngine.activateBootstrapCandidate() {
+                case .open:
+                    engine = candidateEngine
+                    cachedBootstrap = true
+                case .discarded:
+                    // Retain the frozen candidate long enough for HouseholdSession/AppState to
+                    // drain its typed lifecycle event. Replacing it here would lose the event
+                    // and construct a fresh unfenced automatic engine under stale authority.
+                    engine = candidateEngine
+                    cachedBootstrap = false
+                case .rejected:
+                    localStore.removeAll()
+                    engine = try makeNormalEngine()
+                    cachedBootstrap = false
+                }
+            } catch {
+                localStore.removeAll()
+                engine = try makeNormalEngine()
+                cachedBootstrap = false
+            }
+        } else {
+            engine = try makeNormalEngine()
             cachedBootstrap = false
         }
-        self.store = store
+        self.store = localStore
         self.engine = engine
         self.isCachedBootstrap = cachedBootstrap
         self.isRecoveryOnly = recoveryCandidate != nil && !cachedBootstrap
@@ -308,6 +513,7 @@ final class HouseholdSession {
             cachedCandidateCount: bootstrapCandidate?.bootstrap.interventionCount,
             recoveryCandidateCount: recoveryCandidate?.plan.interventionCount)
         self.recoveryCandidate = recoveryCandidate
+        self.recoveryCandidateDisposition = recoveryCandidate == nil ? .released : .pending
         self.repairScheduler = RepairScheduler.householdRepairs(
             engine: engine, zoneID: zoneID, ownsZone: role.isOwner
         )
@@ -342,15 +548,13 @@ final class HouseholdSession {
                     self?.receiveEngineCallback(.durabilityFailure(failure))
                 }
             },
-            onParticipantRevoked: { [weak self] in
-                Task { @MainActor in
-                    self?.receiveEngineCallback(.participantRevoked)
-                }
-            },
-            onAccountChanged: { [weak self] in
-                Task { @MainActor in
-                    self?.receiveEngineCallback(.accountChanged)
-                }
+            onLifecycleEvent: { [lifecycleEventRelay, weak engine] event in
+                // Scope capture is synchronous with the engine's already-completed fence. It
+                // must happen before this callback crosses into a MainActor Task.
+                let snapshot = HouseholdSessionLifecycleSnapshot(
+                    event: event,
+                    scope: engine?.activeMirrorScopeSnapshot)
+                lifecycleEventRelay.submit(snapshot)
             })
     }
 
@@ -381,10 +585,6 @@ final class HouseholdSession {
             syncStatusCenter?.recordSaveSucceeded(recordName: recordName)
         case .durabilityFailure(let failure):
             authorityEventBuffer.submit(.intervention(failure.message))
-        case .participantRevoked:
-            participantRevocationBuffer.submit(())
-        case .accountChanged:
-            accountChangeBuffer.submit(())
         }
     }
 
@@ -450,15 +650,28 @@ final class HouseholdSession {
             // 3. Initial fetch to populate the local store from the server.
             try await engine.fetchChanges()
             if let recoveryCandidate {
+                guard recoveryCandidateDisposition == .pending,
+                      engine.dataPlaneResult(for: .save) != .notAuthoritative else {
+                    throw HouseholdDataPlaneResult.notAuthoritative
+                }
                 do {
                     try engine.applyRecoveryPlan(recoveryCandidate.plan, writer: recoveryCandidate.writer)
+                    recoveryCandidateDisposition = .applied
                     recoveryOnlyFetchSucceeded = true
                 } catch {
+                    guard recoveryCandidateDisposition == .pending,
+                          engine.dataPlaneResult(for: .save) != .notAuthoritative else {
+                        throw HouseholdDataPlaneResult.notAuthoritative
+                    }
                     // Invalid durable payloads are corruption, unlike a transient fetch error.
                     recoveryCandidate.writer.quarantineAndReleaseGenerationLeaseSynchronously(
                         recoveryCandidate.plan.lease.id)
+                    recoveryCandidateDisposition = .released
                     throw error
                 }
+            }
+            guard engine.promoteSessionAuthority() || engine.hasSessionAuthority else {
+                throw HouseholdDataPlaneResult.notAuthoritative
             }
 
             // simmersmith-vda: arm repairs only now — the fetch above RETURNED, so the store
@@ -473,18 +686,19 @@ final class HouseholdSession {
             // the next healthy launch instead.
             if CachedHouseholdSystemOperationPolicy.allows(
                 .repair,
-                isCachedBootstrap: isCachedBootstrap) {
+                isAuthoritative: hasCurrentAuthority) {
                 repairScheduler.activate()
             }
             syncPhase = .synced(Date())
             syncStatusCenter?.setPendingCount(engine.hasPendingRecordChanges ? 1 : 0)
             syncStatusCenter?.recordSyncSuccess(Date())
         } catch {
-            if let recoveryCandidate {
+            if let recoveryCandidate, recoveryCandidateDisposition == .pending {
                 // A transient full-fetch failure is not corruption. Preserve the exact durable
                 // plan for the next retry; only release this session's lease/writer instance.
                 recoveryCandidate.writer.releaseGenerationLeaseSynchronously(recoveryCandidate.plan.lease.id)
                 recoveryCandidate.writer.fenceSynchronously()
+                recoveryCandidateDisposition = .released
             }
             // iCloud unavailable, network error, etc. — degrade gracefully.
             syncPhase = .offline
@@ -517,7 +731,27 @@ final class HouseholdSession {
         }
     }
 
+    /// App-target regression seam for the teardown-safe lifecycle relay. Production events enter
+    /// through the engine callback installed in `init`; tests use this to deterministically queue
+    /// multiple already-emitted snapshots before MainActor drains the first one.
+    func submitLifecycleSnapshotForTesting(
+        _ event: HouseholdSyncLifecycleEvent,
+        scope: MirrorScope?
+    ) {
+        lifecycleEventRelay.submit(HouseholdSessionLifecycleSnapshot(event: event, scope: scope))
+    }
+
     // MARK: — Teardown
+
+    private func releasePendingRecoveryCandidateForLifecycle() {
+        guard let recoveryCandidate, recoveryCandidateDisposition == .pending else { return }
+        // Lifecycle invalidation dominates recovery corruption handling. Release/fence the
+        // un-applied candidate without quarantine so exact/root clear owns namespace removal.
+        recoveryCandidate.writer.releaseGenerationLeaseSynchronously(
+            recoveryCandidate.plan.lease.id)
+        recoveryCandidate.writer.fenceSynchronously()
+        recoveryCandidateDisposition = .released
+    }
 
     /// Fence and durably retire cache state before a destructive server-side zone wipe starts.
     /// The full session/token teardown still happens after the remote operation completes.
@@ -538,30 +772,47 @@ final class HouseholdSession {
     /// Without this, an in-flight destructive pass outlives teardown, still strongly
     /// retaining `engine`/`store` and issuing CKModifyRecords after this session is gone.
     func clearState() {
+        revokeAuthority()
+        discardDeferredSystemWork()
         shadowCaptureNonce = UUID()
-        engine.clearShadowMirror()
+        releasePendingRecoveryCandidateForLifecycle()
+        _ = engine.clearShadowMirror()
         try? FileManager.default.removeItem(at: stateURL)
         repairScheduler.deactivate()
         engine.clearEventHandlers()
         authorityEventBuffer.clear()
-        participantRevocationBuffer.clear()
-        accountChangeBuffer.clear()
+    }
+
+    /// The adoption-only counterpart to `detach()`. A participant successor may not construct
+    /// until the owner scope's durable parked marker is safely written.
+    @discardableResult
+    func parkForOwnerToParticipantAdoption() -> Bool {
+        revokeAuthority()
+        discardDeferredSystemWork()
+        shadowCaptureNonce = UUID()
+        releasePendingRecoveryCandidateForLifecycle()
+        let parked = engine.parkShadowMirrorForAdoption()
+        repairScheduler.deactivate()
+        engine.clearEventHandlers()
+        authorityEventBuffer.clear()
+        return parked
     }
 
     /// Quiesce the engine's change callback WITHOUT deleting the durable state token —
-    /// used when swapping an owner session out for a participant (adopt): the parked owner
-    /// zone + its sync token must survive for a future un-adopt. ARC then releases the session.
+    /// used for stale construction cleanup and non-adoption handoffs: its sync token survives
+    /// until the caller selects an explicit retirement path. ARC then releases the session.
     ///
     /// simmersmith-glw: also deactivates `repairScheduler` (see `clearState()`'s note — same
     /// sync/fire-and-forget-safe reasoning applies to the adopt-swap's detach call site).
     func detach() {
+        revokeAuthority()
+        discardDeferredSystemWork()
         shadowCaptureNonce = UUID()
+        releasePendingRecoveryCandidateForLifecycle()
         engine.parkShadowMirror()
         repairScheduler.deactivate()
         engine.clearEventHandlers()
         authorityEventBuffer.clear()
-        participantRevocationBuffer.clear()
-        accountChangeBuffer.clear()
     }
 }
 #endif

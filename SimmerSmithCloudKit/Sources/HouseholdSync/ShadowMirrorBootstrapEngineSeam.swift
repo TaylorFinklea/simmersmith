@@ -98,6 +98,9 @@ public final class MirrorBootstrapDelegateGate: @unchecked Sendable {
     public enum Outcome: Equatable, Sendable {
         case open
         case rejected
+        /// A lifecycle boundary froze the candidate before activation. Cached content remains
+        /// unactivated while queued delegate work is terminally released into discard behavior.
+        case discarded
     }
 
     private let lock = NSLock()
@@ -122,17 +125,19 @@ public final class MirrorBootstrapDelegateGate: @unchecked Sendable {
         }
     }
 
-    public func resolve(_ outcome: Outcome) {
-        let released: [CheckedContinuation<Outcome, Never>] = lock.withLock {
-            guard self.outcome == nil else { return [] }
+    @discardableResult
+    public func resolve(_ outcome: Outcome) -> Bool {
+        let resolution: (won: Bool, released: [CheckedContinuation<Outcome, Never>]) = lock.withLock {
+            guard self.outcome == nil else { return (false, []) }
             self.outcome = outcome
             let released = waiters
             waiters = []
-            return released
+            return (true, released)
         }
-        for waiter in released {
+        for waiter in resolution.released {
             waiter.resume(returning: outcome)
         }
+        return resolution.won
     }
 }
 

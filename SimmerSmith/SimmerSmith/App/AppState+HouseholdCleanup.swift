@@ -18,12 +18,12 @@ enum LeftoverHouseholdCleanupPolicy {
         currentEpoch: Int,
         sessionMatches: Bool,
         isOwner: Bool,
-        isCachedBootstrap: Bool
+        hasCurrentAuthority: Bool
     ) -> Bool {
         requestEpoch == currentEpoch
             && sessionMatches
             && isOwner
-            && !isCachedBootstrap
+            && hasCurrentAuthority
     }
 }
 
@@ -45,7 +45,7 @@ extension AppState {
         guard let session = householdSession,
               CachedHouseholdSystemOperationPolicy.allows(
                 .leftoverCleanup,
-                isCachedBootstrap: session.isCachedBootstrap) else { return }
+                isAuthoritative: session.hasCurrentAuthority) else { return }
         guard !pendingLeftoverHouseholdIDs.isEmpty else { return }
         let requestEpoch = sessionBootEpoch
         pendingLeftoverHouseholdIDs = []
@@ -56,7 +56,7 @@ extension AppState {
                     currentEpoch: self.sessionBootEpoch,
                     sessionMatches: self.householdSession === session,
                     isOwner: session.role.isOwner,
-                    isCachedBootstrap: session.isCachedBootstrap) else { return }
+                    hasCurrentAuthority: session.hasCurrentAuthority) else { return }
             await self.cleanUpLeftoverHouseholds(
                 keeping: householdID,
                 session: session,
@@ -88,7 +88,7 @@ extension AppState {
                         currentEpoch: self.sessionBootEpoch,
                         sessionMatches: self.householdSession === session,
                         isOwner: session.role.isOwner,
-                        isCachedBootstrap: session.isCachedBootstrap)
+                        hasCurrentAuthority: session.hasCurrentAuthority)
                 }
 
             guard LeftoverHouseholdCleanupPolicy.allows(
@@ -96,7 +96,7 @@ extension AppState {
                 currentEpoch: sessionBootEpoch,
                 sessionMatches: householdSession === session,
                 isOwner: session.role.isOwner,
-                isCachedBootstrap: session.isCachedBootstrap) else { return }
+                hasCurrentAuthority: session.hasCurrentAuthority) else { return }
             forkedHouseholdIDs = outcome.dataBearingHouseholdIDs
 
             guard !outcome.isEmpty else { return }

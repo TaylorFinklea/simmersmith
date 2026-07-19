@@ -13,6 +13,8 @@ public enum ShadowMirrorCheckpointFailurePoint: Equatable, Sendable {
     case beforeJournalAppend
     case beforeNormalizationAppend
     case afterNormalizationAppend
+    case beforeParkingPersistence
+    case beforeDeferredClearMarkerWrite
 }
 
 public enum ShadowMirrorCheckpointWriterError: Error, Equatable {
@@ -57,6 +59,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         private let lock = NSLock()
         private var counts: [String: Int] = [:]
         private var blockedRoots: Set<String> = []
+        private var blockedScopes: Set<String> = []
 
         func acquire(_ scopeDirectory: URL) {
             lock.withLock { counts[scopeDirectory.path, default: 0] += 1 }
@@ -95,11 +98,76 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         func isRootBlocked(_ rootDirectory: URL) -> Bool {
             lock.withLock { blockedRoots.contains(rootDirectory.path) }
         }
+
+        func blockScope(_ scopeDirectory: URL) {
+            _ = lock.withLock { blockedScopes.insert(scopeDirectory.path) }
+        }
+
+        func unblockScope(_ scopeDirectory: URL) {
+            _ = lock.withLock { blockedScopes.remove(scopeDirectory.path) }
+        }
+
+        func isScopeBlocked(_ scopeDirectory: URL) -> Bool {
+            lock.withLock { blockedScopes.contains(scopeDirectory.path) }
+        }
+
+        func unblockScopes(inRoot rootDirectory: URL) {
+            lock.withLock {
+                blockedScopes = blockedScopes.filter { path in
+                    URL(fileURLWithPath: path).deletingLastPathComponent().path
+                        != rootDirectory.path
+                }
+            }
+        }
     }
 
     private static let processLeaseRegistry = ProcessLeaseRegistry()
     private static let deferredClearMarker = ".deferred-clear"
     private static let deferredQuarantineMarker = ".deferred-quarantine"
+    private static let parkedScopeMarker = ".parked"
+
+    private final class RetiredCleanupScheduler: @unchecked Sendable {
+        private let lock = NSLock()
+        private let queue = DispatchQueue(
+            label: "app.simmersmith.shadow-mirror.retired-cleanup",
+            qos: .utility)
+        private var cleanRoots: Set<String> = []
+        private var cleanParents: Set<String> = []
+
+        func schedule(
+            rootDirectory: URL,
+            scanRoot: Bool = true,
+            scanParent: Bool = true,
+            forceRoot: Bool = false,
+            forceParent: Bool = false
+        ) {
+            let rootPath = rootDirectory.path
+            let parent = rootDirectory.deletingLastPathComponent()
+            let parentPath = parent.path
+            let work = lock.withLock { () -> (root: Bool, parent: Bool) in
+                if forceRoot { cleanRoots.remove(rootPath) }
+                if forceParent { cleanParents.remove(parentPath) }
+                let scanRootNow = scanRoot && cleanRoots.insert(rootPath).inserted
+                let scanParentNow = scanParent && cleanParents.insert(parentPath).inserted
+                return (scanRootNow, scanParentNow)
+            }
+            guard work.root || work.parent else { return }
+            queue.async { [self] in
+                let rootSucceeded = !work.root || ShadowMirrorCheckpointWriter.removeRetiredDirectories(
+                    in: rootDirectory,
+                    prefix: ".clearing-")
+                let parentSucceeded = !work.parent || ShadowMirrorCheckpointWriter.removeRetiredDirectories(
+                    in: parent,
+                    prefix: ".clearing-root-")
+                lock.withLock {
+                    if !rootSucceeded { cleanRoots.remove(rootPath) }
+                    if !parentSucceeded { cleanParents.remove(parentPath) }
+                }
+            }
+        }
+    }
+
+    private static let retiredCleanupScheduler = RetiredCleanupScheduler()
 
     private let scopeDirectory: URL
     private let failurePoint: ShadowMirrorCheckpointFailurePoint?
@@ -116,6 +184,8 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     private var leases: [UUID: MirrorGenerationLease] = [:]
     private var deferredRetirement: DeferredRetirement?
     private var fenced = false
+    private var didInjectJournalAppendFailure = false
+    private var didInjectParkingPersistenceFailure = false
 
     public init(
         scope: MirrorScope,
@@ -128,11 +198,18 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         self.scopeDirectory = rootDirectory
             .appendingPathComponent(scope.cacheKey, isDirectory: true)
         try Self.applyDeferredRootClearIfNeeded(rootDirectory)
+        guard !Self.processLeaseRegistry.isScopeBlocked(scopeDirectory) else {
+            throw MirrorCheckpointError.notCacheReady("scope awaits lifecycle invalidation")
+        }
         try Self.prepareScopeDirectory(scopeDirectory)
+        try Self.applyDeferredRetirementMarker(in: scopeDirectory)
+        Self.scheduleRetiredDirectoryCleanup(rootDirectory: rootDirectory)
+        if Self.isScopeParked(scopeDirectory) {
+            throw MirrorCheckpointError.notCacheReady("shadow scope is parked")
+        }
         // A prior process may have detected corruption/reset while an outbound CKAsset lease
         // prevented moving this root. Process exit releases that payload, so honor the durable
         // retirement marker before this launch is allowed to recover/select the scope.
-        try Self.applyDeferredRetirementMarker(in: scopeDirectory)
         let recovered: RecoveredState
         do {
             recovered = try Self.recover(in: scopeDirectory, scope: scope)
@@ -413,6 +490,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     /// The process block closes the old-root/new-writer race; the durable marker carries the
     /// request across a crash while an outbound asset lease delays the actual move.
     public static func requestRootClearSynchronously(_ rootDirectory: URL) throws {
+        scheduleRetiredDirectoryCleanup(rootDirectory: rootDirectory)
         processLeaseRegistry.blockRoot(rootDirectory)
         try FileManager.default.createDirectory(
             at: rootDirectory.deletingLastPathComponent(),
@@ -425,6 +503,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     }
 
     public static func completeRootClearSynchronously(_ rootDirectory: URL) throws {
+        scheduleRetiredDirectoryCleanup(rootDirectory: rootDirectory)
         let marker = deferredRootClearMarkerURL(rootDirectory)
         let markerExists = FileManager.default.fileExists(atPath: marker.path)
         guard processLeaseRegistry.isRootBlocked(rootDirectory) || markerExists else { return }
@@ -436,7 +515,85 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             try FileManager.default.removeItem(at: marker)
             try synchronizeDirectory(rootDirectory.deletingLastPathComponent())
         }
+        processLeaseRegistry.unblockScopes(inRoot: rootDirectory)
         processLeaseRegistry.unblockRoot(rootDirectory)
+    }
+
+    /// Establishes a durable exact-scope invalidation boundary without touching siblings. The
+    /// process block closes the marker-to-move race; an active asset lease keeps the old scope in
+    /// place until its engine is disposed, while every concurrent writer remains fail-closed.
+    public static func requestScopeClearSynchronously(
+        _ scope: MirrorScope,
+        rootDirectory: URL
+    ) throws {
+        try requestScopeClearSynchronously(
+            scope,
+            rootDirectory: rootDirectory,
+            failurePoint: nil)
+    }
+
+    static func requestScopeClearSynchronously(
+        _ scope: MirrorScope,
+        rootDirectory: URL,
+        failurePoint: ShadowMirrorCheckpointFailurePoint?
+    ) throws {
+        try scope.validate()
+        scheduleRetiredDirectoryCleanup(rootDirectory: rootDirectory)
+        let scopeDirectory = rootDirectory
+            .appendingPathComponent(scope.cacheKey, isDirectory: true)
+        processLeaseRegistry.blockScope(scopeDirectory)
+        try FileManager.default.createDirectory(
+            at: rootDirectory,
+            withIntermediateDirectories: true)
+        let markers = deferredScopeMarkerURLs(scopeDirectory)
+        if failurePoint == .beforeDeferredClearMarkerWrite {
+            throw ShadowMirrorCheckpointWriterError.injectedFailure(
+                .beforeDeferredClearMarkerWrite)
+        }
+        try writeDurable(Data("clear".utf8), to: markers.clear)
+        if FileManager.default.fileExists(atPath: markers.quarantine.path) {
+            try FileManager.default.removeItem(at: markers.quarantine)
+            try synchronizeDirectory(rootDirectory)
+        }
+    }
+
+    /// Replays a previously requested exact-scope invalidation. Namespace removal and parent
+    /// synchronization complete before the durable marker and process block are released; the
+    /// retired non-catalog sibling is only best-effort asynchronous cleanup.
+    public static func completeScopeClearSynchronously(
+        _ scope: MirrorScope,
+        rootDirectory: URL
+    ) throws {
+        try scope.validate()
+        scheduleRetiredDirectoryCleanup(rootDirectory: rootDirectory)
+        let scopeDirectory = rootDirectory
+            .appendingPathComponent(scope.cacheKey, isDirectory: true)
+        let markers = deferredScopeMarkerURLs(scopeDirectory)
+        let markerExists = FileManager.default.fileExists(atPath: markers.clear.path)
+        guard processLeaseRegistry.isScopeBlocked(scopeDirectory) || markerExists else { return }
+        guard !processLeaseRegistry.containsLease(for: scopeDirectory) else {
+            throw MirrorCheckpointError.notCacheReady("shadow scope still has active asset leases")
+        }
+
+        let fileManager = FileManager.default
+        let retired = rootDirectory.appendingPathComponent(
+            ".clearing-\(UUID().uuidString)",
+            isDirectory: true)
+        if fileManager.fileExists(atPath: scopeDirectory.path) {
+            try fileManager.moveItem(at: scopeDirectory, to: retired)
+        }
+        try synchronizeDirectory(rootDirectory)
+        try removeParkedScopeMarkerSynchronously(scopeDirectory)
+        for marker in [markers.clear, markers.quarantine] where
+            fileManager.fileExists(atPath: marker.path) {
+            try fileManager.removeItem(at: marker)
+        }
+        try synchronizeDirectory(rootDirectory)
+        processLeaseRegistry.unblockScope(scopeDirectory)
+        scheduleRetiredDirectoryCleanup(
+            rootDirectory: rootDirectory,
+            scanParent: false,
+            forceRoot: true)
     }
 
     public func acquireGenerationLeaseSynchronously(
@@ -697,6 +854,19 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         publicationGroup.wait()
     }
 
+    /// Adoption removes an owner scope from cache selection without deleting its verified
+    /// generation. A later explicit retirement may remove the marker with the scope.
+    public func fenceAndPersistParkingSynchronously() throws {
+        fenceSynchronously()
+        publicationGroup.wait()
+        try stateQueue.sync {
+            try failIfNeeded(.beforeParkingPersistence)
+            try Self.writeDurable(
+                Data("parked".utf8),
+                to: Self.parkedScopeMarkerURL(scopeDirectory))
+        }
+    }
+
     public func fenceSynchronously() {
         fenceLock.withLock { fenced = true }
     }
@@ -798,10 +968,15 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     }
 
     private func requestRetirementLocked(_ retirement: DeferredRetirement) throws {
+        let durableClearMarker = Self.deferredScopeMarkerURLs(scopeDirectory).clear
+        let effectiveRetirement: DeferredRetirement = FileManager.default.fileExists(
+            atPath: durableClearMarker.path)
+            ? .clear
+            : retirement
         guard leases.isEmpty else {
             // Clear is an explicit privacy/reset request and takes precedence over quarantine's
             // diagnostic preservation when both arrive while an outbound asset is pinned.
-            switch (deferredRetirement, retirement) {
+            switch (deferredRetirement, effectiveRetirement) {
             case (.clear, _), (_, .clear):
                 deferredRetirement = .clear
             default:
@@ -810,7 +985,7 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             try persistDeferredRetirementMarkerLocked(deferredRetirement!)
             return
         }
-        try performRetirementLocked(retirement)
+        try performRetirementLocked(effectiveRetirement)
         deferredRetirement = nil
     }
 
@@ -826,7 +1001,9 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         for marker in [markers.clear, markers.quarantine] {
             try? FileManager.default.removeItem(at: marker)
         }
+        try removeParkedScopeMarkerLocked()
         try Self.synchronizeDirectory(parent)
+        Self.processLeaseRegistry.unblockScope(scopeDirectory)
     }
 
     private func persistDeferredRetirementMarkerLocked(
@@ -838,8 +1015,12 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         let quarantineMarker = markers.quarantine
         switch retirement {
         case .clear:
-            try? fileManager.removeItem(at: quarantineMarker)
+            try failIfNeeded(.beforeDeferredClearMarkerWrite)
             try Self.writeDurable(Data("clear".utf8), to: clearMarker)
+            if fileManager.fileExists(atPath: quarantineMarker.path) {
+                try fileManager.removeItem(at: quarantineMarker)
+                try Self.synchronizeDirectory(scopeDirectory.deletingLastPathComponent())
+            }
         case .quarantine:
             guard !fileManager.fileExists(atPath: clearMarker.path) else { return }
             try Self.writeDurable(Data("quarantine".utf8), to: quarantineMarker)
@@ -849,6 +1030,86 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
     private static func deferredRootClearMarkerURL(_ rootDirectory: URL) -> URL {
         rootDirectory.deletingLastPathComponent().appendingPathComponent(
             ".\(rootDirectory.lastPathComponent).deferred-root-clear")
+    }
+
+    static func resetProcessInvalidationStateForTesting(rootDirectory: URL) {
+        processLeaseRegistry.unblockScopes(inRoot: rootDirectory)
+        processLeaseRegistry.unblockRoot(rootDirectory)
+    }
+
+    private static func scheduleRetiredDirectoryCleanup(
+        rootDirectory: URL,
+        scanRoot: Bool = true,
+        scanParent: Bool = true,
+        forceRoot: Bool = false,
+        forceParent: Bool = false
+    ) {
+        retiredCleanupScheduler.schedule(
+            rootDirectory: rootDirectory,
+            scanRoot: scanRoot,
+            scanParent: scanParent,
+            forceRoot: forceRoot,
+            forceParent: forceParent)
+    }
+
+    static func retryRetiredDirectoryCleanupSynchronously(rootDirectory: URL) {
+        removeRetiredDirectories(
+            in: rootDirectory.deletingLastPathComponent(),
+            prefix: ".clearing-root-")
+        removeRetiredDirectories(in: rootDirectory, prefix: ".clearing-")
+    }
+
+    @discardableResult
+    private static func removeRetiredDirectories(in parent: URL, prefix: String) -> Bool {
+        let fileManager = FileManager.default
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []) else { return false }
+        var removedAny = false
+        var removedAll = true
+        for child in children {
+            let name = child.lastPathComponent
+            guard name.hasPrefix(prefix), name.count > prefix.count,
+                  (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            else { continue }
+            do {
+                try fileManager.removeItem(at: child)
+                removedAny = true
+            } catch {
+                // Namespace invalidation already made this hidden tree nonselectable. A later
+                // writer/root operation schedules another best-effort removal attempt.
+                removedAll = false
+            }
+        }
+        if removedAny {
+            do {
+                try synchronizeDirectory(parent)
+            } catch {
+                removedAll = false
+            }
+        }
+        return removedAll
+    }
+
+    private static func parkedScopeMarkerURL(_ scopeDirectory: URL) -> URL {
+        scopeDirectory.deletingLastPathComponent().appendingPathComponent(
+            ".\(scopeDirectory.lastPathComponent)\(parkedScopeMarker)")
+    }
+
+    private static func isScopeParked(_ scopeDirectory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: parkedScopeMarkerURL(scopeDirectory).path)
+    }
+
+    private func removeParkedScopeMarkerLocked() throws {
+        try Self.removeParkedScopeMarkerSynchronously(scopeDirectory)
+    }
+
+    private static func removeParkedScopeMarkerSynchronously(_ scopeDirectory: URL) throws {
+        let marker = parkedScopeMarkerURL(scopeDirectory)
+        guard FileManager.default.fileExists(atPath: marker.path) else { return }
+        try FileManager.default.removeItem(at: marker)
+        try synchronizeDirectory(scopeDirectory.deletingLastPathComponent())
     }
 
     private static func applyDeferredRootClearIfNeeded(_ rootDirectory: URL) throws {
@@ -875,9 +1136,10 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             withIntermediateDirectories: true)
         try synchronizeDirectory(rootDirectory)
         try synchronizeDirectory(parent)
-        DispatchQueue.global(qos: .utility).async {
-            try? fileManager.removeItem(at: retired)
-        }
+        scheduleRetiredDirectoryCleanup(
+            rootDirectory: rootDirectory,
+            scanRoot: false,
+            forceParent: true)
     }
 
     private static func deferredScopeMarkerURLs(
@@ -911,13 +1173,15 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
             try fileManager.moveItem(at: scopeDirectory, to: retired)
             try prepareScopeDirectory(scopeDirectory)
             try synchronizeDirectory(parent)
-            DispatchQueue.global(qos: .utility).async {
-                try? fileManager.removeItem(at: retired)
-            }
+            scheduleRetiredDirectoryCleanup(
+                rootDirectory: parent,
+                scanParent: false,
+                forceRoot: true)
         } else if fileManager.fileExists(atPath: quarantineMarker.path) {
             try quarantine(scopeDirectory)
             try prepareScopeDirectory(scopeDirectory)
         }
+        try removeParkedScopeMarkerSynchronously(scopeDirectory)
         for marker in [clearMarker, quarantineMarker] {
             try? fileManager.removeItem(at: marker)
         }
@@ -939,9 +1203,10 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
         hasValidatedAnchor = false
         removalProofs = []
         try Self.synchronizeDirectory(parent)
-        DispatchQueue.global(qos: .utility).async {
-            try? FileManager.default.removeItem(at: retired)
-        }
+        Self.scheduleRetiredDirectoryCleanup(
+            rootDirectory: parent,
+            scanParent: false,
+            forceRoot: true)
     }
 
     private func quarantineLocked() throws {
@@ -1036,6 +1301,14 @@ public final class ShadowMirrorCheckpointWriter: @unchecked Sendable {
 
     private func failIfNeeded(_ point: ShadowMirrorCheckpointFailurePoint) throws {
         guard failurePoint == point else { return }
+        if point == .beforeJournalAppend {
+            guard !didInjectJournalAppendFailure else { return }
+            didInjectJournalAppendFailure = true
+        }
+        if point == .beforeParkingPersistence {
+            guard !didInjectParkingPersistenceFailure else { return }
+            didInjectParkingPersistenceFailure = true
+        }
         throw ShadowMirrorCheckpointWriterError.injectedFailure(point)
     }
 

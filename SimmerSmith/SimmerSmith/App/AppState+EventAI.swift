@@ -116,7 +116,7 @@ extension AppState {
             //    guest-assigned ones), then add each new dish stamped ai_generated:true with its
             //    resolved constraint_coverage AND its parsed ingredients — so a 2nd generate
             //    REPLACES (not accretes) the AI dishes and the dish ingredients feed the grocery.
-            eventRepo.deleteAIGeneratedEventMeals(eventID: eventID)
+            try eventRepo.deleteAIGeneratedEventMeals(eventID: eventID)
             var latestEvent: Event = event
             for dish in menuResult.dishes {
                 let servings = dish.servings ?? Double(max(event.attendeeCount, 1))
@@ -130,7 +130,7 @@ extension AppState {
                         notes: ing.notes
                     )
                 }
-                if let updated = eventRepo.addEventMeal(
+                if let updated = try eventRepo.addEventMeal(
                     eventID: eventID,
                     role: dish.role,
                     recipeName: dish.recipeName,
@@ -147,7 +147,7 @@ extension AppState {
             }
 
             // 6. Regenerate the event grocery.
-            eventRepo.refreshEventGrocery(eventID: eventID)
+            try eventRepo.refreshEventGrocery(eventID: eventID)
             if let refreshed = eventRepo.event(forId: eventID) {
                 latestEvent = refreshed
             }

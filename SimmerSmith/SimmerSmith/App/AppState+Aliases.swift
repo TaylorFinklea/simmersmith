@@ -31,14 +31,15 @@ extension AppState {
         #endif
     }
 
-    func deleteHouseholdAlias(term: String) async {
+    func deleteHouseholdAlias(term: String) async throws {
         #if canImport(CloudKit)
         guard let repo = aliasRepository else { return }
         // Use the SAME det-key builder that AliasRepository.upsertAlias uses
         // (RecordNames.termAlias) so create + delete share one key builder — no drift
         // from a hand-rolled normalization that could diverge from the canonical one.
         let aliasId = RecordNames.termAlias(term: term)
-        repo.deleteAlias(aliasId: aliasId)
+        let result = repo.deleteAlias(aliasId: aliasId)
+        guard result == .allowed else { throw result }
         householdAliases = repo.aliases
         #endif
     }

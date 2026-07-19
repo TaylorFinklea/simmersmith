@@ -44,7 +44,13 @@ struct HouseholdAliasesView: View {
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                Task { await appState.deleteHouseholdAlias(term: alias.term) }
+                                Task {
+                                    do {
+                                        try await appState.deleteHouseholdAlias(term: alias.term)
+                                    } catch {
+                                        appState.lastErrorMessage = error.localizedDescription
+                                    }
+                                }
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

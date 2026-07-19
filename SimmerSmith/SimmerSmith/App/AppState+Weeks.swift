@@ -185,11 +185,15 @@ extension AppState {
     /// written into the newly-created CloudKit week so the cutover doesn't drop the user's
     /// active plan. `asMealUpdateRequest()` preserves each `mealId`, so the carry-over is
     /// deterministic (no duplicate meal records if two devices do it).
-    func ensureCurrentCloudKitWeek() async {
-        guard CachedHouseholdSystemOperationPolicy.allows(
-            .currentWeekCreation,
-            isCachedBootstrap: householdSession?.isCachedBootstrap == true) else { return }
-        guard let repo = weekRepository else { return }
+    @discardableResult
+    func ensureCurrentCloudKitWeek(
+        session: HouseholdSession,
+        requestEpoch: Int
+    ) async -> CachedHouseholdSystemOperationResult {
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            return .retryableNotAuthoritative
+        }
+        guard let repo = weekRepository else { return .retryableNotAuthoritative }
         let today = Date()
 
         // Self-heal: empty auto-created weeks (deterministic "week-<date>" name) that don't
@@ -199,7 +203,11 @@ extension AppState {
         let stale = repo.weeks.filter {
             $0.weekId.hasPrefix("week-") && $0.meals.isEmpty && !WeekBoundary.isMonday($0.weekStart)
         }
-        for w in stale { repo.deleteWeek(weekID: w.weekId) }
+        for w in stale {
+            guard repo.deleteWeek(weekID: w.weekId) == .allowed else {
+                return .retryableNotAuthoritative
+            }
+        }
 
         // Already have a CANONICAL (Monday-aligned) week covering today → adopt it, no
         // write. A stray mis-aligned week that merely overlaps today must NOT short-circuit
@@ -209,7 +217,7 @@ extension AppState {
             WeekBoundary.weekContains($0.weekStart, day: today) && WeekBoundary.isMonday($0.weekStart)
         }) {
             adoptCurrentWeek(existing)
-            return
+            return .allowed
         }
 
         // The in-memory week (e.g. a Fly-sourced / cached week) that covers today AND has
@@ -225,20 +233,40 @@ extension AppState {
         guard let created = repo.ensureCurrentWeek(
             today: today,
             preferredStart: coveringInMemory?.weekStart
-        ) else { return }
+        ) else { return .retryableNotAuthoritative }
 
         guard !carryOver.isEmpty else {
             adoptCurrentWeek(created)
-            return
+            return .allowed
         }
-        // saveWeekMeals writes the meals, regenerates grocery, and mirrors currentWeek.
         // knownMealIDs: [] — `created` is a freshly created week with no prior meals.
-        if (try? await saveWeekMeals(weekID: created.weekId, meals: carryOver, knownMealIDs: [])) != nil,
-           let filled = repo.week(forId: created.weekId) {
+        let savedCarryOver: WeekSnapshot?
+        do {
+            savedCarryOver = try await householdSystemOperationExecutor.saveCurrentWeekCarryOver(
+                repo,
+                groceryRepository,
+                created.weekId,
+                carryOver,
+                []
+            )
+        } catch {
+            guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+                return .retryableNotAuthoritative
+            }
+            return .retryableNotAuthoritative
+        }
+        guard isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch) else {
+            return .retryableNotAuthoritative
+        }
+        guard savedCarryOver != nil else {
+            return .retryableNotAuthoritative
+        }
+        if let filled = repo.week(forId: created.weekId) {
             adoptCurrentWeek(filled)
         } else {
             adoptCurrentWeek(created)
         }
+        return .allowed
     }
 
     /// Point `currentWeek` at `week` and hydrate the derived UI state (cache + the
@@ -257,14 +285,18 @@ extension AppState {
     func saveWeekMeals(weekID: String, meals: [MealUpdateRequest], knownMealIDs: Set<String>) async throws -> WeekSnapshot {
         #if canImport(CloudKit)
         if let repo = weekRepository {
-            guard let snap = repo.saveWeekMeals(weekID: weekID, meals: meals, knownMealIDs: knownMealIDs) else {
+            guard let snap = try repo.saveWeekMeals(
+                weekID: weekID,
+                meals: meals,
+                knownMealIDs: knownMealIDs) else {
                 throw NSError(
                     domain: "SimmerSmith.WeekRepository",
                     code: 404,
                     userInfo: [NSLocalizedDescriptionKey: "Week not found after saveWeekMeals."]
                 )
             }
-            groceryRepository?.regenerate(weekID: weekID)
+            let groceryResult = groceryRepository?.regenerate(weekID: weekID) ?? .allowed
+            guard groceryResult == .allowed else { throw groceryResult }
             mirrorWeekFromRepository()
             syncPhase = .synced(.now)
             return snap
@@ -300,7 +332,8 @@ extension AppState {
                     userInfo: [NSLocalizedDescriptionKey: "Week not found after addMealSide."]
                 )
             }
-            groceryRepository?.regenerate(weekID: weekID)
+            let groceryResult = groceryRepository?.regenerate(weekID: weekID) ?? .allowed
+            guard groceryResult == .allowed else { throw groceryResult }
             mirrorWeekFromRepository()
             syncPhase = .synced(.now)
             return snap
@@ -352,14 +385,15 @@ extension AppState {
     func deleteMealSide(weekID: String, mealID: String, sideID: String) async throws -> WeekSnapshot {
         #if canImport(CloudKit)
         if let repo = weekRepository {
-            guard let snap = repo.deleteMealSide(weekID: weekID, sideID: sideID) else {
+            guard let snap = try repo.deleteMealSide(weekID: weekID, sideID: sideID) else {
                 throw NSError(
                     domain: "SimmerSmith.WeekRepository",
                     code: 404,
                     userInfo: [NSLocalizedDescriptionKey: "Week not found after deleteMealSide."]
                 )
             }
-            groceryRepository?.regenerate(weekID: weekID)
+            let groceryResult = groceryRepository?.regenerate(weekID: weekID) ?? .allowed
+            guard groceryResult == .allowed else { throw groceryResult }
             mirrorWeekFromRepository()
             syncPhase = .synced(.now)
             return snap
@@ -416,7 +450,8 @@ extension AppState {
     func regenerateGrocery(weekID: String) async throws -> WeekSnapshot {
         #if canImport(CloudKit)
         if let weekRepo = weekRepository, let groceryRepo = groceryRepository {
-            groceryRepo.regenerate(weekID: weekID)
+            let groceryResult = groceryRepo.regenerate(weekID: weekID)
+            guard groceryResult == .allowed else { throw groceryResult }
             weekRepo.reload()
             mirrorWeekFromRepository()
             let snap = weekRepo.week(forId: weekID) ?? currentWeek

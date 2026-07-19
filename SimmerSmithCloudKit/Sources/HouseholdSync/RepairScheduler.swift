@@ -39,13 +39,13 @@ public final class RepairScheduler: @unchecked Sendable {
         /// serializes with the `@MainActor` repositories (WeekRepository, GroceryRepository, etc.)
         /// that mutate the SAME `HouseholdLocalStore` — otherwise a debounced repair run can
         /// interleave a read-modify-write with a repo's, losing an update (simmersmith-9zf).
-        public var nonDestructive: @MainActor @Sendable () async -> Void
+        public var nonDestructive: @MainActor @Sendable () async throws -> Void
         /// Deletes/re-parents records — OWNER ONLY. `@MainActor` for the same serialization reason.
-        public var destructive: @MainActor @Sendable () async -> Void
+        public var destructive: @MainActor @Sendable () async throws -> Void
 
         public init(
-            nonDestructive: @escaping @MainActor @Sendable () async -> Void,
-            destructive: @escaping @MainActor @Sendable () async -> Void
+            nonDestructive: @escaping @MainActor @Sendable () async throws -> Void,
+            destructive: @escaping @MainActor @Sendable () async throws -> Void
         ) {
             self.nonDestructive = nonDestructive
             self.destructive = destructive
@@ -227,10 +227,15 @@ public final class RepairScheduler: @unchecked Sendable {
         guard beginPassOrQueueFollowUp() else { return }
         runLoop: while true {
             if isAbortRequested() { break runLoop }
-            await passes.nonDestructive()
-            if isAbortRequested() { break runLoop }
-            if ownsZone {
-                await passes.destructive()
+            do {
+                try await passes.nonDestructive()
+                if isAbortRequested() { break runLoop }
+                if ownsZone {
+                    try await passes.destructive()
+                }
+            } catch {
+                print("[RepairScheduler] repair pass failed: \(error)")
+                break runLoop
             }
             if !finishIterationAndTakeQueued() { break runLoop }
         }
@@ -307,9 +312,6 @@ public final class RepairScheduler: @unchecked Sendable {
 import CloudKit
 import GroceryMerge
 import HouseholdRecords
-import OSLog
-
-private let repairLogger = Logger(subsystem: "app.simmersmith.cloud", category: "RepairScheduler")
 
 extension RepairScheduler {
     /// Meal-slot vocabulary `WeekRepairAdapter.repairSlots` relocates a slot-collision loser
@@ -350,21 +352,20 @@ extension RepairScheduler {
         let passes = Passes(
             nonDestructive: {
                 for weekID in weekIDs() {
-                    weekAdapter.repairSlots(weekID: weekID, slots: slots)
-                    weekAdapter.reconcileSortOrder(weekID: weekID)
-                    groceryAdapter.dedupeWeekGrocery(weekID: weekID, eventLinks: eventLinks(weekID))
+                    _ = try weekAdapter.repairSlots(weekID: weekID, slots: slots)
+                    _ = try weekAdapter.reconcileSortOrder(weekID: weekID)
+                    _ = try groceryAdapter.dedupeWeekGrocery(
+                        weekID: weekID,
+                        eventLinks: eventLinks(weekID)
+                    )
                 }
             },
             destructive: {
                 // collapseWeeks re-parents + deletes loser Weeks FIRST, so pruneAudit (per the
                 // post-collapse week set) never touches a week that's about to disappear.
-                do {
-                    _ = try await weekAdapter.collapseWeeks()
-                } catch {
-                    repairLogger.error("collapseWeeks failed: \(String(describing: error), privacy: .public)")
-                }
+                _ = try await weekAdapter.collapseWeeks()
                 for weekID in weekIDs() {
-                    weekAdapter.pruneAudit(weekID: weekID, keep: auditRetention)
+                    _ = try weekAdapter.pruneAudit(weekID: weekID, keep: auditRetention)
                 }
             }
         )

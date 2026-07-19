@@ -43,19 +43,19 @@ public struct WeekRepairAdapter: Sendable {
     /// Resolve transient duplicate `(day, slot)` on a week. Re-saves only the meals the pure pass
     /// moved (keeper per collision keeps its slot). `slots` is the slot vocabulary to relocate into.
     @discardableResult
-    public func repairSlots(weekID: String, slots: [String]) -> [WeekMeal] {
-        applyMealChanges(weekID: weekID, transform: { ConflictRepair.repairDuplicateSlots($0, slots: slots) },
-                         field: "slot", value: { $0.slot as CKRecordValue }, current: { $0["slot"] as? String },
-                         changed: { $1 != $0.slot })
+    public func repairSlots(weekID: String, slots: [String]) throws -> [WeekMeal] {
+        try applyMealChanges(weekID: weekID, transform: { ConflictRepair.repairDuplicateSlots($0, slots: slots) },
+                             field: "slot", value: { $0.slot as CKRecordValue }, current: { $0["slot"] as? String },
+                             changed: { $1 != $0.slot })
     }
 
     // MARK: sort-order reconcile (gap-free, collision-free)
 
     @discardableResult
-    public func reconcileSortOrder(weekID: String) -> [WeekMeal] {
-        applyMealChanges(weekID: weekID, transform: ConflictRepair.reconcileSortOrder,
-                         field: "sortOrder", value: { $0.sortOrder as CKRecordValue }, current: { $0["sortOrder"] as? Int },
-                         changed: { $1 != $0.sortOrder })
+    public func reconcileSortOrder(weekID: String) throws -> [WeekMeal] {
+        try applyMealChanges(weekID: weekID, transform: ConflictRepair.reconcileSortOrder,
+                             field: "sortOrder", value: { $0.sortOrder as CKRecordValue }, current: { $0["sortOrder"] as? Int },
+                             changed: { $1 != $0.sortOrder })
     }
 
     /// Shared driver: project meals → run a pure pass → re-save only the records whose target field
@@ -64,14 +64,16 @@ public struct WeekRepairAdapter: Sendable {
         weekID: String, transform: ([WeekMeal]) -> [WeekMeal],
         field: String, value: (WeekMeal) -> CKRecordValue, current: (CKRecord) -> Current?,
         changed: (WeekMeal, Current?) -> Bool
-    ) -> [WeekMeal] {
+    ) throws -> [WeekMeal] {
         let records = mealRecords(weekID: weekID)
         let byName = Dictionary(uniqueKeysWithValues: records.map { ($0.recordID.recordName, $0) })
         var result: [WeekMeal] = []
         for meal in transform(records.map(mealValue)) {
             guard let rec = byName[meal.recordName], changed(meal, current(rec)) else { continue }
             rec[field] = value(meal)
-            engine.save(rec)
+            guard engine.save(rec) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
             result.append(meal)
         }
         return result
@@ -100,43 +102,86 @@ public struct WeekRepairAdapter: Sendable {
             .filter { !$0.weekStart.isEmpty }   // never collapse weeks missing a week_start key together
         let collapses = ConflictRepair.collapseDuplicateWeeks(weeks)
         guard !collapses.isEmpty else { return [] }
+        let authorization = engine.dataPlaneResult(for: .delete)
+        guard authorization == .allowed else { throw authorization }
 
         for collapse in collapses {
             let losers = Set(collapse.losers)
             let keeperRef = CKRecord.Reference(recordID: id(collapse.keeper), action: .deleteSelf)
             for rec in engine.store.records(ofType: Self.mealType) where losers.contains(refName(rec["week"])) {
-                rec["week"] = keeperRef; engine.save(rec)
+                rec["week"] = keeperRef
+                guard engine.save(rec) else {
+                    throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+                }
             }
             for rec in engine.store.records(ofType: Self.batchType) where losers.contains(refName(rec["week"])) {
-                rec["week"] = keeperRef; engine.save(rec)
+                rec["week"] = keeperRef
+                guard engine.save(rec) else {
+                    throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+                }
             }
             // String week-keys (plain STRINGs, not CKReferences → no server cascade, but they'd
             // DANGLE on the deleted loser): GroceryItem.weekID, Event.linkedWeekID,
             // EventGroceryItem.mergedIntoWeekID. Re-point onto the keeper so the link survives.
-            repointStringKey(type: GroceryCodec.recordType, field: "weekID", losers: losers, keeper: collapse.keeper)
-            repointStringKey(type: "Event", field: "linkedWeekID", losers: losers, keeper: collapse.keeper)
-            repointStringKey(type: EventGroceryCodec.recordType, field: "mergedIntoWeekID", losers: losers, keeper: collapse.keeper)
+            try repointStringKey(
+                type: GroceryCodec.recordType,
+                field: "weekID",
+                losers: losers,
+                keeper: collapse.keeper
+            )
+            try repointStringKey(
+                type: "Event",
+                field: "linkedWeekID",
+                losers: losers,
+                keeper: collapse.keeper
+            )
+            try repointStringKey(
+                type: EventGroceryCodec.recordType,
+                field: "mergedIntoWeekID",
+                losers: losers,
+                keeper: collapse.keeper
+            )
         }
         try await engine.sendUntilDrained()   // re-parents LAND before the deletes (kills the cascade race)
-        for collapse in collapses { for loser in collapse.losers { engine.delete(id(loser)) } }
+        for collapse in collapses {
+            for loser in collapse.losers {
+                let result = engine.delete(id(loser))
+                guard result == .allowed else { throw result }
+            }
+        }
         return collapses
     }
 
-    private func repointStringKey(type: String, field: String, losers: Set<String>, keeper: String) {
+    private func repointStringKey(
+        type: String,
+        field: String,
+        losers: Set<String>,
+        keeper: String
+    ) throws {
         for rec in engine.store.records(ofType: type) where losers.contains(rec[field] as? String ?? "") {
-            rec[field] = keeper as CKRecordValue; engine.save(rec)
+            rec[field] = keeper as CKRecordValue
+            guard engine.save(rec) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
         }
     }
 
     // MARK: audit prune (keep N newest batches/week; cascade-delete the rest + their events)
 
     @discardableResult
-    public func pruneAudit(weekID: String, keep: Int) -> AuditPruneResult {
+    public func pruneAudit(weekID: String, keep: Int) throws -> AuditPruneResult {
         let batches = engine.store.records(ofType: Self.batchType)
             .filter { refName($0["week"]) == weekID }
             .map { WeekChangeBatch(recordName: $0.recordID.recordName, weekID: weekID, createdAt: batchClock($0)) }
         let result = pruneAuditBatches(batches, policy: RetentionPolicy(maxBatchesPerWeek: keep))
-        for name in result.prune { engine.deleteCascading(id(name)) }   // sweeps WeekChangeEvent children
+        if !result.prune.isEmpty {
+            let authorization = engine.dataPlaneResult(for: .deleteCascading)
+            guard authorization == .allowed else { throw authorization }
+        }
+        for name in result.prune {
+            let deletion = engine.deleteCascading(id(name))
+            guard deletion == .allowed else { throw deletion }   // sweeps WeekChangeEvent children
+        }
         return result
     }
 

@@ -24,59 +24,91 @@ public struct EventMergeAdapter {
 
     /// Upsert a GroceryItem, preserving the server change tag when the record already exists
     /// (so concurrent edits resolve via the grocery merger instead of a blind overwrite).
-    private func saveGrocery(_ item: GroceryItem) {
+    @discardableResult
+    private func saveGrocery(_ item: GroceryItem) -> Bool {
         let id = CKRecord.ID(recordName: item.recordName, zoneID: zoneID)
         if let existing = engine.store.record(for: id) {
-            GroceryCodec.encode(item, into: existing); engine.save(existing)
+            GroceryCodec.encode(item, into: existing); return engine.save(existing)
         } else {
-            engine.save(GroceryCodec.makeRecord(item, zoneID: zoneID))
+            return engine.save(GroceryCodec.makeRecord(item, zoneID: zoneID))
         }
     }
 
-    private func saveEventRow(_ item: EventGroceryItem) {
+    @discardableResult
+    private func saveEventRow(_ item: EventGroceryItem) -> Bool {
         let id = CKRecord.ID(recordName: item.recordName, zoneID: zoneID)
         if let existing = engine.store.record(for: id) {
-            EventGroceryCodec.encode(item, into: existing); engine.save(existing)
+            EventGroceryCodec.encode(item, into: existing); return engine.save(existing)
         } else {
-            engine.save(EventGroceryCodec.makeRecord(item, zoneID: zoneID))
+            return engine.save(EventGroceryCodec.makeRecord(item, zoneID: zoneID))
         }
     }
 
     /// Update the Event record's linkedWeekID (+ bump updatedAt) if it's locally present.
-    private func updateEventLink(_ event: Event, linkedWeekID: String?, at now: Date) {
+    @discardableResult
+    private func updateEventLink(_ event: Event, linkedWeekID: String?, at now: Date) -> Bool {
         let id = CKRecord.ID(recordName: event.recordName, zoneID: zoneID)
-        guard let record = engine.store.record(for: id) else { return }
+        guard let record = engine.store.record(for: id) else { return true }
         record["linkedWeekID"] = linkedWeekID as CKRecordValue?
         record["updatedAt"] = now as CKRecordValue
-        engine.save(record)
+        return engine.save(record)
     }
 
     // MARK: merge / unmerge (Layer F)
 
     @discardableResult
     public func merge(event: Event, eventRows: [EventGroceryItem], intoWeek weekID: String,
-                      now: Date = Date()) -> EventMergeEngine.EventMergeOutcome {
+                      now: Date = Date()) throws -> EventMergeEngine.EventMergeOutcome {
         let outcome = EventMergeEngine.mergeEventIntoWeek(
             event: event, eventRows: eventRows, weekRows: weekGroceryRows(weekID),
             weekID: weekID, makeID: { UUID().uuidString })
-        for row in outcome.weekRows { saveGrocery(row) }
-        for row in outcome.eventRows { saveEventRow(row) }
-        updateEventLink(event, linkedWeekID: outcome.linkedWeekID, at: now)
+        for row in outcome.weekRows {
+            guard saveGrocery(row) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for row in outcome.eventRows {
+            guard saveEventRow(row) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        guard updateEventLink(event, linkedWeekID: outcome.linkedWeekID, at: now) else {
+            throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+        }
         return outcome
     }
 
     @discardableResult
     public func unmerge(event: Event, eventRows: [EventGroceryItem], fromWeek weekID: String,
-                        keepLink: Bool = false, now: Date = Date()) -> EventMergeEngine.EventUnmergeOutcome {
+                        keepLink: Bool = false, now: Date = Date()) throws -> EventMergeEngine.EventUnmergeOutcome {
         let outcome = EventMergeEngine.unmergeEventFromWeek(
             eventRows: eventRows, weekRows: weekGroceryRows(weekID), weekID: weekID,
             eventName: event.name, keepLink: keepLink, currentLinkedWeekID: event.linkedWeekID)
-        for row in outcome.weekRows { saveGrocery(row) }
-        for name in outcome.hardDeletedRecordNames {
-            engine.delete(CKRecord.ID(recordName: name, zoneID: zoneID))   // HARD delete (not tombstone)
+
+        // Do not create replacement week rows or repoint links when this session cannot make
+        // the hard deletes in the same outcome. A late WAL failure remains non-atomic, but it
+        // still stops this loop before later deletes or success-tail writes.
+        if !outcome.hardDeletedRecordNames.isEmpty {
+            let authorization = engine.dataPlaneResult(for: .delete)
+            guard authorization == .allowed else { throw authorization }
         }
-        for row in outcome.eventRows { saveEventRow(row) }
-        updateEventLink(event, linkedWeekID: outcome.linkedWeekID, at: now)
+        for row in outcome.weekRows {
+            guard saveGrocery(row) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for name in outcome.hardDeletedRecordNames {
+            let result = engine.delete(CKRecord.ID(recordName: name, zoneID: zoneID))
+            guard result == .allowed else { throw result }   // HARD delete (not tombstone)
+        }
+        for row in outcome.eventRows {
+            guard saveEventRow(row) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        guard updateEventLink(event, linkedWeekID: outcome.linkedWeekID, at: now) else {
+            throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+        }
         return outcome
     }
 
@@ -86,9 +118,13 @@ public struct EventMergeAdapter {
     /// TOMBSTONED (isUserRemoved=true), never hard-deleted (the corrected dedupe semantics).
     @discardableResult
     public func dedupeWeekGrocery(weekID: String, eventLinks: [EventGroceryItem] = [])
-        -> ConflictRepair.GroceryDedupeResult {
+        throws -> ConflictRepair.GroceryDedupeResult {
         let result = ConflictRepair.dedupeGrocery(items: weekGroceryRows(weekID), eventLinks: eventLinks)
-        Self.applyDedupeResult(result, saveGrocery: saveGrocery, saveEventRow: saveEventRow)
+        try Self.applyDedupeResult(
+            result,
+            saveGrocery: saveGrocery,
+            saveEventRow: saveEventRow
+        )
         return result
     }
 
@@ -97,12 +133,24 @@ public struct EventMergeAdapter {
     /// schedule another identical sync pass.
     static func applyDedupeResult(
         _ result: ConflictRepair.GroceryDedupeResult,
-        saveGrocery: (GroceryItem) -> Void,
-        saveEventRow: (EventGroceryItem) -> Void
-    ) {
-        for keeper in result.changedKeepers { saveGrocery(keeper) }
-        for dead in result.tombstoned { saveGrocery(dead) }       // isUserRemoved=true, syncs as a save
-        for link in result.repointedLinks { saveEventRow(link) }
+        saveGrocery: (GroceryItem) -> Bool,
+        saveEventRow: (EventGroceryItem) -> Bool
+    ) throws {
+        for keeper in result.changedKeepers {
+            guard saveGrocery(keeper) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for dead in result.tombstoned {
+            guard saveGrocery(dead) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for link in result.repointedLinks {
+            guard saveEventRow(link) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
     }
 }
 #endif

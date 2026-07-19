@@ -217,7 +217,8 @@ final class GroceryRepository {
     /// scaled), folds the existing rows in via GroceryGenerator.regenerate, then writes the result:
     /// upserts via GroceryCodec (change-tag-preserving → field-merge handles concurrent peers),
     /// tombstones (auto rows with no remaining attribution) via hard engine.delete.
-    func regenerate(weekID: String) {
+    @discardableResult
+    func regenerate(weekID: String) -> HouseholdDataPlaneResult {
         let meals = groceryMeals(weekID: weekID)
         let existing = mergeRows(weekID: weekID)
         let result = GroceryGenerator.regenerate(
@@ -226,11 +227,23 @@ final class GroceryRepository {
             weekID: weekID,
             clock: nextClock()
         )
-        for item in result.upserts { saveItem(item) }
+        if !result.tombstones.isEmpty {
+            let authorization = session.engine.dataPlaneResult(for: .deleteCascading)
+            guard authorization == .allowed else { return authorization }
+        }
+        for item in result.upserts {
+            guard saveItem(item) else {
+                return .durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
         for tombstone in result.tombstones {
-            session.engine.delete(CKRecord.ID(recordName: tombstone.recordName, zoneID: session.zoneID))
+            let deletion = session.engine.delete(
+                CKRecord.ID(recordName: tombstone.recordName, zoneID: session.zoneID)
+            )
+            guard deletion == .allowed else { return deletion }
         }
         finishWrite()
+        return .allowed
     }
 
     // MARK: - Dedupe (post-batch / on demand)
@@ -239,12 +252,12 @@ final class GroceryRepository {
     /// which runs the pure ConflictRepair.dedupeGrocery (losers are TOMBSTONED, never hard-deleted)
     /// and saves the corrected set back through the engine.
     @discardableResult
-    func dedupe(weekID: String) -> ConflictRepair.GroceryDedupeResult {
+    func dedupe(weekID: String) throws -> ConflictRepair.GroceryDedupeResult {
         let adapter = EventMergeAdapter(engine: session.engine, zoneID: session.zoneID)
         let eventLinks = session.store.records(ofType: EventGroceryCodec.recordType)
             .map(EventGroceryCodec.decode)
             .filter { $0.mergedIntoWeekID == weekID }
-        let result = adapter.dedupeWeekGrocery(weekID: weekID, eventLinks: eventLinks)
+        let result = try adapter.dedupeWeekGrocery(weekID: weekID, eventLinks: eventLinks)
         finishWrite()
         return result
     }
@@ -351,13 +364,13 @@ final class GroceryRepository {
     /// Upsert a GroceryItem, preserving the server change tag when the record already exists (so a
     /// concurrent peer edit resolves via the GrocerySyncMerger instead of a blind overwrite) —
     /// mirrors EventMergeAdapter.saveGrocery.
-    private func saveItem(_ item: GroceryMerge.GroceryItem) {
+    private func saveItem(_ item: GroceryMerge.GroceryItem) -> Bool {
         let id = CKRecord.ID(recordName: item.recordName, zoneID: session.zoneID)
         if let existing = session.store.record(for: id) {
             GroceryCodec.encode(item, into: existing)
-            session.engine.save(existing)
+            return session.engine.save(existing)
         } else {
-            session.engine.save(GroceryCodec.makeRecord(item, zoneID: session.zoneID))
+            return session.engine.save(GroceryCodec.makeRecord(item, zoneID: session.zoneID))
         }
     }
 

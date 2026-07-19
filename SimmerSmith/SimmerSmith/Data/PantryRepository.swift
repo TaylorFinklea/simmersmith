@@ -240,11 +240,14 @@ final class PantryRepository {
     }
 
     /// Hard-delete: permanently removes the CloudKit record for the given item.
-    func hardDeletePantryItem(itemID: String) {
+    @discardableResult
+    func hardDeletePantryItem(itemID: String) -> HouseholdDataPlaneResult {
         let id = CKRecord.ID(recordName: itemID, zoneID: session.zoneID)
-        session.engine.delete(id)
+        let result = session.engine.delete(id)
+        guard result == .allowed else { return result }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Apply recurrings to grocery

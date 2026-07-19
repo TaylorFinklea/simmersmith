@@ -43,6 +43,43 @@ func scopeIdentityIsExact() {
     #expect(owner.cacheKey != participant.cacheKey)
 }
 
+@Test("clearing a parked scope removes its adoption marker")
+func clearingParkedScopeDoesNotBlockAReplacementScope() throws {
+    let root = try checkpointDirectory()
+    let scope = checkpointScope()
+    let writer = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+
+    try writer.fenceAndPersistParkingSynchronously()
+    try writer.fenceAndClearSynchronously()
+
+    _ = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+}
+
+@Test("adoption parking reports an injected persistence failure")
+func adoptionParkingReportsPersistenceFailure() throws {
+    let root = try checkpointDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(
+        scope: checkpointScope(),
+        rootDirectory: root,
+        failurePoint: .beforeParkingPersistence)
+
+    #expect(throws: ShadowMirrorCheckpointWriterError.self) {
+        try writer.fenceAndPersistParkingSynchronously()
+    }
+}
+
+@Test("quarantining a parked scope removes its adoption marker")
+func quarantiningParkedScopeDoesNotBlockAReplacementScope() throws {
+    let root = try checkpointDirectory()
+    let scope = checkpointScope()
+    let writer = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+
+    try writer.fenceAndPersistParkingSynchronously()
+    try writer.fenceAndQuarantineSynchronously()
+
+    _ = try ShadowMirrorCheckpointWriter(scope: scope, rootDirectory: root)
+}
+
 @Test("secure archive round-trips full CKRecord state and changed keys")
 func secureRecordArchivePreservesCloudKitState() throws {
     let record = checkpointRecord()

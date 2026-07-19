@@ -3,6 +3,137 @@ import Observation
 import SwiftData
 import UserNotifications
 import SimmerSmithKit
+#if canImport(CloudKit)
+import CloudKit
+import CloudKitProvisioning
+import HouseholdSync
+#endif
+
+#if canImport(CloudKit)
+/// The app's external async boundaries for authoritative household system work.
+/// Production uses `live`; tests use this same boundary to make a continuation suspend.
+struct HouseholdSystemOperationExecutor {
+    struct ZoneWideShare {
+        let share: CKShare
+        let container: CKContainer
+    }
+
+    let saveCurrentWeekCarryOver: @MainActor (
+        _ repository: WeekRepository,
+        _ groceryRepository: GroceryRepository?,
+        _ weekID: String,
+        _ meals: [MealUpdateRequest],
+        _ knownMealIDs: Set<String>
+    ) async throws -> WeekSnapshot?
+    let fetchChanges: @MainActor (_ session: HouseholdSession) async throws -> Void
+    let drainChanges: @MainActor (_ session: HouseholdSession, _ maxPasses: Int) async throws -> Void
+    let prepareZoneWideShare: @MainActor (
+        _ householdID: String,
+        _ title: String
+    ) async throws -> ZoneWideShare
+
+    @MainActor static let live = Self(
+        saveCurrentWeekCarryOver: { repository, groceryRepository, weekID, meals, knownMealIDs in
+            guard let snapshot = try repository.saveWeekMeals(
+                weekID: weekID,
+                meals: meals,
+                knownMealIDs: knownMealIDs
+            ) else { return nil }
+            let groceryResult = groceryRepository?.regenerate(weekID: weekID) ?? .allowed
+            guard groceryResult == .allowed else { throw groceryResult }
+            return snapshot
+        },
+        fetchChanges: { session in
+            try await session.engine.fetchChanges()
+        },
+        drainChanges: { session, maxPasses in
+            try await session.engine.sendUntilDrained(maxPasses: maxPasses)
+        },
+        prepareZoneWideShare: { householdID, title in
+            let flow = HouseholdShareFlow()
+            let share = try await flow.makeOrFetchZoneWideShare(
+                householdID: householdID,
+                title: title
+            )
+            return ZoneWideShare(share: share, container: flow.container)
+        }
+    )
+}
+
+/// App-owned lifecycle disk locations. The transaction and marker files deliberately live
+/// beside, never inside, the shadow root so a whole-root retirement cannot erase pending work.
+struct HouseholdLifecyclePaths: Equatable {
+    let directory: URL
+
+    var transactionURL: URL { directory.appendingPathComponent("lifecycle-transaction.json") }
+    var participantMarkerURL: URL { directory.appendingPathComponent("participant-marker.json") }
+    var factoryResetImportMarkerURL: URL {
+        directory.appendingPathComponent("factory-reset-needs-import")
+    }
+    var shadowRootURL: URL { directory.appendingPathComponent("shadow-mirror", isDirectory: true) }
+
+    static func live(directoryOverride: URL? = nil) -> Self {
+        if let directoryOverride { return Self(directory: directoryOverride) }
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        return Self(directory: appSupport.appendingPathComponent("HouseholdSync", isDirectory: true))
+    }
+}
+
+/// All filesystem and remote deletion seams used by lifecycle replay. Tests replace these with
+/// deterministic closures; production keeps package-owned namespace invalidation primitives.
+struct HouseholdLifecycleExecutor {
+    let currentAccountRecordName: @MainActor () async throws -> String?
+    let requestRootClear: (URL) throws -> Void
+    let completeRootClear: (URL) throws -> Void
+    let requestScopeClear: (MirrorScope, URL) throws -> Void
+    let completeScopeClear: (MirrorScope, URL) throws -> Void
+    let clearRoleEngineStateFiles: (URL) throws -> Void
+    let deleteAllHouseholdZones: @MainActor (_ expectedAccountRecordName: String) async throws -> [String]
+
+    @MainActor static let live = Self(
+        currentAccountRecordName: {
+            try await HouseholdShareFlow().currentUserRecordName()
+        },
+        requestRootClear: { try ShadowMirrorCheckpointWriter.requestRootClearSynchronously($0) },
+        completeRootClear: { try ShadowMirrorCheckpointWriter.completeRootClearSynchronously($0) },
+        requestScopeClear: {
+            try ShadowMirrorCheckpointWriter.requestScopeClearSynchronously($0, rootDirectory: $1)
+        },
+        completeScopeClear: {
+            try ShadowMirrorCheckpointWriter.completeScopeClearSynchronously($0, rootDirectory: $1)
+        },
+        clearRoleEngineStateFiles: { directory in
+            let fileManager = FileManager.default
+            for name in ["engine-state.json", "engine-state-shared.json"] {
+                let url = directory.appendingPathComponent(name)
+                if fileManager.fileExists(atPath: url.path) {
+                    try fileManager.removeItem(at: url)
+                }
+            }
+            try DurableLifecycleFileSupport.synchronize(directory)
+        },
+        deleteAllHouseholdZones: { expectedAccountRecordName in
+            try await HouseholdZoneProvisioner().deleteAllHouseholdZones(
+                expectedAccountRecordName: expectedAccountRecordName)
+        })
+}
+
+enum HouseholdLifecycleGateState: Equatable {
+    case absent
+    case pending(HouseholdLifecycleTransaction)
+    case malformed
+}
+
+enum HouseholdLifecycleReplayOutcome: Equatable {
+    case accountBoundary
+    case participantRevocation
+    case unexpectedOwnerZoneDeletion
+    case factoryResetNeedsImport
+}
+#endif
 
 @MainActor
 @Observable
@@ -63,6 +194,13 @@ final class AppState {
     // app target still compiles on platforms without CloudKit.
     #if canImport(CloudKit)
     @ObservationIgnored var householdSession: HouseholdSession?
+    /// Session currently inside the serialized construction/start path. Lifecycle callbacks are
+    /// installed before its first await, so the epoch-first choke point must be able to revoke
+    /// this candidate even before repository wiring publishes it as `householdSession`.
+    @ObservationIgnored var bootingHouseholdSession: HouseholdSession?
+    /// Lifecycle relays whose first event already triggered teardown remain eligible to deliver
+    /// a later stronger account boundary after their Session has been released.
+    @ObservationIgnored var acceptedRetiredLifecycleSourceIDs: Set<UUID> = []
     @ObservationIgnored var recipeRepository: RecipeRepository?
     @ObservationIgnored var metadataRepository: MetadataRepository?
     // SP-C slice 3: week + grocery CloudKit repos.
@@ -85,6 +223,12 @@ final class AppState {
     // SP-C AI-5: private-plane assistant conversation storage. Constructed alongside
     // profileRepository once the CloudKit session is live. nil before the session is ready.
     @ObservationIgnored var assistantRepository: AssistantRepository?
+    @ObservationIgnored var householdSystemOperationExecutor = HouseholdSystemOperationExecutor.live
+    @ObservationIgnored let householdLifecyclePaths: HouseholdLifecyclePaths
+    @ObservationIgnored let householdLifecycleTransactionStore: HouseholdLifecycleTransactionStore
+    @ObservationIgnored let participantMarkerStore: ParticipantMarkerStore
+    @ObservationIgnored let factoryResetImportMarkerStore: DurableLifecycleFlagStore
+    @ObservationIgnored var householdLifecycleExecutor = HouseholdLifecycleExecutor.live
     /// Serializes every household-session boot (owner ensure + share-accept adopt) into a
     /// strict FIFO so the two independent entry points (`ensureHouseholdSession` and
     /// `processPendingShare`) never interleave at suspension points (simmersmith-0gf). Each
@@ -100,11 +244,26 @@ final class AppState {
     /// more right after dequeuing, before doing any work) and aborts — detaching anything it
     /// already built — if the epoch has moved on.
     @ObservationIgnored var sessionBootEpoch: Int = 0
+    /// An owner-to-participant handoff retains only the parked owner session when durable
+    /// parking failed. No participant successor may be constructed until this same writer
+    /// successfully persists the parking marker.
+    @ObservationIgnored var pendingAdoptionParkingSession: HouseholdSession?
     // simmersmith-qrt: engine-level sync visibility (failed saves, pending count,
     // participant-join progress). Constructed eagerly (no household-id dependency) so
     // Settings/the main-UI banner can read it before a session boots. `@ObservationIgnored`
     // mirrors the repositories above — it's `@Observable` itself and drives its own updates.
     @ObservationIgnored let syncStatusCenter = SyncStatusCenter()
+
+    /// An authority-only continuation may publish only while its captured session is still the
+    /// app's live session for the same boot epoch.
+    func isCurrentAuthoritativeHouseholdSession(
+        _ session: HouseholdSession,
+        requestEpoch: Int
+    ) -> Bool {
+        sessionBootEpoch == requestEpoch &&
+            householdSession === session &&
+            session.hasCurrentAuthority
+    }
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
@@ -329,8 +488,20 @@ final class AppState {
         modelContainer: ModelContainer,
         settingsStore: ConnectionSettingsStore = .shared,
         apiClient: SimmerSmithAPIClient? = nil,
-        cacheFirstLaunchEnabled: Bool? = nil
+        cacheFirstLaunchEnabled: Bool? = nil,
+        householdLifecycleDirectoryURL: URL? = nil
     ) {
+        #if canImport(CloudKit)
+        let lifecyclePaths = HouseholdLifecyclePaths.live(
+            directoryOverride: householdLifecycleDirectoryURL)
+        self.householdLifecyclePaths = lifecyclePaths
+        self.householdLifecycleTransactionStore = HouseholdLifecycleTransactionStore(
+            fileURL: lifecyclePaths.transactionURL)
+        self.participantMarkerStore = ParticipantMarkerStore(
+            fileURL: lifecyclePaths.participantMarkerURL)
+        self.factoryResetImportMarkerStore = DurableLifecycleFlagStore(
+            fileURL: lifecyclePaths.factoryResetImportMarkerURL)
+        #endif
         self.settingsStore = settingsStore
         let connection = settingsStore.load()
         self.serverURLDraft = connection.serverURLString
@@ -452,6 +623,12 @@ final class AppState {
     }
 
     func loadCachedData() {
+        #if canImport(CloudKit)
+        guard !shouldSuppressLegacyCacheHydration else {
+            detachLegacyCachedProjections()
+            return
+        }
+        #endif
         profile = cacheStore.loadProfile()
         if let profile {
             syncAIDrafts(from: profile)
@@ -510,6 +687,15 @@ final class AppState {
     }
 
     func refreshAll() async {
+        #if canImport(CloudKit)
+        await replayPendingHouseholdLifecycleBeforeEntry()
+        guard householdLifecycleAllowsEntry(), !factoryResetImportRequired else { return }
+        let lifecycleProjectionEpoch = sessionBootEpoch
+        if cacheFirstLaunchEnabled {
+            await ensureHouseholdSession()
+            return
+        }
+        #endif
         guard hasSavedConnection else {
             syncPhase = .idle
             return
@@ -520,15 +706,39 @@ final class AppState {
 
         do {
             let health = try await apiClient.fetchHealth()
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             aiCapabilities = health.aiCapabilities
 
             let fetchedProfile = try await apiClient.fetchProfile()
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             let serverWeek = try await apiClient.fetchCurrentWeek()
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             // Route through the same auto-advance helper used by
             // `refreshWeek` so cold launch shows today's week even
             // when the server's most-recently-started record is
             // ahead of or behind today's calendar week.
             let fetchedWeek = try await advanceCurrentWeekToTodayIfStaleOrNil(serverWeek)
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
 
             profile = fetchedProfile
             syncAIDrafts(from: fetchedProfile)
@@ -539,14 +749,28 @@ final class AppState {
             // Best-effort: fire the APNs permission prompt once on first launch after sign-in.
             // A failure here must never crash bootstrap.
             await ensurePushBootstrap()
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             // Best-effort household snapshot for the Settings UI (M21).
             await refreshHousehold()
             #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
             // SP-C Task 5 — now that the household ID is known (from the Fly snapshot),
             // construct + boot the CloudKit household session and its repositories. The
             // recipe data plane reads/writes CloudKit from here on; the CloudKit-aware
             // overloads in AppState+Recipes route through the repos once this is set.
             await ensureHouseholdSession()
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
             #endif
             checkedGroceryItemIDs = Set(
                 (fetchedWeek?.groceryItems ?? [])
@@ -559,6 +783,12 @@ final class AppState {
             if let fetchedWeek {
                 try? cacheStore.saveCurrentWeek(fetchedWeek)
                 let fetchedExports = try await apiClient.fetchWeekExports(weekID: fetchedWeek.weekId)
+                #if canImport(CloudKit)
+                guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                    detachLegacyCachedProjections()
+                    return
+                }
+                #endif
                 exports = fetchedExports
                 try? cacheStore.saveExports(fetchedExports, for: fetchedWeek.weekId)
             } else {
@@ -571,6 +801,10 @@ final class AppState {
             // would clobber those mirrored values until the next storeRevision tick.
             if recipeRepository == nil {
                 if let metadata = try? await apiClient.fetchRecipeMetadata() {
+                    guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                        detachLegacyCachedProjections()
+                        return
+                    }
                     recipeMetadata = metadata
                     try? cacheStore.saveRecipeMetadata(metadata)
                 }
@@ -586,6 +820,12 @@ final class AppState {
             // refreshAssistantThreads() is called after ensureHouseholdSession() wires the
             // repository; the Fly fetchAssistantThreads() call is retired.
             await refreshAssistantThreads()
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             // Ingredient preferences are private-plane only in the CloudKit build.
             #if canImport(CloudKit)
             if let prefRepo = preferenceRepository {
@@ -598,9 +838,21 @@ final class AppState {
             ingredientPreferences = []
             #endif
             await refreshAIModels(for: aiDirectProviderDraft)
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
 
             syncPhase = .synced(.now)
         } catch {
+            #if canImport(CloudKit)
+            guard householdProjectionEpochIsCurrent(lifecycleProjectionEpoch) else {
+                detachLegacyCachedProjections()
+                return
+            }
+            #endif
             lastErrorMessage = error.localizedDescription
             syncPhase = hasCachedContent ? .offline : .failed(error.localizedDescription)
         }
@@ -738,14 +990,42 @@ enum HouseholdAuthorityState: Equatable {
 /// reconciliation was offline or degraded. The retry itself still goes through AppState's
 /// serialized boot queue so it cannot overlap an adoption or another boot operation.
 enum CachedForegroundRetryPolicy {
-    static func shouldRetry(hasCachedSession: Bool, authority: HouseholdAuthorityState) -> Bool {
+    static func shouldRetry(
+        hasCachedSession: Bool,
+        authority: HouseholdAuthorityState,
+        hasPendingDeferredSystemWork: Bool = false
+    ) -> Bool {
         guard hasCachedSession else { return false }
+        if hasPendingDeferredSystemWork { return true }
         switch authority {
         case .offlineCached, .degraded:
             return true
         default:
             return false
         }
+    }
+}
+
+enum DirectHouseholdBootstrapPolicy {
+    static func shouldContinueAfterInitialStart(
+        isCachedBootstrap: Bool,
+        hasCurrentAuthority: Bool
+    ) -> Bool {
+        isCachedBootstrap || hasCurrentAuthority
+    }
+}
+
+enum CachedHouseholdRetryPlan: Equatable {
+    case reconcile
+    case resumeDeferredSystemWork
+
+    static func next(
+        hasCurrentAuthority: Bool,
+        hasPendingDeferredSystemWork: Bool
+    ) -> CachedHouseholdRetryPlan {
+        hasCurrentAuthority && hasPendingDeferredSystemWork
+            ? .resumeDeferredSystemWork
+            : .reconcile
     }
 }
 
@@ -787,7 +1067,40 @@ enum CachedHouseholdSystemOperation: CaseIterable {
     case backupRestore
 }
 
+/// App-level authoritative-operation result. User-facing callers either return or throw the
+/// retryable denial; internal boot helpers use the same value to keep cached receipts from
+/// suppressing authoritative work.
+enum CachedHouseholdSystemOperationResult: Error, Equatable, LocalizedError {
+    case allowed
+    case retryableNotAuthoritative
+
+    var errorDescription: String? {
+        switch self {
+        case .allowed:
+            return nil
+        case .retryableNotAuthoritative:
+            return "Finish household reconciliation before trying that again."
+        }
+    }
+}
+
 enum CachedHouseholdSystemOperationPolicy {
+    static func result(
+        _ operation: CachedHouseholdSystemOperation,
+        isAuthoritative: Bool
+    ) -> CachedHouseholdSystemOperationResult {
+        isAuthoritative ? .allowed : .retryableNotAuthoritative
+    }
+
+    static func allows(
+        _ operation: CachedHouseholdSystemOperation,
+        isAuthoritative: Bool
+    ) -> Bool {
+        result(operation, isAuthoritative: isAuthoritative) == .allowed
+    }
+
+    /// Compatibility seam for P2e-focused tests. Production call sites must pass the current
+    /// session capability so cached sessions may run the deferred tail exactly once after fetch.
     static func allows(
         _ operation: CachedHouseholdSystemOperation,
         isCachedBootstrap: Bool

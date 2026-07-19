@@ -211,7 +211,7 @@ final class RecipeRepository {
 
     /// Upsert a household record: encode into the existing CKRecord when present
     /// (preserving the server change tag), otherwise save a fresh one.
-    private func upsertRecord(_ value: HouseholdRecordValue) {
+    private func upsertRecord(_ value: HouseholdRecordValue) -> Bool {
         let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
         if let existing = session.store.record(for: id) {
             // Encode into the server-authoritative record to preserve the change tag.
@@ -235,9 +235,9 @@ final class RecipeRepository {
                         recordID: CKRecord.ID(recordName: target, zoneID: session.zoneID), action: .deleteSelf)
                 }
             }
-            session.engine.save(existing)
+            return session.engine.save(existing)
         } else {
-            session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            return session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
         }
     }
 
@@ -282,13 +282,24 @@ final class RecipeRepository {
         // Map to CloudKit records.
         let mapped = RecipeRecordMapper.records(from: summary)
 
-        // Upsert the recipe record.
-        upsertRecord(mapped.recipe)
+        let childDeletions = childDeletionIDs(
+            recipeID: recipeID,
+            newIngredients: mapped.ingredients,
+            newSteps: mapped.steps
+        )
+        try authorizeChildDeletions(childDeletions)
+
+        // Upsert the recipe record only after a known child-delete denial has failed closed.
+        guard upsertRecord(mapped.recipe) else {
+            throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+        }
 
         // Diff children: compare store's current children vs incoming.
-        diffAndApplyChildren(recipeID: recipeID,
-                             newIngredients: mapped.ingredients,
-                             newSteps: mapped.steps)
+        try diffAndApplyChildren(
+            newIngredients: mapped.ingredients,
+            newSteps: mapped.steps,
+            deletions: childDeletions
+        )
 
         // Reload the in-memory list.
         reload()
@@ -372,10 +383,33 @@ final class RecipeRepository {
     ///      contains all step-level records. Removing the filter or changing the mapper's
     ///      flatten behavior will reintroduce orphaned step records in CloudKit.
     private func diffAndApplyChildren(
+        newIngredients: [HouseholdRecordValue],
+        newSteps: [HouseholdRecordValue],
+        deletions: [CKRecord.ID]
+    ) throws {
+        // Save all incoming children (upsert — changed or new).
+        for ing in newIngredients {
+            guard upsertRecord(ing) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+        for step in newSteps {
+            guard upsertRecord(step) else {
+                throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
+            }
+        }
+
+        for id in deletions {
+            let result = session.engine.delete(id)
+            guard result == .allowed else { throw result }
+        }
+    }
+
+    private func childDeletionIDs(
         recipeID: String,
         newIngredients: [HouseholdRecordValue],
         newSteps: [HouseholdRecordValue]
-    ) {
+    ) -> [CKRecord.ID] {
         // Collect existing child record names from the store.
         let store = session.store
         let zoneID = session.zoneID
@@ -393,18 +427,15 @@ final class RecipeRepository {
 
         let newIngredientNames = Set(newIngredients.map { $0.recordName })
         let newStepNames = Set(newSteps.map { $0.recordName })
+        return existingIngredientNames.subtracting(newIngredientNames)
+            .union(existingStepNames.subtracting(newStepNames))
+            .map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+    }
 
-        // Save all incoming children (upsert — changed or new).
-        for ing in newIngredients { upsertRecord(ing) }
-        for step in newSteps { upsertRecord(step) }
-
-        // Delete children that are no longer in the draft.
-        for name in existingIngredientNames.subtracting(newIngredientNames) {
-            session.engine.delete(CKRecord.ID(recordName: name, zoneID: zoneID))
-        }
-        for name in existingStepNames.subtracting(newStepNames) {
-            session.engine.delete(CKRecord.ID(recordName: name, zoneID: zoneID))
-        }
+    private func authorizeChildDeletions(_ deletions: [CKRecord.ID]) throws {
+        guard !deletions.isEmpty else { return }
+        let authorization = session.engine.dataPlaneResult(for: .delete)
+        guard authorization == .allowed else { throw authorization }
     }
 
     // MARK: - Status mutations
@@ -438,19 +469,23 @@ final class RecipeRepository {
         Task { [weak self] in await self?.drainSync() }
     }
 
-    func delete(_ recipeId: String) {
+    @discardableResult
+    func delete(_ recipeId: String) -> HouseholdDataPlaneResult {
         let id = CKRecord.ID(recordName: recipeId, zoneID: session.zoneID)
-        session.engine.deleteCascading(id)
+        let cascadeResult = session.engine.deleteCascading(id)
+        guard cascadeResult == .allowed else { return cascadeResult }
         // Also delete the image record if present.
         let imageID = CKRecord.ID(
             recordName: RecipeImageCodec.recordName(forRecipe: recipeId),
             zoneID: session.zoneID
         )
         if session.store.record(for: imageID) != nil {
-            session.engine.delete(imageID)
+            let imageResult = session.engine.delete(imageID)
+            guard imageResult == .allowed else { return imageResult }
         }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Images
@@ -523,13 +558,16 @@ final class RecipeRepository {
     }
 
     /// Delete the recipe's image record.
-    func removeImage(_ recipeId: String) {
+    @discardableResult
+    func removeImage(_ recipeId: String) -> HouseholdDataPlaneResult {
         let imgName = RecipeImageCodec.recordName(forRecipe: recipeId)
         let id = CKRecord.ID(recordName: imgName, zoneID: session.zoneID)
-        guard session.store.record(for: id) != nil else { return }
-        session.engine.delete(id)
+        guard session.store.record(for: id) != nil else { return .allowed }
+        let result = session.engine.delete(id)
+        guard result == .allowed else { return result }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Memories (SP-D 990.4.1)
@@ -581,18 +619,22 @@ final class RecipeRepository {
     /// Delete a memory entry. `deleteCascading` sweeps its RecipeMemoryImage via the local
     /// `.deleteSelf` subtree scan; the explicit delete below is belt-and-suspenders,
     /// mirroring `delete(_:)`'s equivalent extra step for RecipeImage.
-    func deleteMemory(_ memoryId: String) {
+    @discardableResult
+    func deleteMemory(_ memoryId: String) -> HouseholdDataPlaneResult {
         let id = CKRecord.ID(recordName: memoryId, zoneID: session.zoneID)
-        session.engine.deleteCascading(id)
+        let cascadeResult = session.engine.deleteCascading(id)
+        guard cascadeResult == .allowed else { return cascadeResult }
         let imageID = CKRecord.ID(
             recordName: RecipeMemoryImageCodec.recordName(forMemory: memoryId),
             zoneID: session.zoneID
         )
         if session.store.record(for: imageID) != nil {
-            session.engine.delete(imageID)
+            let imageResult = session.engine.delete(imageID)
+            guard imageResult == .allowed else { return imageResult }
         }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Memory photos

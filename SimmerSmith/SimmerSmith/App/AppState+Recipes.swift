@@ -6,12 +6,531 @@ import CloudKitProvisioning
 import HouseholdSync
 import HouseholdRecords
 import AIProviderKit
+
+/// One-shot import orchestration with an exact-session fence around every continuation
+/// effect. The concrete AppState caller supplies the epoch/session predicate and live effects.
+@MainActor
+struct PantryProfileImportFlow {
+    let isCurrentAuthoritative: () -> Bool
+    let prepare: () -> Void
+    let exchangeToken: () async throws -> String
+    let saveImportToken: (String) -> Void
+    let migrate: () async -> Void
+    let hasMigrationReceipt: () -> Bool
+    let publishCompletion: (Bool) -> Void
+    let publishSignInFailure: (String) -> Void
+    let clearImportToken: () -> Void
+    let reloadImportedData: () -> Void
+
+    func run() async {
+        guard isCurrentAuthoritative() else { return }
+        prepare()
+
+        let token: String
+        do {
+            token = try await exchangeToken()
+        } catch {
+            guard isCurrentAuthoritative() else { return }
+            publishSignInFailure(error.localizedDescription)
+            return
+        }
+
+        guard isCurrentAuthoritative() else { return }
+        saveImportToken(token)
+
+        await migrate()
+        guard isCurrentAuthoritative() else { return }
+
+        let didMigrate = hasMigrationReceipt()
+        guard isCurrentAuthoritative() else { return }
+        publishCompletion(didMigrate)
+
+        guard isCurrentAuthoritative() else { return }
+        clearImportToken()
+
+        guard didMigrate, isCurrentAuthoritative() else { return }
+        reloadImportedData()
+    }
+}
+
+/// Shared continuation fence for the one-shot Week and Event imports. Each
+/// post-await effect must still belong to the exact session that began it.
+@MainActor
+struct WeekEventImportFlow {
+    let isCurrentAuthoritative: () -> Bool
+    let prepare: () -> Void
+    let exchangeToken: () async throws -> String
+    let saveImportToken: (String) -> Void
+    let migrate: () async -> DeferredMigrationCompletion
+    let hasMigrationReceipt: () -> Bool
+    let publishCompletion: (Bool) -> Void
+    let publishSignInFailure: (String) -> Void
+    let clearImportToken: () -> Void
+    let reloadImportedData: () -> Void
+
+    func run() async -> DeferredMigrationCompletion {
+        guard isCurrentAuthoritative() else { return .retryable }
+        prepare()
+
+        let token: String
+        do {
+            token = try await exchangeToken()
+        } catch {
+            guard isCurrentAuthoritative() else { return .retryable }
+            publishSignInFailure(error.localizedDescription)
+            return .retryable
+        }
+
+        guard isCurrentAuthoritative() else { return .retryable }
+        saveImportToken(token)
+
+        let migrationCompletion = await migrate()
+        guard isCurrentAuthoritative() else { return .retryable }
+        guard migrationCompletion == .complete else {
+            publishCompletion(false)
+            return .retryable
+        }
+
+        let didMigrate = hasMigrationReceipt()
+        guard isCurrentAuthoritative() else { return .retryable }
+        publishCompletion(didMigrate)
+        guard didMigrate else { return .retryable }
+
+        guard isCurrentAuthoritative() else { return .retryable }
+        clearImportToken()
+
+        guard isCurrentAuthoritative() else { return .retryable }
+        reloadImportedData()
+        return .complete
+    }
+}
 #endif
 
 extension AppState {
     // MARK: - SP-C Task 5: CloudKit lifecycle + mirroring
 
     #if canImport(CloudKit)
+    var shouldSuppressLegacyCacheHydration: Bool {
+        cacheFirstLaunchEnabled
+            || householdLifecycleGateState() != .absent
+            || factoryResetImportMarkerStore.isSet
+    }
+
+    var factoryResetImportRequired: Bool {
+        factoryResetImportMarkerStore.isSet
+    }
+
+    /// Fence for legacy/Fly projection work that began before a lifecycle transition. The
+    /// transaction/marker checks prevent a continuation from republishing after durable replay
+    /// starts even if its original network request cannot be cancelled.
+    func householdProjectionEpochIsCurrent(_ epoch: Int) -> Bool {
+        sessionBootEpoch == epoch
+            && householdLifecycleGateState() == .absent
+            && !factoryResetImportRequired
+    }
+
+    func householdLifecycleGateState() -> HouseholdLifecycleGateState {
+        do {
+            guard let transaction = try householdLifecycleTransactionStore.pending() else {
+                return .absent
+            }
+            return .pending(transaction)
+        } catch {
+            return .malformed
+        }
+    }
+
+    /// One gate shared by owner boot, participant boot, share acceptance, and reconciliation.
+    /// Malformed bytes are deliberately left untouched for intervention/recovery evidence.
+    func householdLifecycleAllowsEntry() -> Bool {
+        switch householdLifecycleGateState() {
+        case .absent:
+            return true
+        case .pending:
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "Finishing a previous household security transition.")
+            return false
+        case .malformed:
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "The local household security transition needs attention.")
+            return false
+        }
+    }
+
+    /// The mandatory non-suspending lifecycle choke point. Epoch/readiness/projections move
+    /// first; only then are the old session's capabilities and callbacks revoked.
+    @discardableResult
+    func beginEpochFirstHouseholdTransition(
+        clearPersonalData: Bool,
+        interventionMessage: String? = nil,
+        parkOwnerScopeForAdoption: Bool = false
+    ) -> Bool {
+        let tearingDownSession = householdSession ?? bootingHouseholdSession
+
+        sessionBootEpoch &+= 1
+        householdLaunchPhase = .resolving
+        householdAuthority = interventionMessage.map {
+            .intervention(message: $0)
+        } ?? .none
+        detachPublishedHouseholdProjections(clearPersonalData: clearPersonalData)
+
+        cachedPrivatePlaneTask?.cancel()
+        cachedPrivatePlaneTask = nil
+        tearingDownSession?.revokeAuthority()
+
+        let parkingSucceeded: Bool
+        if parkOwnerScopeForAdoption {
+            parkingSucceeded = tearingDownSession?.parkForOwnerToParticipantAdoption() ?? true
+            if !parkingSucceeded, let tearingDownSession {
+                pendingAdoptionParkingSession = tearingDownSession
+            }
+        } else {
+            tearingDownSession?.detach()
+            parkingSucceeded = true
+        }
+        householdSession = nil
+        bootingHouseholdSession = nil
+        syncStatusCenter.reset()
+        AIService.clearSeasonalCache()
+        recipeRepository = nil
+        metadataRepository = nil
+        weekRepository = nil
+        groceryRepository = nil
+        ingredientRepository = nil
+        eventRepository = nil
+        guestRepository = nil
+        profileRepository = nil
+        preferenceRepository = nil
+        pantryRepository = nil
+        aliasRepository = nil
+        aiService = nil
+        assistantRepository = nil
+
+        if !parkingSucceeded {
+            householdAuthority = .intervention(
+                message: "Couldn't safely park the previous household before joining a share.")
+        }
+        return parkingSucceeded
+    }
+
+    private func detachPublishedHouseholdProjections(clearPersonalData: Bool) {
+        recipes = []
+        recipeMetadata = nil
+        recipeMemories = [:]
+        currentWeek = nil
+        browsedWeek = nil
+        exports = []
+        checkedGroceryItemIDs = []
+        eventSummaries = []
+        eventDetails = [:]
+        guests = []
+        pantryItems = []
+        householdAliases = []
+        currentHousehold = nil
+        pendingLeftoverHouseholdIDs = []
+        forkedHouseholdIDs = []
+
+        guard clearPersonalData else { return }
+        profile = nil
+        ingredientPreferences = []
+        assistantThreads = []
+        assistantThreadDetails = [:]
+        assistantPromptOverrides = [:]
+        assistantSendingThreadIDs = []
+        assistantErrorByThreadID = [:]
+        personalDataReadiness = .unavailable
+        aiCapabilities = nil
+        aiProviderModeDraft = "auto"
+        aiDirectProviderDraft = ""
+        aiDirectAPIKeyDraft = ""
+        aiOpenAIModelDraft = ""
+        aiAnthropicModelDraft = ""
+        availableAIModelsByProvider = [:]
+        aiModelErrorByProvider = [:]
+    }
+
+    func detachLegacyCachedProjections() {
+        detachPublishedHouseholdProjections(clearPersonalData: true)
+        reminderListIdentifier = nil
+        lastReminderSyncAt = nil
+        lastReminderSyncSummary = nil
+    }
+
+    private func clearLegacyCacheStorageForLifecycle() throws {
+        postClearRefreshTask?.cancel()
+        postClearRefreshTask = nil
+        try cacheStore.clearAll()
+        clearReminderMappings()
+    }
+
+    private func transaction(
+        for event: HouseholdSyncLifecycleEvent,
+        scope: MirrorScope?
+    ) throws -> HouseholdLifecycleTransaction {
+        switch event {
+        case .participantRevocation:
+            guard let scope,
+                  scope.role == .participant,
+                  scope.databaseScope == .shared else {
+                // No exact identity is selectable. Whole-root retirement is the fail-closed
+                // fallback; it never guesses a scope from the zone event.
+                return try HouseholdLifecycleTransaction(kind: .accountBoundary, scope: nil)
+            }
+            return try HouseholdLifecycleTransaction(kind: .participantRevocation, scope: scope)
+        case .unexpectedOwnerZoneDeletion:
+            guard let scope,
+                  scope.role == .owner,
+                  scope.databaseScope == .private else {
+                return try HouseholdLifecycleTransaction(kind: .accountBoundary, scope: nil)
+            }
+            return try HouseholdLifecycleTransaction(
+                kind: .unexpectedOwnerZoneDeletion,
+                scope: scope)
+        case .accountBoundary:
+            return try HouseholdLifecycleTransaction(kind: .accountBoundary, scope: nil)
+        }
+    }
+
+    /// Persist one new lifecycle boundary, or atomically upgrade an exact-scope boundary to the
+    /// stronger whole-root account boundary. Factory reset and account boundaries are terminal
+    /// precedence states and are never overwritten or downgraded.
+    private func beginOrUpgradeLifecycleTransaction(
+        _ proposed: HouseholdLifecycleTransaction
+    ) throws -> HouseholdLifecycleTransaction {
+        guard let pending = try householdLifecycleTransactionStore.pending() else {
+            try householdLifecycleTransactionStore.begin(proposed)
+            return proposed
+        }
+        if pending.kind == proposed.kind, pending.scope == proposed.scope {
+            return pending
+        }
+        let pendingIsExact = pending.kind == .participantRevocation
+            || pending.kind == .unexpectedOwnerZoneDeletion
+        if pendingIsExact, proposed.kind == .accountBoundary {
+            try householdLifecycleTransactionStore.replace(expected: pending, with: proposed)
+            return proposed
+        }
+        if pending.kind == .accountBoundary {
+            return pending
+        }
+        throw HouseholdLifecycleTransactionStore.Error.transactionConflict
+    }
+
+    func requestLifecycleInvalidation(
+        for transaction: HouseholdLifecycleTransaction
+    ) throws {
+        switch transaction.kind {
+        case .participantRevocation:
+            guard clearParticipantMarker(), let scope = transaction.scope else {
+                throw HouseholdLifecycleTransaction.Error.invalidScope
+            }
+            try householdLifecycleExecutor.requestScopeClear(
+                scope,
+                householdLifecyclePaths.shadowRootURL)
+        case .unexpectedOwnerZoneDeletion:
+            guard let scope = transaction.scope else {
+                throw HouseholdLifecycleTransaction.Error.invalidScope
+            }
+            try householdLifecycleExecutor.requestScopeClear(
+                scope,
+                householdLifecyclePaths.shadowRootURL)
+        case .accountBoundary, .factoryReset:
+            guard clearParticipantMarker() else {
+                throw ParticipantMarkerStore.Error.malformed
+            }
+            try householdLifecycleExecutor.requestRootClear(
+                householdLifecyclePaths.shadowRootURL)
+            try householdLifecycleExecutor.clearRoleEngineStateFiles(
+                householdLifecyclePaths.directory)
+        }
+        try clearLegacyCacheStorageForLifecycle()
+    }
+
+    /// Called synchronously from the typed HouseholdSession callback. Event and exact scope were
+    /// captured before HouseholdSession crossed into a MainActor Task.
+    @discardableResult
+    func handleHouseholdLifecycleEvent(
+        _ event: HouseholdSyncLifecycleEvent,
+        scope: MirrorScope?,
+        scheduleReplay: Bool = true
+    ) -> Bool {
+        if case .unexpectedOwnerZoneDeletion = event,
+           case .pending(let pending) = householdLifecycleGateState(),
+           pending.kind == .factoryReset {
+            return false
+        }
+
+        let clearPersonal: Bool
+        if case .accountBoundary = event {
+            clearPersonal = true
+        } else {
+            clearPersonal = false
+        }
+        beginEpochFirstHouseholdTransition(
+            clearPersonalData: clearPersonal,
+            interventionMessage: "Finishing a household security transition.")
+
+        do {
+            let effective = try beginOrUpgradeLifecycleTransaction(
+                transaction(for: event, scope: scope))
+            try requestLifecycleInvalidation(for: effective)
+        } catch {
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "Couldn't safely invalidate the previous household: \(error.localizedDescription)")
+            return false
+        }
+
+        if scheduleReplay {
+            schedulePendingHouseholdLifecycleReplay()
+        }
+        return true
+    }
+
+    func schedulePendingHouseholdLifecycleReplay() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            var outcome: HouseholdLifecycleReplayOutcome?
+            await self.sessionBootQueue.enqueue { [weak self] in
+                outcome = await self?.completePendingHouseholdLifecycleBoundary()
+            }.value
+            guard outcome == .unexpectedOwnerZoneDeletion else { return }
+            await self.ensureHouseholdSession()
+        }
+    }
+
+    func replayPendingHouseholdLifecycleBeforeEntry() async {
+        let requestEpoch = sessionBootEpoch
+        await sessionBootQueue.enqueue { [weak self] in
+            guard let self, self.sessionBootEpoch == requestEpoch else { return }
+            _ = await self.completePendingHouseholdLifecycleBoundary()
+        }.value
+    }
+
+    /// Delete reset-owned server zones only while both the app transaction and CloudKit account
+    /// remain the exact boundary that authorized the operation. The provisioner independently
+    /// repeats this account check around enumeration/modification; the post-return lookup fences
+    /// transaction completion and replacement minting if identity changed during the await.
+    func deleteFactoryResetZonesBoundToAccount(
+        transaction: HouseholdLifecycleTransaction,
+        isCurrent: () -> Bool
+    ) async throws -> [String] {
+        guard transaction.kind == .factoryReset,
+              let expectedAccountRecordName = transaction.remoteAccountRecordName,
+              isCurrent() else {
+            throw HouseholdLifecycleTransactionStore.Error.transactionConflict
+        }
+        let accountBeforeDeletion = try await
+            householdLifecycleExecutor.currentAccountRecordName()
+        guard isCurrent(), accountBeforeDeletion == expectedAccountRecordName else {
+            throw HouseholdLifecycleTransaction.Error.invalidRemoteAccount
+        }
+        let deleted = try await householdLifecycleExecutor.deleteAllHouseholdZones(
+            expectedAccountRecordName)
+        guard isCurrent() else {
+            throw HouseholdLifecycleTransactionStore.Error.transactionConflict
+        }
+        let accountAfterDeletion = try await
+            householdLifecycleExecutor.currentAccountRecordName()
+        guard isCurrent(), accountAfterDeletion == expectedAccountRecordName else {
+            throw HouseholdLifecycleTransaction.Error.invalidRemoteAccount
+        }
+        return deleted
+    }
+
+    /// Runs inside the serialized boot lane (or directly in deterministic tests). A valid file is
+    /// replayed idempotently; malformed bytes remain intact and block every successor session.
+    func completePendingHouseholdLifecycleBoundary() async -> HouseholdLifecycleReplayOutcome? {
+        let pending: HouseholdLifecycleTransaction
+        switch householdLifecycleGateState() {
+        case .absent:
+            if factoryResetImportRequired {
+                startFreshState = .failed(
+                    "CloudKit was reset. Run Start Fresh again to restore your Fly data.")
+            }
+            return nil
+        case .malformed:
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "The local household security transition needs attention.")
+            return nil
+        case .pending(let transaction):
+            pending = transaction
+        }
+
+        if householdSession != nil {
+            beginEpochFirstHouseholdTransition(
+                clearPersonalData: pending.kind == .accountBoundary || pending.kind == .factoryReset,
+                interventionMessage: "Finishing a previous household security transition.")
+        }
+        let replayEpoch = sessionBootEpoch
+
+        func transactionStillCurrent() -> Bool {
+            guard sessionBootEpoch == replayEpoch else { return false }
+            return (try? householdLifecycleTransactionStore.pending()) == pending
+        }
+
+        do {
+            guard transactionStillCurrent() else {
+                throw HouseholdLifecycleTransactionStore.Error.transactionConflict
+            }
+            try requestLifecycleInvalidation(for: pending)
+            switch pending.kind {
+            case .participantRevocation, .unexpectedOwnerZoneDeletion:
+                guard let scope = pending.scope else {
+                    throw HouseholdLifecycleTransaction.Error.invalidScope
+                }
+                try householdLifecycleExecutor.completeScopeClear(
+                    scope,
+                    householdLifecyclePaths.shadowRootURL)
+            case .accountBoundary, .factoryReset:
+                try householdLifecycleExecutor.completeRootClear(
+                    householdLifecyclePaths.shadowRootURL)
+            }
+
+            if pending.kind == .factoryReset {
+                _ = try await deleteFactoryResetZonesBoundToAccount(
+                    transaction: pending,
+                    isCurrent: transactionStillCurrent)
+                try factoryResetImportMarkerStore.set()
+            }
+            guard transactionStillCurrent() else {
+                throw HouseholdLifecycleTransactionStore.Error.transactionConflict
+            }
+            try householdLifecycleTransactionStore.complete(pending)
+        } catch {
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "Couldn't finish the household security transition: \(error.localizedDescription)")
+            if pending.kind == .factoryReset {
+                startFreshState = .failed(
+                    "Couldn't erase CloudKit households: \(error.localizedDescription)")
+            }
+            return nil
+        }
+
+        switch pending.kind {
+        case .accountBoundary:
+            householdAuthority = .none
+            return .accountBoundary
+        case .participantRevocation:
+            householdAuthority = .intervention(
+                message: "Access to the shared household changed. Reconnecting…")
+            return .participantRevocation
+        case .unexpectedOwnerZoneDeletion:
+            householdAuthority = .none
+            return .unexpectedOwnerZoneDeletion
+        case .factoryReset:
+            householdAuthority = .none
+            startFreshState = .failed(
+                "CloudKit was reset. Run Start Fresh again to restore your Fly data.")
+            return .factoryResetNeedsImport
+        }
+    }
+
     /// Construct the CloudKit household session + repositories once the household
     /// ID is known (from the Fly household snapshot). Idempotent — no-op if a
     /// session already exists. Called from `refreshAll()` after `refreshHousehold()`.
@@ -24,54 +543,45 @@ extension AppState {
     /// The queued op re-checks `householdSession != nil` after its predecessors finish — that
     /// re-check (not a dedup flag) is what makes a chained-but-now-redundant boot no-op.
     func ensureHouseholdSession() async {
-        // Cheap outer fast path — already set up. Preserves the common case of not even
-        // creating a Task when the session is already booted.
-        //
-        // simmersmith-7in: `wireHouseholdRepositories` commits `householdSession` BEFORE its
-        // single await (`ensureCurrentCloudKitWeek`), so this fast path can observe a non-nil
-        // session that belongs to ANOTHER boot still mid-wiring (phase still `.resolving`).
-        // Flipping to `.ready` here would be premature — RootView would show MainTabView
-        // before that boot's mirrors/current-week creation land. Only fast-path when nothing
-        // else is actively resolving.
-        if let session = householdSession {
-            if CachedForegroundRetryPolicy.shouldRetry(
-                hasCachedSession: session.isCachedBootstrap,
-                authority: householdAuthority) {
-                await retryCachedHouseholdReconciliation(onlyIfNeeded: true)
-                return
-            }
-            if householdLaunchPhase != .resolving {
-                householdLaunchPhase = .ready
-            }
-            return
-        }
-        // simmersmith-0gf blocking-finding fix: capture the epoch AT REQUEST TIME, before
-        // this op even enters the queue. If a sign-out lands while this request is queued
-        // or mid-flight, `ensureSessionBootOp` compares against this snapshot to detect it.
         let requestEpoch = sessionBootEpoch
         await sessionBootQueue.enqueue { [weak self] in
-            await self?.ensureSessionBootOp(requestEpoch: requestEpoch)
+            guard let self, self.sessionBootEpoch == requestEpoch else { return }
+            _ = await self.completePendingHouseholdLifecycleBoundary()
+            guard self.householdLifecycleAllowsEntry() else { return }
+            await self.ensureSessionBootOp(requestEpoch: self.sessionBootEpoch)
         }.value
     }
 
     /// The body of an owner-boot session op, run strictly serialized (after any
     /// preceding boot) inside `sessionBootQueue`. See `ensureHouseholdSession()`.
-    private func ensureSessionBootOp(requestEpoch: Int) async {
+    func ensureSessionBootOp(
+        requestEpoch: Int,
+        expectedAccountRecordName: String? = nil
+    ) async {
         // simmersmith-0gf blocking-finding fix: this op was enqueued behind (possibly
         // several) predecessors — if a sign-out (`teardownHouseholdSession`) bumped the
         // epoch while this request was waiting its turn, the request is stale: abort before
         // touching anything rather than re-booting a session the user just tore down.
-        guard sessionBootEpoch == requestEpoch else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry() else { return }
 
         // Re-check AFTER predecessors have run — this is the whole point of doing the check
         // here rather than only in the outer function: a preceding share-accept boot may have
         // just installed a participant session, and this chained ensure must no-op rather than
         // fall through to owner discovery/mint.
-        if householdSession != nil {
-            householdLaunchPhase = .ready
+        if let session = householdSession {
+            if CachedForegroundRetryPolicy.shouldRetry(
+                hasCachedSession: session.isCachedBootstrap,
+                authority: householdAuthority,
+                hasPendingDeferredSystemWork: session.hasPendingDeferredSystemWork) {
+                await retryCachedHouseholdReconciliationOp(
+                    requestEpoch: requestEpoch,
+                    onlyIfNeeded: true)
+            } else if householdLaunchPhase != .resolving {
+                householdLaunchPhase = .ready
+            }
             return
         }
-
         // SP-C identity slice (spec §1.2): the household id no longer comes from Fly
         // (`currentHousehold?.householdId`) — it is DISCOVERED from CloudKit, or minted
         // if the user has no household zone yet. Resolution is async (it lists the
@@ -79,14 +589,24 @@ extension AppState {
         // discover-before-create ordering is load-bearing (spec §7): minting a new zone
         // when `household-<existingId>` already exists would orphan the migrated recipes.
         // P2e resolves the account identity before selecting any cached scope.
-        let accountRecordName: String?
-        if cacheFirstLaunchEnabled {
-            accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
-            // Account identity is an async lifecycle boundary. A teardown during this lookup
-            // must not select or open a prior scope after the epoch has moved.
-            guard sessionBootEpoch == requestEpoch else { return }
-        } else {
-            accountRecordName = nil
+        let accountRecordName = try? await householdLifecycleExecutor.currentAccountRecordName()
+        // Every engine, including the gate-off nil-state control, receives an exact scope before
+        // automatic sync starts. Unknown identity cannot construct a session or trust a marker.
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              let accountRecordName,
+              !accountRecordName.isEmpty else {
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "Couldn't verify the current iCloud account.")
+            return
+        }
+        guard expectedAccountRecordName == nil
+                || accountRecordName == expectedAccountRecordName else {
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "The iCloud account changed before household setup completed.")
+            return
         }
 
         // PARTICIPANT-FIRST (accept-before-mint, sharing spec §6): if the user just
@@ -94,11 +614,24 @@ extension AppState {
         // device ADOPTS an owner's household — boot as participant and NEVER fall through
         // to owner discovery/mint (which would orphan-mint a solo zone on a cold accept).
         if let metadata = PendingShareInbox.shared.take() {
-            await bootParticipantSession(accepting: metadata, requestEpoch: requestEpoch)
+            await bootParticipantSession(
+                accepting: metadata,
+                requestEpoch: requestEpoch,
+                accountRecordName: accountRecordName)
             return
         }
-        if let marker = loadParticipantMarker() {
-            await bootParticipantSession(reusing: marker, requestEpoch: requestEpoch)
+        do {
+            if let marker = try loadParticipantMarker(accountRecordName: accountRecordName) {
+                await bootParticipantSession(
+                    reusing: marker,
+                    requestEpoch: requestEpoch,
+                    accountRecordName: accountRecordName)
+                return
+            }
+        } catch {
+            _ = handleHouseholdLifecycleEvent(
+                .accountBoundary(.switchedAccounts),
+                scope: nil)
             return
         }
 
@@ -106,7 +639,7 @@ extension AppState {
         // cached candidate may bypass the zone census because its exact scope is already named.
         let cachedCandidate: MirrorBootstrapCandidate?
         let recoveryCandidate: MirrorRecoveryCandidate?
-        if let accountRecordName, cacheFirstLaunchEnabled {
+        if cacheFirstLaunchEnabled {
             let selection = bootstrapSelection(
                 accountRecordName: accountRecordName,
                 request: .owner(accountRecordName: accountRecordName),
@@ -132,17 +665,52 @@ extension AppState {
             // the session unset so a later retry can call ensureHouseholdSession() again.
             return
         }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry() else { return }
 
-        let session = HouseholdSession(
-            householdID: householdID,
-            syncStatusCenter: self.syncStatusCenter,
-            bootstrapCandidate: cachedCandidate,
-            recoveryCandidate: recoveryCandidate)
+        let session: HouseholdSession
+        do {
+            session = try HouseholdSession(
+                householdID: householdID,
+                initialMirrorScope: MirrorScope(
+                    accountRecordName: accountRecordName,
+                    zoneOwnerName: CKCurrentUserDefaultName,
+                    zoneName: HouseholdZoneProvisioner.zoneName(householdID: householdID),
+                    householdID: householdID,
+                    role: .owner,
+                    databaseScope: .private),
+                syncStatusCenter: self.syncStatusCenter,
+                bootstrapCandidate: cachedCandidate,
+                recoveryCandidate: recoveryCandidate)
+        } catch {
+            householdLaunchPhase = .resolving
+            householdAuthority = .intervention(
+                message: "Couldn't establish an exact household cache identity.")
+            return
+        }
+        bootingHouseholdSession = session
+        installLifecycleDispatcher(for: session, epoch: requestEpoch)
+        guard sessionBootEpoch == requestEpoch, householdLifecycleAllowsEntry() else {
+            bootingHouseholdSession = nil
+            session.detach()
+            return
+        }
         await session.start()
 
         // Recovery-only durable intents may overlay only after a successful nil-state full
         // fetch. A transient failure keeps the exact plan recoverable but cannot wire or render.
-        guard !session.isRecoveryOnly || session.recoveryOnlyFetchSucceeded else {
+        guard householdLifecycleAllowsEntry(),
+              !session.isRecoveryOnly || session.recoveryOnlyFetchSucceeded else {
+            if bootingHouseholdSession === session { bootingHouseholdSession = nil }
+            session.detach()
+            return
+        }
+        guard householdLifecycleAllowsEntry(),
+              DirectHouseholdBootstrapPolicy.shouldContinueAfterInitialStart(
+            isCachedBootstrap: session.isCachedBootstrap,
+            hasCurrentAuthority: session.hasCurrentAuthority
+        ) else {
+            if bootingHouseholdSession === session { bootingHouseholdSession = nil }
             session.detach()
             return
         }
@@ -150,7 +718,9 @@ extension AppState {
         // simmersmith-7in: re-check after session.start() — a teardown mid-provisioning must
         // not fall through into the migration writes below (they would land in the PRIOR
         // user's household zone). Detach what start() built rather than migrating into it.
-        guard sessionBootEpoch == requestEpoch else {
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry() else {
+            if bootingHouseholdSession === session { bootingHouseholdSession = nil }
             session.detach()
             return
         }
@@ -159,12 +729,16 @@ extension AppState {
         // migration/repair/week-creation entry points denied for this entire session.
         if session.isCachedBootstrap {
             await wireHouseholdRepositories(session: session, requestEpoch: requestEpoch)
-            guard sessionBootEpoch == requestEpoch, householdSession === session else {
+            guard sessionBootEpoch == requestEpoch,
+                  householdLifecycleAllowsEntry(),
+                  householdSession === session else {
                 session.detach()
                 return
             }
             publishCachedHouseholdAuthority(session: session, epoch: requestEpoch)
-            guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+            guard sessionBootEpoch == requestEpoch,
+                  householdLifecycleAllowsEntry(),
+                  householdSession === session else { return }
             householdLaunchPhase = .ready
             scheduleCachedPrivatePlaneOpen(session: session, requestEpoch: requestEpoch)
             scheduleCachedReconciliation(session: session, requestEpoch: requestEpoch)
@@ -177,7 +751,8 @@ extension AppState {
 
         // simmersmith-7in: re-check between the two migrations — same hazard as above; a
         // teardown during ingredient migration must not fall through into the recipe migration.
-        guard sessionBootEpoch == requestEpoch else {
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry() else {
             session.detach()
             return
         }
@@ -193,7 +768,8 @@ extension AppState {
         // simmersmith-0gf blocking-finding fix: re-check right before the commit point — a
         // sign-out could have landed during any of the awaits above. Detach (don't wire) a
         // session built for a now-stale request rather than resurrecting it post-teardown.
-        guard sessionBootEpoch == requestEpoch else {
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry() else {
             session.detach()
             return
         }
@@ -203,9 +779,13 @@ extension AppState {
         // simmersmith-7in: wireHouseholdRepositories may have already aborted internally
         // (stale epoch after its own await) — don't let this redundant flip resurrect .ready,
         // and don't schedule the leftover-household sweep for a session we just tore down.
-        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
         installAuthorityDispatcher(for: session, epoch: requestEpoch)
-        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
 
         // SP-C identity slice (spec §1.3): signal RootView that the household is
         // resolved and the app is ready to show MainTabView.
@@ -244,6 +824,7 @@ extension AppState {
         let assistantRepo = AssistantRepository(session: session)
 
         householdSession = session
+        if bootingHouseholdSession === session { bootingHouseholdSession = nil }
         recipeRepository = recipeRepo
         metadataRepository = metadataRepo
         weekRepository = weekRepo
@@ -296,14 +877,16 @@ extension AppState {
         if session.role.isOwner,
            CachedHouseholdSystemOperationPolicy.allows(
             .currentWeekCreation,
-            isCachedBootstrap: session.isCachedBootstrap) {
-            await ensureCurrentCloudKitWeek()
+            isAuthoritative: session.hasCurrentAuthority) {
+            _ = await ensureCurrentCloudKitWeek(session: session, requestEpoch: requestEpoch)
         }
 
         // simmersmith-7in blocking-finding fix: re-check after this function's one await — a
         // sign-out during ensureCurrentCloudKitWeek() clears householdSession/repos and sets
         // .resolving; don't let this stale op overwrite that back to .ready.
-        guard sessionBootEpoch == requestEpoch else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
 
         mirrorEventsFromRepository()
         mirrorGuestsFromRepository()
@@ -330,9 +913,7 @@ extension AppState {
         expectedRole: MirrorRole,
         expectedZone: MirrorZoneReference?
     ) -> BootstrapSelection {
-        let root = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("HouseholdSync/shadow-mirror", isDirectory: true)
+        let root = householdLifecyclePaths.shadowRootURL
         let result = ShadowMirrorBootstrapCatalog.open(request: request, rootDirectory: root)
         switch result.outcome {
         case .none:
@@ -384,17 +965,29 @@ extension AppState {
             guard let self, let session else { return }
             self.dispatchHouseholdAuthority(event, epoch: epoch, session: session)
         }
-        session.onParticipantRevoked = { [weak self, weak session] in
-            guard let self, let session,
-                  epoch == self.sessionBootEpoch,
-                  self.householdSession === session else { return }
-            self.handleParticipantRevocation()
-        }
-        session.onAccountChanged = { [weak self, weak session] in
-            guard let self, let session,
-                  epoch == self.sessionBootEpoch,
-                  self.householdSession === session else { return }
-            self.handleHouseholdAccountChange()
+    }
+
+    /// Installed immediately after construction and before `start()`. This is intentionally
+    /// separate from ordinary authority buffering: cached-ready remains the authority baseline,
+    /// while account/revocation/zone-deletion must never wait behind repository publication.
+    func installLifecycleDispatcher(for session: HouseholdSession, epoch: Int) {
+        let sourceID = session.lifecycleSourceID
+        session.onLifecycleEvent = { [weak self, weak session] snapshot in
+            guard let self else { return }
+            let sourceIsCurrent = session.map {
+                epoch == self.sessionBootEpoch
+                    && (self.householdSession === $0
+                        || self.bootingHouseholdSession === $0)
+            } ?? false
+            guard sourceIsCurrent
+                    || self.acceptedRetiredLifecycleSourceIDs.contains(sourceID) else { return }
+            self.acceptedRetiredLifecycleSourceIDs.insert(sourceID)
+            self.handleHouseholdLifecycleEvent(
+                snapshot.event,
+                scope: snapshot.scope)
+            if case .accountBoundary = snapshot.event {
+                self.acceptedRetiredLifecycleSourceIDs.remove(sourceID)
+            }
         }
     }
 
@@ -450,7 +1043,9 @@ extension AppState {
     }
 
     func reloadPrivatePlaneIfCurrent(session: HouseholdSession, requestEpoch: Int) {
-        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
         profileRepository?.reload()
         preferenceRepository?.reload()
         mirrorProfileFromRepository()
@@ -469,10 +1064,12 @@ extension AppState {
             await Task.yield()
             guard !Task.isCancelled, let self, let session,
                   self.sessionBootEpoch == requestEpoch,
+                  self.householdLifecycleAllowsEntry(),
                   self.householdSession === session else { return }
             session.openPrivatePlane()
             guard !Task.isCancelled,
                   self.sessionBootEpoch == requestEpoch,
+                  self.householdLifecycleAllowsEntry(),
                   self.householdSession === session else { return }
             self.reloadPrivatePlaneIfCurrent(session: session, requestEpoch: requestEpoch)
             self.personalDataReadiness = session.privateStore == nil ? .unavailable : .ready
@@ -484,8 +1081,11 @@ extension AppState {
     func retryCachedHouseholdReconciliation(onlyIfNeeded: Bool = false) async {
         let requestEpoch = sessionBootEpoch
         await sessionBootQueue.enqueue { [weak self] in
-            await self?.retryCachedHouseholdReconciliationOp(
-                requestEpoch: requestEpoch,
+            guard let self, self.sessionBootEpoch == requestEpoch else { return }
+            _ = await self.completePendingHouseholdLifecycleBoundary()
+            guard self.householdLifecycleAllowsEntry() else { return }
+            await self.retryCachedHouseholdReconciliationOp(
+                requestEpoch: self.sessionBootEpoch,
                 onlyIfNeeded: onlyIfNeeded)
         }.value
     }
@@ -494,6 +1094,7 @@ extension AppState {
         Task { @MainActor [weak self, weak session] in
             guard let self, let session,
                   self.sessionBootEpoch == requestEpoch,
+                  self.householdLifecycleAllowsEntry(),
                   self.householdSession === session else { return }
             await self.retryCachedHouseholdReconciliation()
         }
@@ -504,22 +1105,100 @@ extension AppState {
         onlyIfNeeded: Bool
     ) async {
         guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
               let session = householdSession,
               session.isCachedBootstrap else { return }
         guard !onlyIfNeeded || CachedForegroundRetryPolicy.shouldRetry(
             hasCachedSession: true,
-            authority: householdAuthority) else { return }
+            authority: householdAuthority,
+            hasPendingDeferredSystemWork: session.hasPendingDeferredSystemWork) else { return }
+        if CachedHouseholdRetryPlan.next(
+            hasCurrentAuthority: session.hasCurrentAuthority,
+            hasPendingDeferredSystemWork: session.hasPendingDeferredSystemWork
+        ) == .resumeDeferredSystemWork {
+            await runDeferredCachedSystemWork(session: session, requestEpoch: requestEpoch)
+            return
+        }
         dispatchHouseholdAuthority(.retry(.now), epoch: requestEpoch, session: session)
         let outcome = await session.reconcileCachedHousehold()
-        guard sessionBootEpoch == requestEpoch, householdSession === session else { return }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
         switch outcome {
         case .succeeded(let pendingCount):
+            // The fetch completed, but only the exact session that began it may cross the
+            // destructive/system boundary. A stale completion after teardown is a no-op.
+            let promoted = session.promoteCachedAuthority()
+            guard promoted || session.hasCurrentAuthority else { return }
             dispatchHouseholdAuthority(.reconciliationSucceeded(.now), epoch: requestEpoch, session: session)
             // A pending callback may have preceded success; publish the exact final count after
             // success so `.current` never overwrites unresolved local work.
             dispatchHouseholdAuthority(.pending(count: pendingCount), epoch: requestEpoch, session: session)
+            await runDeferredCachedSystemWork(session: session, requestEpoch: requestEpoch)
         case .failed:
             dispatchHouseholdAuthority(.reconciliationFailed("offline"), epoch: requestEpoch, session: session)
+        }
+    }
+
+    /// The P1 direct path already runs this tail before wiring. A cached session defers it until
+    /// its first exact reconciliation succeeds, then owns it once for its remaining lifetime.
+    private func runDeferredCachedSystemWork(
+        session: HouseholdSession,
+        requestEpoch: Int
+    ) async {
+        while let stage = session.claimNextDeferredSystemWorkStage() {
+            guard sessionBootEpoch == requestEpoch,
+                  householdLifecycleAllowsEntry(),
+                  householdSession === session,
+                  session.hasCurrentAuthority else {
+                session.abandonDeferredSystemWorkStage(stage)
+                return
+            }
+            switch stage {
+            case .ingredientsMigration:
+                guard await migrateIngredientsIfNeeded(session: session, apiClient: apiClient) == .complete else {
+                    session.abandonDeferredSystemWorkStage(stage)
+                    return
+                }
+            case .recipesMigration:
+                guard await migrateRecipesIfNeeded(session: session, apiClient: apiClient) == .complete else {
+                    session.abandonDeferredSystemWorkStage(stage)
+                    return
+                }
+            case .ownerCurrentWeek:
+                if session.role.isOwner {
+                    guard await ensureCurrentCloudKitWeek(
+                        session: session,
+                        requestEpoch: requestEpoch
+                    ) == .allowed else {
+                        session.abandonDeferredSystemWorkStage(stage)
+                        return
+                    }
+                }
+            case .projectionReload:
+                recipeRepository?.reload()
+                metadataRepository?.reloadMetadata()
+                weekRepository?.reload()
+                eventRepository?.reload()
+                pantryRepository?.reload()
+                mirrorRecipesFromRepository()
+                mirrorMetadataFromRepository()
+                mirrorWeekFromRepository()
+                mirrorEventsFromRepository()
+                mirrorPantryFromRepository()
+            case .repairActivation:
+                session.repairScheduler.activate()
+            case .leftoverCleanup:
+                scheduleLeftoverHouseholdCleanup(keeping: session.householdID)
+            }
+            guard sessionBootEpoch == requestEpoch,
+                  householdLifecycleAllowsEntry(),
+                  householdSession === session,
+                  session.hasCurrentAuthority else {
+                session.abandonDeferredSystemWorkStage(stage)
+                return
+            }
+            session.completeDeferredSystemWorkStage(stage)
         }
     }
 
@@ -528,7 +1207,8 @@ extension AppState {
     var shouldRetryCachedHouseholdOnForeground: Bool {
         CachedForegroundRetryPolicy.shouldRetry(
             hasCachedSession: householdSession?.isCachedBootstrap == true,
-            authority: householdAuthority)
+            authority: householdAuthority,
+            hasPendingDeferredSystemWork: householdSession?.hasPendingDeferredSystemWork == true)
     }
 
     /// SP-C identity slice (spec §1.2): resolve the CloudKit household id with NO Fly
@@ -686,68 +1366,32 @@ extension AppState {
         return false
     }
 
+    /// Retry only the retained owner writer whose adoption parking failed. A participant
+    /// successor remains blocked until this same writer persists its parking marker.
+    func completePendingShadowRootRetirementIfNeeded() -> Bool {
+        if let session = pendingAdoptionParkingSession {
+            guard session.parkForOwnerToParticipantAdoption() else { return false }
+            pendingAdoptionParkingSession = nil
+        }
+        return true
+    }
+
     /// Tear down the CloudKit session + repositories and delete the durable engine
     /// state so a different household signed in on this device cannot inherit the
     /// prior sync token. Called from sign-out (`clearHouseholdContext`).
-    func teardownHouseholdSession(clearShadowRoot: Bool = true) {
-        // simmersmith-0gf blocking-finding fix: bump FIRST, before anything else. A boot op
-        // already queued (or awaiting mid-flight) on `sessionBootQueue` captured the epoch
-        // at request time; bumping it here makes every such op stale so it aborts instead of
-        // re-wiring a session (or repos) this teardown is about to tear down.
-        let tearingDownSession = householdSession
-        sessionBootEpoch += 1
-        cachedPrivatePlaneTask?.cancel()
-        cachedPrivatePlaneTask = nil
-        personalDataReadiness = .unavailable
-        householdAuthority = HouseholdAuthorityReducer.reduce(
-            householdAuthority,
-            event: .teardown,
-            epoch: sessionBootEpoch,
-            currentEpoch: sessionBootEpoch,
-            sessionMatches: tearingDownSession != nil && householdSession === tearingDownSession)
+    @discardableResult
+    func teardownHouseholdSession(
+        clearShadowRoot: Bool = true,
+        parkOwnerScopeForAdoption: Bool = false
+    ) -> Bool {
         if clearShadowRoot {
-            householdSession?.clearState()
-        } else {
-            householdSession?.detach()
+            return handleHouseholdLifecycleEvent(
+                .accountBoundary(.signedOut),
+                scope: nil)
         }
-        householdSession = nil
-        // simmersmith-qrt (adversarial fix): without this, a stale `.stalled`/`.joined`
-        // participant-join verdict (or a stale failure) from a prior session survives into
-        // the NEXT session booted on this device — including an OWNER session after
-        // sign-out/sign-in or a factory reset, which isn't shared at all. Both call sites
-        // (sign-out via `clearHouseholdContext` and factory reset) go through this single
-        // teardown choke point, so resetting here covers both.
-        syncStatusCenter.reset()
-        // simmersmith-blv: same cross-household-bleed hazard. The seasonal cache is
-        // process-lifetime and keyed only by region|year|month, so without this the NEXT
-        // household on this device gets the previous one's AI answer for the same month.
-        AIService.clearSeasonalCache()
-        recipeRepository = nil
-        metadataRepository = nil
-        weekRepository = nil
-        groceryRepository = nil
-        ingredientRepository = nil
-        eventRepository = nil
-        guestRepository = nil
-        profileRepository = nil
-        preferenceRepository = nil
-        pantryRepository = nil
-        aliasRepository = nil
-        aiService = nil
-        assistantRepository = nil
-        // simmersmith-auc, same hazard `syncStatusCenter.reset()` above guards against: both
-        // of these are keyed to the household that just went away. A surviving
-        // `forkedHouseholdIDs` would show the NEXT user (or the same user post-factory-reset)
-        // a fork notice about zones that aren't theirs, and a surviving pending list would
-        // point a destructive pass at the wrong household's leftovers.
-        pendingLeftoverHouseholdIDs = []
-        forkedHouseholdIDs = []
-        // `sessionBootQueue` itself needs no draining (simmersmith-0gf): the
-        // `sessionBootEpoch` bump above already makes every op queued or in-flight before
-        // this teardown a no-op when it (eventually) runs; a subsequent boot request
-        // captures the post-bump epoch and proceeds normally.
-        // Reset the launch phase so RootView shows the loading state on next launch.
-        householdLaunchPhase = .resolving
+        return beginEpochFirstHouseholdTransition(
+            clearPersonalData: false,
+            parkOwnerScopeForAdoption: parkOwnerScopeForAdoption)
     }
 
     /// Re-arm the recipe-repo observation and mirror its `recipes` onto AppState.
@@ -848,13 +1492,21 @@ extension AppState {
     /// reload the repos, and re-mirror. Works for owner AND participant; the legacy `refreshAll`
     /// only hits Fly (a no-op in CloudKit-only mode), so a participant otherwise had no way to pull.
     func refreshHouseholdFromCloud() async {
-        guard let session = householdSession else { return }
+        guard householdLifecycleAllowsEntry(),
+              let session = householdSession else { return }
+        let requestEpoch = sessionBootEpoch
         syncPhase = .loading
         do {
             try await session.engine.fetchChanges()
         } catch {
+            guard sessionBootEpoch == requestEpoch,
+                  householdLifecycleAllowsEntry(),
+                  householdSession === session else { return }
             print("[Sharing] refreshHouseholdFromCloud fetch error: \(error)")
         }
+        guard sessionBootEpoch == requestEpoch,
+              householdLifecycleAllowsEntry(),
+              householdSession === session else { return }
         reloadAndMirrorHousehold()
         let weeks = session.store.records(ofType: HouseholdRecordType.week.recordTypeName).count
         let meals = session.store.records(ofType: HouseholdRecordType.weekMeal.recordTypeName).count
@@ -1132,43 +1784,57 @@ extension AppState {
             weekImportState = .failed("CloudKit session not ready — try again after launch completes.")
             return
         }
-        weekImportState = .running
-
-        // 1. Exchange the Apple identity token for a Fly JWT. Point the client at
-        //    the production server so the token exchange hits the right endpoint.
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        serverURLDraft = Self.productionServerURL
-
-        do {
-            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
-            authTokenDraft = response.token
-        } catch {
-            weekImportState = .failed("Sign-in failed: \(error.localizedDescription)")
-            return
-        }
-
-        // 2. Run the migration. Receipt-gated — idempotent if already done.
-        await migrateWeeksIfNeeded(session: session, apiClient: apiClient)
-
-        // 3. Confirm the receipt landed so we know the import actually completed.
-        let receiptID = CKRecord.ID(
-            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
-            zoneID: session.zoneID
+        let requestEpoch = sessionBootEpoch
+        let flow = WeekEventImportFlow(
+            isCurrentAuthoritative: { [weak self] in
+                guard let self else { return false }
+                return self.isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch)
+            },
+            prepare: { [weak self] in
+                guard let self else { return }
+                self.weekImportState = .running
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.serverURLDraft = Self.productionServerURL
+            },
+            exchangeToken: { [apiClient] in
+                let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+                return response.token
+            },
+            saveImportToken: { [weak self] token in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: token)
+                self.authTokenDraft = token
+            },
+            migrate: { [apiClient] in
+                await migrateWeeksIfNeeded(session: session, apiClient: apiClient)
+            },
+            hasMigrationReceipt: {
+                let receiptID = CKRecord.ID(
+                    recordName: HouseholdMigrationRunner.receiptRecordName(scope: "weeks"),
+                    zoneID: session.zoneID
+                )
+                return session.store.record(for: receiptID) != nil
+            },
+            publishCompletion: { [weak self] didMigrate in
+                self?.weekImportState = didMigrate
+                    ? .done
+                    : .failed("Import failed — please try again.")
+            },
+            publishSignInFailure: { [weak self] message in
+                self?.weekImportState = .failed("Sign-in failed: \(message)")
+            },
+            clearImportToken: { [weak self] in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.authTokenDraft = ""
+            },
+            reloadImportedData: { [weak self] in
+                guard let self else { return }
+                self.weekRepository?.reload()
+                self.mirrorWeekFromRepository()
+            }
         )
-        if session.store.record(for: receiptID) != nil {
-            weekImportState = .done
-            // Clear the one-shot Fly JWT — no everyday flow reads from Fly
-            // (all paths are CloudKit-gated), so the token should not linger.
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-            authTokenDraft = ""
-            // Trigger a repo reload so the imported weeks appear immediately.
-            weekRepository?.reload()
-            mirrorWeekFromRepository()
-        } else {
-            // Drain failed or network error — receipt was not stamped.
-            weekImportState = .failed("Import failed — please try again.")
-        }
+        _ = await flow.run()
     }
 
     // MARK: - SP-C slice 4: one-shot events + guests Fly→CloudKit import
@@ -1226,43 +1892,59 @@ extension AppState {
             eventImportState = .failed("CloudKit session not ready — try again after launch completes.")
             return
         }
-        eventImportState = .running
-
-        // 1. Exchange the Apple identity token for a Fly JWT.
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        serverURLDraft = Self.productionServerURL
-
-        do {
-            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
-            authTokenDraft = response.token
-        } catch {
-            eventImportState = .failed("Sign-in failed: \(error.localizedDescription)")
-            return
-        }
-
-        // 2. Run the migration. Receipt-gated — idempotent if already done.
-        await migrateEventsIfNeeded(session: session, apiClient: apiClient)
-
-        // 3. Confirm the receipt landed so we know the import actually completed.
-        let receiptID = CKRecord.ID(
-            recordName: HouseholdMigrationRunner.receiptRecordName(scope: "events"),
-            zoneID: session.zoneID
+        let requestEpoch = sessionBootEpoch
+        let flow = WeekEventImportFlow(
+            isCurrentAuthoritative: { [weak self] in
+                guard let self else { return false }
+                return self.isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch)
+            },
+            prepare: { [weak self] in
+                guard let self else { return }
+                self.eventImportState = .running
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.serverURLDraft = Self.productionServerURL
+            },
+            exchangeToken: { [apiClient] in
+                let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+                return response.token
+            },
+            saveImportToken: { [weak self] token in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: token)
+                self.authTokenDraft = token
+            },
+            migrate: { [apiClient] in
+                await migrateEventsIfNeeded(session: session, apiClient: apiClient)
+            },
+            hasMigrationReceipt: {
+                let receiptID = CKRecord.ID(
+                    recordName: HouseholdMigrationRunner.receiptRecordName(scope: "events"),
+                    zoneID: session.zoneID
+                )
+                return session.store.record(for: receiptID) != nil
+            },
+            publishCompletion: { [weak self] didMigrate in
+                self?.eventImportState = didMigrate
+                    ? .done
+                    : .failed("Import failed — please try again.")
+            },
+            publishSignInFailure: { [weak self] message in
+                self?.eventImportState = .failed("Sign-in failed: \(message)")
+            },
+            clearImportToken: { [weak self] in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.authTokenDraft = ""
+            },
+            reloadImportedData: { [weak self] in
+                guard let self else { return }
+                self.guestRepository?.reload()
+                self.eventRepository?.reload()
+                self.mirrorGuestsFromRepository()
+                self.mirrorEventsFromRepository()
+            }
         )
-        if session.store.record(for: receiptID) != nil {
-            eventImportState = .done
-            // Clear the one-shot Fly JWT — no everyday flow reads from Fly.
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-            authTokenDraft = ""
-            // Trigger repo reloads so imported events + guests appear immediately.
-            guestRepository?.reload()
-            eventRepository?.reload()
-            mirrorGuestsFromRepository()
-            mirrorEventsFromRepository()
-        } else {
-            // Drain failed or network error — receipt was not stamped.
-            eventImportState = .failed("Import failed — please try again.")
-        }
+        _ = await flow.run()
     }
 
     // MARK: - SP-C slice 5: one-shot pantry + profile + prefs + aliases Fly→CloudKit import
@@ -1305,46 +1987,67 @@ extension AppState {
             pantryProfileImportState = .failed("CloudKit session not ready — try again after launch completes.")
             return
         }
-        pantryProfileImportState = .running
-
-        // 1. Exchange the Apple identity token for a Fly JWT.
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        serverURLDraft = Self.productionServerURL
-
-        do {
-            let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
-            settingsStore.save(serverURLString: Self.productionServerURL, authToken: response.token)
-            authTokenDraft = response.token
-        } catch {
-            pantryProfileImportState = .failed("Sign-in failed: \(error.localizedDescription)")
-            return
-        }
-
-        // 2. Run the migration. Receipt-gated — idempotent if already done.
-        await migratePantryProfileIfNeeded(session: session, apiClient: apiClient)
-
-        // 3. Confirm the private-plane receipt landed so we know the import actually completed.
-        let receiptPresent = session.privateStore?.hasMigrationReceipt(scope: "pantry-profile") ?? false
-
-        if receiptPresent {
-            pantryProfileImportState = .done
-        } else {
-            pantryProfileImportState = .failed("Import failed — please try again.")
-        }
-
-        // 4. Clear the one-shot Fly JWT regardless of outcome — no everyday flow reads Fly.
-        settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
-        authTokenDraft = ""
-
-        // 5. Trigger repo reloads so imported items appear immediately (success path only).
-        if case .done = pantryProfileImportState {
-            pantryRepository?.reload()
-            aliasRepository?.reload()
-            profileRepository?.reload()
-            preferenceRepository?.reload()
-            mirrorPantryFromRepository()
-            mirrorAliasesFromRepository()
-        }
+        let requestEpoch = sessionBootEpoch
+        let flow = PantryProfileImportFlow(
+            isCurrentAuthoritative: { [weak self] in
+                guard let self else { return false }
+                return self.isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch)
+            },
+            prepare: { [weak self] in
+                guard let self else { return }
+                self.pantryProfileImportState = .running
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.serverURLDraft = Self.productionServerURL
+            },
+            exchangeToken: { [apiClient] in
+                let response = try await apiClient.signInWithApple(identityToken: appleIdentityToken)
+                return response.token
+            },
+            saveImportToken: { [weak self] token in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: token)
+                self.authTokenDraft = token
+            },
+            migrate: { [weak self, apiClient] in
+                await migratePantryProfileIfNeeded(
+                    session: session,
+                    apiClient: apiClient,
+                    isCurrentAuthoritative: { [weak self] in
+                        guard let self else { return false }
+                        return self.isCurrentAuthoritativeHouseholdSession(
+                            session,
+                            requestEpoch: requestEpoch
+                        )
+                    }
+                )
+            },
+            hasMigrationReceipt: {
+                session.privateStore?.hasMigrationReceipt(scope: "pantry-profile") ?? false
+            },
+            publishCompletion: { [weak self] didMigrate in
+                self?.pantryProfileImportState = didMigrate
+                    ? .done
+                    : .failed("Import failed — please try again.")
+            },
+            publishSignInFailure: { [weak self] message in
+                self?.pantryProfileImportState = .failed("Sign-in failed: \(message)")
+            },
+            clearImportToken: { [weak self] in
+                guard let self else { return }
+                self.settingsStore.save(serverURLString: Self.productionServerURL, authToken: "")
+                self.authTokenDraft = ""
+            },
+            reloadImportedData: { [weak self] in
+                guard let self else { return }
+                self.pantryRepository?.reload()
+                self.aliasRepository?.reload()
+                self.profileRepository?.reload()
+                self.preferenceRepository?.reload()
+                self.mirrorPantryFromRepository()
+                self.mirrorAliasesFromRepository()
+            }
+        )
+        await flow.run()
     }
 
     #endif
@@ -1473,7 +2176,8 @@ extension AppState {
     func deleteRecipeImage(recipeID: String) async throws {
         #if canImport(CloudKit)
         if let repo = recipeRepository {
-            repo.removeImage(recipeID)
+            let result = repo.removeImage(recipeID)
+            guard result == .allowed else { throw result }
             mirrorRecipesFromRepository()
             return
         }
@@ -1650,7 +2354,8 @@ extension AppState {
     func deleteRecipeMemory(recipeID: String, memoryID: String) async throws {
         #if canImport(CloudKit)
         if let repo = recipeRepository {
-            repo.deleteMemory(memoryID)
+            let result = repo.deleteMemory(memoryID)
+            guard result == .allowed else { throw result }
             recipeMemories[recipeID] = (recipeMemories[recipeID] ?? []).filter { $0.id != memoryID }
             return
         }
@@ -2372,7 +3077,8 @@ extension AppState {
     func deleteRecipe(_ recipe: RecipeSummary) async throws {
         #if canImport(CloudKit)
         if let repo = recipeRepository {
-            repo.delete(recipe.recipeId)
+            let result = repo.delete(recipe.recipeId)
+            guard result == .allowed else { throw result }
             mirrorRecipesFromRepository()
             syncPhase = .synced(.now)
             return

@@ -301,7 +301,7 @@ final class EventRepository {
         notes: String = "",
         attendees: [(guestID: String, plusOnes: Int)] = [],
         knownGuestIDs: Set<String>? = nil
-    ) -> DomainEvent? {
+    ) throws -> DomainEvent? {
         let eventID = UUID().uuidString
         var scalars: [String: ScalarValue] = [
             "name": .string(name),
@@ -314,8 +314,10 @@ final class EventRepository {
         ]
         if let eventDate { scalars["eventDate"] = .date(eventDate) }
         if !notes.isEmpty { scalars["notes"] = .string(notes) }
-        upsertRecord(HouseholdRecordValue(type: .event, recordName: eventID, scalars: scalars, refs: [:]))
-        syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
+        try requireAcceptedSave(
+            upsertRecord(HouseholdRecordValue(type: .event, recordName: eventID, scalars: scalars, refs: [:]))
+        )
+        try syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -333,9 +335,14 @@ final class EventRepository {
         status: String,
         attendees: [(guestID: String, plusOnes: Int)],
         knownGuestIDs: Set<String>? = nil
-    ) -> DomainEvent? {
+    ) throws -> DomainEvent? {
         guard let existing = session.store.record(
             for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return nil }
+        try authorizeAttendeeDeletions(
+            eventID: eventID,
+            attendees: attendees,
+            knownGuestIDs: knownGuestIDs
+        )
         existing["name"] = name as CKRecordValue
         existing["eventDate"] = eventDate as CKRecordValue?
         existing["occasion"] = occasion as CKRecordValue
@@ -343,8 +350,8 @@ final class EventRepository {
         existing["notes"] = notes as CKRecordValue
         existing["status"] = status as CKRecordValue
         existing["updatedAt"] = Date() as CKRecordValue
-        session.engine.save(existing)
-        syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
+        try requireAcceptedSave(session.engine.save(existing))
+        try syncAttendees(eventID: eventID, attendees: attendees, knownGuestIDs: knownGuestIDs)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -357,14 +364,21 @@ final class EventRepository {
     /// preserves week rows carrying user investment. Then cascade-delete the `.event` root so its
     /// `.eventMeal` (+ ingredient) and `.eventAttendee` children fall with it. The event's own
     /// EventGroceryItem rows are NOT cascade children (no CK parent ref) — clear them explicitly.
-    func deleteEvent(eventID: String) {
+    @discardableResult
+    func deleteEvent(eventID: String) throws -> HouseholdDataPlaneResult {
+        let authorization = session.engine.dataPlaneResult(for: .deleteCascading)
+        guard authorization == .allowed else { return authorization }
         if let linkedWeekID = mergeEvent(forId: eventID)?.linkedWeekID, !linkedWeekID.isEmpty {
-            unmergeViaAdapter(eventID: eventID, weekID: linkedWeekID, keepLink: false)
+            try unmergeViaAdapter(eventID: eventID, weekID: linkedWeekID, keepLink: false)
         }
-        deleteEventGroceryRows(forEvent: eventID)
-        session.engine.deleteCascading(CKRecord.ID(recordName: eventID, zoneID: session.zoneID))
+        let groceryResult = deleteEventGroceryRows(forEvent: eventID)
+        guard groceryResult == .allowed else { return groceryResult }
+        let cascadeResult = session.engine.deleteCascading(
+            CKRecord.ID(recordName: eventID, zoneID: session.zoneID))
+        guard cascadeResult == .allowed else { return cascadeResult }
         reload()
         Task { [weak self] in await self?.drainSync() }
+        return .allowed
     }
 
     // MARK: - Write: meals
@@ -421,7 +435,7 @@ final class EventRepository {
         aiGenerated: Bool = false,
         constraintCoverage: [String] = [],
         ingredients: [EventMealIngredientInput] = []
-    ) -> DomainEvent? {
+    ) throws -> DomainEvent? {
         let existing = session.store.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
             .filter { refName($0["event"]) == eventID }
         let nextSort = (existing.compactMap { $0["sortOrder"] as? Int }.max() ?? -1) + 1
@@ -448,9 +462,11 @@ final class EventRepository {
         if let recipeID { refs["recipe"] = recipeID }
         if let assignedGuestID { refs["assignedGuest"] = assignedGuestID }
 
-        upsertRecord(HouseholdRecordValue(type: .eventMeal, recordName: mealID, scalars: scalars, refs: refs))
-        writeEventMealIngredients(mealID: mealID, ingredients: ingredients)
-        afterMealMutation(eventID: eventID)
+        try requireAcceptedSave(
+            upsertRecord(HouseholdRecordValue(type: .eventMeal, recordName: mealID, scalars: scalars, refs: refs))
+        )
+        try writeEventMealIngredients(mealID: mealID, ingredients: ingredients)
+        try afterMealMutation(eventID: eventID)
         return event(forId: eventID)
     }
 
@@ -458,7 +474,10 @@ final class EventRepository {
     /// (det record names `<mealID>_ing_<n>`, mirroring EventRecordMapper.buildIngredientRecord
     /// + the server's per-meal-ingredient id `{meal.id}:{index}`). normalizedName is computed
     /// from the display name (the server lowercases `normalized_name or ingredient_name`).
-    private func writeEventMealIngredients(mealID: String, ingredients: [EventMealIngredientInput]) {
+    private func writeEventMealIngredients(
+        mealID: String,
+        ingredients: [EventMealIngredientInput]
+    ) throws {
         for (index, ing) in ingredients.enumerated() {
             let recordName = "\(mealID)_ing_\(index)"
             var scalars: [String: ScalarValue] = [
@@ -478,8 +497,8 @@ final class EventRepository {
             if let v = ing.baseIngredientID, !v.isEmpty { refs["baseIngredientID"] = v }
             if let v = ing.ingredientVariationID, !v.isEmpty { refs["ingredientVariationID"] = v }
 
-            upsertRecord(HouseholdRecordValue(
-                type: .eventMealIngredient, recordName: recordName, scalars: scalars, refs: refs))
+            try requireAcceptedSave(upsertRecord(HouseholdRecordValue(
+                type: .eventMealIngredient, recordName: recordName, scalars: scalars, refs: refs)))
         }
     }
 
@@ -488,13 +507,15 @@ final class EventRepository {
     /// (not accrete) prior AI dishes while keeping user/guest-assigned (manual) dishes. Each
     /// meal cascade-deletes its `.eventMealIngredient` grandchildren. Does NOT refresh grocery
     /// — the caller adds the fresh AI dishes and triggers a single regen afterward.
-    func deleteAIGeneratedEventMeals(eventID: String) {
+    func deleteAIGeneratedEventMeals(eventID: String) throws {
         let aiMealIDs = session.store.records(ofType: HouseholdRecordType.eventMeal.recordTypeName)
             .filter { refName($0["event"]) == eventID }
             .filter { ($0["aiGenerated"] as? Int ?? 0) != 0 }
             .map { $0.recordID.recordName }
         for mealID in aiMealIDs {
-            session.engine.deleteCascading(CKRecord.ID(recordName: mealID, zoneID: session.zoneID))
+            let result = session.engine.deleteCascading(
+                CKRecord.ID(recordName: mealID, zoneID: session.zoneID))
+            guard result == .allowed else { throw result }
         }
     }
 
@@ -511,7 +532,7 @@ final class EventRepository {
         notes: String? = nil,
         assignedGuestID: String? = nil,
         clearAssignee: Bool = false
-    ) -> DomainEvent? {
+    ) throws -> DomainEvent? {
         guard let existing = session.store.record(
             for: CKRecord.ID(recordName: mealID, zoneID: session.zoneID)) else { return nil }
         if let role { existing["role"] = role as CKRecordValue }
@@ -529,27 +550,28 @@ final class EventRepository {
                 recordID: CKRecord.ID(recordName: assignedGuestID, zoneID: session.zoneID), action: .none)
         }
         existing["updatedAt"] = Date() as CKRecordValue
-        session.engine.save(existing)
-        afterMealMutation(eventID: eventID)
+        try requireAcceptedSave(session.engine.save(existing))
+        try afterMealMutation(eventID: eventID)
         return event(forId: eventID)
     }
 
     /// Delete a meal (cascade-deletes its `.eventMealIngredient` grandchildren). Returns the
     /// reloaded aggregate.
     @discardableResult
-    func deleteEventMeal(eventID: String, mealID: String) -> DomainEvent? {
+    func deleteEventMeal(eventID: String, mealID: String) throws -> DomainEvent? {
         let id = CKRecord.ID(recordName: mealID, zoneID: session.zoneID)
         guard session.store.record(for: id) != nil else { return event(forId: eventID) }
-        session.engine.deleteCascading(id)
-        afterMealMutation(eventID: eventID)
+        let result = session.engine.deleteCascading(id)
+        guard result == .allowed else { throw result }
+        try afterMealMutation(eventID: eventID)
         return event(forId: eventID)
     }
 
     /// Shared tail of every meal mutation: regen the event grocery — `refreshEventGrocery` already
     /// re-applies the auto-merge policy + reloads + drains as its final steps, so this tail must NOT
     /// re-run `applyAutoMergePolicy` on the stale pre-drain state (it would double-apply).
-    private func afterMealMutation(eventID: String) {
-        refreshEventGrocery(eventID: eventID)
+    private func afterMealMutation(eventID: String) throws {
+        try refreshEventGrocery(eventID: eventID)
     }
 
     // MARK: - Attendees (det-keyed <eventID>_<guestID>)
@@ -570,7 +592,7 @@ final class EventRepository {
         eventID: String,
         attendees: [(guestID: String, plusOnes: Int)],
         knownGuestIDs: Set<String>? = nil
-    ) {
+    ) throws {
         let existingRecords = Dictionary(
             uniqueKeysWithValues: session.store.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
                 .filter { refName($0["event"]) == eventID }
@@ -579,8 +601,17 @@ final class EventRepository {
         let existingNames = Set(existingRecords.keys)
         var desiredNames = Set<String>()
         for attendee in attendees {
+            desiredNames.insert("\(eventID)_\(attendee.guestID)")
+        }
+        let deletionNames = attendeeDeletionNames(
+            eventID: eventID,
+            existingNames: existingNames,
+            desiredNames: desiredNames,
+            knownGuestIDs: knownGuestIDs
+        )
+        try authorizeAttendeeDeletions(deletionNames)
+        for attendee in attendees {
             let recordName = "\(eventID)_\(attendee.guestID)"
-            desiredNames.insert(recordName)
             var scalars: [String: ScalarValue] = [
                 "plusOnes": .int(attendee.plusOnes),
                 "updatedAt": .date(Date()),
@@ -597,14 +628,51 @@ final class EventRepository {
                 scalars: scalars,
                 refs: ["event": eventID, "guest": attendee.guestID]
             )
-            upsertRecord(value)
+            try requireAcceptedSave(upsertRecord(value))
         }
         // Baseline-aware delete: reuses WeekMealDeletePolicy.toDelete (simmersmith-eky) — the
         // formula (existing − desired) ∩ known is domain-agnostic Set algebra, not meal-specific.
-        let known = knownGuestIDs.map { ids in Set(ids.map { "\(eventID)_\($0)" }) } ?? existingNames
-        for name in WeekMealDeletePolicy.toDelete(existing: existingNames, desired: desiredNames, known: known) {
-            session.engine.delete(CKRecord.ID(recordName: name, zoneID: session.zoneID))
+        for name in deletionNames {
+            let result = session.engine.delete(CKRecord.ID(recordName: name, zoneID: session.zoneID))
+            guard result == .allowed else { throw result }
         }
+    }
+
+    private func authorizeAttendeeDeletions(
+        eventID: String,
+        attendees: [(guestID: String, plusOnes: Int)],
+        knownGuestIDs: Set<String>?
+    ) throws {
+        let existingNames = Set(
+            session.store.records(ofType: HouseholdRecordType.eventAttendee.recordTypeName)
+                .filter { refName($0["event"]) == eventID }
+                .map { $0.recordID.recordName }
+        )
+        let desiredNames = Set(attendees.map { "\(eventID)_\($0.guestID)" })
+        try authorizeAttendeeDeletions(
+            attendeeDeletionNames(
+                eventID: eventID,
+                existingNames: existingNames,
+                desiredNames: desiredNames,
+                knownGuestIDs: knownGuestIDs
+            )
+        )
+    }
+
+    private func attendeeDeletionNames(
+        eventID: String,
+        existingNames: Set<String>,
+        desiredNames: Set<String>,
+        knownGuestIDs: Set<String>?
+    ) -> Set<String> {
+        let known = knownGuestIDs.map { ids in Set(ids.map { "\(eventID)_\($0)" }) } ?? existingNames
+        return WeekMealDeletePolicy.toDelete(existing: existingNames, desired: desiredNames, known: known)
+    }
+
+    private func authorizeAttendeeDeletions(_ deletionNames: Set<String>) throws {
+        guard !deletionNames.isEmpty else { return }
+        let authorization = session.engine.dataPlaneResult(for: .delete)
+        guard authorization == .allowed else { throw authorization }
     }
 
     // MARK: - Event-grocery regen (T2 generator port wiring)
@@ -616,14 +684,15 @@ final class EventRepository {
     /// set with `<eventID>_eg_` record names + write them; (4) re-apply the auto-merge policy so
     /// the fresh rows flow back into the target week. Callers that drive a fuller mutation
     /// (meal add/delete) wrap this via `afterMealMutation`; this method also stands alone.
-    func refreshEventGrocery(eventID: String) {
+    func refreshEventGrocery(eventID: String) throws {
         // (1) Drop any stale merge into the linked week before rebuilding.
         if let linkedWeekID = mergeEvent(forId: eventID)?.linkedWeekID, !linkedWeekID.isEmpty {
-            unmergeViaAdapter(eventID: eventID, weekID: linkedWeekID, keepLink: true)
+            try unmergeViaAdapter(eventID: eventID, weekID: linkedWeekID, keepLink: true)
         }
 
         // (2) Hard-delete the event's prior EventGroceryItem rows.
-        deleteEventGroceryRows(forEvent: eventID)
+        let deleteResult = deleteEventGroceryRows(forEvent: eventID)
+        guard deleteResult == .allowed else { throw deleteResult }
 
         // (3) Generate fresh rows from the event's meals + write them. Record names carry the
         //     `<eventID>_eg_<n>` prefix so this event's rows are a cheap, deterministic scan.
@@ -639,10 +708,12 @@ final class EventRepository {
                 return "\(prefix)\(counter)"
             }
         )
-        for row in fresh { saveEventRow(row) }
+        for row in fresh {
+            try requireAcceptedSave(saveEventRow(row))
+        }
 
         // (4) Re-flow into the target week per policy (no-op when autoMerge off / no target).
-        applyAutoMergePolicy(eventID: eventID)
+        try applyAutoMergePolicy(eventID: eventID)
 
         reload()
         Task { [weak self] in await self?.drainSync() }
@@ -738,14 +809,14 @@ final class EventRepository {
     /// Merge the event's grocery into a specific week via the adapter (sets linkedWeekID, marks
     /// event rows merged, bumps matched week rows' eventQuantity). Returns the reloaded aggregate.
     @discardableResult
-    func mergeEventGroceryIntoWeek(eventID: String, weekID: String) -> DomainEvent? {
+    func mergeEventGroceryIntoWeek(eventID: String, weekID: String) throws -> DomainEvent? {
         guard let mergeEv = mergeEvent(forId: eventID) else { return nil }
         let adapter = EventMergeAdapter(engine: session.engine, zoneID: session.zoneID)
-        _ = adapter.merge(event: mergeEv, eventRows: eventRows(forEvent: eventID), intoWeek: weekID)
+        _ = try adapter.merge(event: mergeEv, eventRows: eventRows(forEvent: eventID), intoWeek: weekID)
         // PIN the manual merge (server authority: events.py merge route sets manually_merged=True).
         // A later meal edit's applyAutoMergePolicy keeps a pinned merge in place instead of
         // silently relocating it (the engine's manuallyMerged-pin path depends on this flag).
-        setManuallyMerged(eventID: eventID, true)
+        try requireAcceptedSave(setManuallyMerged(eventID: eventID, true))
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -756,21 +827,21 @@ final class EventRepository {
     /// — this wiring must not bypass that, so it never deletes week rows itself. Returns the reloaded
     /// aggregate.
     @discardableResult
-    func unmergeEventGroceryFromWeek(eventID: String, weekID: String) -> DomainEvent? {
-        unmergeViaAdapter(eventID: eventID, weekID: weekID, keepLink: false)
+    func unmergeEventGroceryFromWeek(eventID: String, weekID: String) throws -> DomainEvent? {
+        try unmergeViaAdapter(eventID: eventID, weekID: weekID, keepLink: false)
         // Clear the manual pin (server authority: events.py unmerge route sets manually_merged=False)
         // so the auto-merge policy resumes for this event.
-        setManuallyMerged(eventID: eventID, false)
+        try requireAcceptedSave(setManuallyMerged(eventID: eventID, false))
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
     }
 
-    private func unmergeViaAdapter(eventID: String, weekID: String, keepLink: Bool) {
+    private func unmergeViaAdapter(eventID: String, weekID: String, keepLink: Bool) throws {
         guard let mergeEv = mergeEvent(forId: eventID) else { return }
         let adapter = EventMergeAdapter(engine: session.engine, zoneID: session.zoneID)
-        _ = adapter.unmerge(event: mergeEv, eventRows: eventRows(forEvent: eventID),
-                            fromWeek: weekID, keepLink: keepLink)
+        _ = try adapter.unmerge(event: mergeEv, eventRows: eventRows(forEvent: eventID),
+                                fromWeek: weekID, keepLink: keepLink)
     }
 
     // MARK: - Auto-merge policy
@@ -778,13 +849,13 @@ final class EventRepository {
     /// Toggle the event's autoMergeGrocery flag, then re-apply the policy (which merges into /
     /// unmerges from the resolved target week accordingly). Returns the reloaded aggregate.
     @discardableResult
-    func toggleEventAutoMerge(eventID: String, enabled: Bool) -> DomainEvent? {
+    func toggleEventAutoMerge(eventID: String, enabled: Bool) throws -> DomainEvent? {
         guard let existing = session.store.record(
             for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return nil }
         existing["autoMergeGrocery"] = (enabled ? 1 : 0) as CKRecordValue
         existing["updatedAt"] = Date() as CKRecordValue
-        session.engine.save(existing)
-        applyAutoMergePolicy(eventID: eventID)
+        try requireAcceptedSave(session.engine.save(existing))
+        try applyAutoMergePolicy(eventID: eventID)
         reload()
         Task { [weak self] in await self?.drainSync() }
         return event(forId: eventID)
@@ -794,7 +865,7 @@ final class EventRepository {
     /// `GroceryMerge.EventMergeEngine.applyAutoMergePolicy`. Applies the resulting mutations through the engine:
     /// week grocery upserts, event-row pointer updates, hard-deletes, and the event's linkedWeekID.
     /// No-op when the event isn't locally present.
-    func applyAutoMergePolicy(eventID: String) {
+    func applyAutoMergePolicy(eventID: String) throws {
         guard let mergeEv = mergeEvent(forId: eventID) else { return }
 
         // Build the household's weeks (merge value type) + each week's current grocery rows.
@@ -822,16 +893,29 @@ final class EventRepository {
             makeID: { UUID().uuidString }
         )
 
+        if !outcome.hardDeletedRecordNames.isEmpty {
+            let authorization = session.engine.dataPlaneResult(for: .delete)
+            guard authorization == .allowed else { throw authorization }
+        }
+
         // Apply: week grocery upserts (change-tag-preserving), hard-deletes, event-row pointers,
         // and the event link.
         for (_, rows) in outcome.weekRowsByID {
-            for row in rows { saveGrocery(row) }
+            for row in rows {
+                try requireAcceptedSave(saveGrocery(row))
+            }
         }
         for name in outcome.hardDeletedRecordNames {
-            session.engine.delete(CKRecord.ID(recordName: name, zoneID: session.zoneID))
+            let deletion = session.engine.delete(CKRecord.ID(recordName: name, zoneID: session.zoneID))
+            guard deletion == .allowed else { throw deletion }
         }
-        for row in outcome.eventRows { saveEventRow(row) }
-        updateEventLink(eventID: eventID, linkedWeekID: outcome.event.linkedWeekID)
+        for row in outcome.eventRows {
+            try requireAcceptedSave(saveEventRow(row))
+        }
+        try requireAcceptedSave(updateEventLink(
+            eventID: eventID,
+            linkedWeekID: outcome.event.linkedWeekID
+        ))
     }
 
     // MARK: - Merge value-type bridge
@@ -860,60 +944,68 @@ final class EventRepository {
             .map(EventGroceryCodec.decode)
     }
 
-    private func deleteEventGroceryRows(forEvent eventID: String) {
+    private func deleteEventGroceryRows(forEvent eventID: String) -> HouseholdDataPlaneResult {
         let prefix = eventGroceryPrefix(eventID)
         for rec in session.store.records(ofType: EventGroceryCodec.recordType)
             where rec.recordID.recordName.hasPrefix(prefix) {
-            session.engine.delete(rec.recordID)
+            let result = session.engine.delete(rec.recordID)
+            guard result == .allowed else { return result }
         }
+        return .allowed
     }
 
     private func eventGroceryPrefix(_ eventID: String) -> String { "\(eventID)_eg_" }
 
-    private func updateEventLink(eventID: String, linkedWeekID: String?) {
+    private func updateEventLink(eventID: String, linkedWeekID: String?) -> Bool {
         guard let rec = session.store.record(
-            for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return }
+            for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return false }
         rec["linkedWeekID"] = linkedWeekID as CKRecordValue?
         rec["updatedAt"] = Date() as CKRecordValue
-        session.engine.save(rec)
+        return session.engine.save(rec)
     }
 
     /// Write the event's `manuallyMerged` flag (stored as Int, like autoMergeGrocery) + bump
     /// updatedAt. The merge codec stores it + the `mergeEvent(forId:)` bridge reads it; only the
     /// manual merge/unmerge entry points write it (server authority: events.py:641 / :674).
-    private func setManuallyMerged(eventID: String, _ value: Bool) {
+    private func setManuallyMerged(eventID: String, _ value: Bool) -> Bool {
         guard let rec = session.store.record(
-            for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return }
+            for: CKRecord.ID(recordName: eventID, zoneID: session.zoneID)) else { return false }
         rec["manuallyMerged"] = (value ? 1 : 0) as CKRecordValue
         rec["updatedAt"] = Date() as CKRecordValue
-        session.engine.save(rec)
+        return session.engine.save(rec)
     }
 
     // MARK: - Save helpers (change-tag-preserving upserts; mirror EventMergeAdapter)
 
-    private func saveGrocery(_ item: GroceryMerge.GroceryItem) {
-        let id = CKRecord.ID(recordName: item.recordName, zoneID: session.zoneID)
-        if let existing = session.store.record(for: id) {
-            GroceryCodec.encode(item, into: existing)
-            session.engine.save(existing)
-        } else {
-            session.engine.save(GroceryCodec.makeRecord(item, zoneID: session.zoneID))
+    private func requireAcceptedSave(_ accepted: Bool) throws {
+        guard accepted else {
+            throw HouseholdDataPlaneResult.durabilityFailure(MirrorDurabilityFailure())
         }
     }
 
-    private func saveEventRow(_ item: GroceryMerge.EventGroceryItem) {
+    private func saveGrocery(_ item: GroceryMerge.GroceryItem) -> Bool {
+        let id = CKRecord.ID(recordName: item.recordName, zoneID: session.zoneID)
+        if let existing = session.store.record(for: id) {
+            GroceryCodec.encode(item, into: existing)
+            return session.engine.save(existing)
+        } else {
+            return session.engine.save(GroceryCodec.makeRecord(item, zoneID: session.zoneID))
+        }
+    }
+
+    private func saveEventRow(_ item: GroceryMerge.EventGroceryItem) -> Bool {
         let id = CKRecord.ID(recordName: item.recordName, zoneID: session.zoneID)
         if let existing = session.store.record(for: id) {
             EventGroceryCodec.encode(item, into: existing)
-            session.engine.save(existing)
+            return session.engine.save(existing)
         } else {
-            session.engine.save(EventGroceryCodec.makeRecord(item, zoneID: session.zoneID))
+            return session.engine.save(EventGroceryCodec.makeRecord(item, zoneID: session.zoneID))
         }
     }
 
     // MARK: - Manifest upsert (mirror WeekRepository.upsertRecord)
 
-    private func upsertRecord(_ value: HouseholdRecordValue) {
+    private func upsertRecord(_ value: HouseholdRecordValue) -> Bool {
         let id = CKRecord.ID(recordName: value.recordName, zoneID: session.zoneID)
         if let existing = session.store.record(for: id) {
             let refKinds = Dictionary(uniqueKeysWithValues: value.type.refs.map { ($0.name, $0.kind) })
@@ -936,9 +1028,9 @@ final class EventRepository {
                         recordID: CKRecord.ID(recordName: target, zoneID: session.zoneID), action: .deleteSelf)
                 }
             }
-            session.engine.save(existing)
+            return session.engine.save(existing)
         } else {
-            session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
+            return session.engine.save(HouseholdRecordCodec.encode(value, zoneID: session.zoneID))
         }
     }
 

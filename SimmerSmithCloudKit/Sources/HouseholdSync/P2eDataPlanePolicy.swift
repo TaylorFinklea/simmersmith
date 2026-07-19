@@ -17,6 +17,72 @@ public enum HouseholdDataPlaneOperation: Equatable, Sendable {
     case zoneRecreation
 }
 
+/// The result of a data-plane operation that requires a reconciled household session.
+/// Callers can present a retry affordance without treating a denied destructive request as a
+/// successful no-op.
+public enum HouseholdDataPlaneResult: Error, Equatable, LocalizedError, Sendable {
+    case allowed
+    case notAuthoritative
+    case durabilityFailure(MirrorDurabilityFailure)
+
+    public var errorDescription: String? {
+        switch self {
+        case .allowed:
+            return nil
+        case .notAuthoritative:
+            return "Finish household reconciliation before trying that again."
+        case .durabilityFailure(let failure):
+            return failure.message
+        }
+    }
+}
+
+/// A capability owned by exactly one `HouseholdSession` and passed to that session's engine.
+/// Cached sessions begin denied; AppState promotes only the still-current session after its first
+/// fetch. Revocation is terminal, so repositories that retain a torn-down engine remain denied.
+public final class HouseholdSessionAuthority: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isAuthoritative: Bool
+    private var isRevoked = false
+
+    public init(initiallyAuthoritative: Bool) {
+        self.isAuthoritative = initiallyAuthoritative
+    }
+
+    public func result(for operation: HouseholdDataPlaneOperation) -> HouseholdDataPlaneResult {
+        switch operation {
+        case .save:
+            return lock.withLock { isRevoked ? .notAuthoritative : .allowed }
+        case .delete, .deleteCascading, .zoneRecreation:
+            return lock.withLock {
+                isAuthoritative && !isRevoked ? .allowed : .notAuthoritative
+            }
+        }
+    }
+
+    /// Returns true only for the one denied-to-authoritative transition.
+    @discardableResult
+    public func promote() -> Bool {
+        lock.withLock {
+            guard !isRevoked, !isAuthoritative else { return false }
+            isAuthoritative = true
+            return true
+        }
+    }
+
+    /// Teardown is irreversible for this object. A successor receives a fresh authority object.
+    public func revoke() {
+        lock.withLock {
+            isRevoked = true
+            isAuthoritative = false
+        }
+    }
+
+    public var allowsAuthoritativeOperations: Bool {
+        lock.withLock { isAuthoritative && !isRevoked }
+    }
+}
+
 public enum HouseholdDataPlanePolicy {
     public static func allows(
         _ operation: HouseholdDataPlaneOperation,
