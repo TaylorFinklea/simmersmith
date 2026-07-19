@@ -601,6 +601,10 @@ extension AppState {
                 message: "Couldn't verify the current iCloud account.")
             return
         }
+        launchObservationRecorder.recordAccountIdentityResolved()
+        launchObservationRecorder.recordCacheFirstGate(
+            source: cacheFirstGateSource,
+            decision: cacheFirstLaunchEnabled)
         guard expectedAccountRecordName == nil
                 || accountRecordName == expectedAccountRecordName else {
             householdLaunchPhase = .resolving
@@ -849,14 +853,39 @@ extension AppState {
         eventRepo.startObserving()
         pantryRepo.startObserving()
         aliasRepo.startObserving()
-        recipeRepo.reload()
-        metadataRepo.reloadMetadata()
-        weekRepo.reload()
-        ingredientRepo.reload()
-        guestRepo.reload()
-        eventRepo.reload()
-        pantryRepo.reload()
-        aliasRepo.reload()
+        launchObservationRecorder.recordProjection(.recipe) {
+            recipeRepo.reload()
+            return recipeRepo.recipes.count
+        }
+        launchObservationRecorder.recordProjection(.metadata) {
+            metadataRepo.reloadMetadata()
+            guard let metadata = metadataRepo.metadata else { return 0 }
+            return metadata.cuisines.count + metadata.tags.count + metadata.units.count + metadata.templates.count
+        }
+        launchObservationRecorder.recordProjection(.week) {
+            weekRepo.reload()
+            return weekRepo.weeks.count
+        }
+        launchObservationRecorder.recordProjection(.ingredient) {
+            ingredientRepo.reload()
+            return ingredientRepo.baseIngredients.count
+        }
+        launchObservationRecorder.recordProjection(.guest) {
+            guestRepo.reload()
+            return guestRepo.guests.count
+        }
+        launchObservationRecorder.recordProjection(.event) {
+            eventRepo.reload()
+            return eventRepo.events.count
+        }
+        launchObservationRecorder.recordProjection(.pantry) {
+            pantryRepo.reload()
+            return pantryRepo.pantryItems.count
+        }
+        launchObservationRecorder.recordProjection(.alias) {
+            aliasRepo.reload()
+            return aliasRepo.aliases.count
+        }
         profileRepo.reload()
         preferenceRepo.reload()
 
@@ -892,6 +921,7 @@ extension AppState {
         mirrorGuestsFromRepository()
         mirrorPantryFromRepository()
         mirrorAliasesFromRepository()
+        launchObservationRecorder.recordHouseholdProjectionsReady()
         mirrorProfileFromRepository()
         mirrorPreferencesFromRepository()
         syncAIDraftsFromRepo()
@@ -914,7 +944,13 @@ extension AppState {
         expectedZone: MirrorZoneReference?
     ) -> BootstrapSelection {
         let root = householdLifecyclePaths.shadowRootURL
-        let result = ShadowMirrorBootstrapCatalog.open(request: request, rootDirectory: root)
+        let observationContext = HouseholdSyncBootstrapObservationContext(
+            observer: launchObservationRecorder.recordBootstrap,
+            clock: launchObservationRecorder.clock)
+        let result = ShadowMirrorBootstrapCatalog.open(
+            request: request,
+            rootDirectory: root,
+            observationContext: observationContext)
         switch result.outcome {
         case .none:
             return BootstrapSelection(cachedCandidate: nil, recoveryCandidate: nil)
@@ -1073,6 +1109,9 @@ extension AppState {
                   self.householdSession === session else { return }
             self.reloadPrivatePlaneIfCurrent(session: session, requestEpoch: requestEpoch)
             self.personalDataReadiness = session.privateStore == nil ? .unavailable : .ready
+            if session.privateStore != nil {
+                self.launchObservationRecorder.recordPrivatePlaneReady()
+            }
         }
     }
 
@@ -1120,10 +1159,21 @@ extension AppState {
             return
         }
         dispatchHouseholdAuthority(.retry(.now), epoch: requestEpoch, session: session)
+        let reconciliationStart = launchObservationRecorder.clock()
         let outcome = await session.reconcileCachedHousehold()
         guard sessionBootEpoch == requestEpoch,
               householdLifecycleAllowsEntry(),
               householdSession === session else { return }
+        switch outcome {
+        case .succeeded:
+            launchObservationRecorder.recordReconciliationComplete(
+                success: true,
+                durationNanoseconds: elapsedObservationDuration(since: reconciliationStart))
+        case .failed:
+            launchObservationRecorder.recordReconciliationComplete(
+                success: false,
+                durationNanoseconds: elapsedObservationDuration(since: reconciliationStart))
+        }
         switch outcome {
         case .succeeded(let pendingCount):
             // The fetch completed, but only the exact session that began it may cross the
@@ -1138,6 +1188,11 @@ extension AppState {
         case .failed:
             dispatchHouseholdAuthority(.reconciliationFailed("offline"), epoch: requestEpoch, session: session)
         }
+    }
+
+    private func elapsedObservationDuration(since start: UInt64) -> UInt64 {
+        let end = launchObservationRecorder.clock()
+        return end >= start ? end - start : 0
     }
 
     /// The P1 direct path already runs this tail before wiring. A cached session defers it until

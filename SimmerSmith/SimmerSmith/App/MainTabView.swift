@@ -64,6 +64,9 @@ struct MainTabView: View {
                 .ignoresSafeArea(.keyboard)
         }
         .environment(coordinator)
+        .onAppear {
+            appState.launchObservationRecorder.recordMainTabVisible()
+        }
         // simmersmith-qrt: a permanently-failed household save or a stalled participant
         // join used to be invisible (only the repos' unread `lastSyncError` and a print()
         // in the participant fetch). Mirrors the ad-hoc error-banner idiom already used by

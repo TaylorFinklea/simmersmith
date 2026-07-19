@@ -63,6 +63,31 @@ private func engineState(revision: UInt64 = 1) -> MirrorEngineState {
         zoneEnsured: true)
 }
 
+private final class BootstrapObservationLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [HouseholdSyncBootstrapObservation] = []
+
+    var values: [HouseholdSyncBootstrapObservation] { lock.withLock { storage } }
+
+    func append(_ observation: HouseholdSyncBootstrapObservation) {
+        lock.withLock { storage.append(observation) }
+    }
+}
+
+private final class BootstrapObservationClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [UInt64]
+
+    init(_ values: [UInt64]) { self.values = values }
+
+    func now() -> UInt64 {
+        lock.withLock {
+            guard !values.isEmpty else { return 0 }
+            return values.removeFirst()
+        }
+    }
+}
+
 /// Seeds an anchored scope with a published generation containing recipe-1(v1)/recipe-2, an
 /// acknowledged pre-checkpoint edit, and a post-checkpoint sent edit recipe-1(v2).
 private func seedCachedScope(root: URL, scope: MirrorScope, zone: CKRecordZone.ID) async throws {
@@ -110,6 +135,59 @@ func ownerCachedResumeMaterializesOverlaidBootstrap() async throws {
     #expect(bootstrap.journalHighWater > 0)
     // The continuing runtime is usable for later transitions.
     _ = try writer.recoveredCheckpointSynchronously()
+}
+
+@Test("cached catalog observations are ordered and clamp backwards monotonic clocks")
+func cachedCatalogObservationsAreOrdered() async throws {
+    let root = try catalogRoot()
+    try await seedCachedScope(root: root, scope: catalogScope(), zone: catalogZone)
+    let observations = BootstrapObservationLog()
+    let clock = BootstrapObservationClock([100, 130, 200, 245])
+    let context = HouseholdSyncBootstrapObservationContext(
+        observer: observations.append,
+        clock: clock.now)
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        observationContext: context)
+
+    guard case .cached(let bootstrap, _) = result.outcome else {
+        Issue.record("expected cached bootstrap, got \(result.outcome)")
+        return
+    }
+    #expect(bootstrap.records.count == 2)
+    #expect(result.observationContext != nil)
+    #expect(observations.values == [
+        .checkpointSelected,
+        .bundleValidated(durationNanoseconds: 30),
+        .bootstrapMaterialized(durationNanoseconds: 45, recordCount: 2),
+    ])
+}
+
+@Test("a corrupt selected catalog candidate reports rejection without an open event")
+func corruptCatalogCandidateReportsTerminalObservation() async throws {
+    let root = try catalogRoot()
+    let writer = try ShadowMirrorCheckpointWriter(scope: catalogScope(), rootDirectory: root)
+    _ = try await writer.appendSave(
+        catalogRecord("recipe-1"), mutationGeneration: 1, changedFields: ["name"])
+    await writer.fenceAndPark()
+    let journal = root.appendingPathComponent(catalogScope().cacheKey)
+        .appendingPathComponent("journal.wal")
+    try Data(repeating: 0xFF, count: 64).write(to: journal)
+    let observations = BootstrapObservationLog()
+    let context = HouseholdSyncBootstrapObservationContext(observer: observations.append)
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        observationContext: context)
+
+    guard case .none = result.outcome else {
+        Issue.record("expected rejected candidate, got \(result.outcome)")
+        return
+    }
+    #expect(observations.values == [.checkpointSelected, .candidateRejected(quarantined: true)])
 }
 
 @Test("participant selection requires the marker's exact owner zone")

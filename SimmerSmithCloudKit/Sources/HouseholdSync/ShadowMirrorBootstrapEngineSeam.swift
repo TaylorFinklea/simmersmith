@@ -148,6 +148,7 @@ public struct MirrorBootstrapCandidate {
     public let bootstrap: MirrorBootstrap
     public let writer: ShadowMirrorCheckpointWriter
     public let expectedIdentity: MirrorBootstrapExpectedIdentity
+    public let observationContext: HouseholdSyncBootstrapObservationContext?
 
     public init(
         bootstrap: MirrorBootstrap,
@@ -157,6 +158,7 @@ public struct MirrorBootstrapCandidate {
         self.bootstrap = bootstrap
         self.writer = writer
         self.expectedIdentity = expectedIdentity
+        self.observationContext = bootstrap.observationContext
     }
 }
 

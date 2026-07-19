@@ -61,6 +61,7 @@ public struct MirrorBootstrap {
     /// Cached UI data only until authority is established.
     public let receipts: MirrorReceiptIndex
     public let lease: MirrorGenerationLease
+    public let observationContext: HouseholdSyncBootstrapObservationContext?
 }
 
 /// A recovery-only plan (spec §3.2): the same normalized intents, proofs, generations, and asset
@@ -116,6 +117,13 @@ public struct MirrorBootstrapCatalogResult {
 
     public let outcome: Outcome
     public let diagnostics: [MirrorBootstrapDiagnostic]
+
+    /// The context attached to a cached result, if any. It is carried by `MirrorBootstrap` into
+    /// `MirrorBootstrapCandidate`; no caller needs to manually pair an observer with a clock.
+    public var observationContext: HouseholdSyncBootstrapObservationContext? {
+        guard case .cached(let bootstrap, _) = outcome else { return nil }
+        return bootstrap.observationContext
+    }
 }
 
 public enum ShadowMirrorBootstrapCatalog {
@@ -127,7 +135,8 @@ public enum ShadowMirrorBootstrapCatalog {
 
     public static func open(
         request: MirrorBootstrapRequest,
-        rootDirectory: URL
+        rootDirectory: URL,
+        observationContext: HouseholdSyncBootstrapObservationContext? = nil
     ) -> MirrorBootstrapCatalogResult {
         if case .participant(_, nil) = request {
             return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
@@ -141,11 +150,15 @@ public enum ShadowMirrorBootstrapCatalog {
         guard matching.count == 1, let selected = matching.first else {
             return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
         }
+        let observer = observationContext?.observer
+        observer?(.checkpointSelected)
+        let validationStart = observationContext?.clock()
         if selected.needsAnchorBackfill {
             // One-time durable backfill through the P2b anchor primitive, allowed only after
             // the candidate's full bundle validation during the scan above.
             guard (try? ShadowMirrorCheckpointWriter.persistScopeAnchor(
                 for: selected.scope, in: selected.directory)) != nil else {
+                observer?(.candidateRejected(quarantined: false))
                 return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
             }
         }
@@ -155,8 +168,15 @@ public enum ShadowMirrorBootstrapCatalog {
             let normalized = try writer.normalizeForBootstrapSynchronously()
             guard normalized.snapshot.hasValidatedAnchor else {
                 // Writer-side recovery quarantined the corrupt scope; fail closed.
+                observer?(.candidateRejected(quarantined: true))
                 return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
             }
+            let validationDuration = validationStart.map {
+                HouseholdSyncBootstrapObservationSupport.elapsed(
+                    since: $0,
+                    clock: observationContext!.clock)
+            } ?? 0
+            observer?(.bundleValidated(durationNanoseconds: validationDuration))
             let scopeDirectory = rootDirectory
                 .appendingPathComponent(selected.scope.cacheKey, isDirectory: true)
             if let bundle = normalized.snapshot.current {
@@ -178,6 +198,7 @@ public enum ShadowMirrorBootstrapCatalog {
                             outcome: .recoveryOnly(plan, writer: writer), diagnostics: [])
                     } catch {
                         writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
+                        observer?(.candidateRejected(quarantined: true))
                         return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
                     }
                 }
@@ -186,15 +207,27 @@ public enum ShadowMirrorBootstrapCatalog {
                     pinnedJournalAssetSequences: Set(
                         normalized.snapshot.recoveryState.outbox.map(\.sequence)))
                 do {
+                    let materializationStart = observationContext?.clock()
                     let bootstrap = try ShadowMirrorBootstrapMaterializer.materializeCached(
                         bundle: bundle,
                         normalized: normalized,
                         scopeDirectory: scopeDirectory,
-                        lease: lease)
+                        lease: lease,
+                        observationContext: observationContext)
+                    let materializationDuration = materializationStart.map {
+                        HouseholdSyncBootstrapObservationSupport.elapsed(
+                            since: $0,
+                            clock: observationContext!.clock)
+                    } ?? 0
+                    observer?(.bootstrapMaterialized(
+                        durationNanoseconds: materializationDuration,
+                        recordCount: bootstrap.records.count))
                     return MirrorBootstrapCatalogResult(
-                        outcome: .cached(bootstrap, writer: writer), diagnostics: [])
+                        outcome: .cached(bootstrap, writer: writer),
+                        diagnostics: [])
                 } catch {
                     writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
+                    observer?(.candidateRejected(quarantined: true))
                     return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
                 }
             }
@@ -212,11 +245,14 @@ public enum ShadowMirrorBootstrapCatalog {
                         outcome: .recoveryOnly(plan, writer: writer), diagnostics: [])
                 } catch {
                     writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
+                    observer?(.candidateRejected(quarantined: true))
                     return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
                 }
             }
+            observer?(.candidateRejected(quarantined: false))
             return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
         } catch {
+            observer?(.candidateRejected(quarantined: true))
             return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
         }
     }
@@ -276,7 +312,8 @@ enum ShadowMirrorBootstrapMaterializer {
         bundle: MirrorCheckpointBundle,
         normalized: ShadowMirrorNormalizedBootstrapState,
         scopeDirectory: URL,
-        lease: MirrorGenerationLease
+        lease: MirrorGenerationLease,
+        observationContext: HouseholdSyncBootstrapObservationContext? = nil
     ) throws -> MirrorBootstrap {
         let scope = normalized.snapshot.scope
         try scope.validate()
@@ -366,7 +403,8 @@ enum ShadowMirrorBootstrapMaterializer {
             journalHighWater: recoveryState.lastIntentSequence,
             interventionCount: plan.interventionCount,
             receipts: bundle.receipts,
-            lease: lease)
+            lease: lease,
+            observationContext: observationContext)
     }
 
     static func materializeRecoveryPlan(

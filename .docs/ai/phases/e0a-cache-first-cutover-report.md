@@ -164,3 +164,66 @@ performance evidence; P2h adds device-gate evidence.
     **BUILD SUCCEEDED**; `git diff --check` clean.
 - P1e remains a human device gate, so P2f intentionally adds no named-device/cache-first opt-in and
   makes no release, schema, or build-number change. Shipping default remains off; P2g is next.
+
+## P2g — privacy-safe launch observability and automated local-path evidence
+
+- Added a closed launch-observation vocabulary spanning identity/gate resolution, checkpoint
+  selection, validation, bootstrap/store materialization, gate open/reject/quarantine, all eight
+  initial household projections, aggregate household readiness, private-plane readiness,
+  reconciliation completion, launch-task start, and first `MainTabView` appearance. Package
+  observations flow catalog → bootstrap candidate → engine; validation, bootstrap
+  materialization, and store hydration retain separate clocks and exclude observer callbacks.
+- The app maps those observations to static OS signpost names. Payload construction is fail-closed:
+  only event kind, duration, counts, booleans, build, and SDK version are accepted; account or
+  household names, recipe text, raw record IDs, hashes, and similarly identifying fields are
+  rejected. Signed tests cover projection and gate-source mappings, the privacy allowlist, the
+  real `AppState` catalog bridge, DEBUG gate source, stale reconciliation fencing, and
+  absent-observer behavior.
+- Controller-owned 30-run evidence below uses one genuine nonautomatic `CKSyncEngine`
+  serialization and a fresh fixed nine-record cache/session per iteration. Timing begins after
+  fixture creation and includes catalog open, gated cached-session construction/start, and the
+  eight initial pre-reconciliation projections. Post-run assertions, captured-observation
+  aggregation, and session teardown are outside the local-path endpoint; the package observation
+  callbacks themselves remain inside it, making the aggregate measurement slightly conservative.
+  Median and MAD use the conventional even-sample midpoint; p95 uses nearest rank. Times are
+  milliseconds.
+
+| Timing | Median | p95 | MAD |
+|---|---:|---:|---:|
+| Local cached path | 5.235250 | 11.259625 | 0.344188 |
+| Bundle validation | 2.796917 | 4.196208 | 0.225792 |
+| Bootstrap materialization | 0.520604 | 0.619625 | 0.032229 |
+| Store hydration | 0.142188 | 0.158917 | 0.004812 |
+| Recipe projection | 0.138563 | 0.151625 | 0.005042 |
+| Metadata projection | 0.189562 | 0.205417 | 0.004750 |
+| Week projection | 0.057750 | 0.063500 | 0.001167 |
+| Ingredient projection | 0.052500 | 0.058041 | 0.001187 |
+| Guest projection | 0.024042 | 0.025833 | 0.000605 |
+| Event projection | 0.101937 | 0.108458 | 0.002583 |
+| Pantry projection | 0.027708 | 0.030375 | 0.000417 |
+| Alias projection | 0.021292 | 0.023500 | 0.000646 |
+
+- These automated in-process samples are component evidence, not §7's physical-device
+  force-quit launch-task→`MainTabView` result and not a P1/P2 paired control. ETTrace 1.1.0
+  (`e4ff4a8`) also captured an instrumented cold simulator launch: 32.872498 s recorded,
+  0.552770 s sampled non-idle activity; focused inclusive samples were SwiftData 0.403051 s,
+  `makeSimmerSmithModelContainer` 0.030763 s, and `AppState.loadCachedData` 0.011368 s. The
+  accountless iOS 26.5 simulator never reached the verified account-bound cached-household path
+  (no bootstrap-selection, `ensureHouseholdSession`, or `MainTabView` frames), so that trace is
+  diagnostic only; sampled non-idle time is not launch wall time.
+- The measurements demonstrate no whole-store-scan projection cliff on this fixed seed. Because
+  the absolute device target was not measured or failed, `simmersmith-8qy` remains a separate
+  optimization item and is not added as a P2h blocker. P2h still owns the same-device 30-launch P1
+  control/P2 opt-in pair and every named-device gate.
+- Environment: Xcode 26.6 (17F113) · Swift 6.3.3 · macOS 26.5.2 (25F84) · iPhoneSimulator SDK
+  26.5 · iOS 26.5 runtime (23F77). Independent package and app-task reviews: `APPROVED`, with no
+  Critical, Important, or Minor findings after the final benchmark-boundary corrections.
+- Verify 2026-07-19:
+  - `swift test --package-path SimmerSmithCloudKit` — **675 tests in 10 suites passed**.
+  - `swift test --package-path SimmerSmithKit` — **187 tests in 6 suites passed, 10 skipped**.
+  - signed `xcodebuild test ... -only-testing:SimmerSmithTests` — **233 tests in 46 suites
+    passed**, including the 30-run evidence record.
+  - `bash scripts/dev-sim.sh` — **SimmerSmithSim ready**.
+  - generic unsigned iOS build — **BUILD SUCCEEDED**; `git diff --check` clean.
+- P1e remains `[?]`; shipping default remains off. P2g performs no named-device opt-in, release,
+  schema, or build-number change. P2h is next.

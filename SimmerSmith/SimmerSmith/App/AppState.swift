@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 import UserNotifications
 import SimmerSmithKit
@@ -7,6 +8,302 @@ import SimmerSmithKit
 import CloudKit
 import CloudKitProvisioning
 import HouseholdSync
+#endif
+
+#if canImport(CloudKit)
+enum CacheFirstGateSource: Equatable, Sendable {
+    case staticDefault
+    case debug
+    case sandboxReceipt
+    case appStoreReceipt
+    case installOverride
+    case unknown
+    case testOverride
+}
+
+enum HouseholdInitialProjection: String, CaseIterable, Equatable, Sendable {
+    case recipe
+    case metadata
+    case week
+    case ingredient
+    case guest
+    case event
+    case pantry
+    case alias
+}
+
+enum LaunchObservationEventKind: String, Equatable, Sendable {
+    case launchTaskStarted = "launch_task_started"
+}
+
+enum LaunchObservationEvent: Equatable, Sendable {
+    case launchTaskStarted
+    case accountIdentityResolved
+    case cacheFirstGate(source: CacheFirstGateSource, decision: Bool)
+    case bootstrap(HouseholdSyncBootstrapObservation)
+    case householdProjectionReady(
+        HouseholdInitialProjection,
+        durationNanoseconds: UInt64,
+        recordCount: Int
+    )
+    case householdProjectionsReady
+    case mainTabVisible
+    case privatePlaneReady
+    case reconciliationComplete(success: Bool, durationNanoseconds: UInt64)
+}
+
+enum LaunchObservationPayloadField: Equatable, Sendable {
+    case durationNanoseconds(UInt64)
+    case count(Int)
+    case boolean(Bool)
+    case build(String)
+    case sdkVersion(String)
+    case accountName(String)
+    case householdID(String)
+    case recipeText(String)
+    case rawRecordID(String)
+    case hashedID(String)
+}
+
+struct LaunchObservationPayload: Equatable, Sendable {
+    enum ValidationError: Error, Equatable, Sendable {
+        case disallowedField
+        case negativeCount
+        case disallowedKind
+    }
+
+    let kind: String
+    let fields: [LaunchObservationPayloadField]
+
+    static func validate(
+        kind: String,
+        fields: [LaunchObservationPayloadField]
+    ) -> Result<LaunchObservationPayload, ValidationError> {
+        let allowedKinds: Set<String> = [
+            "launch_task_started", "account_identity_resolved",
+            "cache_gate_static_default", "cache_gate_debug", "cache_gate_sandbox",
+            "cache_gate_app_store", "cache_gate_override", "cache_gate_unknown",
+            "bootstrap_checkpoint_selected", "bootstrap_bundle_validated",
+            "bootstrap_materialized", "bootstrap_store_materialized", "bootstrap_gate_opened",
+            "bootstrap_candidate_rejected",
+            "projection_ready_recipe", "projection_ready_metadata", "projection_ready_week",
+            "projection_ready_ingredient", "projection_ready_guest", "projection_ready_event",
+            "projection_ready_pantry", "projection_ready_alias", "projections_ready",
+            "main_tab_visible", "private_plane_ready", "reconciliation_complete",
+        ]
+        guard allowedKinds.contains(kind) else { return .failure(.disallowedKind) }
+        for field in fields {
+            switch field {
+            case .durationNanoseconds:
+                continue
+            case .count(let count):
+                guard count >= 0 else { return .failure(.negativeCount) }
+            case .boolean, .build, .sdkVersion:
+                continue
+            case .accountName, .householdID, .recipeText, .rawRecordID, .hashedID:
+                return .failure(.disallowedField)
+            }
+        }
+        return .success(Self(kind: kind, fields: fields))
+    }
+
+    static func validate(
+        kind: LaunchObservationEventKind,
+        fields: [LaunchObservationPayloadField]
+    ) -> Result<LaunchObservationPayload, ValidationError> {
+        validate(kind: kind.rawValue, fields: fields)
+    }
+
+    var rendered: String {
+        fields.compactMap { field in
+            switch field {
+            case .durationNanoseconds(let value): return "duration_ns=\(value)"
+            case .count(let value): return "count=\(value)"
+            case .boolean(let value): return "bool=\(value ? 1 : 0)"
+            case .build(let value): return "build=\(value)"
+            case .sdkVersion(let value): return "sdk=\(value)"
+            case .accountName, .householdID, .recipeText, .rawRecordID, .hashedID:
+                return nil
+            }
+        }.joined(separator: " ")
+    }
+}
+
+private final class OSLogLaunchObservationSink: @unchecked Sendable {
+    private let log = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "app.simmersmith.ios", category: "Launch")
+
+    func append(_ payload: LaunchObservationPayload) {
+        guard case .success = LaunchObservationPayload.validate(kind: payload.kind, fields: payload.fields) else {
+            return
+        }
+        let message = payload.rendered
+        switch payload.kind {
+        case "launch_task_started": os_signpost(.event, log: log, name: "launch_task_started", "%{public}s", message)
+        case "account_identity_resolved": os_signpost(.event, log: log, name: "account_identity_resolved", "%{public}s", message)
+        case "cache_gate_static_default": os_signpost(.event, log: log, name: "cache_gate_static_default", "%{public}s", message)
+        case "cache_gate_debug": os_signpost(.event, log: log, name: "cache_gate_debug", "%{public}s", message)
+        case "cache_gate_sandbox": os_signpost(.event, log: log, name: "cache_gate_sandbox", "%{public}s", message)
+        case "cache_gate_app_store": os_signpost(.event, log: log, name: "cache_gate_app_store", "%{public}s", message)
+        case "cache_gate_override": os_signpost(.event, log: log, name: "cache_gate_override", "%{public}s", message)
+        case "cache_gate_unknown": os_signpost(.event, log: log, name: "cache_gate_unknown", "%{public}s", message)
+        case "bootstrap_checkpoint_selected": os_signpost(.event, log: log, name: "bootstrap_checkpoint_selected", "%{public}s", message)
+        case "bootstrap_bundle_validated": os_signpost(.event, log: log, name: "bootstrap_bundle_validated", "%{public}s", message)
+        case "bootstrap_materialized": os_signpost(.event, log: log, name: "bootstrap_materialized", "%{public}s", message)
+        case "bootstrap_store_materialized": os_signpost(.event, log: log, name: "bootstrap_store_materialized", "%{public}s", message)
+        case "bootstrap_gate_opened": os_signpost(.event, log: log, name: "bootstrap_gate_opened", "%{public}s", message)
+        case "bootstrap_candidate_rejected": os_signpost(.event, log: log, name: "bootstrap_candidate_rejected", "%{public}s", message)
+        case "projection_ready_recipe": os_signpost(.event, log: log, name: "projection_ready_recipe", "%{public}s", message)
+        case "projection_ready_metadata": os_signpost(.event, log: log, name: "projection_ready_metadata", "%{public}s", message)
+        case "projection_ready_week": os_signpost(.event, log: log, name: "projection_ready_week", "%{public}s", message)
+        case "projection_ready_ingredient": os_signpost(.event, log: log, name: "projection_ready_ingredient", "%{public}s", message)
+        case "projection_ready_guest": os_signpost(.event, log: log, name: "projection_ready_guest", "%{public}s", message)
+        case "projection_ready_event": os_signpost(.event, log: log, name: "projection_ready_event", "%{public}s", message)
+        case "projection_ready_pantry": os_signpost(.event, log: log, name: "projection_ready_pantry", "%{public}s", message)
+        case "projection_ready_alias": os_signpost(.event, log: log, name: "projection_ready_alias", "%{public}s", message)
+        case "projections_ready": os_signpost(.event, log: log, name: "projections_ready", "%{public}s", message)
+        case "main_tab_visible": os_signpost(.event, log: log, name: "main_tab_visible", "%{public}s", message)
+        case "private_plane_ready": os_signpost(.event, log: log, name: "private_plane_ready", "%{public}s", message)
+        case "reconciliation_complete": os_signpost(.event, log: log, name: "reconciliation_complete", "%{public}s", message)
+        default: return
+        }
+    }
+}
+
+final class LaunchObservationRecorder: @unchecked Sendable {
+    typealias Clock = @Sendable () -> UInt64
+    typealias Sink = @Sendable (LaunchObservationEvent) -> Void
+
+    private let sink: Sink
+    let clock: Clock
+    private let build: String
+    private let sdkVersion: String
+    private let lock = NSLock()
+    private var onceKeys: Set<String> = []
+    private static let productionSink = OSLogLaunchObservationSink()
+
+    init(
+        sink: @escaping Sink = LaunchObservationRecorder.defaultSink,
+        clock: @escaping Clock = { DispatchTime.now().uptimeNanoseconds },
+        build: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+        sdkVersion: String = ProcessInfo.processInfo.operatingSystemVersionString
+    ) {
+        self.sink = sink
+        self.clock = clock
+        self.build = build
+        self.sdkVersion = sdkVersion
+    }
+
+    static let defaultSink: Sink = { event in
+        let payload = makePayload(for: event, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown", sdkVersion: ProcessInfo.processInfo.operatingSystemVersionString)
+        guard case .success(let payload) = LaunchObservationPayload.validate(kind: payload.kind, fields: payload.fields) else { return }
+        productionSink.append(payload)
+    }
+
+    func record(_ event: LaunchObservationEvent) {
+        let payload = Self.makePayload(for: event, build: build, sdkVersion: sdkVersion)
+        guard case .success = LaunchObservationPayload.validate(kind: payload.kind, fields: payload.fields) else { return }
+        sink(event)
+    }
+
+    func recordLaunchTaskStarted() { recordOnce(.launchTaskStarted, key: "launch") }
+    func recordAccountIdentityResolved() { recordOnce(.accountIdentityResolved, key: "identity") }
+    func recordCacheFirstGate(source: CacheFirstGateSource, decision: Bool) {
+        recordOnce(.cacheFirstGate(source: source, decision: decision), key: "gate")
+    }
+    func recordBootstrap(_ observation: HouseholdSyncBootstrapObservation) {
+        record(.bootstrap(observation))
+    }
+    func recordMainTabVisible() { recordOnce(.mainTabVisible, key: "main_tab") }
+    func recordPrivatePlaneReady() { record(.privatePlaneReady) }
+    func recordHouseholdProjectionsReady() { record(.householdProjectionsReady) }
+    func recordReconciliationComplete(success: Bool, durationNanoseconds: UInt64) {
+        record(.reconciliationComplete(success: success, durationNanoseconds: durationNanoseconds))
+    }
+
+    func recordProjection(
+        _ projection: HouseholdInitialProjection,
+        operation: () -> Int
+    ) -> Int {
+        let start = clock()
+        let count = operation()
+        let duration = elapsed(since: start)
+        record(.householdProjectionReady(
+            projection,
+            durationNanoseconds: duration,
+            recordCount: count))
+        return count
+    }
+
+    private func recordOnce(_ event: LaunchObservationEvent, key: String) {
+        let shouldRecord = lock.withLock { onceKeys.insert(key).inserted }
+        if shouldRecord { record(event) }
+    }
+
+    private func elapsed(since start: UInt64) -> UInt64 {
+        let end = clock()
+        return end >= start ? end - start : 0
+    }
+
+    static func makePayload(
+        for event: LaunchObservationEvent,
+        build: String,
+        sdkVersion: String
+    ) -> LaunchObservationPayload {
+        let common: [LaunchObservationPayloadField] = [.build(build), .sdkVersion(sdkVersion)]
+        switch event {
+        case .launchTaskStarted:
+            return LaunchObservationPayload(kind: "launch_task_started", fields: common)
+        case .accountIdentityResolved:
+            return LaunchObservationPayload(kind: "account_identity_resolved", fields: common)
+        case .cacheFirstGate(let source, let decision):
+            let kind: String
+            switch source {
+            case .staticDefault: kind = "cache_gate_static_default"
+            case .debug: kind = "cache_gate_debug"
+            case .sandboxReceipt: kind = "cache_gate_sandbox"
+            case .appStoreReceipt: kind = "cache_gate_app_store"
+            case .installOverride, .testOverride: kind = "cache_gate_override"
+            case .unknown: kind = "cache_gate_unknown"
+            }
+            return LaunchObservationPayload(kind: kind, fields: common + [.boolean(decision)])
+        case .bootstrap(let observation):
+            switch observation {
+            case .checkpointSelected:
+                return LaunchObservationPayload(kind: "bootstrap_checkpoint_selected", fields: common)
+            case .bundleValidated(let duration):
+                return LaunchObservationPayload(kind: "bootstrap_bundle_validated", fields: common + [.durationNanoseconds(duration)])
+            case .bootstrapMaterialized(let duration, let count):
+                return LaunchObservationPayload(kind: "bootstrap_materialized", fields: common + [.durationNanoseconds(duration), .count(max(0, count))])
+            case .storeMaterialized(let duration, let count):
+                return LaunchObservationPayload(kind: "bootstrap_store_materialized", fields: common + [.durationNanoseconds(duration), .count(max(0, count))])
+            case .candidateGateOpened:
+                return LaunchObservationPayload(kind: "bootstrap_gate_opened", fields: common)
+            case .candidateRejected(let quarantined):
+                return LaunchObservationPayload(kind: "bootstrap_candidate_rejected", fields: common + [.boolean(quarantined)])
+            }
+        case .householdProjectionReady(let projection, let duration, let count):
+            return LaunchObservationPayload(
+                kind: "projection_ready_\(projection.rawValue)",
+                fields: common + [.durationNanoseconds(duration), .count(max(0, count))])
+        case .householdProjectionsReady:
+            return LaunchObservationPayload(kind: "projections_ready", fields: common)
+        case .mainTabVisible:
+            return LaunchObservationPayload(kind: "main_tab_visible", fields: common)
+        case .privatePlaneReady:
+            return LaunchObservationPayload(kind: "private_plane_ready", fields: common)
+        case .reconciliationComplete(let success, let duration):
+            return LaunchObservationPayload(kind: "reconciliation_complete", fields: common + [.durationNanoseconds(duration), .boolean(success)])
+        }
+    }
+}
+
+private func makePayload(
+    for event: LaunchObservationEvent,
+    build: String,
+    sdkVersion: String
+) -> LaunchObservationPayload {
+    LaunchObservationRecorder.makePayload(for: event, build: build, sdkVersion: sdkVersion)
+}
 #endif
 
 #if canImport(CloudKit)
@@ -194,6 +491,7 @@ final class AppState {
     // app target still compiles on platforms without CloudKit.
     #if canImport(CloudKit)
     @ObservationIgnored var householdSession: HouseholdSession?
+    @ObservationIgnored let launchObservationRecorder: LaunchObservationRecorder
     /// Session currently inside the serialized construction/start path. Lifecycle callbacks are
     /// installed before its first await, so the epoch-first choke point must be able to revoke
     /// this candidate even before repository wiring publishes it as `householdSession`.
@@ -454,6 +752,7 @@ final class AppState {
     @ObservationIgnored var cachedPrivatePlaneTask: Task<Void, Never>?
     /// Resolved once at construction and injected through the session boot path.
     let cacheFirstLaunchEnabled: Bool
+    let cacheFirstGateSource: CacheFirstGateSource
     static let cacheFirstLaunchOverrideKey = "sm.cacheFirstLaunchOverride"
 
     /// Single source of truth: this build is CloudKit-only. Features not yet
@@ -489,7 +788,8 @@ final class AppState {
         settingsStore: ConnectionSettingsStore = .shared,
         apiClient: SimmerSmithAPIClient? = nil,
         cacheFirstLaunchEnabled: Bool? = nil,
-        householdLifecycleDirectoryURL: URL? = nil
+        householdLifecycleDirectoryURL: URL? = nil,
+        launchObservationRecorder: LaunchObservationRecorder? = nil
     ) {
         #if canImport(CloudKit)
         let lifecyclePaths = HouseholdLifecyclePaths.live(
@@ -508,10 +808,17 @@ final class AppState {
         self.authTokenDraft = connection.authToken
         self.cacheStore = SimmerSmithCacheStore(modelContainer: modelContainer)
         self.apiClient = apiClient ?? SimmerSmithAPIClient(settingsStore: settingsStore)
-        self.cacheFirstLaunchEnabled = cacheFirstLaunchEnabled ?? Self.resolveCacheFirstLaunchPolicy()
+        let gateResolution = Self.resolveCacheFirstLaunchPolicyDetails()
+        self.cacheFirstLaunchEnabled = cacheFirstLaunchEnabled ?? gateResolution.enabled
+        self.cacheFirstGateSource = cacheFirstLaunchEnabled == nil ? gateResolution.source : .testOverride
+        self.launchObservationRecorder = launchObservationRecorder ?? LaunchObservationRecorder()
     }
 
     private static func resolveCacheFirstLaunchPolicy() -> Bool {
+        resolveCacheFirstLaunchPolicyDetails().enabled
+    }
+
+    private static func resolveCacheFirstLaunchPolicyDetails() -> (enabled: Bool, source: CacheFirstGateSource) {
         #if DEBUG
         let receipt: CacheFirstReceiptEnvironment = .debug
         let isDebug = true
@@ -525,11 +832,23 @@ final class AppState {
         let isDebug = false
         #endif
         let override = UserDefaults.standard.object(forKey: cacheFirstLaunchOverrideKey) as? Bool
-        return CacheFirstLaunchPolicy.resolve(
+        let enabled = CacheFirstLaunchPolicy.resolve(
             staticDefault: false,
             installOverride: override,
             receipt: receipt,
             isDebug: isDebug).enabled
+        let source: CacheFirstGateSource
+        if override != nil && (isDebug || receipt == .sandbox) {
+            source = .installOverride
+        } else {
+            switch receipt {
+            case .debug: source = .debug
+            case .sandbox: source = .sandboxReceipt
+            case .appStore: source = .appStoreReceipt
+            case .unknown: source = .unknown
+            }
+        }
+        return (enabled, source)
     }
 
     var hasSavedConnection: Bool {

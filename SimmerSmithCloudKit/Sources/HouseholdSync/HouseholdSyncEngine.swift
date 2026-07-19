@@ -311,6 +311,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private let bootstrapGate: MirrorBootstrapDelegateGate?
     private var bootstrapCandidateState: MirrorBootstrapCandidate?
     private var recoveryPlanApplied = false
+    private let bootstrapObserver: HouseholdSyncBootstrapObserver?
+    private let bootstrapObservationClock: HouseholdSyncMonotonicClock
 
     /// Optional sticky field-merger (Phase 4). When set, records whose type it `handles`
     /// are field-merged at the fetch + serverRecordChanged seams instead of blanket LWW.
@@ -501,6 +503,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             shadowMirrorRootDirectory: shadowMirrorRootDirectory,
             dataPlaneMode: dataPlaneMode,
             authority: authority,
+            observer: nil,
+            clock: HouseholdSyncBootstrapObservationSupport.systemClock,
             validatedInitialMirrorScope: nil)
     }
 
@@ -532,6 +536,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             shadowMirrorRootDirectory: shadowMirrorRootDirectory,
             dataPlaneMode: dataPlaneMode,
             authority: authority,
+            observer: nil,
+            clock: HouseholdSyncBootstrapObservationSupport.systemClock,
             validatedInitialMirrorScope: initialMirrorScope)
     }
 
@@ -546,6 +552,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         shadowMirrorRootDirectory: URL?,
         dataPlaneMode: HouseholdDataPlaneMode,
         authority: HouseholdSessionAuthority?,
+        observer: HouseholdSyncBootstrapObserver?,
+        clock: @escaping HouseholdSyncMonotonicClock,
         validatedInitialMirrorScope: MirrorScope?
     ) throws {
         self.database = database
@@ -561,6 +569,8 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.bootstrapGate = nil
         self.durableMirrorRequired = dataPlaneMode == .cached
+        self.bootstrapObserver = observer
+        self.bootstrapObservationClock = clock
         // simmersmith-c7r: assign BEFORE `self.syncEngine` is constructed below. With
         // `automaticSync == true`, CKSyncEngine can deliver `handleEvent` on its own
         // background queue the instant it exists — if `merger` were still nil at that
@@ -650,6 +660,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         self.lifecycleFence = HouseholdSyncLifecycleFence(authority: sessionAuthority)
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.merger = merger
+        let observationContext = candidate.observationContext
+        self.bootstrapObserver = observationContext?.observer
+        self.bootstrapObservationClock = observationContext?.clock
+            ?? HouseholdSyncBootstrapObservationSupport.systemClock
         do {
             try MirrorBootstrapReconciler.validateCandidate(
                 scope: candidate.bootstrap.scope,
@@ -658,6 +672,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 engineZoneID: zoneID)
         } catch {
             Self.failBootstrapCandidate(candidate, store: store)
+            bootstrapObserver?(.candidateRejected(quarantined: true))
             throw error
         }
         try activeMirrorScope.installValidated(
@@ -671,10 +686,15 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         // Spec §3.3 step 1: the complete runtime exists before the candidate engine does.
         // Generation publication stays structurally fenced while the gate is closed — every
         // capture that could publish flows through a gated delegate callback.
+        let storeStart = bootstrapObservationClock()
         store.removeAll()
         for record in candidate.bootstrap.records {
             store.setRecord(record)
         }
+        bootstrapObserver?(.storeMaterialized(
+            durationNanoseconds: HouseholdSyncBootstrapObservationSupport.elapsed(
+                since: storeStart, clock: bootstrapObservationClock),
+            recordCount: candidate.bootstrap.records.count))
         localGeneration = MirrorBootstrapReconciler.seededLocalGenerations(
             from: candidate.bootstrap.maxMutationGenerationByIdentity)
         zoneEnsured = candidate.bootstrap.zoneEnsured
@@ -743,6 +763,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         bootstrapCandidateState = nil
         note("bootstrap gate open")
         gate.resolve(.open)
+        bootstrapObserver?(.candidateGateOpened)
         return .open
     }
 
@@ -793,6 +814,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         zoneEnsuredLock.withLock { zoneEnsured = false }
         bootstrapCandidateState = nil
         Self.failBootstrapCandidate(candidate, store: store)
+        bootstrapObserver?(.candidateRejected(quarantined: true))
     }
 
     private static func failBootstrapCandidate(

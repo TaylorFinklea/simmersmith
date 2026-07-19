@@ -34,6 +34,7 @@ struct SimmerSmithApp: App {
                 .environment(appState)
                 .preferredColorScheme(.dark)
                 .task {
+                    appState.launchObservationRecorder.recordLaunchTaskStarted()
                     appState.loadCachedData()
                     // Wire delegate so it can route tap-on-notification to the right tab.
                     appDelegate.appState = appState
