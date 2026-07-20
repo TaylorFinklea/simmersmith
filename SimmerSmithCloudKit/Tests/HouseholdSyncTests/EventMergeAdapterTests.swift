@@ -92,7 +92,8 @@ func groceryDedupeRepairDoesNotSignalItselfForever() async {
     scheduler.activate()
 
     scheduler.signal()
-    try? await Task.sleep(nanoseconds: 100_000_000)
+    await scheduler.waitForPendingRun()
+    await scheduler.waitForPendingRun()
     await scheduler.quiesce()
 
     #expect(harness.passCount == 2)
