@@ -11,10 +11,10 @@ Note: P8 baseline runner merged `214ec20` 2026-07-16 (separate dormant voice/Bal
 - [x] **e0a P2e test-only cached app boot/state.** Default-off exact owner/participant cached boot, P1 fetch-first recovery overlay, fail-closed WAL/CloudKit handoff, authority projection, repair/reset fences, and process-wide asset leases. Verify: 632 CloudKit + 187 Kit + 152 signed app tests; generic iOS build; independent review APPROVED.
 - [x] **e0a P2f authority/conflict/lifecycle.** Exact-session authority, terminal remote-delete policy, once-only deferred work, epoch-first crash-replayable handoffs, marker-before-adoption, atomic scope/root invalidation, and account-bound reset delete/remint. Verify: 673 CloudKit + 187 Kit + 221 signed app tests; generic build; independent package/app reviews APPROVED. P1e still `[?]`, so no named-device opt-in; shipping default remains off.
 - [x] **e0a P2g observability/performance evidence.** Closed privacy-safe package/app signposts plus 30-run fixed-seed local-path evidence (median 5.235 ms, p95 11.260 ms, MAD 0.344 ms); ETTrace simulator diagnostic could not traverse account-bound cached boot. Verify: 675 CloudKit + 187 Kit + 233 signed app tests; generic build; independent task reviews APPROVED. Device P1/P2 force-quit pair remains P2h; `8qy` stays separate; shipping default off.
-- [ ] **e0a P2h adversarial/device/default-on release.** `tier_floor: lead` · `complexity: L`. Verify: automated gates + named owner/participant/two-device/token-resume/crash/performance evidence in `phases/e0a-cache-first-cutover-report.md`; then CI/upload/ASC assignment/installed-build check.
+- [?] **e0a P2h adversarial/device/default-on release.** Execution plan: `phases/e0a-p2h-execution-plan.md`. 2026-07-19 preflight: CloudKit 675 + Kit 187 + signed app 233 + generic build green; signing identities and ASC credentials/key present. CoreDevice reports Roshar/Sel unavailable, so Task 1 P1e build-161 device rerun is the hard stop. No opt-in/default change, push, CI, build bump, upload, or release performed.
 
 ## Blockers
-- P1e needs connected device evidence; P2 shipping default stays off until P1e + P2 automated/device/performance gates clear.
+- Connect and unlock Roshar or Sel for P1e build-161 online/offline/relaunch/reconnect/no-new-quarantine evidence. P2 shipping default stays off until P1e + the full P2 device/performance matrix clear.
 
 ## Open questions
 - None.
