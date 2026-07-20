@@ -2098,3 +2098,21 @@ normal non-`[skip ci]` feature commit -> exact CI -> `[skip ci]` release commit 
 Using a crash-only TestFlight vehicle preserves that state, avoids weakening the P1e gate, and keeps
 the cache-first rollout serial and default-off until all original device and review requirements
 pass.
+
+## 2026-07-20 — P1e proves shadow durability; P2 owns replay
+
+**Decision.** Build 162 closes the P1e device gate when it remains crash-free, preserves the normal
+full-fetch active store, and retains every unresolved offline mutation as a valid exact-scope shadow
+intent without digest mismatch or quarantine. P1 must not hydrate or re-enqueue that outbox. The
+build-163 P2 opt-in gate owns replay, active-store projection, and exactly-once convergence.
+
+The P2h execution plan previously required the default-off build 162 to drain the shadow outbox.
+That contradicted the P1 specification's explicit write-only boundary. Live Roshar evidence made
+the contradiction observable: the full-fetch UI remained server-rendered while both grocery save
+payloads stayed intact and pending in the mirror. The gate wording is corrected rather than adding
+P2 restore behavior to the crash-only hotfix path.
+
+**Why.** Treating a durable shadow intent as lost would understate P1's evidence; treating it as
+already converged would overstate user-visible recovery. Keeping the boundary explicit preserves
+the validated fallback and gives build 163 one discriminating recovery test: both retained saves
+must project and drain exactly once with no resurrection or quarantine.

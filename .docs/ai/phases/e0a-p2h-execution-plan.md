@@ -90,7 +90,7 @@ Landed as `ea15406`; deterministic CI follow-up `d18f3af` and private Ballast ch
 `9f8f39e44e189d95cb2c83adb9718441c00a27d9` passed both Swift packages, the generic iOS build,
 and the signed app-target suite.
 
-- [?] **Step 4: Cut and install crash-only TestFlight build 162 — awaiting Roshar install**
+- [x] **Step 4: Cut and install crash-only TestFlight build 162**
 
 Add build 162 dated `July 19, 2026`, headline `A steadier grocery sync`, with one `fixed` entry:
 `The app no longer closes unexpectedly while syncing grocery changes after you reconnect.` Keep
@@ -100,20 +100,26 @@ run release-note tests and the generic build, commit
 terminal ASC `VALID`, confirm internal Finklea Dev assignment, and install build 162 on Roshar.
 
 Release commit `ae029f7` is pushed. The signed archive and upload succeeded; App Store Connect
-reports build 162 `VALID` and its Finklea Dev assignment is present. Installation on Roshar remains
-the human gate.
+reports build 162 `VALID` and its Finklea Dev assignment is present. Roshar device inspection
+confirmed build 162 installed.
 
-- [ ] **Step 5: Repeat the P1e control and offline-recovery path**
+- [x] **Step 5: Repeat the P1e control and shadow-durability path**
 
 Force-quit and cold-launch the existing owner household with cache-first still off. Prove the normal
-full-fetch control path, online edit/delete, offline save/delete, force-quit/relaunch, reconnect, and
-foreground/background convergence. Confirm both intents survive exactly once, the duplicate Week
-repair completes without a new crash, and no active content disappears or duplicates.
+full-fetch control path, online edit/delete, offline save/delete, force-quit/relaunch, and reconnect.
+Confirm pending shadow intents remain durable without hydrating the active store, the duplicate Week
+repair completes without a new crash, and no active full-fetch content disappears or duplicates.
 
-- [ ] **Step 6: Inspect durability evidence and close the gate**
+Roshar build 162 remained alive through the user relaunch and a second instrumented launch. Its
+authoritative full-fetch UI stayed server-rendered; the mirror retained the two pending grocery saves
+for later P2 replay, resolved the already-absent delete, and created no quarantine.
 
-Capture the signed-device logs and mirror outcome. Require zero pending/lost/duplicate grocery
-writes and no new digest mismatch or quarantine. Append the exact device result to
+- [x] **Step 6: Inspect durability evidence and close the gate**
+
+Capture the signed-device logs and mirror outcome. Require every offline mutation to be either
+server-resolved or retained as an exact pending shadow intent, with no digest mismatch or
+quarantine. P1 does not re-enqueue those intents; the build-163 P2 gate must drain them. Append the
+exact device result to
 `e0a-shadow-mirror-report.md`, change P1e to `[x]` in `current-state.md`, close
 `simmersmith-e0a.1`, rerun the CloudKit package and generic iOS build, then commit
 `docs(ai): close e0a p1e device gate`.

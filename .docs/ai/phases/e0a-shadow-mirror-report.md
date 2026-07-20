@@ -1,7 +1,7 @@
 # e0a Shadow Mirror — P1e Hardening Evidence
 
 Date: 2026-07-15
-Status: build 161 device gate preserved offline grocery intent but exposed a CloudKit callback-context crash; reviewed build 162 hotfix pending device rerun
+Status: P1e closed on Roshar build 162; crash fixed, full-fetch control preserved, and shadow intents remain valid for P2 replay
 Scope: P1 shadow capture only. The active store remains the source of truth; no cache-first UI or P2 restore behavior is enabled.
 
 ## Automated evidence
@@ -23,7 +23,7 @@ Scope: P1 shadow capture only. The active store remains the source of truth; no 
 - App Store Connect build **157** — uploaded and processed **VALID**; historical original signed
   device-test vehicle. The active checklist below uses build 162.
 
-## Real-device P1 checklist — `[?] build 162 crash-hotfix rerun pending`
+## Real-device P1 checklist — `[x] build 162 crash-hotfix rerun passed`
 
 Record device model, iOS version, app build, account role, and timestamp for each run.
 
@@ -86,7 +86,28 @@ Record device model, iOS version, app build, account role, and timestamp for eac
   Swift packages, the generic iOS build, and the signed app-target suite.
 - Release commit `ae029f7` passed 18 focused release-note tests and the generic iOS build. Its signed
   archive and upload succeeded; App Store Connect reports build 162 `VALID`, and the Finklea Dev
-  internal-group assignment is present. Roshar installation is pending.
-- P1e remains open until production-signed build 162 repeats the same online/offline/reconnect path,
-  drains the pending grocery work exactly once, completes duplicate-Week repair without a crash,
-  and creates no digest mismatch or quarantine.
+  internal-group assignment is present. Roshar installation and its result are recorded below.
+- Superseded gate wording expected build 162 to drain shadow-only intents. P1 deliberately never
+  hydrates or re-enqueues a checkpoint; P2 owns that replay. The corrected build-162 gate is
+  crash-free full-fetch fallback plus durable, valid pending intent evidence.
+
+### Build 162 — Roshar (P1e passed; P2 replay remains)
+
+- Device inspection confirmed TestFlight build 162 on Roshar. The user force-quit, relaunched
+  online, and left Groceries untouched for more than 60 seconds. The app remained alive through
+  that run and a second instrumented relaunch; no build-162 SimmerSmith crash was observed.
+- The active P1 full-fetch UI showed `PH2 Online Edit` but not `PH2 Offline Keep`. That is the
+  specified shadow-only boundary: build 162 keeps cache-first default-off and cannot hydrate or
+  replay the shadow outbox into the active store.
+- Before the relaunch, the current mirror held 706 records, one tombstone, and three pending
+  intents: saves for `PH2 Offline Keep` and `PH2 Online Edit`, plus a delete for a different
+  identity. After the online relaunch, the delete resolved against the full-fetch result; the
+  mirror held zero tombstones and the same two pending saves.
+- A post-relaunch container capture and a second instrumented launch left both saves `pending`
+  with their archived payloads intact. Current `records.json` and `engine-state.json` SHA-256
+  digests match the manifest. No quarantine directory, parked marker, or deferred-quarantine
+  marker exists.
+- Raw captures: `/tmp/p2h-roshar-build161-reappearance.UsMJzJ` and
+  `/tmp/p2h-roshar-post-relaunch.nm6jgh`. P1e passes because the hotfix removes the reconnect
+  crash while preserving authoritative full-fetch behavior and the exact durable work for the
+  P2 opt-in vehicle. Build 163 must prove those two saves replay and drain exactly once.

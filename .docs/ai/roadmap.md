@@ -32,7 +32,8 @@ submission done-ness — the program below is HOW the next six weeks get there.
 - **Wk2 — persistent mirror in SHADOW mode** (`e0a` phase 1): transactional scoped mirror runs
   beside the full fetch, digest-compared; crash/replay/token-skew tests. Sel/build 157 captured the
   latency gate and exposed a fail-safe quarantine caused by a no-op grocery-repair sync loop; the
-  TDD fix is green and build 160 must clear the online/offline device rerun. `2g1` context caps.
+  TDD fix is green; Roshar/build 162 closed P1e with crash-free full-fetch fallback, valid digests,
+  and exact pending shadow intents reserved for P2 replay. `2g1` context caps.
 - **Wk3 — cached-launch cutover** (`e0a` phase 2): stop deleting the token; cached UI before
   reconciliation; orthogonal boot/sync states; exact-scope/authority gates; two-device +
   account-switch (`yqm`) + crash-recovery/token-resume device proof. Written staged/default-off
