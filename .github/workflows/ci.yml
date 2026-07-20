@@ -11,9 +11,25 @@ jobs:
     name: Swift packages and iOS build
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      BALLAST_CHECKS_TRUSTED: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]') }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Check out pinned Ballast dependency
+        if: ${{ env.BALLAST_CHECKS_TRUSTED == 'true' }}
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: TaylorFinklea/ballast
+          ref: b4e37f891d9d3e90c71fb6f32ffbe87ca520a5be
+          ssh-key: ${{ secrets.BALLAST_DEPLOY_KEY }}
+          path: ballast
+          persist-credentials: false
+
+      - name: "Notice: Ballast and app checks skipped for untrusted PR"
+        if: ${{ env.BALLAST_CHECKS_TRUSTED != 'true' }}
+        run: echo "Ballast/app checks skipped because private dependency credentials are unavailable."
 
       - name: Select newest installed Xcode
         shell: bash
@@ -57,11 +73,13 @@ jobs:
         run: xcodegen generate
 
       - name: Build iOS app
+        if: ${{ env.BALLAST_CHECKS_TRUSTED == 'true' }}
         timeout-minutes: 30
         working-directory: SimmerSmith
         run: xcodebuild build -project SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
       - name: Create app-target test simulator
+        if: ${{ env.BALLAST_CHECKS_TRUSTED == 'true' }}
         timeout-minutes: 10
         run: bash scripts/dev-sim.sh
 
@@ -78,6 +96,7 @@ jobs:
       # — non-fatal; the tests assert policy/logic, not live sync. Do NOT "simplify" this to
       # CODE_SIGNING_ALLOWED=NO.
       - name: Test SimmerSmith app target
+        if: ${{ env.BALLAST_CHECKS_TRUSTED == 'true' }}
         timeout-minutes: 30
         run: |
           xcodebuild test \

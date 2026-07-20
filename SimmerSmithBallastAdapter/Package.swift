@@ -3,12 +3,13 @@ import Foundation
 import PackageDescription
 
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let normalCheckoutBallast = packageDirectory
-    .appending(path: "../../ballast")
-    .standardizedFileURL
-let ballastPath = FileManager.default.fileExists(
-    atPath: normalCheckoutBallast.appending(path: "Package.swift").path
-) ? "../../ballast" : "../../../ballast"
+let ballastCandidates = ["../ballast", "../../ballast", "../../../ballast"]
+let ballastPath = ballastCandidates.first { candidate in
+    let checkout = packageDirectory
+        .appending(path: candidate)
+        .standardizedFileURL
+    return FileManager.default.fileExists(atPath: checkout.appending(path: "Package.swift").path)
+} ?? "../ballast"
 
 let package = Package(
     name: "SimmerSmithBallastAdapter",

@@ -1886,6 +1886,15 @@ Feature work may instead place SimmerSmith under
 Ballast from either layout; it does not vendor, copy, or add Ballast to `SimmerSmithKit`. A checkout
 without the sibling Ballast repository is intentionally unsupported while the flag is private.
 
+The CI nested checkout is the only non-sibling layout exception: CI checks out Ballast into the
+workspace's `ballast/` directory at pinned commit `b4e37f891d9d3e90c71fb6f32ffbe87ca520a5be`,
+authenticated by the read-only `BALLAST_DEPLOY_KEY` repository deploy key. This does not vendor or
+copy Ballast into the SimmerSmith repository, and it does not change the default-OFF rollout gate.
+For fork and Dependabot-authored pull requests, the reduced gate still runs both Swift package tests,
+xcodegen installation, and project generation without private credentials; the private Ballast
+checkout and Ballast-dependent app build/test checks run only on pushes and trusted same-repository
+pull requests.
+
 `CloudParseService` remains verbatim and is supplied as an injected application-level fallback
 closure. It is neither folded into `FallbackPolicy` nor rewritten as part of this port.
 
