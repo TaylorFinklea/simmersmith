@@ -27,6 +27,11 @@ Scope: P1 shadow capture only. The active store remains the source of truth; no 
 
 Record device model, iOS version, app build, account role, and timestamp for each run.
 
+The checked P1 checklist is cumulative across the device runs below. Build 161 created and retained
+the offline intents and supplied the mutation/reconnect evidence. Build 162 was the narrower
+crash-hotfix relaunch/reconnect durability rerun using those retained intents, not a fresh mutation
+or latency run. P2 replay remains unproven.
+
 1. Install the candidate TestFlight build on a real device with an existing owner household; confirm the household zone and iCloud account are available before launch.
 2. Cold-launch after force-quitting. Confirm the existing P1 path still performs the normal full fetch and that no shadow checkpoint hydrates the active `HouseholdLocalStore` before that fetch.
 3. While online, edit and delete representative household records, then wait for a clean sync. Confirm the user-visible store and sync status remain unchanged by shadow capture.
@@ -93,9 +98,11 @@ Record device model, iOS version, app build, account role, and timestamp for eac
 
 ### Build 162 — Roshar (P1e passed; P2 replay remains)
 
-- Device inspection confirmed TestFlight build 162 on Roshar. The user force-quit, relaunched
-  online, and left Groceries untouched for more than 60 seconds. The app remained alive through
-  that run and a second instrumented relaunch; no build-162 SimmerSmith crash was observed.
+- Device: Roshar iPhone 15 Pro, iOS 26.5.2 (23F84), TestFlight build 162, owner/private household,
+  2026-07-20. This was the narrower crash-hotfix relaunch/reconnect durability rerun using the
+  intents retained by build 161; it was not a fresh mutation or latency run. The user force-quit,
+  relaunched online, and left Groceries untouched for more than 60 seconds. The app remained alive
+  through that run and a second instrumented relaunch; no build-162 SimmerSmith crash was observed.
 - The active P1 full-fetch UI showed `PH2 Online Edit` but not `PH2 Offline Keep`. That is the
   specified shadow-only boundary: build 162 keeps cache-first default-off and cannot hydrate or
   replay the shadow outbox into the active store.

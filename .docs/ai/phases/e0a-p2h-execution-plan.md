@@ -141,32 +141,36 @@ exact device result to
 - Produces: a persistent internal toggle that changes only the existing install override and takes
   effect after force-quit/relaunch; App Store remains unable to display or honor it.
 
-- [ ] **Step 1: Add failing visibility and receipt-policy tests**
+- [x] **Step 1: Add failing visibility and receipt-policy tests**
 
 Add table-driven tests proving the developer surface resolves visible for DEBUG and
 `sandboxReceipt`, hidden for `receipt` and unknown release receipts, and proving an App Store
 receipt ignores both `true` and `false` local overrides while `staticDefault` is false. Run the
 focused `P2eLaunchPolicyTests`; require the new visibility seam test to fail before implementation.
 
-- [ ] **Step 2: Expose a pure DebugGate visibility seam**
+- [x] **Step 2: Expose a pure DebugGate visibility seam**
 
 Refactor `DebugGate.showsCloudKitChecks` through an internal pure resolver taking `isDebug: Bool`
 and `receiptFilename: String?`. It returns true only for DEBUG or `sandboxReceipt`; the live
 property supplies compile configuration plus `Bundle.main.appStoreReceiptURL?.lastPathComponent`.
 Run the focused tests and require them to pass.
 
-- [ ] **Step 3: Add the internal toggle**
+- [x] **Step 3: Add the internal toggle**
 
 In `CloudKitDebugView`, bind `@AppStorage(AppState.cacheFirstLaunchOverrideKey)` to a Boolean and
 add a developer section with a `Toggle` labeled `Cache-first launch`. Its footer must say that it
 is an internal TestFlight control and requires force-quit/relaunch. Do not add another persistence
 key, settings route, launch argument, device allowlist, or App Store-visible affordance.
 
-- [ ] **Step 4: Verify and commit the feature**
+- [x] **Step 4: Verify and commit the feature**
 
 Run both Swift packages, the signed `SimmerSmithTests` suite, the generic iOS build, and
 `git diff --check`. Commit `feat(ios): add internal cache-first launch gate`. Generate a task review
 package and require separate `Spec compliance: APPROVED` and `Task quality: APPROVED` verdicts.
+
+Completion evidence: strict RED for the missing resolver; focused policy tests 4/4 green; CloudKit
+676, Kit 187, signed app 234 tests; generic iOS build and diff check green; independent spec and
+quality reviews APPROVED; feature commit `e21dadf`.
 
 ---
 
