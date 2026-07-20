@@ -9,11 +9,12 @@ default and release it only after every automated, adversarial, identity, crash,
 token-resume, and performance gate passes.
 
 **Architecture:** P2h is a serial hard-gate sequence with no cache architecture changes. Build 161
-first closes the pre-existing P1e shadow-mirror device gate. A separate default-off TestFlight
-vehicle then exposes the existing receipt-gated `sm.cacheFirstLaunchOverride` only inside the
-DEBUG/TestFlight developer panel, allowing the same seeded build/device to supply paired P1 and P2
-measurements. The shipping default changes in a later feature commit only after the device matrix
-and two independent Lead reviews are clean; release bookkeeping remains separate and
+exposed a CloudKit delegate-context crash during the pre-existing P1e shadow-mirror device gate, so
+build 162 is a crash-only, default-off hotfix vehicle for finishing P1e. A separate default-off
+TestFlight vehicle then exposes the existing receipt-gated `sm.cacheFirstLaunchOverride` only inside
+the DEBUG/TestFlight developer panel, allowing the same seeded build/device to supply paired P1 and
+P2 measurements. The shipping default changes in a later feature commit only after the device
+matrix and two independent Lead reviews are clean; release bookkeeping remains separate and
 controller-owned.
 
 **Tech Stack:** Swift 6.3.3, SwiftUI, CloudKit/CKSyncEngine, Swift Testing, Xcode 26.6,
@@ -42,48 +43,71 @@ CoreDevice/Instruments, GitHub Actions, App Store Connect/TestFlight.
 
 ---
 
-### Task 1: Close P1e on signed TestFlight build 161
+### Task 1: Repair the build-161 reconnect crash and close P1e on signed TestFlight build 162
 
-**Ownership:** Root controller plus the user handling the physical device. No implementation worker.
+**Ownership:** Root controller plus the user handling the physical device. No worker receives
+release, build-number, installed-app, or device authority.
 
 **Files:**
-- Modify after passing: `.docs/ai/phases/e0a-shadow-mirror-report.md`
-- Modify after passing: `.docs/ai/current-state.md`
+- Modify: `SimmerSmithCloudKit/Sources/HouseholdSync/RepairScheduler.swift`
+- Modify: `SimmerSmithCloudKit/Tests/HouseholdSyncTests/RepairSchedulerTests.swift`
+- Modify: `SimmerSmith/project.yml`
+- Modify: `SimmerSmith/SimmerSmith/Features/ReleaseNotes/ReleaseNotesCatalog.swift`
+- Regenerate: `SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj`
+- Modify: `.docs/ai/phases/e0a-shadow-mirror-report.md`
+- Modify: `.docs/ai/current-state.md`
 
 **Interfaces:**
-- Consumes: TestFlight build 161, its existing owner/private household, the build-157 35-flush
-  latency record, and the repaired grocery merge path.
-- Produces: current signed-device online/offline/relaunch/reconnect/no-new-quarantine evidence and
-  an `[x]` P1e prerequisite.
+- Consumes: the preserved build-161 crashes and app state, its existing owner/private household,
+  the build-157 35-flush latency record, and the repaired grocery merge path.
+- Produces: a detached scheduler-owned debounce boundary, terminal build-162 ASC `VALID`, current
+  signed-device online/offline/relaunch/reconnect/no-new-quarantine evidence, and an `[x]` P1e
+  prerequisite. Cache-first remains default-off.
 
-- [ ] **Step 1: Connect and identify the device**
+- [x] **Step 1: Capture the failure and prove the exact root cause**
 
-Run `xcrun devicectl list devices`. Require Roshar or Sel to be `available`, unlocked, paired, and
-trusted. Record device name/model, OS version, build 161, account role, and wall-clock timestamp.
+Preserve both build-161 crash reports and the app container before replacement. Symbolicate against
+the exact build-161 dSYM and exact device CloudKit symbols. Require the repeated crash to resolve to
+`RepairScheduler` repair work calling `CKSyncEngine.sendChanges()` from inherited delegate-callback
+task context, not to corrupt mirror bytes or overlapping explicit operations.
 
-- [ ] **Step 2: Prove the online P1 control path**
+- [x] **Step 2: Add the regression first, apply the narrow fix, and review it**
 
-Install/open TestFlight build 161 with the cache-first default still off. Force-quit and cold-launch
-the existing owner household. Edit and delete representative household records, wait for clean
-sync, and confirm the normal full-fetch path remains user-visible while shadow capture stays
-write-only.
+Add a Swift task-local regression that fails when the scheduler-owned debounce uses ordinary
+`Task {}` and passes only when it detaches from the caller. Change only that owned debounce task to
+`Task.detached`; retain stored-task cancellation, MainActor repair closures, pass ordering,
+single-flight draining, lifecycle fences, and automatic sync. Run both Swift packages, the signed
+app-target suite, the generic iOS build, and `git diff --check`; require independent review approval.
 
-- [ ] **Step 3: Prove offline mutation recovery**
+- [ ] **Step 3: Land the hotfix feature commit and require exact CI**
 
-Take the device offline, save one record and delete a different record, force-quit, relaunch while
-offline, restore connectivity, and wait for convergence. Confirm both intents survive exactly once
-and no active content disappears or duplicates.
+Commit `fix(cloudkit): detach repair work from sync callbacks`, fast-forward it to `main`, push, and
+require the GitHub Actions run whose head SHA is that non-`[skip ci]` commit to finish green before
+release bookkeeping.
 
-- [ ] **Step 4: Inspect durability evidence**
+- [ ] **Step 4: Cut and install crash-only TestFlight build 162**
 
-Capture the signed-device logs and mirror outcome. Require no new digest mismatch or quarantine;
-if one appears, preserve the logs/artifacts, leave P1e `[?]`, and stop before any opt-in work.
+Add build 162 dated `July 19, 2026`, headline `A steadier grocery sync`, with one `fixed` entry:
+`The app no longer closes unexpectedly while syncing grocery changes after you reconnect.` Keep
+the cache-first static default false. Set `CURRENT_PROJECT_VERSION: 162`, regenerate the project,
+run release-note tests and the generic build, commit
+`chore(release): cut crash hotfix build 162 [skip ci]`, push, run `scripts/release-ios.sh`, require
+terminal ASC `VALID`, confirm internal Finklea Dev assignment, and install build 162 on Roshar.
 
-- [ ] **Step 5: Record and commit the passed gate**
+- [ ] **Step 5: Repeat the P1e control and offline-recovery path**
 
-Append the exact device result to `e0a-shadow-mirror-report.md`, change P1e to `[x]` in
-`current-state.md`, run `swift test --package-path SimmerSmithCloudKit` and the generic iOS build,
-then commit `docs(ai): close e0a p1e device gate`.
+Force-quit and cold-launch the existing owner household with cache-first still off. Prove the normal
+full-fetch control path, online edit/delete, offline save/delete, force-quit/relaunch, reconnect, and
+foreground/background convergence. Confirm both intents survive exactly once, the duplicate Week
+repair completes without a new crash, and no active content disappears or duplicates.
+
+- [ ] **Step 6: Inspect durability evidence and close the gate**
+
+Capture the signed-device logs and mirror outcome. Require zero pending/lost/duplicate grocery
+writes and no new digest mismatch or quarantine. Append the exact device result to
+`e0a-shadow-mirror-report.md`, change P1e to `[x]` in `current-state.md`, close
+`simmersmith-e0a.1`, rerun the CloudKit package and generic iOS build, then commit
+`docs(ai): close e0a p1e device gate`.
 
 ---
 
@@ -131,7 +155,7 @@ package and require separate `Spec compliance: APPROVED` and `Task quality: APPR
 
 ---
 
-### Task 3: Cut default-off TestFlight build 162
+### Task 3: Cut default-off TestFlight build 163
 
 **Ownership:** Root controller only.
 
@@ -144,7 +168,7 @@ package and require separate `Spec compliance: APPROVED` and `Task quality: APPR
 
 **Interfaces:**
 - Consumes: reviewed Task-2 feature commit and `scripts/release-ios.sh`.
-- Produces: a silent build-162 release-note entry, terminal ASC `VALID`, internal Finklea Dev
+- Produces: a silent build-163 release-note entry, terminal ASC `VALID`, internal Finklea Dev
   assignment, and an installed default-off opt-in test vehicle.
 
 - [ ] **Step 1: Push and gate the feature commit**
@@ -152,23 +176,23 @@ package and require separate `Spec compliance: APPROVED` and `Task quality: APPR
 Fast-forward the reviewed feature commit to `main`, push `main`, select the GitHub Actions run whose
 head SHA is that non-`[skip ci]` feature commit, and require it to finish green.
 
-- [ ] **Step 2: Bump build 162 mechanically**
+- [ ] **Step 2: Bump build 163 mechanically**
 
-Add a silent `ReleaseNote` for build 162 dated `July 19, 2026` with headline `Under the hood` and
-empty `new`, `improved`, and `fixed` arrays. Set `CURRENT_PROJECT_VERSION: 162`, regenerate with
+Add a silent `ReleaseNote` for build 163 dated `July 19, 2026` with headline `Under the hood` and
+empty `new`, `improved`, and `fixed` arrays. Set `CURRENT_PROJECT_VERSION: 163`, regenerate with
 `xcodegen generate --spec SimmerSmith/project.yml`, run the release-note tests and generic build,
-then commit `chore(release): bump to build 162 [skip ci]`.
+then commit `chore(release): bump to build 163 [skip ci]`.
 
 - [ ] **Step 3: Push, upload, assign, and install**
 
 Push the release commit only after Task 3 Step 1 is green. Run `scripts/release-ios.sh` from the
 main checkout, require terminal ASC `VALID`, confirm internal Finklea Dev assignment, install build
-162 on the named owner and participant devices, and verify Settings -> Developer -> CloudKit checks
+163 on the named owner and participant devices, and verify Settings -> Developer -> CloudKit checks
 contains the cache-first toggle. Shipping static default must still be false.
 
 ---
 
-### Task 4: Run the complete build-162 P2 device matrix
+### Task 4: Run the complete build-163 P2 device matrix
 
 **Ownership:** Root controller plus the user handling Roshar and Sel. No worker receives device,
 account, release, or credential authority.
@@ -178,7 +202,7 @@ account, release, or credential authority.
 - Modify: `.docs/ai/current-state.md`
 
 **Interfaces:**
-- Consumes: build 162, Roshar and Sel, owner and participant accounts, the internal toggle, launch
+- Consumes: build 163, Roshar and Sel, owner and participant accounts, the internal toggle, launch
   signposts, mirror diagnostics, and genuine CKSyncEngine serialization.
 - Produces: paired performance statistics, owner/participant/offline/account/crash/two-device
   evidence, and a positive token-resume trace.
@@ -231,13 +255,13 @@ P2 report. Any failed row stops P2h.
 its own commit, and re-review.
 
 **Interfaces:**
-- Consumes: the exact build-162 default-off source and complete P2 report.
+- Consumes: the exact build-163 default-off source and complete P2 report.
 - Produces: one fresh Claude Opus verdict and one equal-or-higher-tier independent adversarial
   verdict, both with no unresolved Critical/Important findings.
 
 - [ ] **Step 1: Package the complete default-off diff and evidence**
 
-Generate a review package from the P2 merge base through the exact build-162 source and include the
+Generate a review package from the P2 merge base through the exact build-163 source and include the
 P2 report plus device artifacts. Reviewers are read-only and receive no release authority.
 
 - [ ] **Step 2: Run both reviews**
@@ -249,7 +273,7 @@ clean re-reviews.
 
 ---
 
-### Task 6: Enable the shipping default and release build 163
+### Task 6: Enable the shipping default and release build 164
 
 **Prerequisite:** Tasks 1-5 all pass. If any is incomplete, do not start.
 
@@ -264,9 +288,9 @@ clean re-reviews.
 - Modify after external verification: `.docs/ai/phases/e0a-cache-first-cutover-report.md`
 
 **Interfaces:**
-- Consumes: the fully passed build-162 matrix and clean reviews.
+- Consumes: the fully passed build-163 matrix and clean reviews.
 - Produces: App Store cache-first default-on with unknown receipt fail-closed, TestFlight override
-  retained for controls, build 163 VALID/assigned/installed, and closed P2h evidence.
+  retained for controls, build 164 VALID/assigned/installed, and closed P2h evidence.
 
 - [ ] **Step 1: Write the default-on policy tests first**
 
@@ -292,17 +316,17 @@ Obtain task and whole-branch review approval, then commit
 Fast-forward to `main`, push the non-`[skip ci]` feature commit, and require the GitHub Actions run
 for that exact SHA to finish green before release bookkeeping.
 
-- [ ] **Step 5: Bump and push build 163**
+- [ ] **Step 5: Bump and push build 164**
 
-Add build 163 dated `July 19, 2026`, headline `Meals ready sooner`, with one `improved` entry:
+Add build 164 dated `July 19, 2026`, headline `Meals ready sooner`, with one `improved` entry:
 `Your household now opens from its verified local cache while CloudKit catches up in the background.`
-Set `CURRENT_PROJECT_VERSION: 163`, regenerate the project, run release-note tests and the generic
-build, commit `chore(release): bump to build 163 [skip ci]`, and push it.
+Set `CURRENT_PROJECT_VERSION: 164`, regenerate the project, run release-note tests and the generic
+build, commit `chore(release): bump to build 164 [skip ci]`, and push it.
 
 - [ ] **Step 6: Upload and prove the installed release surface**
 
 Run `scripts/release-ios.sh`, require terminal ASC `VALID`, confirm internal Finklea Dev assignment,
-install build 163 from TestFlight, force-quit, and cold-launch on the seeded owner device. Require
+install build 164 from TestFlight, force-quit, and cold-launch on the seeded owner device. Require
 the cache-first signposts, correct visible household, background reconciliation to current, no new
 quarantine, and no cross-scope flash.
 

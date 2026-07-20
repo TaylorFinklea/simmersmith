@@ -21,6 +21,41 @@ private final class Counter: @unchecked Sendable {
     func increment() { lock.lock(); _value += 1; lock.unlock() }
 }
 
+/// Mirrors the task-local callback marker CKSyncEngine uses to reject an awaited call back into
+/// the engine from one of its delegate callbacks. A normal unstructured `Task` inherits this
+/// value; a detached task starts with the default value.
+private enum SyncEngineDelegateTaskContext {
+    @TaskLocal static var isActive = false
+}
+
+// simmersmith-e0a.1: build 161's repair task was created transitively from
+// `handleEvent(.sentRecordZoneChanges)`. `Task {}` inherited CKSyncEngine's delegate callback
+// task-local even though the debounce fired two seconds later, so `collapseWeeks()` trapped when
+// it awaited `sendChanges()`. The scheduler owns this asynchronous boundary and must detach it.
+@Test func repairPassDoesNotInheritSyncEngineDelegateTaskContext() async {
+    let inheritedContext = Counter()
+    let passes = RepairScheduler.Passes(
+        nonDestructive: {
+            if SyncEngineDelegateTaskContext.isActive {
+                inheritedContext.increment()
+            }
+        },
+        destructive: { }
+    )
+    let scheduler = RepairScheduler(
+        ownsZone: true,
+        debounceNanoseconds: 10_000_000,
+        passes: passes)
+    scheduler.activate()
+
+    await SyncEngineDelegateTaskContext.$isActive.withValue(true) {
+        scheduler.signal()
+        await scheduler.waitForPendingRun()
+    }
+
+    #expect(inheritedContext.value == 0)
+}
+
 @Test func debounceCoalescesBurstIntoOneRun() async {
     let nonDestructive = Counter()
     let destructive = Counter()

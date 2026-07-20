@@ -2069,3 +2069,23 @@ bit can be accidentally reused by a successor session. Persisting the exact tran
 namespace invalidation makes every suspension and restart resume toward less exposure. Binding
 both destructive deletion and replacement minting to one verified CloudKit account closes the
 last cross-account window after the reset transaction itself is complete.
+
+## 2026-07-19 — P2h consumes build 162 as a crash-only production hotfix
+
+**Decision.** Build 161 cannot close P1e: after offline grocery save/delete survived reconnect, its
+foreground convergence path hit CKSyncEngine's client assertion against awaiting a delegate-
+reentrant call. `RepairScheduler` now detaches only its scheduler-owned debounce task, preserving
+explicit cancellation, MainActor repair isolation, and automatic synchronization. Build 162 ships
+that reviewed fix with cache-first still default-off. The planned default-off opt-in vehicle moves
+to build 163 and the eventual default-on release moves to build 164.
+
+A locally signed Xcode build is not an equivalent gate: the available development provisioning
+profile routes CloudKit to the development environment, and this Mac has no production-capable ad
+hoc profile. Replacing the preserved TestFlight container with that build could mutate the wrong
+CloudKit environment and would not prove production convergence. The hotfix therefore follows the
+normal non-`[skip ci]` feature commit -> exact CI -> `[skip ci]` release commit -> TestFlight path.
+
+**Why.** The production household state is the only faithful reproduction of the crash boundary.
+Using a crash-only TestFlight vehicle preserves that state, avoids weakening the P1e gate, and keeps
+the cache-first rollout serial and default-off until all original device and review requirements
+pass.

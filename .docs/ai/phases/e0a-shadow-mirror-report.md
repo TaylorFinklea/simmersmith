@@ -1,7 +1,7 @@
 # e0a Shadow Mirror — P1e Hardening Evidence
 
 Date: 2026-07-15
-Status: build 157 device gate failed safely; repair feedback loop fixed and automated gates green; build 158 device rerun pending
+Status: build 161 device gate preserved offline grocery intent but exposed a CloudKit callback-context crash; reviewed build 162 hotfix pending device rerun
 Scope: P1 shadow capture only. The active store remains the source of truth; no cache-first UI or P2 restore behavior is enabled.
 
 ## Automated evidence
@@ -20,9 +20,10 @@ Scope: P1 shadow capture only. The active store remains the source of truth; no 
 - App-target gate — **90 tests passed** across 18 suites.
 - `xcodebuild build -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` — **BUILD SUCCEEDED**.
 - GitHub Actions run `29437504939` — **green** under Xcode 26.3: both Swift packages, app build, and 90 app-target tests. The first run exposed an older-compiler isolation error in the detached account-identity task; `fb34fae` confines the session validation to its owning main actor while preserving asynchronous launch behavior.
-- App Store Connect build **157** — uploaded and processed **VALID**; this is the signed device-test vehicle for the checklist below.
+- App Store Connect build **157** — uploaded and processed **VALID**; historical original signed
+  device-test vehicle. The active checklist below uses build 162.
 
-## Real-device P1 checklist — `[?] build 158 rerun pending`
+## Real-device P1 checklist — `[?] build 162 crash-hotfix rerun pending`
 
 Record device model, iOS version, app build, account role, and timestamp for each run.
 
@@ -55,5 +56,31 @@ Record device model, iOS version, app build, account role, and timestamp for eac
   all live singleton `keepers`; `EventMergeAdapter` re-saved all 65 unchanged rows; that send
   signaled the same repair again. The quarantine was the intended fail-closed response once forced
   packet loss stressed this runaway delivery churn, not corrupt checkpoint bytes.
-- Build-157 gate remains open: the explicit offline save/delete checklist was not completed, and
-  build 158 must repeat online/offline recovery and prove that no new quarantine is created.
+- Historical note (superseded by the build-162 route above): the build-157 gate remained open
+  because the explicit offline save/delete checklist was incomplete; the then-planned build-158
+  rerun was not performed. The current action is the build-162 crash-hotfix rerun.
+
+### Build 161 — Roshar (offline durability passed; reconnect crash diagnosed)
+
+- Device: iPhone 15 Pro, iOS 26.5.2 (23F84), TestFlight build 161, owner/private
+  household, 2026-07-19. The online grocery edit/delete path passed. Offline save/delete survived
+  force-quit, offline relaunch, and reconnect: the save remained visible and the delete stayed gone.
+- Captured mirror state before replacement had valid digests, no marker mismatch, no quarantine,
+  and two durable pending GroceryItem saves after reconnect. One duplicate Week pair made the
+  normal repair pass non-empty.
+- Two foreground launches then produced identical `EXC_BREAKPOINT` crashes. The exact build-161
+  dSYM and iOS 26.5.2 CloudKit symbols resolve the path through
+  `WeekRepairAdapter.collapseWeeks()`, `RepairScheduler.runDebouncedPass()`, and
+  `HouseholdSyncEngine.sendUntilDrained()` into `CKSyncEngine.sendChanges()`.
+- CloudKit's assertion states that an awaited call back into `CKSyncEngine` inherited its delegate
+  callback task context. The chain was `sentRecordZoneChanges` -> store-change signal -> ordinary
+  scheduler `Task {}` -> debounced repair -> `sendChanges()`. This was not a mirror checksum,
+  quarantine, or overlapping explicit-operation failure.
+- The scheduler-owned debounce now uses `Task.detached` while retaining explicit cancellation and
+  MainActor repair closures. A TaskLocal regression failed against the build-161 behavior and
+  passed after the fix. Verification: **676 CloudKit tests**, **187 SimmerSmithKit tests** with 8
+  entitled-host skips, **233 signed app tests**, generic iOS build, clean diff check, and independent
+  review approval with no findings.
+- P1e remains open until production-signed build 162 repeats the same online/offline/reconnect path,
+  drains the pending grocery work exactly once, completes duplicate-Week repair without a crash,
+  and creates no digest mismatch or quarantine.

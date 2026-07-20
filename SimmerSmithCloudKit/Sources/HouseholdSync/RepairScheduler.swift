@@ -202,7 +202,12 @@ public final class RepairScheduler: @unchecked Sendable {
         }
         pendingTask?.cancel()
         let interval = debounceNanoseconds
-        let task = Task { [weak self] in
+        // simmersmith-e0a.1: `signal()` is normally reached from CKSyncEngine's
+        // `handleEvent` callback. A regular unstructured Task inherits CloudKit's delegate
+        // task-local context, so a later repair drain traps when it awaits `sendChanges()`.
+        // Detach this owned debounce boundary; cancellation remains explicit through
+        // `pendingTask`, and the repair closures still hop to MainActor below.
+        let task = Task.detached { [weak self] in
             try? await Task.sleep(nanoseconds: interval)
             guard !Task.isCancelled, let self else { return }
             await self.runDebouncedPass()
