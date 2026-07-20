@@ -79,11 +79,16 @@ Add a Swift task-local regression that fails when the scheduler-owned debounce u
 single-flight draining, lifecycle fences, and automatic sync. Run both Swift packages, the signed
 app-target suite, the generic iOS build, and `git diff --check`; require independent review approval.
 
-- [ ] **Step 3: Land the hotfix feature commit and require exact CI**
+- [x] **Step 3: Land the hotfix feature commit and require exact CI**
 
 Commit `fix(cloudkit): detach repair work from sync callbacks`, fast-forward it to `main`, push, and
 require the GitHub Actions run whose head SHA is that non-`[skip ci]` commit to finish green before
 release bookkeeping.
+
+Landed as `ea15406`; deterministic CI follow-up `d18f3af` and private Ballast checkout restoration
+`9f8f39e` followed without changing production behavior. Exact run `29717363663` at full SHA
+`9f8f39e44e189d95cb2c83adb9718441c00a27d9` passed both Swift packages, the generic iOS build,
+and the signed app-target suite.
 
 - [ ] **Step 4: Cut and install crash-only TestFlight build 162**
 

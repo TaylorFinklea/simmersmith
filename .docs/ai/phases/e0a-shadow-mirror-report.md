@@ -81,6 +81,9 @@ Record device model, iOS version, app build, account role, and timestamp for eac
   passed after the fix. Verification: **676 CloudKit tests**, **187 SimmerSmithKit tests** with 8
   entitled-host skips, **233 signed app tests**, generic iOS build, clean diff check, and independent
   review approval with no findings.
+- Exact GitHub Actions run `29717363663` passed at
+  `9f8f39e44e189d95cb2c83adb9718441c00a27d9`, including the pinned private Ballast checkout, both
+  Swift packages, the generic iOS build, and the signed app-target suite.
 - P1e remains open until production-signed build 162 repeats the same online/offline/reconnect path,
   drains the pending grocery work exactly once, completes duplicate-Week repair without a crash,
   and creates no digest mismatch or quarantine.

@@ -20,6 +20,17 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 162,
+            version: "1.0.0",
+            date: "July 19, 2026",
+            headline: "A steadier grocery sync",
+            new: [],
+            improved: [],
+            fixed: [
+                "The app no longer closes unexpectedly while syncing grocery changes after you reconnect.",
+            ]
+        ),
+        ReleaseNote(
             build: 161,
             version: "1.0.0",
             date: "July 17, 2026",
