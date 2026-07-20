@@ -12,16 +12,25 @@ import GroceryMerge
 import SimmerSmithKit
 import AIProviderKit
 
-/// Debug-only panel to run the SP-A CloudKit checks on a signed-in sim/device.
-/// Reachable from Settings → Developer (DEBUG builds only). Container
+/// Developer panel to run the SP-A CloudKit checks on a signed-in sim/device.
+/// Reachable from Settings → Developer (DEBUG builds and TestFlight receipts). Container
 /// `iCloud.app.simmersmith.cloud`. See `.docs/ai/phases/cloudkit-sp-a-spec.md`.
 struct CloudKitDebugView: View {
     @Environment(AppState.self) private var appState
+    @AppStorage(AppState.cacheFirstLaunchOverrideKey) private var cacheFirstLaunchOverride = false
     @State private var output = "Tap a check to run it.\nThe sim/device must be signed into iCloud."
     @State private var running = false
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Cache-first launch", isOn: $cacheFirstLaunchOverride)
+            } header: {
+                SmithSectionHeader("developer")
+            } footer: {
+                Text("Internal TestFlight control. Force-quit and relaunch for the change to take effect.")
+            }
+
             Section {
                 Button {
                     runAllChecks()

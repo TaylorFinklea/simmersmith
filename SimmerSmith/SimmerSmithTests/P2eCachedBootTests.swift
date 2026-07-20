@@ -10,11 +10,38 @@ import HouseholdRecords
 
 @MainActor
 struct P2eLaunchPolicyTests {
-    @Test("shipping default stays off and App Store ignores local override")
+    @Test("developer CloudKit checks visibility is DEBUG or sandbox TestFlight only")
+    func cloudKitChecksVisibilityIsReceiptGated() {
+        let cases: [(isDebug: Bool, receiptFilename: String?, expected: Bool)] = [
+            (true, nil, true),
+            (true, "receipt", true),
+            (false, "sandboxReceipt", true),
+            (false, "receipt", false),
+            (false, nil, false),
+            (false, "unexpected", false),
+        ]
+
+        for testCase in cases {
+            #expect(
+                DebugGate.resolveShowsCloudKitChecks(
+                    isDebug: testCase.isDebug,
+                    receiptFilename: testCase.receiptFilename
+                ) == testCase.expected
+            )
+        }
+    }
+
+    @Test("shipping default stays off and App Store ignores both local overrides")
     func productionPolicyFailsClosed() {
         #expect(CacheFirstLaunchPolicy.resolve(
             staticDefault: false,
             installOverride: true,
+            receipt: .appStore,
+            isDebug: false
+        ).enabled == false)
+        #expect(CacheFirstLaunchPolicy.resolve(
+            staticDefault: false,
+            installOverride: false,
             receipt: .appStore,
             isDebug: false
         ).enabled == false)

@@ -9,9 +9,16 @@ import Foundation
 enum DebugGate {
     static var showsCloudKitChecks: Bool {
         #if DEBUG
-        return true
+        let isDebug = true
         #else
-        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        let isDebug = false
         #endif
+        return resolveShowsCloudKitChecks(
+            isDebug: isDebug,
+            receiptFilename: Bundle.main.appStoreReceiptURL?.lastPathComponent)
+    }
+
+    static func resolveShowsCloudKitChecks(isDebug: Bool, receiptFilename: String?) -> Bool {
+        isDebug || receiptFilename == "sandboxReceipt"
     }
 }
