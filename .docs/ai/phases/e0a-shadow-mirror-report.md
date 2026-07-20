@@ -84,6 +84,9 @@ Record device model, iOS version, app build, account role, and timestamp for eac
 - Exact GitHub Actions run `29717363663` passed at
   `9f8f39e44e189d95cb2c83adb9718441c00a27d9`, including the pinned private Ballast checkout, both
   Swift packages, the generic iOS build, and the signed app-target suite.
+- Release commit `ae029f7` passed 18 focused release-note tests and the generic iOS build. Its signed
+  archive and upload succeeded; App Store Connect reports build 162 `VALID`, and the Finklea Dev
+  internal-group assignment is present. Roshar installation is pending.
 - P1e remains open until production-signed build 162 repeats the same online/offline/reconnect path,
   drains the pending grocery work exactly once, completes duplicate-Week repair without a crash,
   and creates no digest mismatch or quarantine.

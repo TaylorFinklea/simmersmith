@@ -90,7 +90,7 @@ Landed as `ea15406`; deterministic CI follow-up `d18f3af` and private Ballast ch
 `9f8f39e44e189d95cb2c83adb9718441c00a27d9` passed both Swift packages, the generic iOS build,
 and the signed app-target suite.
 
-- [ ] **Step 4: Cut and install crash-only TestFlight build 162**
+- [?] **Step 4: Cut and install crash-only TestFlight build 162 — awaiting Roshar install**
 
 Add build 162 dated `July 19, 2026`, headline `A steadier grocery sync`, with one `fixed` entry:
 `The app no longer closes unexpectedly while syncing grocery changes after you reconnect.` Keep
@@ -98,6 +98,10 @@ the cache-first static default false. Set `CURRENT_PROJECT_VERSION: 162`, regene
 run release-note tests and the generic build, commit
 `chore(release): cut crash hotfix build 162 [skip ci]`, push, run `scripts/release-ios.sh`, require
 terminal ASC `VALID`, confirm internal Finklea Dev assignment, and install build 162 on Roshar.
+
+Release commit `ae029f7` is pushed. The signed archive and upload succeeded; App Store Connect
+reports build 162 `VALID` and its Finklea Dev assignment is present. Installation on Roshar remains
+the human gate.
 
 - [ ] **Step 5: Repeat the P1e control and offline-recovery path**
 
