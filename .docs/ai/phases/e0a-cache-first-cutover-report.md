@@ -227,3 +227,30 @@ performance evidence; P2h adds device-gate evidence.
   - generic unsigned iOS build — **BUILD SUCCEEDED**; `git diff --check` clean.
 - P1e remains `[?]`; shipping default remains off. P2g performs no named-device opt-in, release,
   schema, or build-number change. P2h is next.
+
+## P2h Task 3 — default-off TestFlight vehicle
+
+- Pushed exact non-`[skip ci]` feature commit `e21dadf`; GitHub Actions CI run
+  29798528886 completed green. Only then pushed release commit `9008ef6`
+  (`chore(release): bump to build 163 [skip ci]`).
+- Build 163 has the silent `July 19, 2026` `Under the hood` release-note entry
+  (all visible-change arrays empty) and `CURRENT_PROJECT_VERSION: 163`.
+- `scripts/release-ios.sh` archived, exported, and uploaded build 163. Its terminal App Store
+  Connect processing result was `VALID`. A direct ASC query then confirmed that the non-expired
+  build 163 is assigned to the internal `Finklea Dev` beta group.
+- The production gate remains `staticDefault: false`; the cache-first toggle is still only a
+  DEBUG/TestFlight receipt control.
+- Verify 2026-07-20 and reverify 2026-07-21:
+  - GitHub Actions CI run 29798528886 for exact feature SHA `e21dadf` — **green**.
+  - signed `xcodebuild test ... -only-testing:SimmerSmithTests/ReleaseNotesGateTests` —
+    **13 tests passed**.
+  - generic unsigned iOS build — **BUILD SUCCEEDED**.
+  - signed archive/export/upload — **ARCHIVE SUCCEEDED**, **EXPORT SUCCEEDED**, then ASC
+    **VALID**.
+  - fresh ASC query — build 163 remains **VALID** and assigned to `Finklea Dev`.
+  - CoreDevice independently reported TestFlight `1.0.0 (163)` installed on Roshar (owner) and Sel
+    (participant); both apps survived a controller-triggered terminate/relaunch check.
+  - user confirmed Settings → Developer → CloudKit checks exposes `Cache-first launch` on both
+    devices with the toggle left off. Shipping `staticDefault` remains `false`.
+- Task 3 is complete. Task 4 owns the full opt-in device and performance matrix; build 163 has not
+  yet passed that matrix and is not evidence for default-on.

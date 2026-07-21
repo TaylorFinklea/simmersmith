@@ -190,19 +190,19 @@ quality reviews APPROVED; feature commit `e21dadf`.
 - Produces: a silent build-163 release-note entry, terminal ASC `VALID`, internal Finklea Dev
   assignment, and an installed default-off opt-in test vehicle.
 
-- [ ] **Step 1: Push and gate the feature commit**
+- [x] **Step 1: Push and gate the feature commit**
 
 Fast-forward the reviewed feature commit to `main`, push `main`, select the GitHub Actions run whose
 head SHA is that non-`[skip ci]` feature commit, and require it to finish green.
 
-- [ ] **Step 2: Bump build 163 mechanically**
+- [x] **Step 2: Bump build 163 mechanically**
 
 Add a silent `ReleaseNote` for build 163 dated `July 19, 2026` with headline `Under the hood` and
 empty `new`, `improved`, and `fixed` arrays. Set `CURRENT_PROJECT_VERSION: 163`, regenerate with
 `xcodegen generate --spec SimmerSmith/project.yml`, run the release-note tests and generic build,
 then commit `chore(release): bump to build 163 [skip ci]`.
 
-- [ ] **Step 3: Push, upload, assign, and install**
+- [x] **Step 3: Push, upload, assign, and install**
 
 Push the release commit only after Task 3 Step 1 is green. Run `scripts/release-ios.sh` from the
 main checkout, require terminal ASC `VALID`, confirm internal Finklea Dev assignment, install build
