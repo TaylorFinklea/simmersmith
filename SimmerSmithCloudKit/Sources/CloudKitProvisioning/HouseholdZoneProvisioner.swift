@@ -19,6 +19,17 @@ public struct HouseholdZoneProvisioner {
         }
     }
 
+    public enum ProvisioningError: Error, Equatable, LocalizedError, Sendable {
+        case reservedVerificationHouseholdID(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .reservedVerificationHouseholdID:
+                return "Verification household identifiers cannot provision production zones."
+            }
+        }
+    }
+
     public let container: CKContainer
     public init(containerIdentifier: String = "iCloud.app.simmersmith.cloud") {
         self.container = CKContainer(identifier: containerIdentifier)
@@ -33,6 +44,39 @@ public struct HouseholdZoneProvisioner {
     /// source of truth shared by `zoneName(householdID:)` and `householdID(fromZoneName:)`.
     static let zoneNamePrefix = "household-"
 
+    /// Developer checks use a namespace that production discovery never parses as a household.
+    public static let verificationZoneNamePrefix = "simmersmith-verification-"
+
+    /// Finite compatibility list of developer household IDs created by older builds in the
+    /// production namespace. They remain resettable, but are never launch candidates.
+    public static let legacyVerificationHouseholdIDs: Set<String> = [
+        "phase0-test", "phase2-test", "phase2b-test", "phase3-test", "phase4-test",
+        "phase4b-test", "phase5b-test", "phase5c-test", "phase5d-test", "phase7-test",
+        "phase4-repair", "phase2c-shared", "spc-recipe-test", "spc-weeks-test",
+        "spc-events-test", "spc-pantry-test",
+    ]
+
+    public static func verificationZoneName(identifier: String) -> String {
+        "\(verificationZoneNamePrefix)\(identifier)"
+    }
+
+    public static func isReservedVerificationHouseholdID(_ householdID: String) -> Bool {
+        legacyVerificationHouseholdIDs.contains(householdID)
+    }
+
+    /// A zone is launch-eligible only when it parses as a production household zone and its
+    /// legacy identifier is not reserved for a developer verification scope.
+    public static func isLaunchEligibleHouseholdZoneName(_ zoneName: String) -> Bool {
+        guard let householdID = householdID(fromZoneName: zoneName) else { return false }
+        return !isReservedVerificationHouseholdID(householdID)
+    }
+
+    public static func validateProductionHouseholdID(_ householdID: String) throws {
+        guard !isReservedVerificationHouseholdID(householdID) else {
+            throw ProvisioningError.reservedVerificationHouseholdID(householdID)
+        }
+    }
+
     /// Inverse of `zoneName(householdID:)`: parse the household id back out of a zone
     /// name. Returns `nil` for any zone whose name doesn't match the `household-<id>`
     /// convention (CloudKit's default `_defaultZone`, future non-household zones, …).
@@ -45,14 +89,23 @@ public struct HouseholdZoneProvisioner {
         return id.isEmpty ? nil : id
     }
 
-    /// Idempotent: saving an existing zone is a no-op success, so this is safe to
-    /// run on every launch (the discover-then-claim is implicit in the deterministic
-    /// name + idempotent save).
+    /// Idempotent production-zone provisioner. Reserved verification identifiers cannot
+    /// recreate a launch-eligible production scope.
     @discardableResult
     public func ensureHouseholdZone(householdID: String) async throws -> CKRecordZone {
+        try Self.validateProductionHouseholdID(householdID)
+        return try await ensureZone(named: Self.zoneName(householdID: householdID))
+    }
+
+    /// Idempotent developer-check provisioner. Its namespace cannot parse as production.
+    @discardableResult
+    public func ensureVerificationZone(identifier: String) async throws -> CKRecordZone {
+        try await ensureZone(named: Self.verificationZoneName(identifier: identifier))
+    }
+
+    private func ensureZone(named zoneName: String) async throws -> CKRecordZone {
         let zone = CKRecordZone(
-            zoneID: CKRecordZone.ID(zoneName: Self.zoneName(householdID: householdID),
-                                    ownerName: CKCurrentUserDefaultName))
+            zoneID: CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName))
         _ = try await container.privateCloudDatabase.modifyRecordZones(saving: [zone], deleting: [])
         return zone
     }
@@ -91,6 +144,10 @@ public struct HouseholdZoneProvisioner {
         /// Ids of additional household zones NOT chosen (spec §1.2 — log, don't pick).
         /// Empty in the common zero/one-zone case.
         public let ignoredHouseholdIDs: [String]
+        /// Legacy developer verification IDs found in the production namespace. They are
+        /// intentionally separate from ignored ids because automatic cleanup consumes the
+        /// latter; legacy verification scopes are preserved until explicit factory reset.
+        public let excludedVerificationHouseholdIDs: [String]
         /// Set when MULTIPLE household zones exist but NONE could be proved populated
         /// (every profile fetch failed/absent). The caller must NOT alphabetical-guess
         /// into an unproven zone — it surfaces an ambiguous-household error and stays in
@@ -98,9 +155,15 @@ public struct HouseholdZoneProvisioner {
         /// (zero zones, one zone, or one provably-populated zone among several).
         public let isAmbiguous: Bool
 
-        public init(householdID: String?, ignoredHouseholdIDs: [String], isAmbiguous: Bool = false) {
+        public init(
+            householdID: String?,
+            ignoredHouseholdIDs: [String],
+            excludedVerificationHouseholdIDs: [String] = [],
+            isAmbiguous: Bool = false
+        ) {
             self.householdID = householdID
             self.ignoredHouseholdIDs = ignoredHouseholdIDs
+            self.excludedVerificationHouseholdIDs = excludedVerificationHouseholdIDs
             self.isAmbiguous = isAmbiguous
         }
     }
@@ -141,33 +204,47 @@ public struct HouseholdZoneProvisioner {
 
         // Map each household zone to (householdID, zone) — drop _defaultZone + anything
         // not matching the convention.
-        let candidates: [(id: String, zone: CKRecordZone)] = zones.compactMap { zone in
+        let parsedCandidates: [(id: String, zone: CKRecordZone)] = zones.compactMap { zone in
             guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName) else { return nil }
             return (id, zone)
         }
-
-        if candidates.isEmpty { return DiscoveryResult(householdID: nil, ignoredHouseholdIDs: []) }
-        if candidates.count == 1 {
-            return DiscoveryResult(householdID: candidates[0].id, ignoredHouseholdIDs: [])
+        let excludedVerificationHouseholdIDs = parsedCandidates
+            .filter { Self.isReservedVerificationHouseholdID($0.id) }
+            .map(\.id)
+            .sorted()
+        let candidates = parsedCandidates.filter {
+            !Self.isReservedVerificationHouseholdID($0.id)
         }
 
-        // Multiple household zones (SP-C on-device finding, build 118: repeated early-build
-        // minting). Rank by DATA RICHNESS — the zone holding the user's records wins over the
-        // empty profile-only mints. The earlier "has a HouseholdProfile" proof couldn't tell
-        // them apart: EVERY mint writes a HouseholdProfile, so empties proved just as "real"
-        // as the recipe-bearing zone, and the lowest-id tiebreak orphaned the real data into
-        // an ignored zone. Counting records (via fetch-zone-changes, no index needed) does
-        // distinguish them: the recipe zone has dozens, the mints have ≤1.
+        // Legacy verification scopes are evidence that the account is not empty, but they are
+        // never launch candidates and must never enter automatic-cleanup bookkeeping.
+        guard !candidates.isEmpty else {
+            return DiscoveryResult(
+                householdID: nil,
+                ignoredHouseholdIDs: [],
+                excludedVerificationHouseholdIDs: excludedVerificationHouseholdIDs,
+                isAmbiguous: !excludedVerificationHouseholdIDs.isEmpty)
+        }
+        if candidates.count == 1 {
+            return DiscoveryResult(
+                householdID: candidates[0].id,
+                ignoredHouseholdIDs: [],
+                excludedVerificationHouseholdIDs: excludedVerificationHouseholdIDs)
+        }
+
+        // Multiple eligible production zones are ranked by data richness. Excluded verification
+        // zones are partitioned before counting, so they cannot win or feed cleanup.
         var scored: [(id: String, count: Int)] = []
         for candidate in candidates {
-            // Fail-OPEN on purpose (the opposite of the deletion path): an unreadable zone
-            // scores 0 so it can never outrank a readable data zone, and if NONE can be read
-            // the field falls to `isAmbiguous` instead of guessing. Deleting on a 0 we couldn't
-            // prove would be data loss — hence `recordCount`'s `Int?`.
             let count = await recordCount(db: db, zoneID: candidate.zone.zoneID) ?? 0
             scored.append((candidate.id, count))
         }
-        return Self.chooseRichestHousehold(scored)
+        let ranked = Self.chooseRichestHousehold(scored)
+        return DiscoveryResult(
+            householdID: ranked.householdID,
+            ignoredHouseholdIDs: ranked.ignoredHouseholdIDs,
+            excludedVerificationHouseholdIDs: excludedVerificationHouseholdIDs,
+            isAmbiguous: ranked.isAmbiguous)
     }
 
     /// Pick the data-richest household among several candidates, each scored by how many
@@ -187,6 +264,31 @@ public struct HouseholdZoneProvisioner {
         let winner = scored.filter { $0.count == maxCount }.map(\.id).sorted()[0]
         return DiscoveryResult(householdID: winner,
                                ignoredHouseholdIDs: allIDs.filter { $0 != winner })
+    }
+
+    /// Pure counterpart of discovery's verification partition, used to pin the launch policy
+    /// without a CloudKit account. The production path partitions before it performs census.
+    static func chooseLaunchEligibleHousehold(
+        _ scored: [(id: String, count: Int)]
+    ) -> DiscoveryResult {
+        let excluded = scored
+            .filter { isReservedVerificationHouseholdID($0.id) }
+            .map(\.id)
+            .sorted()
+        let eligible = scored.filter { !isReservedVerificationHouseholdID($0.id) }
+        guard !eligible.isEmpty else {
+            return DiscoveryResult(
+                householdID: nil,
+                ignoredHouseholdIDs: [],
+                excludedVerificationHouseholdIDs: excluded,
+                isAmbiguous: !excluded.isEmpty)
+        }
+        let ranked = chooseRichestHousehold(eligible)
+        return DiscoveryResult(
+            householdID: ranked.householdID,
+            ignoredHouseholdIDs: ranked.ignoredHouseholdIDs,
+            excludedVerificationHouseholdIDs: excluded,
+            isAmbiguous: ranked.isAmbiguous)
     }
 
     /// Count the records in a zone via `CKFetchRecordZoneChangesOperation` — needs NO queryable
@@ -281,7 +383,8 @@ public struct HouseholdZoneProvisioner {
         var deleted: [String] = []
         var dataBearing: [String] = []
         var unreadable: [String] = []
-        for leftover in censused where leftover.id != keeping {
+        for leftover in censused where leftover.id != keeping
+            && !isReservedVerificationHouseholdID(leftover.id) {
             guard let count = leftover.count else {
                 unreadable.append(leftover.id)
                 continue
@@ -323,7 +426,9 @@ public struct HouseholdZoneProvisioner {
         for zone in zones {
             // Skipping `keeping` here spares a pointless fetch; `classifyLeftovers` filters it
             // again as the tested safety net. Belt and braces on the destructive path.
-            guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName), id != keeping else { continue }
+            guard let id = Self.householdID(fromZoneName: zone.zoneID.zoneName),
+                  id != keeping,
+                  !Self.isReservedVerificationHouseholdID(id) else { continue }
             zoneIDsByHousehold[id] = zone.zoneID
             censused.append((id, await recordCount(db: db, zoneID: zone.zoneID)))
         }
@@ -391,17 +496,23 @@ public struct HouseholdZoneProvisioner {
         return deletedIDs.compactMap { Self.householdID(fromZoneName: $0) }.sorted()
     }
 
-    /// Phase 0 VERIFY: create the zone, write `HouseholdProfile`, read it back.
-    /// Returns the round-tripped name (should equal `name`). Run from an entitled,
-    /// iCloud-signed-in target.
+    /// Phase 0 VERIFY: create a verification-namespace zone, write `HouseholdProfile`, and
+    /// read it back. It never creates a production household-namespace zone.
     public func verifyRoundTrip(householdID: String = "phase0-test",
                                 name: String = "Phase 0 Test") async throws -> String {
-        _ = try await ensureHouseholdProfile(householdID: householdID, name: name)
-        let zoneID = CKRecordZone.ID(zoneName: Self.zoneName(householdID: householdID),
-                                     ownerName: CKCurrentUserDefaultName)
-        let read = try await container.privateCloudDatabase
-            .record(for: CKRecord.ID(recordName: householdID, zoneID: zoneID))
-        return read["name"] as? String ?? ""
+        let zone = try await ensureVerificationZone(identifier: householdID)
+        let recordID = CKRecord.ID(recordName: householdID, zoneID: zone.zoneID)
+        let database = container.privateCloudDatabase
+        let profile: CKRecord
+        do {
+            profile = try await database.record(for: recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            profile = CKRecord(recordType: "HouseholdProfile", recordID: recordID)
+            profile["name"] = name
+            profile["createdAt"] = Date()
+            _ = try await database.modifyRecords(saving: [profile], deleting: [])
+        }
+        return profile["name"] as? String ?? ""
     }
 }
 #endif

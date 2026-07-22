@@ -21,21 +21,41 @@ private var capturedStateSerializationData: Data {
     Data(base64Encoded: capturedStateSerializationB64.replacingOccurrences(of: "\n", with: ""))!
 }
 
-private let catalogZone = CKRecordZone.ID(zoneName: "household", ownerName: "user-a")
+private let catalogZone = CKRecordZone.ID(zoneName: "household-real-household", ownerName: "user-a")
 
 private func catalogScope(
     account: String = "user-a",
     householdID: String = "household-a"
 ) -> MirrorScope {
     MirrorScope(
-        accountRecordName: account, zoneOwnerName: "user-a", zoneName: "household",
+        accountRecordName: account, zoneOwnerName: "user-a", zoneName: "household-real-household",
         householdID: householdID, role: .owner, databaseScope: .private)
 }
 
 private func participantScope(account: String = "user-b") -> MirrorScope {
     MirrorScope(
-        accountRecordName: account, zoneOwnerName: "owner-x", zoneName: "household",
+        accountRecordName: account, zoneOwnerName: "owner-x", zoneName: "household-real-household",
         householdID: "household-x", role: .participant, databaseScope: .shared)
+}
+
+private func verificationOwnerScope() -> MirrorScope {
+    MirrorScope(
+        accountRecordName: "user-a",
+        zoneOwnerName: "user-a",
+        zoneName: "household-spc-recipe-test",
+        householdID: "spc-recipe-test",
+        role: .owner,
+        databaseScope: .private)
+}
+
+private func participantFallbackScope() -> MirrorScope {
+    MirrorScope(
+        accountRecordName: "user-b",
+        zoneOwnerName: "owner-x",
+        zoneName: "household-real-household",
+        householdID: "household-real-household",
+        role: .participant,
+        databaseScope: .shared)
 }
 
 private func catalogRecord(
@@ -137,6 +157,30 @@ func ownerCachedResumeMaterializesOverlaidBootstrap() async throws {
     _ = try writer.recoveredCheckpointSynchronously()
 }
 
+@Test("owner catalog leaves a valid legacy verification scope untouched and unselected")
+func ownerCatalogExcludesLegacyVerificationScopeBeforeMaterialization() async throws {
+    let root = try catalogRoot()
+    let scope = verificationOwnerScope()
+    let zone = CKRecordZone.ID(zoneName: scope.zoneName, ownerName: scope.zoneOwnerName)
+    try await seedCachedScope(root: root, scope: scope, zone: zone)
+    let scopeDirectory = root.appendingPathComponent(scope.cacheKey)
+    let observations = BootstrapObservationLog()
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        observationContext: HouseholdSyncBootstrapObservationContext(observer: observations.append))
+
+    guard case .none = result.outcome else {
+        Issue.record("legacy verification scope must never produce an owner candidate")
+        return
+    }
+    #expect(result.diagnostics.isEmpty)
+    #expect(observations.values.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: scopeDirectory.path))
+    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("quarantine").path))
+}
+
 @Test("cached catalog observations are ordered and clamp backwards monotonic clocks")
 func cachedCatalogObservationsAreOrdered() async throws {
     let root = try catalogRoot()
@@ -193,13 +237,13 @@ func corruptCatalogCandidateReportsTerminalObservation() async throws {
 @Test("participant selection requires the marker's exact owner zone")
 func participantExactZoneSelection() async throws {
     let root = try catalogRoot()
-    let zone = CKRecordZone.ID(zoneName: "household", ownerName: "owner-x")
+    let zone = CKRecordZone.ID(zoneName: "household-real-household", ownerName: "owner-x")
     try await seedCachedScope(root: root, scope: participantScope(), zone: zone)
 
     let matched = ShadowMirrorBootstrapCatalog.open(
         request: .participant(
             accountRecordName: "user-b",
-            markerZone: MirrorZoneReference(ownerName: "owner-x", zoneName: "household")),
+            markerZone: MirrorZoneReference(ownerName: "owner-x", zoneName: "household-real-household")),
         rootDirectory: root)
     // A legacy participant checkpoint carries only the old Boolean zone proof. It must
     // retain its durable intent as recovery-only and take a safe full fetch; it must never
@@ -214,7 +258,7 @@ func participantExactZoneSelection() async throws {
     let wrongZone = ShadowMirrorBootstrapCatalog.open(
         request: .participant(
             accountRecordName: "user-b",
-            markerZone: MirrorZoneReference(ownerName: "owner-y", zoneName: "household")),
+            markerZone: MirrorZoneReference(ownerName: "owner-y", zoneName: "household-real-household")),
         rootDirectory: root)
     guard case .none = wrongZone.outcome else {
         Issue.record("wrong zone must not select a candidate")
@@ -228,6 +272,28 @@ func participantExactZoneSelection() async throws {
         Issue.record("an unavailable participant marker must yield no cached bootstrap")
         return
     }
+}
+
+@Test("participant catalog accepts a full-zone-name fallback household id with exact marker identity")
+func participantCatalogKeepsFullZoneNameFallbackCompatibility() async throws {
+    let root = try catalogRoot()
+    let scope = participantFallbackScope()
+    let zone = CKRecordZone.ID(zoneName: scope.zoneName, ownerName: scope.zoneOwnerName)
+    try await seedCachedScope(root: root, scope: scope, zone: zone)
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .participant(
+            accountRecordName: "user-b",
+            markerZone: MirrorZoneReference(
+                ownerName: scope.zoneOwnerName,
+                zoneName: scope.zoneName)),
+        rootDirectory: root)
+
+    guard case .recoveryOnly(let plan, _) = result.outcome else {
+        Issue.record("matching participant scope with full-zone fallback id must remain selectable")
+        return
+    }
+    #expect(plan.scope == scope)
 }
 
 @Test("zero candidates and unknown accounts yield nothing; multiple owner scopes are anomalous")
@@ -346,7 +412,7 @@ func corruptSelectedCandidateQuarantinesOnlyThatScope() async throws {
     _ = try await ownerWriter.appendSave(
         catalogRecord("recipe-1"), mutationGeneration: 1, changedFields: ["name"])
     await ownerWriter.fenceAndPark()
-    let participantZone = CKRecordZone.ID(zoneName: "household", ownerName: "owner-x")
+    let participantZone = CKRecordZone.ID(zoneName: "household-real-household", ownerName: "owner-x")
     let participantWriter = try ShadowMirrorCheckpointWriter(
         scope: participantScope(account: "user-a"), rootDirectory: root)
     _ = try await participantWriter.appendSave(
@@ -372,7 +438,7 @@ func corruptSelectedCandidateQuarantinesOnlyThatScope() async throws {
     let participantResult = ShadowMirrorBootstrapCatalog.open(
         request: .participant(
             accountRecordName: "user-a",
-            markerZone: MirrorZoneReference(ownerName: "owner-x", zoneName: "household")),
+            markerZone: MirrorZoneReference(ownerName: "owner-x", zoneName: "household-real-household")),
         rootDirectory: root)
     guard case .recoveryOnly = participantResult.outcome else {
         Issue.record("healthy sibling must remain selectable, got \(participantResult.outcome)")
@@ -446,7 +512,7 @@ func overlayAssertsTombstonesAbsent() throws {
         catalogRecord("recipe-9"), in: directory)
     let tombstone = MirrorRecordIdentity(
         recordType: "Recipe", recordName: "recipe-9",
-        zoneOwnerName: "user-a", zoneName: "household")
+        zoneOwnerName: "user-a", zoneName: "household-real-household")
     let intent = MirrorOutboxIntent(
         sequence: 1, mutationGeneration: 1, operation: .save, record: saveEnvelope,
         changedFields: ["name"])
@@ -470,7 +536,7 @@ func overlayAssertsTombstonesAbsent() throws {
 func foreignZoneIdentitiesAreRejected() throws {
     let scope = catalogScope()
     let directory = try catalogRoot()
-    let foreignZone = CKRecordZone.ID(zoneName: "household", ownerName: "someone-else")
+    let foreignZone = CKRecordZone.ID(zoneName: "household-real-household", ownerName: "someone-else")
     let envelope = try ShadowMirrorRecordEnvelope.archive(
         catalogRecord("recipe-1", zone: foreignZone), in: directory)
     let bundle = try MirrorCheckpointBundle(
@@ -568,7 +634,7 @@ func terminalRowsBecomeIntervention() async throws {
     _ = try await writer.appendDelete(
         MirrorRecordIdentity(
             recordType: "Recipe", recordName: "recipe-3",
-            zoneOwnerName: "user-a", zoneName: "household"),
+            zoneOwnerName: "user-a", zoneName: "household-real-household"),
         mutationGeneration: 3)
     await writer.fenceAndPark()
 

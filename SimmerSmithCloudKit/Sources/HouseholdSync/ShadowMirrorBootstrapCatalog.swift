@@ -1,6 +1,7 @@
 #if canImport(CloudKit)
 import CloudKit
 import Foundation
+import CloudKitProvisioning
 
 // e0a P2 spec §3.1–3.2: read-only bootstrap catalog and materializer. The catalog receives the
 // CloudKit-proved current account identity plus the requested role (and, for a participant, the
@@ -291,6 +292,9 @@ public enum ShadowMirrorBootstrapCatalog {
     }
 
     private static func matches(_ request: MirrorBootstrapRequest, _ scope: MirrorScope) -> Bool {
+        guard HouseholdZoneProvisioner.isLaunchEligibleHouseholdZoneName(scope.zoneName) else {
+            return false
+        }
         switch request {
         case .owner(let accountRecordName):
             return scope.role == .owner

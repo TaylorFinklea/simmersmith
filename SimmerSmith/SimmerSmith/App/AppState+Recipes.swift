@@ -1332,8 +1332,12 @@ extension AppState {
         // alphabetical-guess into an unproven zone — surface an error and stay resolving so
         // a later retry (foreground) can re-probe once propagation/repair settles.
         if result.isAmbiguous {
-            lastErrorMessage = "Found \(result.ignoredHouseholdIDs.count) CloudKit households "
-                + "but couldn't confirm which holds your data. Will retry."
+            let excludedCount = result.excludedVerificationHouseholdIDs.count
+            lastErrorMessage = "Found \(result.ignoredHouseholdIDs.count) CloudKit households"
+                + (excludedCount == 0
+                    ? ""
+                    : " and \(excludedCount) legacy verification scope(s)")
+                + " but couldn't confirm which holds your data. Will retry."
             return nil
         }
 

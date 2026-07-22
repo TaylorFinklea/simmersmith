@@ -357,7 +357,9 @@ func runPrivatePlaneCheck() async -> String {
 /// update → delete) single-device. Cross-account CKShare is the manual two-account test.
 func runHouseholdSyncCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase2-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase2-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let stateA = tmp.appendingPathComponent("hh-stateA-\(UUID().uuidString).json")
@@ -446,7 +448,9 @@ func runHouseholdSyncCheck() async -> String {
 /// sweeps children client-side; (3) a SET-NULL self-ref does NOT cascade.
 func runHouseholdRecordsCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase2b-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase2b-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let stateA = tmp.appendingPathComponent("hr-stateA-\(UUID().uuidString).json")
@@ -545,7 +549,9 @@ func runHouseholdRecordsCheck() async -> String {
 /// must survive a concurrent regen.
 func runGroceryMergeCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase4-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase4-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let stateA = tmp.appendingPathComponent("gm-stateA-\(UUID().uuidString).json")
@@ -645,7 +651,9 @@ func runGroceryMergeCheck() async -> String {
 /// active merge pointer, and eventQuantity is preserved — across two engines on one zone.
 func runEventGroceryMergeCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase4b-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase4b-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let stateA = tmp.appendingPathComponent("eg-stateA-\(UUID().uuidString).json")
@@ -720,7 +728,8 @@ private func phase5Engines(_ zoneName: String) -> (CKRecordZone.ID, CKDatabase, 
 
 /// SP-A Phase 5 Layer B: the Event manuallyMerged pin is sticky under a concurrent rename.
 func runEventPinCheck() async -> String {
-    let (zoneID, db, makeMerger) = phase5Engines("household-phase5b-test")
+    let (zoneID, db, makeMerger) = phase5Engines(
+        HouseholdZoneProvisioner.verificationZoneName(identifier: "phase5b-test"))
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p5b-A-\(UUID().uuidString).json")
     let sB = tmp.appendingPathComponent("p5b-B-\(UUID().uuidString).json")
@@ -767,7 +776,8 @@ func runEventPinCheck() async -> String {
 /// SP-A Phase 5 Layer F: merge an event into a week (event_quantity + event-only rows), then
 /// unmerge (HARD-delete the event-only rows) — converging across two engines.
 func runEventWeekCheck() async -> String {
-    let (zoneID, db, makeMerger) = phase5Engines("household-phase5c-test")
+    let (zoneID, db, makeMerger) = phase5Engines(
+        HouseholdZoneProvisioner.verificationZoneName(identifier: "phase5c-test"))
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p5c-A-\(UUID().uuidString).json")
     let sB = tmp.appendingPathComponent("p5c-B-\(UUID().uuidString).json")
@@ -846,7 +856,8 @@ func runEventWeekCheck() async -> String {
 /// SP-A Phase 5 Layer E: the post-batch grocery dedupe repair collapses duplicates to one
 /// rolled-up keeper + a tombstone, converging across two engines, idempotently.
 func runDedupeRepairCheck() async -> String {
-    let (zoneID, db, makeMerger) = phase5Engines("household-phase5d-test")
+    let (zoneID, db, makeMerger) = phase5Engines(
+        HouseholdZoneProvisioner.verificationZoneName(identifier: "phase5d-test"))
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p5d-A-\(UUID().uuidString).json")
     let sB = tmp.appendingPathComponent("p5d-B-\(UUID().uuidString).json")
@@ -938,7 +949,9 @@ func runShareParticipantCheck() async -> String {
 /// SP-A Phase 3: a recipe header image stored as a CKAsset round-trips through the household
 /// CKSyncEngine — engine A writes the bytes, engine B downloads + decodes the asset, bytes match.
 func runRecipeImageCheck() async -> String {
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase3-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase3-test"),
+        ownerName: CKCurrentUserDefaultName)
     let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p3-A-\(UUID().uuidString).json")
@@ -980,7 +993,9 @@ func runRecipeImageCheck() async -> String {
 /// SP-A Phase 7: the HouseholdMigrationRunner imports a sample household export into the zone —
 /// engine B sees the migrated records; a re-run is an idempotent no-op (the MigrationReceipt gates it).
 func runMigrationCheck() async -> String {
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase7-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase7-test"),
+        ownerName: CKCurrentUserDefaultName)
     let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p7-A-\(UUID().uuidString).json")
@@ -1063,7 +1078,9 @@ func runMigrationCheck() async -> String {
 // WeekChangeBatch records + the adapter's CKRecord↔value-type bridge + the engine save/delete/
 // cascade wiring (the pure ConflictRepair passes are headless-tested in GroceryMergeTests).
 func runWeekRepairCheck() async -> String {
-    let zoneID = CKRecordZone.ID(zoneName: "household-phase4-repair", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "phase4-repair"),
+        ownerName: CKCurrentUserDefaultName)
     let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("p4-A-\(UUID().uuidString).json")
@@ -1152,7 +1169,9 @@ func runWeekRepairCheck() async -> String {
 ///   3. Image bytes round-trip exactly (CKAsset download + RecipeImageCodec.decode).
 ///   4. deleteCascading(recipe) removes the recipe, ingredient, step, AND the image record.
 func runRecipeRepoCheck() async -> String {
-    let zoneID = CKRecordZone.ID(zoneName: "household-spc-recipe-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "spc-recipe-test"),
+        ownerName: CKCurrentUserDefaultName)
     let db = CKContainer(identifier: "iCloud.app.simmersmith.cloud").privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("spc-A-\(UUID().uuidString).json")
@@ -1473,7 +1492,9 @@ func runPublicCatalogCheck() async -> String {
 ///      (not children of the week — they are top-level) are deleted explicitly. All gone.
 func runWeeksGroceryRepoCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-spc-weeks-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "spc-weeks-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("spc-wk-A-\(UUID().uuidString).json")
@@ -1757,7 +1778,9 @@ func runWeeksGroceryRepoCheck() async -> String {
 ///      guest (SET-NULL ref) survives; explicit cleanup finishes.
 func runEventsRepoCheck() async -> String {
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-spc-events-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "spc-events-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("spc-ev-A-\(UUID().uuidString).json")
@@ -2134,7 +2157,9 @@ func runEventsRepoCheck() async -> String {
 func runPantryProfileCheck() async -> String {
     // ── Part (a): Household zone round-trip ───────────────────────────────────
     let containerID = "iCloud.app.simmersmith.cloud"
-    let zoneID = CKRecordZone.ID(zoneName: "household-spc-pantry-test", ownerName: CKCurrentUserDefaultName)
+    let zoneID = CKRecordZone.ID(
+        zoneName: HouseholdZoneProvisioner.verificationZoneName(identifier: "spc-pantry-test"),
+        ownerName: CKCurrentUserDefaultName)
     let database = CKContainer(identifier: containerID).privateCloudDatabase
     let tmp = FileManager.default.temporaryDirectory
     let sA = tmp.appendingPathComponent("spc-pp-A-\(UUID().uuidString).json")

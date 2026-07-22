@@ -32,6 +32,67 @@ func nonHouseholdZoneIsNil() {
     #expect(HouseholdZoneProvisioner.householdID(fromZoneName: "household-") == nil)
 }
 
+@Test("legacy developer household ids are launch-ineligible while real ids remain eligible")
+func legacyDeveloperHouseholdIDsAreLaunchIneligible() {
+    let legacyIDs = [
+        "phase0-test", "phase2-test", "phase2b-test", "phase3-test", "phase4-test",
+        "phase4b-test", "phase5b-test", "phase5c-test", "phase5d-test", "phase7-test",
+        "phase4-repair", "phase2c-shared", "spc-recipe-test", "spc-weeks-test",
+        "spc-events-test", "spc-pantry-test",
+    ]
+
+    for id in legacyIDs {
+        #expect(!HouseholdZoneProvisioner.isLaunchEligibleHouseholdZoneName("household-\(id)"))
+    }
+    #expect(HouseholdZoneProvisioner.isLaunchEligibleHouseholdZoneName(
+        "household-9F1C2A3B-4D5E-6F70-8190-A1B2C3D4E5F6"))
+    #expect(HouseholdZoneProvisioner.isLaunchEligibleHouseholdZoneName("household-household123"))
+}
+
+@Test("production provisioning rejects legacy verification household ids")
+func productionProvisioningRejectsLegacyVerificationIDs() {
+    #expect(throws: HouseholdZoneProvisioner.ProvisioningError.reservedVerificationHouseholdID(
+        "spc-recipe-test")) {
+        try HouseholdZoneProvisioner.validateProductionHouseholdID("spc-recipe-test")
+    }
+    #expect(throws: Never.self) {
+        try HouseholdZoneProvisioner.validateProductionHouseholdID("real-household")
+    }
+}
+
+@Test("verification zone names never parse as production household zones")
+func verificationZoneNamesDoNotParseAsProductionHouseholds() {
+    let zoneName = HouseholdZoneProvisioner.verificationZoneName(identifier: "spc-recipe-test")
+    #expect(zoneName == "simmersmith-verification-spc-recipe-test")
+    #expect(HouseholdZoneProvisioner.householdID(fromZoneName: zoneName) == nil)
+    #expect(!HouseholdZoneProvisioner.isLaunchEligibleHouseholdZoneName(zoneName))
+}
+
+@Test("verification-only discovery is ambiguous and never looks mintable")
+func verificationOnlyDiscoveryIsAmbiguous() {
+    let result = HouseholdZoneProvisioner.chooseLaunchEligibleHousehold([
+        (id: "spc-recipe-test", count: 711),
+        (id: "phase2-test", count: 3),
+    ])
+    #expect(result.householdID == nil)
+    #expect(result.isAmbiguous)
+    #expect(result.ignoredHouseholdIDs.isEmpty)
+    #expect(result.excludedVerificationHouseholdIDs == ["phase2-test", "spc-recipe-test"])
+}
+
+@Test("discovery ranks real households without treating verification zones as cleanup leftovers")
+func discoveryPartitionsVerificationZones() {
+    let result = HouseholdZoneProvisioner.chooseLaunchEligibleHousehold([
+        (id: "spc-recipe-test", count: 711),
+        (id: "real-household", count: 12),
+        (id: "phase2-test", count: 3),
+    ])
+    #expect(result.householdID == "real-household")
+    #expect(!result.isAmbiguous)
+    #expect(result.ignoredHouseholdIDs.isEmpty)
+    #expect(result.excludedVerificationHouseholdIDs == ["phase2-test", "spc-recipe-test"])
+}
+
 // SP-C review finding A: the multi-zone scorer now ranks by a direct profile fetch and,
 // when no zone proves a profile, returns an AMBIGUOUS result (id nil) instead of
 // alphabetical-guessing. The profile-fetch ranking itself needs an iCloud account (verified
@@ -186,4 +247,22 @@ func noLeftoversIsANoOp() {
     #expect(outcome.dataBearingHouseholdIDs.isEmpty)
     #expect(outcome.unreadableHouseholdIDs.isEmpty)
     #expect(outcome.isEmpty)
+}
+
+@Test("automatic leftover cleanup excludes verification ids while factory reset still recognizes them")
+func automaticCleanupExcludesVerificationIDs() {
+    let outcome = HouseholdZoneProvisioner.classifyLeftovers(
+        [
+            (id: "phase2-test", count: 1),
+            (id: "spc-recipe-test", count: nil),
+            (id: "stale-production-zone", count: 1),
+        ],
+        keeping: "real-household")
+
+    #expect(outcome.deletedHouseholdIDs == ["stale-production-zone"])
+    #expect(outcome.dataBearingHouseholdIDs.isEmpty)
+    #expect(outcome.unreadableHouseholdIDs.isEmpty)
+    #expect(HouseholdZoneProvisioner.householdZoneIDsToDelete(
+        from: ["household-phase2-test", "household-spc-recipe-test"]) ==
+        ["phase2-test", "spc-recipe-test"])
 }

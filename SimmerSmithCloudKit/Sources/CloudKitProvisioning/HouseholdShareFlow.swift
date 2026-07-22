@@ -48,7 +48,7 @@ public struct HouseholdShareFlow {
         let ownerStamp = try await currentUserRecordName()
         let db = container.privateCloudDatabase
         let zone = try await HouseholdZoneProvisioner(containerIdentifier: containerID)
-            .ensureHouseholdZone(householdID: householdID)
+            .ensureVerificationZone(identifier: householdID)
         let recordID = CKRecord.ID(recordName: householdID, zoneID: zone.zoneID)
 
         let profile: CKRecord
