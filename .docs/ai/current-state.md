@@ -4,14 +4,14 @@ Note: P8 baseline runner `214ec20` is separate; not part of e0a.
 
 ## Plan
 - [x] e0a P1e-P2g: cached boot, authority/lifecycle, observability, and performance evidence complete; shipping default off.
-- [x] e0a P2h Task 2: DEBUG/TestFlight cache-first opt-in control, commit `e21dadf`; package/app reviews APPROVED.
-- [x] e0a P2h Task 3: build 163 commit `9008ef6`; exact feature SHA CI green; ASC VALID + Finklea Dev assigned; build 163 installed and relaunched on Roshar/Sel; `Cache-first launch` visible on both and left off; shipping static default false.
-- [ ] e0a P2h Task 4: complete the build-163 owner/participant, offline, mutation/crash, lifecycle, token-resume, two-device, and 30-run paired performance matrix. Verify: named human/device checks in `phases/e0a-p2h-execution-plan.md` plus recorded artifacts in `phases/e0a-cache-first-cutover-report.md`.
+- [x] e0a P2h Tasks 2-3: internal opt-in control and default-off build 163 installed on Roshar/Sel.
+- [x] e0a owner namespace repair: legacy developer scopes excluded from launch/discovery/automatic cleanup; commit `f41c3e9`; exact CI run `29959784936` green.
+- [ ] e0a P2h owner-only build 164: cut default-off repair vehicle, install over preserved data, prove owner/private cache launch on Roshar/Sel, then run owner-representative matrix. Verify: named build-164 checks in `phases/e0a-p2h-execution-plan.md`.
+- [?] e0a P2h cross-account gates: blocked pending a second Apple Account plus dedicated physical device; shared participant, share adopt/revoke, final reviews, static-default flip, and build 165 remain blocked.
 
 ## Blockers
-- `simmersmith-lrz` P0: Sel build 163 selected/validated then rejected a quarantined
-  `spc-recipe-test` owner/private cache instead of opening the participant shared-zone candidate;
-  safe full-fetch fallback reached MainTabView in 18.846623 s. Blocks e0a/P2h. Sel override is off.
+- `simmersmith-lrz`: remains open until build-164 owner physical proof passes.
+- `simmersmith-e0a`: blocked on the full cross-account P2h matrix; owner-only evidence cannot close it.
 
 ## Open questions
 - None.

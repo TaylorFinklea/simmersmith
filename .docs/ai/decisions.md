@@ -2116,3 +2116,25 @@ P2 restore behavior to the crash-only hotfix path.
 already converged would overstate user-visible recovery. Keeping the boundary explicit preserves
 the validated fallback and gives build 163 one discriminating recovery test: both retained saves
 must project and drain exactly once with no resurrection or quarantine.
+
+## 2026-07-22 — Build 164 is an owner-only verification-namespace repair; default-on moves to 165
+
+**Context.** Sel build 163 selected and rejected a valid owner/private cache for developer household
+`spc-recipe-test`. Sel and Roshar use the same Apple Account, so Sel is owner-representative, not a
+participant. Its local state has no participant marker or shared engine state. The failure proves
+that developer checks created launch-visible scopes in the production `household-*` namespace; it
+does not prove any participant/shared failure. No second-account physical device is available.
+
+**Decision.** Reserve the finite legacy developer IDs from launch, discovery ranking, and automatic
+cleanup; preserve those scopes and keep explicit factory reset as the only destructive path. Move
+all current developer checks to `simmersmith-verification-*`. Keep account, role, database, owner,
+zone, household, and participant-marker checks exact. Build 164 ships this reviewed repair with
+`staticDefault` still false and runs only owner-representative rows on Roshar/Sel. Shared-participant,
+share adopt/revoke, remaining cross-account convergence, final default-off reviews, the static
+default flip, and default-on release remain blocked on a different Apple Account plus dedicated
+physical device. The eventual default-on candidate is renumbered from build 164 to build 165.
+
+**Why.** Same-account devices cannot establish participant authority. Treating Sel as a participant
+would weaken the evidence standard and could authorize a privacy-sensitive default from simulated
+topology. A separate default-off repair vehicle fixes the proven namespace defect without deleting
+data, changing share membership, or silently shrinking the original P2h gate.

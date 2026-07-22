@@ -211,146 +211,79 @@ contains the cache-first toggle. Shipping static default must still be false.
 
 ---
 
-### Task 4: Run the complete build-163 P2 device matrix
+### Task 4: Cut default-off owner-repair TestFlight build 164
 
-**Ownership:** Root controller plus the user handling Roshar and Sel. No worker receives device,
-account, release, or credential authority.
+**Ownership:** Root controller only. Preserve installed data and share membership.
 
-**Files:**
-- Modify: `.docs/ai/phases/e0a-cache-first-cutover-report.md`
-- Modify: `.docs/ai/current-state.md`
+- [x] **Step 1: Repair and verify the production namespace defect**
 
-**Interfaces:**
-- Consumes: build 163, Roshar and Sel, owner and participant accounts, the internal toggle, launch
-  signposts, mirror diagnostics, and genuine CKSyncEngine serialization.
-- Produces: paired performance statistics, owner/participant/offline/account/crash/two-device
-  evidence, and a positive token-resume trace.
+Legacy developer IDs are launch-ineligible, discovery partitions them before census, automatic
+cleanup excludes them, explicit factory reset still recognizes them, and developer checks now use
+`simmersmith-verification-*`. Repair commit `f41c3e9`; exact CI run `29959784936` green.
 
-- [ ] **Step 1: Capture the paired launch distribution**
+- [ ] **Step 2: Cut and upload build 164**
 
-On one seeded device/build, run 30 force-quit launches with the toggle off and 30 with it on.
-Capture launch-task -> first `MainTabView`, bundle validation, bootstrap/store materialization, and
-all initial projection signposts. Report all samples plus median, nearest-rank p95, and conventional
-MAD. Enforce the Global Constraints performance thresholds.
+Add a silent build-164 release note, keep `CacheFirstLaunchPolicy.staticDefault` false, set
+`CURRENT_PROJECT_VERSION: 164`, regenerate with xcodegen, run release-note tests plus the generic
+unsigned build, and commit/push the separate `[skip ci]` release bump. Archive/export/upload;
+require terminal ASC `VALID` and Finklea Dev assignment.
 
-- [ ] **Step 2: Exercise owner and participant identity**
+- [ ] **Step 3: Install over preserved owner data**
 
-Run online cached launch on owner and participant devices. Attempt offline cached launch and record
-whether CloudKit proves account identity. If identity is unavailable, require privacy-safe full-fetch
-fallback with no cached household flash.
+Install build 164 on Roshar and Sel without wiping data, factory reset, or share changes. With the
+override OFF, require the same visible production household, normal full-fetch launch, no
+verification-only household mint, no new quarantine, and no cross-scope flash.
 
-- [ ] **Step 3: Exercise mutation and crash recovery**
+- [ ] **Step 4: Prove exact owner/private cached launch**
 
-Create pending saves and deletes and force termination around the existing record-first/state-second,
-supersede, and restart-retry durability boundaries using an Xcode-installed signed build from the
-same reviewed source when debugger timing is required. Reconnect and require no loss, resurrection,
-duplicate delivery, stuck `sent` row, or unexplained quarantine.
-
-- [ ] **Step 4: Exercise lifecycle privacy**
-
-Switch accounts, adopt and revoke a share, and provoke every supported fallback. Require immediate
-old-scope teardown, no stale session publication, no cross-account content flash, and no replacement
-household mint before durable invalidation completes.
-
-- [ ] **Step 5: Capture genuine token resume**
-
-Use a device-captured serialization, create one known remote change after its checkpoint, relaunch,
-and capture an engine trace proving serialization acceptance, delivery of the post-token change,
-no replay of pre-token records, and a later state update/publication advance. Decode-only or mock
-evidence does not count.
-
-- [ ] **Step 6: Prove two-device convergence and record the matrix**
-
-Make conflicting owner/participant edits and deletes on Roshar and Sel, reconnect both, and require
-the same final records, no pending duplicates, and no unexplained digest/quarantine result. Append
-every device/build/account/timestamp, raw artifact path, visible authority state, and result to the
-P2 report. Any failed row stops P2h.
+On each device, enable the override and force-quit/manual-foreground with USB logging. Require
+`bootstrap_checkpoint_selected` → `bootstrap_bundle_validated` → `bootstrap_materialized` →
+`bootstrap_store_materialized` → `bootstrap_gate_opened` → all initial `projection_ready_*` →
+`projections_ready` → `main_tab_visible`, with no `bootstrap_candidate_rejected`, no quarantine,
+and content matching the override-off baseline. Locally verify anchor role owner, database private,
+and zone owner equal to the current CloudKit account; track Boolean results only. Restore both
+overrides OFF and force-quit.
 
 ---
 
-### Task 5: Run the final default-off adversarial reviews
+### Task 5: Run build-164 owner-representative P2h rows
 
-**Files:** No production edits unless a reviewer finds a defect. Any fix receives focused tests,
-its own commit, and re-review.
+- [ ] **Step 1: Owner online and offline launch**
 
-**Interfaces:**
-- Consumes: the exact build-163 default-off source and complete P2 report.
-- Produces: one fresh Claude Opus verdict and one equal-or-higher-tier independent adversarial
-  verdict, both with no unresolved Critical/Important findings.
+Run Roshar online cached launch, then seed online, force-quit, disable networking, and run one
+offline launch. If CloudKit cannot prove identity offline, require privacy-safe full-fetch fallback
+without cached content flash. Run Sel owner-online against the same production household.
 
-- [ ] **Step 1: Package the complete default-off diff and evidence**
+- [ ] **Step 2: Mutation and crash recovery**
 
-Generate a review package from the P2 merge base through the exact build-163 source and include the
-P2 report plus device artifacts. Reviewers are read-only and receive no release authority.
+On one owner device using exact reviewed source and USB logging, exercise pending saves/deletes and
+force termination around record-first/state-second, supersede, and restart-retry boundaries.
+Reconnect with no loss, resurrection, duplicate delivery, stuck `sent` row, or unexplained
+quarantine.
 
-- [ ] **Step 2: Run both reviews**
+- [ ] **Step 3: Lifecycle, token, and convergence**
 
-Require reviewers to inspect account/scope privacy, CloudKit state reconciliation, crash recovery,
-authority/lifecycle fencing, App Store override denial, device evidence truth, and release-gate
-completeness. Fix all Critical/Important findings in one fix wave, rerun covering tests, and obtain
-clean re-reviews.
+Mark account-boundary switching environment-blocked if the owner account cannot be safely restored;
+do not force it. Capture genuine token resume with one post-checkpoint remote change and prove no
+pre-token replay plus later state/publication advance. Make known offline edits/deletes on Roshar
+and Sel, reconnect, and require identical final records with no pending duplicates.
+
+- [ ] **Step 4: Paired launch distribution**
+
+On one seeded owner device, manually foreground 30 force-quit launches with override OFF and 30
+with override ON. Report every sample plus conventional median/MAD and nearest-rank p95. Enforce
+the existing absolute and relative P2 thresholds.
 
 ---
 
-### Task 6: Enable the shipping default and release build 164
+### Task 6: Keep cross-account/default-on work blocked
 
-**Prerequisite:** Tasks 1-5 all pass. If any is incomplete, do not start.
+A real physical participant device signed into a different Apple Account must accept the existing
+production share and complete participant/shared cache, owner share-adopt, participant revocation,
+remaining convergence, and final default-off adversarial rows. Until those pass, do not run or
+synthesize them, do not flip `staticDefault`, and do not release default-on.
 
-**Files:**
-- Modify: `SimmerSmith/SimmerSmith/App/AppState.swift`
-- Modify: `SimmerSmith/SimmerSmithTests/P2eCachedBootTests.swift`
-- Modify as required by real resolver coverage: `SimmerSmith/SimmerSmithTests/HouseholdSyncEngineBootstrapTests.swift`
-- Modify: `SimmerSmith/project.yml`
-- Modify: `SimmerSmith/SimmerSmith/Features/ReleaseNotes/ReleaseNotesCatalog.swift`
-- Regenerate: `SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj`
-- Modify after external verification: `.docs/ai/current-state.md`
-- Modify after external verification: `.docs/ai/phases/e0a-cache-first-cutover-report.md`
-
-**Interfaces:**
-- Consumes: the fully passed build-163 matrix and clean reviews.
-- Produces: App Store cache-first default-on with unknown receipt fail-closed, TestFlight override
-  retained for controls, build 164 VALID/assigned/installed, and closed P2h evidence.
-
-- [ ] **Step 1: Write the default-on policy tests first**
-
-Change focused expectations so `staticDefault: true` enables an App Store receipt regardless of a
-persisted local override, unknown release receipts remain disabled, and DEBUG/TestFlight may still
-set an explicit false P1 control. Run the focused policy tests and require failure against the
-current live resolver before editing it.
-
-- [ ] **Step 2: Flip only the static default**
-
-Change the live `resolveCacheFirstLaunchPolicyDetails()` call from `staticDefault: false` to
-`staticDefault: true` and update its default-off comments. Do not change identity, scope selection,
-reconciliation, fallback, authority, lifecycle, or projection code.
-
-- [ ] **Step 3: Verify, review, and commit the feature**
-
-Run both Swift packages, the signed app-target suite, the generic build, and `git diff --check`.
-Obtain task and whole-branch review approval, then commit
-`feat(ios): enable cached household launch`.
-
-- [ ] **Step 4: Push the feature and require exact CI**
-
-Fast-forward to `main`, push the non-`[skip ci]` feature commit, and require the GitHub Actions run
-for that exact SHA to finish green before release bookkeeping.
-
-- [ ] **Step 5: Bump and push build 164**
-
-Add build 164 dated `July 19, 2026`, headline `Meals ready sooner`, with one `improved` entry:
-`Your household now opens from its verified local cache while CloudKit catches up in the background.`
-Set `CURRENT_PROJECT_VERSION: 164`, regenerate the project, run release-note tests and the generic
-build, commit `chore(release): bump to build 164 [skip ci]`, and push it.
-
-- [ ] **Step 6: Upload and prove the installed release surface**
-
-Run `scripts/release-ios.sh`, require terminal ASC `VALID`, confirm internal Finklea Dev assignment,
-install build 164 from TestFlight, force-quit, and cold-launch on the seeded owner device. Require
-the cache-first signposts, correct visible household, background reconciliation to current, no new
-quarantine, and no cross-scope flash.
-
-- [ ] **Step 7: Close durable state**
-
-Append final CI/upload/ASC/assignment/install/device evidence to the P2 report, mark P2h `[x]` in
-`current-state.md`, close `simmersmith-e0a` only if its acceptance criteria are fully satisfied,
-publish the harness-deck completion report, and leave `main` clean.
+After the full matrix and final reviews pass, build 165 owns the unchanged default-on sequence:
+RED receipt-policy expectations, focused/full verification, default-on review, non-`[skip ci]`
+feature commit and exact green CI, separate `[skip ci]` build bump, ASC `VALID`, assignment,
+installed-device proof, and durable-state close.
