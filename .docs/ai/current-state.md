@@ -9,7 +9,9 @@ Note: P8 baseline runner `214ec20` is separate; not part of e0a.
 - [ ] e0a P2h Task 4: complete the build-163 owner/participant, offline, mutation/crash, lifecycle, token-resume, two-device, and 30-run paired performance matrix. Verify: named human/device checks in `phases/e0a-p2h-execution-plan.md` plus recorded artifacts in `phases/e0a-cache-first-cutover-report.md`.
 
 ## Blockers
-- None.
+- `simmersmith-lrz` P0: Sel build 163 selected/validated then rejected a quarantined
+  `spc-recipe-test` owner/private cache instead of opening the participant shared-zone candidate;
+  safe full-fetch fallback reached MainTabView in 18.846623 s. Blocks e0a/P2h. Sel override is off.
 
 ## Open questions
 - None.

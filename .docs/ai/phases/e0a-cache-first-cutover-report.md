@@ -254,3 +254,20 @@ performance evidence; P2h adds device-gate evidence.
     devices with the toggle left off. Shipping `staticDefault` remains `false`.
 - Task 3 is complete. Task 4 owns the full opt-in device and performance matrix; build 163 has not
   yet passed that matrix and is not evidence for default-on.
+
+## P2h Task 4 — Sel participant gate stopped
+
+- On 2026-07-22, Sel ran TestFlight build 163 with the cache-first override enabled. A manual
+  foreground launch produced a complete privacy-safe signpost trace: checkpoint selected, bundle
+  validated in **199.881 ms**, then `bootstrap_candidate_rejected`; the safe full-fetch fallback
+  reached `main_tab_visible` **18.846623 s** after `launch_task_started`.
+- The controller pulled `Library/Application Support/HouseholdSync` into local-only
+  `ai-scratch/e0a-p2h-sel-household-sync`. It contains six quarantined copies of the same
+  owner/private scope. The quarantined manifest identifies household `spc-recipe-test`, while Sel
+  is the participant device; no successful shared-zone cached candidate was observed.
+- Earlier controller-driven launch batches do not count: CoreDevice created processes but did not
+  foreground the TestFlight app. A manually tapped launch proved the app and signposts work and
+  isolated that measurement-method limitation.
+- This failed row stops P2h under the hard-gate rules. `simmersmith-lrz` tracks the participant
+  candidate rejection and blocks `simmersmith-e0a`. The user restored Sel's override to off and
+  force-quit. Shipping `staticDefault` remains `false`; no default-on or build-164 work may begin.
