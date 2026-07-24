@@ -279,3 +279,23 @@ performance evidence; P2h adds device-gate evidence.
 - Build 164 is now the default-off owner-repair vehicle. Build 165 remains the blocked default-on
   candidate. No participant/shared, share-adopt/revoke, or cross-account evidence is inferred from
   Roshar/Sel.
+- Build 164 release commit `0b4fa48` is pushed. Release-note tests and generic unsigned build
+  passed; archive/export/upload succeeded; App Store Connect reports build 164 **VALID** and its
+  `Finklea Dev` assignment is present. CoreDevice confirmed build 164 installed over preserved data
+  on Roshar and Sel.
+- The first Roshar override-OFF manual launch retained the expected household meals/recipes but the
+  wife/member was no longer shown. No factory reset, data wipe, or share-membership automation ran.
+  This violates the preserved-baseline gate, stops build-164 physical proof before any opt-in row,
+  and is tracked as P0 `simmersmith-fkn`. No causal link to the namespace repair is inferred.
+- Roshar and Sel then enabled the build-164 override and each visibly rendered the expected
+  meals/recipes without a wrong-household flash or crash. The generic CLI `Logging` traces did not
+  capture the app's dynamic subsystem, so these visual launches are not accepted as signpost proof.
+- A post-launch local-only pull proved Sel added a quarantine for its genuine owner scope. That
+  checkpoint's manifest names `household-9d154384-34aa-41dc-8f28-1d9e20e662ad`, but only **1/712**
+  records matches it; **645** belong to `household-spc-recipe-test`, **59** to
+  `com.apple.coredata.cloudkit.zone`, and **7** to `coexistence-spike`. The namespace repair worked:
+- P0 `simmersmith-rpz` clamps fetch options to the exact active zone, rejects foreign fetched
+  modifications/deletions, denies foreign local mutations, and filters outbound batches
+  defensively. Focused regression tests **3/3**, full `SimmerSmithCloudKit`, and generic unsigned
+  iOS build pass; independent rereview approved. Build-164 evidence remains rejected;
+  a fresh default-off build must create a clean exact-zone checkpoint before owner rows resume.

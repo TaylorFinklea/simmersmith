@@ -421,4 +421,43 @@ func generationSeedingResumesAboveRecoveredMax() {
         seamRecordID("r2"): 1,
     ])
 }
+// MARK: - Zone-scoped fetch boundary
+
+@Test("fetch options are clamped to the session's exact household zone")
+func fetchOptionsStayInsideActiveZone() {
+    var requested = CKSyncEngine.FetchChangesOptions(scope: .all)
+    requested.prioritizedZoneIDs = [
+        CKRecordZone.ID(zoneName: "foreign", ownerName: "user-a"),
+    ]
+
+    let scoped = HouseholdSyncEngine.scopedFetchOptions(requested, zoneID: seamZone)
+
+    #expect(scoped.scope == .zoneIDs([seamZone]))
+    #expect(scoped.prioritizedZoneIDs == [seamZone])
+}
+
+@Test("fetched records outside the session's exact zone are rejected")
+func fetchedRecordZoneBoundary() {
+    let active = CKRecord(recordType: "Recipe", recordID: seamRecordID("active"))
+    let foreign = CKRecord(
+        recordType: "Recipe",
+        recordID: seamRecordID(
+            "foreign",
+            zone: CKRecordZone.ID(zoneName: "other-household", ownerName: "user-a")))
+
+    #expect(HouseholdSyncEngine.isRecordInActiveZone(active, zoneID: seamZone))
+    #expect(!HouseholdSyncEngine.isRecordInActiveZone(foreign, zoneID: seamZone))
+}
+
+@Test("outbound pending changes outside the session's exact zone are rejected")
+func outboundPendingZoneBoundary() {
+    let activeSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(seamRecordID("active"))
+    let foreignDelete = CKSyncEngine.PendingRecordZoneChange.deleteRecord(
+        seamRecordID(
+            "foreign",
+            zone: CKRecordZone.ID(zoneName: "other-household", ownerName: "user-a")))
+
+    #expect(HouseholdSyncEngine.isPendingChangeInActiveZone(activeSave, zoneID: seamZone))
+    #expect(!HouseholdSyncEngine.isPendingChangeInActiveZone(foreignDelete, zoneID: seamZone))
+}
 #endif

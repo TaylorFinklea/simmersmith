@@ -221,20 +221,29 @@ Legacy developer IDs are launch-ineligible, discovery partitions them before cen
 cleanup excludes them, explicit factory reset still recognizes them, and developer checks now use
 `simmersmith-verification-*`. Repair commit `f41c3e9`; exact CI run `29959784936` green.
 
-- [ ] **Step 2: Cut and upload build 164**
+- [x] **Step 2: Cut and upload build 164**
 
 Add a silent build-164 release note, keep `CacheFirstLaunchPolicy.staticDefault` false, set
 `CURRENT_PROJECT_VERSION: 164`, regenerate with xcodegen, run release-note tests plus the generic
 unsigned build, and commit/push the separate `[skip ci]` release bump. Archive/export/upload;
 require terminal ASC `VALID` and Finklea Dev assignment.
 
-- [ ] **Step 3: Install over preserved owner data**
+- [!] **Step 3: Install over preserved owner data — build 164 rejected**
 
 Install build 164 on Roshar and Sel without wiping data, factory reset, or share changes. With the
 override OFF, require the same visible production household, normal full-fetch launch, no
 verification-only household mint, no new quarantine, and no cross-scope flash.
 
-- [ ] **Step 4: Prove exact owner/private cached launch**
+Build 164 is ASC VALID, assigned to Finklea Dev, and installed on Roshar/Sel. The first Roshar
+override-OFF launch retained expected meals/recipes but no longer showed the wife/member. No reset
+or share automation ran. `simmersmith-fkn` must prove the root cause before Step 4 or Task 5.
+
+Roshar/Sel override-ON visual launches fell back safely, but Sel quarantined the genuine owner
+scope. Its checkpoint declared the genuine zone while 711/712 records belonged to unrelated
+private-database zones. `simmersmith-rpz` owns the exact-zone fetch fence. Build 164 cannot satisfy
+Step 3 or 4; cut a fresh default-off build only after the fence is reviewed and green.
+
+- [!] **Step 4: Prove exact owner/private cached launch — blocked on clean exact-zone checkpoint**
 
 On each device, enable the override and force-quit/manual-foreground with USB logging. Require
 `bootstrap_checkpoint_selected` → `bootstrap_bundle_validated` → `bootstrap_materialized` →

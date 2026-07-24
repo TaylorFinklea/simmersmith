@@ -1311,6 +1311,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// historical diagnostic-only behavior and returns `true` after the normal mutation.
     @discardableResult
     public func save(_ record: CKRecord) -> Bool {
+        guard Self.isRecordIDInActiveZone(record.recordID, zoneID: zoneID) else {
+            note("save denied outside active household zone")
+            return false
+        }
         guard lifecycleFence.beginActivity() else { return false }
         defer { lifecycleFence.endActivity() }
         guard dataPlaneResult(for: .save) == .allowed else {
@@ -1352,6 +1356,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
     @discardableResult
     public func delete(_ recordID: CKRecord.ID) -> HouseholdDataPlaneResult {
+        guard Self.isRecordIDInActiveZone(recordID, zoneID: zoneID) else {
+            note("delete denied outside active household zone")
+            return .notAuthoritative
+        }
         guard lifecycleFence.beginActivity() else { return .notAuthoritative }
         defer { lifecycleFence.endActivity() }
         guard dataPlaneResult(for: .delete) == .allowed else {
@@ -1366,6 +1374,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private func deleteWhileLifecycleActive(
         _ recordID: CKRecord.ID
     ) -> HouseholdDataPlaneResult {
+        guard Self.isRecordIDInActiveZone(recordID, zoneID: zoneID) else {
+            note("delete denied outside active household zone")
+            return .notAuthoritative
+        }
         var durabilityFailure: MirrorDurabilityFailure?
         shadowMirrorLock.withLock {
             let nextGeneration = UInt64(localGeneration[recordID, default: 0] + 1)
@@ -1415,6 +1427,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// issuing engine — the fetch handler stays the untouched LWW seam.
     @discardableResult
     public func deleteCascading(_ recordID: CKRecord.ID) -> HouseholdDataPlaneResult {
+        guard Self.isRecordIDInActiveZone(recordID, zoneID: zoneID) else {
+            note("cascade delete denied outside active household zone")
+            return .notAuthoritative
+        }
         guard lifecycleFence.beginActivity() else { return .notAuthoritative }
         defer { lifecycleFence.endActivity() }
         guard dataPlaneResult(for: .deleteCascading) == .allowed else {
@@ -1545,16 +1561,52 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         return true
     }
 
-    /// Implemented (rather than inherited as a default) so a candidate engine's imminent fetch
-    /// also waits behind the gate. The returned value is the context's own options — the same
-    /// defaults the SDK uses when this method is not implemented — so the nil-gate control
-    /// path is behaviorally unchanged.
+    /// CKSyncEngine defaults to every zone in its database. A household session owns exactly one
+    /// zone, so preserve the caller's operation group while clamping both fetch and priority scope
+    /// to that zone. Without this boundary, a private-database fetch can contaminate the active
+    /// household store and its checkpoint with records from developer and Core Data zones.
+    static func scopedFetchOptions(
+        _ requested: CKSyncEngine.FetchChangesOptions,
+        zoneID: CKRecordZone.ID
+    ) -> CKSyncEngine.FetchChangesOptions {
+        var scoped = requested
+        scoped.scope = .zoneIDs([zoneID])
+        scoped.prioritizedZoneIDs = [zoneID]
+        return scoped
+    }
+
+    static func isRecordInActiveZone(
+        _ record: CKRecord,
+        zoneID: CKRecordZone.ID
+    ) -> Bool {
+        record.recordID.zoneID == zoneID
+    }
+
+    static func isRecordIDInActiveZone(
+        _ recordID: CKRecord.ID,
+        zoneID: CKRecordZone.ID
+    ) -> Bool {
+        recordID.zoneID == zoneID
+    }
+
+    static func isPendingChangeInActiveZone(
+        _ change: CKSyncEngine.PendingRecordZoneChange,
+        zoneID: CKRecordZone.ID
+    ) -> Bool {
+        switch change {
+        case .saveRecord(let recordID), .deleteRecord(let recordID):
+            return isRecordIDInActiveZone(recordID, zoneID: zoneID)
+        @unknown default:
+            return false
+        }
+    }
+
     public func nextFetchChangesOptions(
         _ context: CKSyncEngine.FetchChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.FetchChangesOptions {
         _ = await awaitBootstrapGate("fetch-options")
-        return context.options
+        return Self.scopedFetchOptions(context.options, zoneID: zoneID)
     }
 
     public func nextRecordZoneChangeBatch(
@@ -1570,6 +1622,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             guard !lifecycleFence.isFrozen else { return nil }
             let selected = syncEngine.state.pendingRecordZoneChanges.filter {
                 context.options.scope.contains($0)
+                    && Self.isPendingChangeInActiveZone($0, zoneID: zoneID)
             }
             // Deletes have no record-provider callback. Capture their exact generation together
             // with the pending-state snapshot so a concurrent save cannot relabel an old delete.
@@ -1586,6 +1639,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
             self.shadowMirrorLock.withLock {
                 guard !self.lifecycleFence.isFrozen else { return nil }
+                guard Self.isRecordIDInActiveZone(recordID, zoneID: self.zoneID) else {
+                    return nil
+                }
                 guard let record = self.store.record(for: recordID) else { return nil }
                 // Capture the payload and its generation under the same lock. If a later save
                 // lands before this batch is returned, its higher generation remains pending and
@@ -1703,6 +1759,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         case .fetchedRecordZoneChanges(let changes):
             for modification in changes.modifications {
                 let remote = modification.record
+                guard Self.isRecordInActiveZone(remote, zoneID: zoneID) else {
+                    note("ignored fetched modification outside active household zone")
+                    continue
+                }
                 // The zone-wide CKShare record lives in the shared zone and loops back
                 // through fetched changes on the owner engine — never ingest it as data.
                 if Self.isShareRecord(remote) { continue }
@@ -1749,6 +1809,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 }
             }
             for deletion in changes.deletions {
+                guard Self.isRecordIDInActiveZone(deletion.recordID, zoneID: zoneID) else {
+                    note("ignored fetched deletion outside active household zone")
+                    continue
+                }
                 applyFetchedRemoteDeletion(deletion.recordID, emitStoreChanged: false)
             }
             callbackRelay.emit(.storeChanged)

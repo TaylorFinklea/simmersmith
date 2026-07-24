@@ -2138,3 +2138,24 @@ physical device. The eventual default-on candidate is renumbered from build 164 
 would weaken the evidence standard and could authorize a privacy-sensitive default from simulated
 topology. A separate default-off repair vehicle fixes the proven namespace defect without deleting
 data, changing share membership, or silently shrinking the original P2h gate.
+
+## 2026-07-23 — Every household sync engine is fenced to its exact active zone
+
+**Context.** Build 164 correctly excluded the legacy `spc-recipe-test` cache and selected Sel's
+genuine owner/private scope, but rejected and quarantined it. The pulled checkpoint declared
+`household-9d154384-34aa-41dc-8f28-1d9e20e662ad` while 711 of 712 records belonged to other zones:
+645 `household-spc-recipe-test`, 59 `com.apple.coredata.cloudkit.zone`, and 7 `coexistence-spike`.
+`nextFetchChangesOptions` returned CloudKit's `.all` default, and the fetched-change handler ingested
+every returned record into the one active household store and checkpoint.
+
+**Decision.** Clamp every `HouseholdSyncEngine` fetch to `.zoneIDs([zoneID])`, prioritize only that
+zone, and defensively discard fetched modifications/deletions whose complete zone ID differs from
+the session's active zone. Reject foreign-zone local saves/deletes before mutation, filter outbound
+pending batches to the same exact zone, and recheck record-provider payloads. Keep bootstrap
+validation fail-closed; do not weaken it to accept the contaminated checkpoint. A new default-off
+build must full-fetch and publish a clean exact-zone checkpoint before P2h owner evidence resumes.
+
+**Why.** One engine instance represents one proven household authority. Database-wide fetches or
+foreign outbound mutations mix unrelated household, developer, and Core Data records, corrupt
+visible projections, and make a scope-labeled checkpoint unresumable. Exact-zone ingress and egress
+enforce the authority boundary; handler/provider guards remain defense in depth.
