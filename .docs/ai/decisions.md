@@ -2159,3 +2159,16 @@ build must full-fetch and publish a clean exact-zone checkpoint before P2h owner
 foreign outbound mutations mix unrelated household, developer, and Core Data records, corrupt
 visible projections, and make a scope-labeled checkpoint unresumable. Exact-zone ingress and egress
 enforce the authority boundary; handler/provider guards remain defense in depth.
+
+## 2026-07-23 — Build 165 remains default-off; default-on moves to 166
+
+**Context.** Build 164 exposed a cross-zone checkpoint defect and cannot supply accepted owner
+evidence. The exact-zone engine fence requires a new production/TestFlight binary to prove that a
+nil-state full fetch publishes a clean household checkpoint.
+
+**Decision.** Use build 165 as the new default-off repair/proof vehicle with
+`CacheFirstLaunchPolicy.staticDefault == false`. Renumber the still-blocked default-on candidate to
+build 166. Do not infer any participant or cross-account evidence from Roshar/Sel.
+
+**Why.** Reusing build 164 is impossible in App Store Connect, while enabling the default in build
+165 before a clean physical checkpoint would skip the repair's acceptance gate.

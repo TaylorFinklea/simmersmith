@@ -276,8 +276,9 @@ performance evidence; P2h adds device-gate evidence.
   and `git diff --check` green. Independent package and app reviews approved with no
   Critical/Important findings. Exact GitHub Actions run `29959784936` for
   `f41c3e91d906df474892369b5f78fae1ce0e77f8` passed.
-- Build 164 is now the default-off owner-repair vehicle. Build 165 remains the blocked default-on
-  candidate. No participant/shared, share-adopt/revoke, or cross-account evidence is inferred from
+- Build 164 was the first default-off owner-repair vehicle. Its physical rejection makes build 165
+  the new default-off exact-zone proof vehicle and moves the blocked default-on candidate to build
+  166. No participant/shared, share-adopt/revoke, or cross-account evidence is inferred from
   Roshar/Sel.
 - Build 164 release commit `0b4fa48` is pushed. Release-note tests and generic unsigned build
   passed; archive/export/upload succeeded; App Store Connect reports build 164 **VALID** and its

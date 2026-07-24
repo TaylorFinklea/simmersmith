@@ -20,6 +20,15 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 165,
+            version: "1.0.0",
+            date: "July 23, 2026",
+            headline: "Under the hood",
+            new: [],
+            improved: [],
+            fixed: []
+        ),
+        ReleaseNote(
             build: 164,
             version: "1.0.0",
             date: "July 22, 2026",
