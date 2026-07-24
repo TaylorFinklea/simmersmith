@@ -293,10 +293,15 @@ performance evidence; P2h adds device-gate evidence.
   capture the app's dynamic subsystem, so these visual launches are not accepted as signpost proof.
 - A post-launch local-only pull proved Sel added a quarantine for its genuine owner scope. That
   checkpoint's manifest names `household-9d154384-34aa-41dc-8f28-1d9e20e662ad`, but only **1/712**
-  records matches it; **645** belong to `household-spc-recipe-test`, **59** to
-  `com.apple.coredata.cloudkit.zone`, and **7** to `coexistence-spike`. The namespace repair worked:
+  records match it; **645** belong to `household-spc-recipe-test`, **59** to
+  `com.apple.coredata.cloudkit.zone`, and **7** to `coexistence-spike`. The namespace repair
+  skipped the reserved scope and exposed the deeper database-wide contamination.
 - P0 `simmersmith-rpz` clamps fetch options to the exact active zone, rejects foreign fetched
   modifications/deletions, denies foreign local mutations, and filters outbound batches
   defensively. Focused regression tests **3/3**, full `SimmerSmithCloudKit`, and generic unsigned
   iOS build pass; independent rereview approved. Build-164 evidence remains rejected;
   a fresh default-off build must create a clean exact-zone checkpoint before owner rows resume.
+- Build 165 release bump `136a996` keeps the static default false. Release-note tests passed;
+  archive/export/upload succeeded; App Store Connect reports **VALID**. `Finklea Dev` has
+  `hasAccessToAllBuilds=true`, so no per-build assignment is required. Preserved-data installation
+  and clean-checkpoint proof remain pending.
