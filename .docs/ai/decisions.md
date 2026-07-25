@@ -2172,3 +2172,20 @@ build 166. Do not infer any participant or cross-account evidence from Roshar/Se
 
 **Why.** Reusing build 164 is impossible in App Store Connect, while enabling the default in build
 165 before a clean physical checkpoint would skip the repair's acceptance gate.
+
+## 2026-07-25 — Existing-zone discovery is owner resume proof; build 166 stays default-off
+
+**Context.** Build 165's exact-zone fetch published genuine owner checkpoints containing only two
+records from the exact household zone on Roshar and Sel. Both cached resumes still quarantined:
+their engine state recorded `zoneEnsured=false`. `HouseholdSyncEngine` previously set that bit only
+when a local save optimistically enqueued zone creation; it ignored CloudKit's fetched database-zone
+modification proving that an existing owner zone was present.
+
+**Decision.** Set `zoneEnsured=true` when `fetchedDatabaseChanges.modifications` contains the
+session's exact `CKRecordZone.ID`. Keep exact owner+zone matching and existing participant fetch
+proof unchanged. Build 165 remains rejected; build 166 is the next default-off proof vehicle and
+the blocked default-on candidate moves to 167.
+
+**Why.** CloudKit's exact-zone database discovery is stronger owner evidence than an optimistic
+local create request. Receive-only households must be resumable without making a local edit.
+Participant authority still requires its separate successful-fetch proof and is not inferred.

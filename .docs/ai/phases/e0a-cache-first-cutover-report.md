@@ -298,10 +298,14 @@ performance evidence; P2h adds device-gate evidence.
   skipped the reserved scope and exposed the deeper database-wide contamination.
 - P0 `simmersmith-rpz` clamps fetch options to the exact active zone, rejects foreign fetched
   modifications/deletions, denies foreign local mutations, and filters outbound batches
-  defensively. Focused regression tests **3/3**, full `SimmerSmithCloudKit`, and generic unsigned
-  iOS build pass; independent rereview approved. Build-164 evidence remains rejected;
-  a fresh default-off build must create a clean exact-zone checkpoint before owner rows resume.
+  defensively. Focused regression tests **4/4**, full `SimmerSmithCloudKit`, and generic unsigned
+  iOS build pass; independent rereviews approved. Build-164 evidence remains rejected.
 - Build 165 release bump `136a996` keeps the static default false. Release-note tests passed;
   archive/export/upload succeeded; App Store Connect reports **VALID**. `Finklea Dev` has
-  `hasAccessToAllBuilds=true`, so no per-build assignment is required. Preserved-data installation
-  and clean-checkpoint proof remain pending.
+  `hasAccessToAllBuilds=true`, so no per-build assignment was required. CoreDevice confirmed build
+  165 installed over preserved data on Roshar/Sel.
+  Both devices then published clean genuine checkpoints: **2/2** records matched the exact owner
+  zone. Cached resume still quarantined them because `zoneEnsured` remained false: existing-zone
+  database discovery was ignored, and only a local save set the bit. The reviewed fix recognizes
+  the exact active-zone modification. Build 166 is the next default-off proof vehicle; default-on
+  moves to 167.

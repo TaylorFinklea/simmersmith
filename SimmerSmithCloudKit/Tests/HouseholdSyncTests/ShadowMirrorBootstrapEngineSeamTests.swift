@@ -460,4 +460,14 @@ func outboundPendingZoneBoundary() {
     #expect(HouseholdSyncEngine.isPendingChangeInActiveZone(activeSave, zoneID: seamZone))
     #expect(!HouseholdSyncEngine.isPendingChangeInActiveZone(foreignDelete, zoneID: seamZone))
 }
+
+@Test("database discovery proves only the session's exact zone is ensured")
+func databaseDiscoveryZoneBoundary() {
+    let foreign = CKRecordZone.ID(zoneName: "other-household", ownerName: "user-a")
+
+    #expect(HouseholdSyncEngine.containsActiveZone(
+        [foreign, seamZone], activeZoneID: seamZone))
+    #expect(!HouseholdSyncEngine.containsActiveZone(
+        [foreign], activeZoneID: seamZone))
+}
 #endif

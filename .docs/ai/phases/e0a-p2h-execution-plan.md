@@ -241,7 +241,9 @@ or share automation ran. `simmersmith-fkn` must prove the root cause before Step
 Roshar/Sel override-ON visual launches fell back safely, but Sel quarantined the genuine owner
 scope. Its checkpoint declared the genuine zone while 711/712 records belonged to unrelated
 private-database zones. Exact-zone fence commit `bce2d8a` and CI run `30058965856` are green.
-Build 164 cannot satisfy Step 3 or 4; build 165 is the fresh default-off proof vehicle.
+Build 164 cannot satisfy Step 3 or 4. Build 165 then proved exact-zone checkpoint contents but
+rejected resume because existing-zone discovery left `zoneEnsured=false`. Build 166 is the fresh
+default-off proof vehicle after the exact active-zone modification fix.
 
 - [!] **Step 4: Prove exact owner/private cached launch — blocked on clean exact-zone checkpoint**
 
@@ -292,7 +294,7 @@ production share and complete participant/shared cache, owner share-adopt, parti
 remaining convergence, and final default-off adversarial rows. Until those pass, do not run or
 synthesize them, do not flip `staticDefault`, and do not release default-on.
 
-After the full matrix and final reviews pass, build 166 owns the unchanged default-on sequence:
+After the full matrix and final reviews pass, build 167 owns the unchanged default-on sequence:
 RED receipt-policy expectations, focused/full verification, default-on review, non-`[skip ci]`
 feature commit and exact green CI, separate `[skip ci]` build bump, ASC `VALID`, assignment,
 installed-device proof, and durable-state close.

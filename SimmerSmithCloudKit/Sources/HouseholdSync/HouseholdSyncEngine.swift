@@ -1601,6 +1601,13 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         }
     }
 
+    static func containsActiveZone(
+        _ zoneIDs: [CKRecordZone.ID],
+        activeZoneID: CKRecordZone.ID
+    ) -> Bool {
+        zoneIDs.contains(activeZoneID)
+    }
+
     public func nextFetchChangesOptions(
         _ context: CKSyncEngine.FetchChangesContext,
         syncEngine: CKSyncEngine
@@ -1733,6 +1740,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             handleAccountChange(change)
             return
         case .fetchedDatabaseChanges(let changes):
+            if Self.containsActiveZone(
+                changes.modifications.map(\.zoneID),
+                activeZoneID: zoneID
+            ) {
+                zoneEnsuredLock.withLock { zoneEnsured = true }
+            }
             let lifecycleEvent = HouseholdSyncLifecyclePolicy.eventForZoneDeletion(
                 ownsZone: ownsZone,
                 activeZoneID: zoneID,
