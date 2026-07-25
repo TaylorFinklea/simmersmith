@@ -311,3 +311,12 @@ performance evidence; P2h adds device-gate evidence.
   moves to 167.
 - Existing-zone proof commit `a593e5f9c6b9cde90422c619d53a240ea537b4c3` passed exact
   GitHub Actions CI run `30169322071`. Build 166 is the default-off physical proof vehicle.
+- Build 166 release bump `4b81b68` kept the static default false; archive/export/upload succeeded,
+  App Store Connect reported **VALID**, and CoreDevice confirmed installation on Roshar/Sel.
+  Pulled checkpoints on both devices were anchored owner/private, `zoneEnsured=true`, and contained
+  **3/3** exact-zone records: one `HouseholdProfile` and two `Week` records.
+- The exact boundary exposed the durable data problem: the expected member/meals disappeared because
+  the reserved source holds eight profiles, 28 recipes, 72 meals, eight weeks, groceries, and
+  managed ingredients. P0 `simmersmith-fkn` closed with root cause proven; P0 `simmersmith-mpa`
+  owns non-destructive preview/approval/copy recovery. No source record, share, or zone changed.
+  Both device overrides were restored OFF; owner matrix and default-on build 167 remain blocked.
