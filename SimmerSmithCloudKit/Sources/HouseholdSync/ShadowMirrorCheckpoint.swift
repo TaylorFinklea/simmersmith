@@ -802,7 +802,7 @@ public enum ShadowMirrorCanonicalDigest {
     }
 }
 
-private struct CanonicalWriter {
+struct CanonicalWriter {
     var data = Data()
 
     init() {}
