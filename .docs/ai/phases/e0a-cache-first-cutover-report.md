@@ -309,3 +309,5 @@ performance evidence; P2h adds device-gate evidence.
   database discovery was ignored, and only a local save set the bit. The reviewed fix recognizes
   the exact active-zone modification. Build 166 is the next default-off proof vehicle; default-on
   moves to 167.
+- Existing-zone proof commit `a593e5f9c6b9cde90422c619d53a240ea537b4c3` passed exact
+  GitHub Actions CI run `30169322071`. Build 166 is the default-off physical proof vehicle.
