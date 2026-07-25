@@ -32,6 +32,16 @@ struct CloudKitDebugView: View {
             }
 
             Section {
+                NavigationLink("Household data recovery — Analyze") {
+                    HouseholdZoneRecoveryView(appState: appState)
+                }
+            } header: {
+                SmithSectionHeader("recovery")
+            } footer: {
+                Text("Internal read-only preview for the reserved recovery zone. There is no apply action.")
+            }
+
+            Section {
                 Button {
                     runAllChecks()
                 } label: {

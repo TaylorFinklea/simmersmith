@@ -562,6 +562,65 @@ final class AppState {
             householdSession === session &&
             session.hasCurrentAuthority
     }
+    /// Captures the exact owner/private recovery authority after resolving the live iCloud
+    /// account, then rechecks the epoch/session boundary before returning.
+    func householdZoneRecoveryAuthoritySnapshot() async throws
+        -> HouseholdZoneRecoveryAuthoritySnapshot
+    {
+        let requestEpoch = sessionBootEpoch
+        guard let session = householdSession,
+              isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch),
+              session.role.isOwner,
+              let targetScope = session.engine.activeMirrorScopeSnapshot,
+              targetScope.role == .owner,
+              targetScope.databaseScope == .private,
+              targetScope.zoneOwnerName == CKCurrentUserDefaultName,
+              targetScope.zoneName == session.zoneID.zoneName,
+              targetScope.zoneOwnerName == session.zoneID.ownerName,
+              targetScope.householdID == session.householdID else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+
+        let accountRecordName = try await householdLifecycleExecutor.currentAccountRecordName()
+        guard let accountRecordName,
+              !accountRecordName.isEmpty,
+              isCurrentAuthoritativeHouseholdSession(session, requestEpoch: requestEpoch),
+              session.engine.activeMirrorScopeSnapshot == targetScope,
+              targetScope.accountRecordName == accountRecordName else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+
+        let sourceScope = MirrorScope(
+            accountRecordName: accountRecordName,
+            zoneOwnerName: CKCurrentUserDefaultName,
+            zoneName: HouseholdZoneRecoveryManifest.reservedSourceZoneName,
+            householdID: "spc-recipe-test",
+            role: .owner,
+            databaseScope: .private)
+        let snapshot = HouseholdZoneRecoveryAuthoritySnapshot(
+            accountFingerprint: ShadowMirrorDigest.sha256(Data(accountRecordName.utf8)),
+            sourceScope: sourceScope,
+            targetScope: targetScope,
+            sessionEpoch: requestEpoch)
+        try snapshot.validate()
+        return snapshot
+    }
+
+    /// Non-suspending continuation fence used after read-only analysis completes.
+    func isCurrentHouseholdZoneRecoveryAuthority(
+        _ snapshot: HouseholdZoneRecoveryAuthoritySnapshot
+    ) -> Bool {
+        guard (try? snapshot.validate()) != nil,
+              let session = householdSession else { return false }
+        return isCurrentAuthoritativeHouseholdSession(
+            session,
+            requestEpoch: snapshot.sessionEpoch)
+            && session.role.isOwner
+            && session.zoneID.zoneName == snapshot.targetScope.zoneName
+            && session.zoneID.ownerName == snapshot.targetScope.zoneOwnerName
+            && session.householdID == snapshot.targetScope.householdID
+            && session.engine.activeMirrorScopeSnapshot == snapshot.targetScope
+    }
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
