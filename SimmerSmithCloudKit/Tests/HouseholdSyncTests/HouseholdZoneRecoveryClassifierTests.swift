@@ -80,7 +80,7 @@ func classifierUsesCanonicalProductionTypes() {
             + result.blockedEntries.map(\.identity.source.recordType))
     #expect(classifiedTypes == manifestTypes.union(dedicatedTypes))
     #expect(result.exclusions.isEmpty)
-    #expect(result.unresolvedEntries.count == result.eligibleRecords.count)
+    #expect(result.provenanceCandidates.count == result.eligibleRecords.count)
     #expect(result.accountedRecordCount == snapshots.count)
 }
 
@@ -134,8 +134,8 @@ func classifierKeepsUnknownProvenanceUnresolved() {
     let result = classifier().classify([unknownProvenance])
 
     #expect(result.eligibleIdentities.map(\.source.recordName) == ["rc-1234abcd"])
-    #expect(result.unresolvedEntries.map(\.identity.source.recordName) == ["rc-1234abcd"])
-    #expect(result.unresolvedEntries.allSatisfy { $0.decision == nil })
+    let candidates: [HouseholdZoneRecoveryProvenanceCandidate] = result.provenanceCandidates
+    #expect(candidates.map(\.identity.source.recordName) == ["rc-1234abcd"])
     #expect(result.exclusions.isEmpty)
 }
 

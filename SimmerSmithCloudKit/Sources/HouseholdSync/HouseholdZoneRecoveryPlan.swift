@@ -45,18 +45,48 @@ public enum HouseholdZoneRecoveryDecision: String, Codable, Equatable, Sendable 
     case target
 }
 
+public enum HouseholdZoneRecoveryDependencyRequirement:
+    String, Codable, Equatable, Hashable, Sendable
+{
+    case required
+    case optional
+}
+
+public struct HouseholdZoneRecoveryDependency: Codable, Equatable, Hashable, Sendable {
+    public let identity: HouseholdZoneRecoveryIdentity
+    public let requirement: HouseholdZoneRecoveryDependencyRequirement
+
+    public init(
+        identity: HouseholdZoneRecoveryIdentity,
+        requirement: HouseholdZoneRecoveryDependencyRequirement
+    ) {
+        self.identity = identity
+        self.requirement = requirement
+    }
+
+    fileprivate var sortKey: (String, String, String, String, String) {
+        let identityKey = identity.sortKey
+        return (
+            identityKey.0,
+            identityKey.1,
+            identityKey.2,
+            identityKey.3,
+            requirement.rawValue)
+    }
+}
+
 public struct HouseholdZoneRecoveryEntry: Codable, Equatable, Sendable {
     public let identity: HouseholdZoneRecoveryIdentity
     public let action: HouseholdZoneRecoveryAction
     public let decision: HouseholdZoneRecoveryDecision?
-    public let dependencies: [HouseholdZoneRecoveryIdentity]
+    public let dependencies: [HouseholdZoneRecoveryDependency]
     public let assetDigests: [String: String]
 
     public init(
         identity: HouseholdZoneRecoveryIdentity,
         action: HouseholdZoneRecoveryAction,
         decision: HouseholdZoneRecoveryDecision? = nil,
-        dependencies: [HouseholdZoneRecoveryIdentity] = [],
+        dependencies: [HouseholdZoneRecoveryDependency] = [],
         assetDigests: [String: String] = [:]
     ) {
         self.identity = identity
@@ -83,14 +113,16 @@ public enum HouseholdZoneRecoveryProvenanceDecision: String, Codable, Equatable,
 }
 
 public struct HouseholdZoneRecoveryUnresolvedEntry: Codable, Equatable, Sendable {
-    public let identity: HouseholdZoneRecoveryIdentity
+    public let entry: HouseholdZoneRecoveryEntry
     public let decision: HouseholdZoneRecoveryProvenanceDecision?
 
+    public var identity: HouseholdZoneRecoveryIdentity { entry.identity }
+
     public init(
-        identity: HouseholdZoneRecoveryIdentity,
+        entry: HouseholdZoneRecoveryEntry,
         decision: HouseholdZoneRecoveryProvenanceDecision? = nil
     ) {
-        self.identity = identity
+        self.entry = entry
         self.decision = decision
     }
 }
@@ -165,6 +197,12 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
     public let blockedEntries: [HouseholdZoneRecoveryBlockedEntry]
     public let totals: [HouseholdZoneRecoveryTotal]
 
+    public var approvedEntries: [HouseholdZoneRecoveryEntry] {
+        (entries + unresolvedEntries.compactMap {
+            $0.decision == .include ? $0.entry : nil
+        }).sorted { $0.identity.sortKey < $1.identity.sortKey }
+    }
+
     public init(
         accountFingerprint: String,
         sourceScope: MirrorScope,
@@ -217,10 +255,14 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
         let partition = try Self.partitionBlockedEntries(
             blockedEntries,
             from: candidateEntries,
+            unresolved: canonicalUnresolved,
             candidateIdentities: candidateIdentities,
             sourceScope: sourceScope,
             targetScope: targetScope)
-        let canonicalTotals = Self.makeTotals(for: partition.entries)
+        let canonicalTotals = Self.makeTotals(
+            for: partition.entries + partition.unresolved.compactMap {
+                $0.decision == .include ? $0.entry : nil
+            })
 
         self.formatVersion = formatVersion
         self.accountFingerprint = accountFingerprint
@@ -230,7 +272,7 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
         self.targetInputFingerprint = targetInputFingerprint
         self.entries = partition.entries
         self.exclusions = canonicalExclusions
-        self.unresolvedEntries = canonicalUnresolved
+        self.unresolvedEntries = partition.unresolved
         self.blockedEntries = partition.blocked
         self.totals = canonicalTotals
     }
@@ -252,7 +294,20 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
         guard unresolvedEntries.allSatisfy({ $0.decision != nil }) else {
             throw HouseholdZoneRecoveryPlanError.unresolvedProvenance
         }
+        guard unresolvedEntries.allSatisfy({
+            $0.decision != .include || $0.entry.action != .conflict || $0.entry.decision != nil
+        }) else {
+            throw HouseholdZoneRecoveryPlanError.unresolvedConflict
+        }
         guard blockedEntries.isEmpty else {
+            throw HouseholdZoneRecoveryPlanError.blockedEntriesPresent
+        }
+        let approvedIdentities = Set(approvedEntries.map(\.identity))
+        guard approvedEntries.allSatisfy({
+            $0.dependencies
+                .filter { $0.requirement == .required }
+                .allSatisfy { approvedIdentities.contains($0.identity) }
+        }) else {
             throw HouseholdZoneRecoveryPlanError.blockedEntriesPresent
         }
     }
@@ -301,7 +356,8 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
     private static func validateEntries(
         _ entries: [HouseholdZoneRecoveryEntry],
         sourceScope: MirrorScope,
-        targetScope: MirrorScope
+        targetScope: MirrorScope,
+        allowUnresolvedConflicts: Bool = false
     ) throws -> Set<HouseholdZoneRecoveryIdentity> {
         var sourceRecordKeys = Set<RecordKey>()
         var targetRecordKeys = Set<RecordKey>()
@@ -318,18 +374,18 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
                 throw HouseholdZoneRecoveryPlanError.duplicateIdentity
             }
             if entry.action == .conflict {
-                guard entry.decision != nil else {
+                guard entry.decision != nil || allowUnresolvedConflicts else {
                     throw HouseholdZoneRecoveryPlanError.unresolvedConflict
                 }
             } else if entry.decision != nil {
                 throw HouseholdZoneRecoveryPlanError.invalidDecision
             }
-            guard Set(entry.dependencies).count == entry.dependencies.count else {
+            guard Set(entry.dependencies.map(\.identity)).count == entry.dependencies.count else {
                 throw HouseholdZoneRecoveryPlanError.unstableOrdering
             }
             for dependency in entry.dependencies {
                 try validateIdentity(
-                    dependency,
+                    dependency.identity,
                     sourceScope: sourceScope,
                     targetScope: targetScope)
             }
@@ -354,16 +410,11 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
         sourceScope: MirrorScope,
         targetScope: MirrorScope
     ) throws {
-        var recordKeys = Set<RecordKey>()
-        for entry in unresolved {
-            try validateIdentity(
-                entry.identity,
-                sourceScope: sourceScope,
-                targetScope: targetScope)
-            guard recordKeys.insert(RecordKey(entry.identity.source)).inserted else {
-                throw HouseholdZoneRecoveryPlanError.unstableOrdering
-            }
-        }
+        _ = try validateEntries(
+            unresolved.map(\.entry),
+            sourceScope: sourceScope,
+            targetScope: targetScope,
+            allowUnresolvedConflicts: true)
     }
 
     private static func validateDisjointBuckets(
@@ -392,10 +443,12 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
     private static func partitionBlockedEntries(
         _ supplied: [HouseholdZoneRecoveryBlockedEntry],
         from entries: [HouseholdZoneRecoveryEntry],
+        unresolved: [HouseholdZoneRecoveryUnresolvedEntry],
         candidateIdentities: Set<HouseholdZoneRecoveryIdentity>,
         sourceScope: MirrorScope,
         targetScope: MirrorScope
     ) throws -> RecoveryPartition {
+        let allCandidateIdentities = candidateIdentities.union(unresolved.map(\.identity))
         var blockedByIdentity: [HouseholdZoneRecoveryIdentity: HouseholdZoneRecoveryBlockedEntry] = [:]
         for blocked in supplied {
             try validateIdentity(
@@ -414,7 +467,7 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
                     dependency,
                     sourceScope: sourceScope,
                     targetScope: targetScope)
-                guard !candidateIdentities.contains(dependency) else {
+                guard !allCandidateIdentities.contains(dependency) else {
                     throw HouseholdZoneRecoveryPlanError.invalidInput
                 }
             }
@@ -424,12 +477,16 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
                 missingDependencies: blocked.missingDependencies)
         }
 
-        var activeIdentities = candidateIdentities
+        var activeIdentities = allCandidateIdentities
         var removedAnEntry = true
         while removedAnEntry {
             removedAnEntry = false
             for entry in entries where activeIdentities.contains(entry.identity) {
-                let missing = entry.dependencies.filter { !activeIdentities.contains($0) }
+                let missing = entry.dependencies.compactMap {
+                    $0.requirement == .required && !activeIdentities.contains($0.identity)
+                        ? $0.identity
+                        : nil
+                }
                 guard !missing.isEmpty else { continue }
                 blockedByIdentity[entry.identity] = HouseholdZoneRecoveryBlockedEntry(
                     identity: entry.identity,
@@ -438,10 +495,26 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
                 activeIdentities.remove(entry.identity)
                 removedAnEntry = true
             }
+            for unresolvedEntry in unresolved
+            where activeIdentities.contains(unresolvedEntry.identity) {
+                let missing = unresolvedEntry.entry.dependencies.compactMap {
+                    $0.requirement == .required && !activeIdentities.contains($0.identity)
+                        ? $0.identity
+                        : nil
+                }
+                guard !missing.isEmpty else { continue }
+                blockedByIdentity[unresolvedEntry.identity] = HouseholdZoneRecoveryBlockedEntry(
+                    identity: unresolvedEntry.identity,
+                    reason: HouseholdZoneRecoveryBlockedEntry.missingDependencyReason,
+                    missingDependencies: missing)
+                activeIdentities.remove(unresolvedEntry.identity)
+                removedAnEntry = true
+            }
         }
 
         return RecoveryPartition(
             entries: entries.filter { activeIdentities.contains($0.identity) },
+            unresolved: unresolved.filter { activeIdentities.contains($0.identity) },
             blocked: blockedByIdentity.values.sorted { $0.identity.sortKey < $1.identity.sortKey })
     }
 
@@ -480,6 +553,7 @@ public struct HouseholdZoneRecoveryManifest: Codable, Equatable, Sendable {
 
     private struct RecoveryPartition {
         let entries: [HouseholdZoneRecoveryEntry]
+        let unresolved: [HouseholdZoneRecoveryUnresolvedEntry]
         let blocked: [HouseholdZoneRecoveryBlockedEntry]
     }
 
@@ -529,24 +603,7 @@ public extension ShadowMirrorCanonicalDigest {
         writer.append(manifest.entries.count)
         for entry in manifest.entries {
             writer.append("entry")
-            append(entry.identity, to: &writer)
-            writer.append(entry.action.rawValue)
-            if let decision = entry.decision {
-                writer.append("decision")
-                writer.append(decision.rawValue)
-            } else {
-                writer.append("no-decision")
-            }
-            writer.append(entry.dependencies.count)
-            for dependency in entry.dependencies {
-                append(dependency, to: &writer)
-            }
-            let assets = entry.assetDigests.sorted { $0.key < $1.key }
-            writer.append(assets.count)
-            for asset in assets {
-                writer.append(asset.key)
-                writer.append(asset.value)
-            }
+            append(entry, to: &writer)
         }
 
         writer.append(manifest.exclusions.count)
@@ -557,7 +614,8 @@ public extension ShadowMirrorCanonicalDigest {
 
         writer.append(manifest.unresolvedEntries.count)
         for unresolved in manifest.unresolvedEntries {
-            append(unresolved.identity, to: &writer)
+            writer.append("unresolved-entry")
+            append(unresolved.entry, to: &writer)
             if let decision = unresolved.decision {
                 writer.append("provenance-decision")
                 writer.append(decision.rawValue)
@@ -594,6 +652,31 @@ public extension ShadowMirrorCanonicalDigest {
         writer.append(scope.zoneName)
         writer.append(scope.householdID)
         writer.append(scope.role.rawValue)
+    }
+
+    private static func append(
+        _ entry: HouseholdZoneRecoveryEntry,
+        to writer: inout CanonicalWriter
+    ) {
+        append(entry.identity, to: &writer)
+        writer.append(entry.action.rawValue)
+        if let decision = entry.decision {
+            writer.append("decision")
+            writer.append(decision.rawValue)
+        } else {
+            writer.append("no-decision")
+        }
+        writer.append(entry.dependencies.count)
+        for dependency in entry.dependencies {
+            append(dependency.identity, to: &writer)
+            writer.append(dependency.requirement.rawValue)
+        }
+        let assets = entry.assetDigests.sorted { $0.key < $1.key }
+        writer.append(assets.count)
+        for asset in assets {
+            writer.append(asset.key)
+            writer.append(asset.value)
+        }
     }
 
     private static func append(

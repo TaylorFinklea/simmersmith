@@ -14,10 +14,6 @@ public enum HouseholdZoneRecoveryExclusionReason: String, Codable, Equatable, Se
     case fixture = "fixture"
 }
 
-public enum HouseholdZoneRecoveryDependencyRequirement: String, Codable, Equatable, Sendable {
-    case required
-    case optional
-}
 
 public struct HouseholdZoneRecoveryDependencyEdge: Codable, Equatable, Hashable, Sendable {
     public let dependent: HouseholdZoneRecoveryIdentity
@@ -52,12 +48,22 @@ public struct HouseholdZoneRecoverySelectableGroup: Codable, Equatable, Sendable
     }
 }
 
+/// A supported, unblocked identity whose real-versus-fixture provenance cannot be inferred.
+/// Task 3 turns an approved candidate into a full recovery entry after target comparison.
+public struct HouseholdZoneRecoveryProvenanceCandidate: Codable, Equatable, Sendable {
+    public let identity: HouseholdZoneRecoveryIdentity
+
+    public init(identity: HouseholdZoneRecoveryIdentity) {
+        self.identity = identity
+    }
+}
+
 public struct HouseholdZoneRecoveryClassification {
     public let eligibleRecords: [CKRecord]
     public let eligibleIdentities: [HouseholdZoneRecoveryIdentity]
     public let exclusions: [HouseholdZoneRecoveryExclusion]
     public let dependencyEdges: [HouseholdZoneRecoveryDependencyEdge]
-    public let unresolvedEntries: [HouseholdZoneRecoveryUnresolvedEntry]
+    public let provenanceCandidates: [HouseholdZoneRecoveryProvenanceCandidate]
     public let blockedEntries: [HouseholdZoneRecoveryBlockedEntry]
     public let selectableGroups: [HouseholdZoneRecoverySelectableGroup]
     public let inputRecordCount: Int
@@ -190,8 +196,8 @@ public struct HouseholdZoneRecoveryClassifier {
         let blockedRecordCount = blockedKeys.reduce(0) {
             $0 + (candidateInputCounts[$1] ?? 0)
         }
-        let unresolvedEntries = eligibleIdentities.map {
-            HouseholdZoneRecoveryUnresolvedEntry(identity: $0)
+        let provenanceCandidates = eligibleIdentities.map {
+            HouseholdZoneRecoveryProvenanceCandidate(identity: $0)
         }
         let groups = selectableGroups(
             identities: eligibleIdentities,
@@ -209,7 +215,7 @@ public struct HouseholdZoneRecoveryClassifier {
             eligibleIdentities: eligibleIdentities,
             exclusions: exclusions,
             dependencyEdges: edges,
-            unresolvedEntries: unresolvedEntries,
+            provenanceCandidates: provenanceCandidates,
             blockedEntries: blockedEntries,
             selectableGroups: groups,
             inputRecordCount: records.count,

@@ -41,12 +41,19 @@ private func recoveryIdentity(
             zoneName: targetZoneName))
 }
 
+private func recoveryDependency(
+    _ identity: HouseholdZoneRecoveryIdentity,
+    requirement: HouseholdZoneRecoveryDependencyRequirement = .required
+) -> HouseholdZoneRecoveryDependency {
+    HouseholdZoneRecoveryDependency(identity: identity, requirement: requirement)
+}
+
 private func recoveryEntry(
     _ recordName: String,
     recordType: String = "Recipe",
     action: HouseholdZoneRecoveryAction = .copy,
     decision: HouseholdZoneRecoveryDecision? = nil,
-    dependencies: [HouseholdZoneRecoveryIdentity] = [],
+    dependencies: [HouseholdZoneRecoveryDependency] = [],
     assetDigests: [String: String] = [:]
 ) -> HouseholdZoneRecoveryEntry {
     HouseholdZoneRecoveryEntry(
@@ -55,6 +62,15 @@ private func recoveryEntry(
         decision: decision,
         dependencies: dependencies,
         assetDigests: assetDigests)
+}
+
+private func recoveryUnresolvedEntry(
+    _ identity: HouseholdZoneRecoveryIdentity,
+    decision: HouseholdZoneRecoveryProvenanceDecision? = nil
+) -> HouseholdZoneRecoveryUnresolvedEntry {
+    HouseholdZoneRecoveryUnresolvedEntry(
+        entry: HouseholdZoneRecoveryEntry(identity: identity, action: .copy),
+        decision: decision)
 }
 
 private func recoveryManifest(
@@ -104,13 +120,13 @@ func manifestCanonicalOrderingIsStable() throws {
     let recipe = recoveryIdentity("recipe-a")
     let ingredient = recoveryIdentity("ingredient-z", recordType: "RecipeIngredient")
     let firstEntries = [
-        recoveryEntry("recipe-b", dependencies: [recipe, ingredient], assetDigests: ["thumbnail": "bb", "image": "aa"]),
+        recoveryEntry("recipe-b", dependencies: [recoveryDependency(recipe), recoveryDependency(ingredient)], assetDigests: ["thumbnail": "bb", "image": "aa"]),
         recoveryEntry("ingredient-z", recordType: "RecipeIngredient"),
         recoveryEntry("recipe-a"),
     ]
     let secondEntries = [
         recoveryEntry("recipe-a"),
-        recoveryEntry("recipe-b", dependencies: [ingredient, recipe], assetDigests: ["image": "aa", "thumbnail": "bb"]),
+        recoveryEntry("recipe-b", dependencies: [recoveryDependency(ingredient), recoveryDependency(recipe)], assetDigests: ["image": "aa", "thumbnail": "bb"]),
         recoveryEntry("ingredient-z", recordType: "RecipeIngredient"),
     ]
     let first = try recoveryManifest(
@@ -121,7 +137,7 @@ func manifestCanonicalOrderingIsStable() throws {
         exclusions: [.init(reason: "fixture", count: 1), .init(reason: "unknown-type", count: 2)])
 
     #expect(first.entries.map(\.identity.source.recordName) == ["recipe-a", "recipe-b", "ingredient-z"])
-    #expect(first.entries[1].dependencies == [recipe, ingredient])
+    #expect(first.entries[1].dependencies == [recoveryDependency(recipe), recoveryDependency(ingredient)])
     #expect(first.exclusions.map(\.reason) == ["fixture", "unknown-type"])
     #expect(try first.canonicalJSONBytes() == second.canonicalJSONBytes())
     #expect(try first.digest() == second.digest())
@@ -151,11 +167,11 @@ func manifestDigestCoversEveryRecoveryInput() throws {
                 "recipe-b",
                 action: .conflict,
                 decision: .source,
-                dependencies: [dependency],
+                dependencies: [recoveryDependency(dependency)],
                 assetDigests: ["image": "asset-sha"]),
         ],
         exclusions: [.init(reason: "fixture", count: 3)],
-        unresolvedEntries: [.init(identity: unresolvedIdentity, decision: .include)],
+        unresolvedEntries: [recoveryUnresolvedEntry(unresolvedIdentity, decision: .include)],
         blockedEntries: [.init(
             identity: blockedIdentity,
             reason: "schema-block",
@@ -200,7 +216,7 @@ func manifestDigestCoversEveryRecoveryInput() throws {
     #expect(baselineDigest != (try recoveryManifest(
         entries: [
             recoveryEntry("recipe-a"),
-            recoveryEntry("recipe-b", action: .conflict, decision: .target, dependencies: [dependency], assetDigests: ["image": "asset-sha"]),
+            recoveryEntry("recipe-b", action: .conflict, decision: .target, dependencies: [recoveryDependency(dependency)], assetDigests: ["image": "asset-sha"]),
         ],
         exclusions: baseline.exclusions,
         unresolvedEntries: baseline.unresolvedEntries,
@@ -216,7 +232,20 @@ func manifestDigestCoversEveryRecoveryInput() throws {
     #expect(baselineDigest != (try recoveryManifest(
         entries: [
             recoveryEntry("recipe-a"),
-            recoveryEntry("recipe-b", action: .conflict, decision: .source, dependencies: [dependency], assetDigests: ["image": "changed-asset"]),
+            recoveryEntry(
+                "recipe-b",
+                action: .conflict,
+                decision: .source,
+                dependencies: [recoveryDependency(dependency, requirement: .optional)],
+                assetDigests: ["image": "asset-sha"]),
+        ],
+        exclusions: baseline.exclusions,
+        unresolvedEntries: baseline.unresolvedEntries,
+        blockedEntries: baseline.blockedEntries).digest()))
+    #expect(baselineDigest != (try recoveryManifest(
+        entries: [
+            recoveryEntry("recipe-a"),
+            recoveryEntry("recipe-b", action: .conflict, decision: .source, dependencies: [recoveryDependency(dependency)], assetDigests: ["image": "changed-asset"]),
         ],
         exclusions: baseline.exclusions,
         unresolvedEntries: baseline.unresolvedEntries,
@@ -229,7 +258,7 @@ func manifestDigestCoversEveryRecoveryInput() throws {
     #expect(baselineDigest != (try recoveryManifest(
         entries: baseline.entries,
         exclusions: baseline.exclusions,
-        unresolvedEntries: [.init(identity: unresolvedIdentity, decision: .exclude)],
+        unresolvedEntries: [recoveryUnresolvedEntry(unresolvedIdentity, decision: .exclude)],
         blockedEntries: baseline.blockedEntries).digest()))
     #expect(baselineDigest != (try recoveryManifest(
         entries: baseline.entries,
@@ -312,7 +341,7 @@ func manifestRejectsUnresolvedConflict() {
 func manifestSurfacesMissingDependency() throws {
     let missing = recoveryIdentity("missing")
     let manifest = try recoveryManifest(entries: [
-        recoveryEntry("recipe-a", dependencies: [missing]),
+        recoveryEntry("recipe-a", dependencies: [recoveryDependency(missing)]),
     ])
     #expect(manifest.entries.isEmpty)
 
@@ -322,6 +351,88 @@ func manifestSurfacesMissingDependency() throws {
             reason: HouseholdZoneRecoveryBlockedEntry.missingDependencyReason,
             missingDependencies: [missing]),
     ])
+}
+
+@Test("unresolved provenance retains the full candidate entry for an approved include")
+func unresolvedProvenanceRetainsFullCandidateEntry() throws {
+    let dependency = recoveryIdentity("recipe-a")
+    let candidate = recoveryEntry(
+        "unresolved-a",
+        action: .conflict,
+        dependencies: [recoveryDependency(dependency)],
+        assetDigests: ["image": "asset-sha"])
+    let manifest = try recoveryManifest(
+        entries: [recoveryEntry("recipe-a")],
+        unresolvedEntries: [.init(entry: candidate, decision: .include)])
+
+    #expect(manifest.unresolvedEntries[0].entry == candidate)
+    #expect(manifest.unresolvedEntries[0].identity == candidate.identity)
+    #expect(manifest.approvedEntries == [recoveryEntry("recipe-a"), candidate])
+    #expect(throws: HouseholdZoneRecoveryPlanError.unresolvedConflict) {
+        try manifest.verify(.init(manifestDigest: try manifest.digest()))
+    }
+
+    let changedCandidate = recoveryEntry(
+        "unresolved-a",
+        action: .conflict,
+        decision: .source,
+        dependencies: [recoveryDependency(dependency)],
+        assetDigests: ["image": "changed-asset"])
+    let changed = try recoveryManifest(
+        entries: [recoveryEntry("recipe-a")],
+        unresolvedEntries: [.init(entry: changedCandidate, decision: .include)])
+    #expect(try manifest.digest() != changed.digest())
+    try changed.verify(.init(manifestDigest: try changed.digest()))
+}
+
+@Test("manifest blocks unresolved candidates with missing dependencies")
+func manifestBlocksUnresolvedMissingDependency() throws {
+    let missing = recoveryIdentity("missing")
+    let candidate = recoveryEntry("unresolved-a", dependencies: [recoveryDependency(missing)])
+    let manifest = try recoveryManifest(
+        entries: [],
+        unresolvedEntries: [.init(entry: candidate, decision: .include)])
+
+    #expect(manifest.unresolvedEntries.isEmpty)
+    #expect(manifest.approvedEntries.isEmpty)
+    #expect(manifest.blockedEntries == [
+        .init(
+            identity: candidate.identity,
+            reason: HouseholdZoneRecoveryBlockedEntry.missingDependencyReason,
+            missingDependencies: [missing]),
+    ])
+}
+
+@Test("approval rejects an included candidate that depends on an excluded candidate")
+func approvalRejectsExcludedDependency() throws {
+    let excluded = recoveryEntry("unresolved-b")
+    let included = recoveryEntry(
+        "unresolved-a",
+        dependencies: [recoveryDependency(excluded.identity)])
+    let manifest = try recoveryManifest(
+        entries: [],
+        unresolvedEntries: [
+            .init(entry: included, decision: .include),
+            .init(entry: excluded, decision: .exclude),
+        ])
+
+    #expect(throws: HouseholdZoneRecoveryPlanError.blockedEntriesPresent) {
+        try manifest.verify(.init(manifestDigest: try manifest.digest()))
+    }
+}
+
+@Test("approval permits an optional dependency on an excluded candidate")
+func approvalPermitsExcludedOptionalDependency() throws {
+    let excluded = recoveryEntry("unresolved-b")
+    let included = recoveryEntry(
+        "recipe-a",
+        dependencies: [recoveryDependency(excluded.identity, requirement: .optional)])
+    let manifest = try recoveryManifest(
+        entries: [included],
+        unresolvedEntries: [.init(entry: excluded, decision: .exclude)])
+
+    #expect(manifest.entries == [included])
+    try manifest.verify(.init(manifestDigest: try manifest.digest()))
 }
 
 @Test("manifest retains unresolved provenance decisions blocked reasons and deterministic totals")
@@ -337,8 +448,8 @@ func manifestCanonicalizesReviewStateAndTotals() throws {
             recoveryEntry("recipe-a"),
         ],
         unresolvedEntries: [
-            .init(identity: unresolvedB, decision: .exclude),
-            .init(identity: unresolvedA, decision: .include),
+            recoveryUnresolvedEntry(unresolvedB, decision: .exclude),
+            recoveryUnresolvedEntry(unresolvedA, decision: .include),
         ],
         blockedEntries: [
             .init(identity: blockedB, reason: "z-reason"),
@@ -348,7 +459,7 @@ func manifestCanonicalizesReviewStateAndTotals() throws {
     #expect(manifest.unresolvedEntries.map(\.identity) == [unresolvedA, unresolvedB])
     #expect(manifest.blockedEntries.map(\.identity) == [blockedA, blockedB])
     #expect(manifest.totals == [
-        .init(recordType: "Recipe", action: .copy, count: 1),
+        .init(recordType: "Recipe", action: .copy, count: 2),
         .init(recordType: "Recipe", action: .skipIdentical, count: 1),
         .init(recordType: "Week", action: .copy, count: 1),
     ])
@@ -358,7 +469,9 @@ func manifestCanonicalizesReviewStateAndTotals() throws {
 func manifestCodableRoundTripAndTamperValidation() throws {
     let manifest = try recoveryManifest(
         entries: [recoveryEntry("recipe-a", assetDigests: ["image": "sha"])],
-        unresolvedEntries: [.init(identity: recoveryIdentity("unresolved-a"), decision: .include)])
+        unresolvedEntries: [recoveryUnresolvedEntry(
+            recoveryIdentity("unresolved-a"),
+            decision: .include)])
     let bytes = try manifest.canonicalJSONBytes()
     let decoded = try JSONDecoder().decode(HouseholdZoneRecoveryManifest.self, from: bytes)
 
@@ -381,7 +494,9 @@ func manifestCodableRoundTripAndTamperValidation() throws {
     var overlapObject = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
     let overlapEntries = try #require(overlapObject["entries"] as? [[String: Any]])
     var unresolved = try #require(overlapObject["unresolvedEntries"] as? [[String: Any]])
-    unresolved[0]["identity"] = overlapEntries[0]["identity"]
+    var unresolvedEntry = try #require(unresolved[0]["entry"] as? [String: Any])
+    unresolvedEntry["identity"] = overlapEntries[0]["identity"]
+    unresolved[0]["entry"] = unresolvedEntry
     overlapObject["unresolvedEntries"] = unresolved
     let overlapBytes = try JSONSerialization.data(withJSONObject: overlapObject)
     #expect(throws: HouseholdZoneRecoveryPlanError.duplicateIdentity) {
@@ -420,7 +535,19 @@ func manifestRejectsUnstableOrderingInputs() {
     #expect(throws: HouseholdZoneRecoveryPlanError.unstableOrdering) {
         try recoveryManifest(entries: [
             recoveryEntry("recipe-a"),
-            recoveryEntry("recipe-b", dependencies: [dependency, dependency]),
+            recoveryEntry("recipe-b", dependencies: [
+                recoveryDependency(dependency),
+                recoveryDependency(dependency),
+            ]),
+        ])
+    }
+    #expect(throws: HouseholdZoneRecoveryPlanError.unstableOrdering) {
+        try recoveryManifest(entries: [
+            recoveryEntry("recipe-a"),
+            recoveryEntry("recipe-b", dependencies: [
+                recoveryDependency(dependency, requirement: .required),
+                recoveryDependency(dependency, requirement: .optional),
+            ]),
         ])
     }
     #expect(throws: HouseholdZoneRecoveryPlanError.unstableOrdering) {
@@ -436,7 +563,7 @@ func manifestRejectsCrossBucketIdentityOverlap() {
     #expect(throws: HouseholdZoneRecoveryPlanError.duplicateIdentity) {
         try recoveryManifest(
             entries: [recoveryEntry("recipe-a")],
-            unresolvedEntries: [.init(identity: identity)])
+            unresolvedEntries: [recoveryUnresolvedEntry(identity)])
     }
     #expect(throws: HouseholdZoneRecoveryPlanError.duplicateIdentity) {
         try recoveryManifest(
@@ -446,7 +573,7 @@ func manifestRejectsCrossBucketIdentityOverlap() {
     #expect(throws: HouseholdZoneRecoveryPlanError.duplicateIdentity) {
         try recoveryManifest(
             entries: [],
-            unresolvedEntries: [.init(identity: identity)],
+            unresolvedEntries: [recoveryUnresolvedEntry(identity)],
             blockedEntries: [.init(identity: identity, reason: "schema-block")])
     }
 }
@@ -466,14 +593,16 @@ func approvalRequiresExactManifestDigest() throws {
 func approvalRequiresResolvedAndUnblockedManifest() throws {
     let unresolved = try recoveryManifest(
         entries: [],
-        unresolvedEntries: [.init(identity: recoveryIdentity("recipe-a"))])
+        unresolvedEntries: [recoveryUnresolvedEntry(recoveryIdentity("recipe-a"))])
     #expect(throws: HouseholdZoneRecoveryPlanError.unresolvedProvenance) {
         try unresolved.verify(.init(manifestDigest: try unresolved.digest()))
     }
 
     let included = try recoveryManifest(
         entries: [],
-        unresolvedEntries: [.init(identity: recoveryIdentity("recipe-a"), decision: .include)])
+        unresolvedEntries: [recoveryUnresolvedEntry(
+            recoveryIdentity("recipe-a"),
+            decision: .include)])
     try included.verify(.init(manifestDigest: try included.digest()))
 
     let blocked = try recoveryManifest(
