@@ -309,6 +309,71 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(store.saved.first?.canonicalManifestBytes == viewModel.canonicalManifestBytes)
     }
 
+    @Test("include all decides only undecided provenance and persists one canonical artifact")
+    func includeAllProvenanceRebuildsOnce() async throws {
+        let first = identity("first-undecided")
+        let second = identity("second-undecided")
+        let previouslyExcluded = identity("already-excluded")
+        let exclusions = [HouseholdZoneRecoveryExclusion(reason: "developer-fixture", count: 5)]
+        let initialManifest = try manifest(
+            exclusions: exclusions,
+            unresolved: [
+                HouseholdZoneRecoveryUnresolvedEntry(
+                    entry: HouseholdZoneRecoveryEntry(identity: first, action: .copy)),
+                HouseholdZoneRecoveryUnresolvedEntry(
+                    entry: HouseholdZoneRecoveryEntry(identity: second, action: .copy)),
+                HouseholdZoneRecoveryUnresolvedEntry(
+                    entry: HouseholdZoneRecoveryEntry(identity: previouslyExcluded, action: .copy),
+                    decision: .exclude),
+            ])
+        let initial = analysis(initialManifest)
+        let (viewModel, store) = makeViewModel { _, _, _ in initial }
+
+        viewModel.analyze()
+        await waitUntilSettled(viewModel)
+        let initialDigest = try #require(viewModel.manifestDigest)
+        #expect(viewModel.undecidedProvenanceCount == 2)
+
+        viewModel.decideAllProvenance(.include)
+
+        let rebuilt = try #require(viewModel.preview?.manifest)
+        let rebuiltDigest = try #require(viewModel.manifestDigest)
+        let decisions = Dictionary(
+            uniqueKeysWithValues: rebuilt.unresolvedEntries.map { ($0.identity, $0.decision) })
+        #expect(rebuiltDigest != initialDigest)
+        #expect(decisions[first] == .include)
+        #expect(decisions[second] == .include)
+        #expect(decisions[previouslyExcluded] == .exclude)
+        #expect(rebuilt.exclusions == exclusions)
+        #expect(viewModel.undecidedProvenanceCount == 0)
+        #expect(rebuilt.unresolvedEntries.allSatisfy { $0.decision != nil })
+        #expect(viewModel.approvalAvailable)
+        #expect(store.saved.map(\.digest) == [rebuiltDigest])
+    }
+
+    @Test("include all fails closed when captured authority is stale")
+    func includeAllWithStaleAuthorityNeverPersists() async throws {
+        let unresolved = HouseholdZoneRecoveryUnresolvedEntry(
+            entry: HouseholdZoneRecoveryEntry(
+                identity: identity("stale-bulk-record"),
+                action: .copy))
+        let initial = analysis(try manifest(unresolved: [unresolved]))
+        var authorityIsCurrent = true
+        let (viewModel, store) = makeViewModel(
+            authorityIsCurrent: { _ in authorityIsCurrent },
+            analyze: { _, _, _ in initial })
+
+        viewModel.analyze()
+        await waitUntilSettled(viewModel)
+        authorityIsCurrent = false
+
+        viewModel.decideAllProvenance(.include)
+
+        #expect(viewModel.failureMessage == "The household session changed during recovery review.")
+        #expect(store.saved.isEmpty)
+        #expect(store.removeCount >= 2)
+    }
+
     @Test("authority changes before a decision clear the preview and never persist approval")
     func authorityChangeBeforeDecisionFailsClosed() async throws {
         let candidate = identity("authority-sensitive-record")

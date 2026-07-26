@@ -232,6 +232,10 @@ final class HouseholdZoneRecoveryViewModel {
     var canonicalManifestBytes: Data? { preview?.canonicalManifestBytes }
     var approvalAvailable: Bool { preview?.approvalAvailable == true }
     var diagnosticDescription: String { preview?.summary.diagnosticDescription ?? "state=unavailable" }
+    var undecidedProvenanceCount: Int {
+        preview?.manifest.unresolvedEntries.lazy.filter { $0.decision == nil }.count ?? 0
+    }
+
 
     var reviewItems: [HouseholdZoneRecoveryReviewItem] {
         guard let manifest = preview?.manifest else { return [] }
@@ -312,6 +316,34 @@ final class HouseholdZoneRecoveryViewModel {
                 entries: entries,
                 unresolved: unresolved)
             Self.logger.info("conflict_decision_changed")
+        } catch {
+            failStorageOrDecision()
+        }
+    }
+
+    func decideAllProvenance(_ decision: HouseholdZoneRecoveryProvenanceDecision) {
+        guard let preview else { return }
+        let undecidedCount = preview.manifest.unresolvedEntries.lazy
+            .filter { $0.decision == nil }
+            .count
+        guard undecidedCount > 0 else { return }
+        guard authorityIsCurrent(preview.authority) else {
+            authorityChangedDuringReview()
+            return
+        }
+        do {
+            let unresolved = preview.manifest.unresolvedEntries.map { unresolved in
+                guard unresolved.decision == nil else { return unresolved }
+                return HouseholdZoneRecoveryUnresolvedEntry(
+                    entry: unresolved.entry,
+                    decision: decision)
+            }
+            try publishRebuiltManifest(
+                from: preview,
+                entries: preview.manifest.entries,
+                unresolved: unresolved)
+            Self.logger.info(
+                "provenance_bulk_decision_changed count=\(undecidedCount, privacy: .public)")
         } catch {
             failStorageOrDecision()
         }
@@ -601,6 +633,17 @@ struct HouseholdZoneRecoveryView: View {
     private var reviewSection: some View {
         if !viewModel.reviewItems.isEmpty {
             Section {
+                if viewModel.undecidedProvenanceCount > 0 {
+                    Button {
+                        viewModel.decideAllProvenance(.include)
+                    } label: {
+                        Label(
+                            "Include all \(viewModel.undecidedProvenanceCount) undecided records",
+                            systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
                 ForEach(viewModel.reviewItems) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(item.recordLabel)
