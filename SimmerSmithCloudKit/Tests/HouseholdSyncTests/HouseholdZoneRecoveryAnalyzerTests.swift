@@ -159,10 +159,8 @@ func analyzerIsExactZoneReadOnlyAndPrivacySafe() async throws {
 
     let analysis = try await analyze(transport: transport)
 
-    #expect(transport.pageCalls.map(\.0) == [analyzerSourceZone])
-    #expect(transport.recordCalls == [
-        CKRecord.ID(recordName: "secret-record", zoneID: analyzerTargetZone),
-    ])
+    #expect(transport.pageCalls.map(\.0) == [analyzerSourceZone, analyzerTargetZone])
+    #expect(transport.recordCalls.isEmpty)
     #expect(transport.fingerprintCalls == [
         analyzerSourceZone, analyzerTargetZone, analyzerSourceZone, analyzerTargetZone,
     ])
@@ -196,10 +194,14 @@ func analyzerRejectsWrongZoneAndPartialPages() async {
     }
 
     let wrongTarget = configuredTransport(sourceRecords: [analyzerRecord("Recipe", "candidate")])
-    let requestedID = CKRecord.ID(recordName: "candidate", zoneID: analyzerTargetZone)
-    wrongTarget.targetRecords[requestedID] = analyzerRecord(
-        "Recipe", "candidate",
-        zoneID: CKRecordZone.ID(zoneName: "other", ownerName: CKCurrentUserDefaultName))
+    wrongTarget.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone,
+            records: [analyzerRecord(
+                "Recipe", "candidate",
+                zoneID: CKRecordZone.ID(zoneName: "other", ownerName: CKCurrentUserDefaultName))],
+            nextCursor: nil),
+    ]
     await #expect(throws: HouseholdZoneRecoveryAnalyzerError.mismatchedZone) {
         _ = try await analyze(transport: wrongTarget)
     }
@@ -214,6 +216,66 @@ func analyzerRejectsWrongZoneAndPartialPages() async {
     ]
     await #expect(throws: HouseholdZoneRecoveryAnalyzerError.partialPageFailure) {
         _ = try await analyze(transport: partial)
+    }
+}
+
+@Test("many candidates use one paged target snapshot with no per-record lookups")
+func analyzerIndexesTargetZoneOnceAndRemainsDeterministic() async throws {
+    let sources = (0..<80).map { index -> CKRecord in
+        let record = analyzerRecord("Recipe", "recipe-\(index)")
+        record["name"] = "Recipe \(index)" as CKRecordValue
+        return record
+    }
+    let targets = sources.prefix(3).map { source -> CKRecord in
+        let record = analyzerRecord(
+            source.recordType,
+            source.recordID.recordName,
+            zoneID: analyzerTargetZone)
+        record["name"] = source["name"]
+        return record
+    }
+    let first = configuredTransport(sourceRecords: sources)
+    first.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone, records: targets, nextCursor: nil),
+    ]
+    let second = configuredTransport(sourceRecords: Array(sources.reversed()))
+    second.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone, records: Array(targets.reversed()), nextCursor: nil),
+    ]
+
+    let left = try await analyze(transport: first)
+    let right = try await analyze(transport: second)
+
+    #expect(first.pageCalls.filter { $0.0 == analyzerTargetZone }.count == 1)
+    #expect(second.pageCalls.filter { $0.0 == analyzerTargetZone }.count == 1)
+    #expect(first.recordCalls.isEmpty)
+    #expect(second.recordCalls.isEmpty)
+    #expect(left.manifest == right.manifest)
+    #expect(left.summary.candidateCount == 80)
+    #expect(left.summary.skipIdenticalCount == 3)
+    #expect(left.summary.copyCount == 77)
+}
+
+@Test("duplicate target identities across pages fail closed")
+func analyzerRejectsDuplicateTargetIdentity() async {
+    let source = analyzerRecord("Recipe", "duplicate")
+    let target = analyzerRecord("Recipe", "duplicate", zoneID: analyzerTargetZone)
+    let transport = configuredTransport(sourceRecords: [source])
+    transport.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone,
+            records: [target],
+            nextCursor: HouseholdZoneRecoveryPageCursor(identifier: "1")),
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone,
+            records: [target],
+            nextCursor: nil),
+    ]
+
+    await #expect(throws: HouseholdZoneRecoveryAnalyzerError.duplicateRecord) {
+        _ = try await analyze(transport: transport)
     }
 }
 
@@ -235,7 +297,10 @@ func analyzerSkipsCanonicalIdenticalTarget() async throws {
         "Recipe", "recipe", zoneID: analyzerTargetZone, title: "different unknown field")
     target["name"] = "Soup" as CKRecordValue
     let transport = configuredTransport(sourceRecords: [source])
-    transport.targetRecords[target.recordID] = target
+    transport.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone, records: [target], nextCursor: nil),
+    ]
 
     let analysis = try await analyze(transport: transport)
 
@@ -250,7 +315,10 @@ func analyzerFindsConflict() async throws {
     let target = analyzerRecord("Recipe", "recipe", zoneID: analyzerTargetZone)
     target["name"] = "Target title" as CKRecordValue
     let transport = configuredTransport(sourceRecords: [source])
-    transport.targetRecords[target.recordID] = target
+    transport.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone, records: [target], nextCursor: nil),
+    ]
 
     let analysis = try await analyze(transport: transport)
     let entry = try soleCandidateEntry(analysis)
@@ -335,8 +403,12 @@ func analyzerUsesStableAssetDigests() async throws {
     targetImage["imageAsset"] = CKAsset(fileURL: targetURL)
 
     let transport = configuredTransport(sourceRecords: [sourceImage, sourceRecipe])
-    transport.targetRecords[targetRecipe.recordID] = targetRecipe
-    transport.targetRecords[targetImage.recordID] = targetImage
+    transport.pages[analyzerTargetZone] = [
+        HouseholdZoneRecoveryRecordPage(
+            zoneID: analyzerTargetZone,
+            records: [targetRecipe, targetImage],
+            nextCursor: nil),
+    ]
     let digest = ShadowMirrorDigest.sha256(bytes)
     transport.assetResults[sourceURL] = .success(.init(bytes: bytes, digest: digest))
     transport.assetResults[targetURL] = .success(.init(bytes: bytes, digest: digest))

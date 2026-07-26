@@ -94,6 +94,10 @@ public struct HouseholdZoneRecoveryAnalyzer {
         let sourceFingerprint = try await checkedFingerprint(for: sourceZoneID)
         let targetFingerprint = try await checkedFingerprint(for: targetZoneID)
         let sourceRecords = try await fetchAllRecords(in: sourceZoneID)
+        let targetRecords = try await fetchAllRecords(in: targetZoneID)
+        let targetRecordsByID = Dictionary(uniqueKeysWithValues: targetRecords.map {
+            ($0.recordID, $0)
+        })
         let classification = HouseholdZoneRecoveryClassifier(
             sourceScope: sourceScope,
             targetScope: targetScope).classify(sourceRecords)
@@ -136,10 +140,7 @@ public struct HouseholdZoneRecoveryAnalyzer {
             let targetRecordID = CKRecord.ID(
                 recordName: identity.target.recordName,
                 zoneID: targetZoneID)
-            let targetRecord = try await transport.fetchRecord(targetRecordID)
-            if let targetRecord, targetRecord.recordID != targetRecordID {
-                throw HouseholdZoneRecoveryAnalyzerError.mismatchedZone
-            }
+            let targetRecord = targetRecordsByID[targetRecordID]
 
             let action: HouseholdZoneRecoveryAction
             if let targetRecord {
