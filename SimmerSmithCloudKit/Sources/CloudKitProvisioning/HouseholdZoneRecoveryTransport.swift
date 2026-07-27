@@ -13,6 +13,56 @@ public enum HouseholdZoneRecoveryTransportError: Error, Equatable, Sendable {
     case emptyFingerprint
 }
 
+public enum HouseholdZoneRecoveryApplyTransportError: Error, Equatable, Sendable {
+    case transient
+    case partialFailure
+    case conflict
+    case permissionDenied
+    case accountChanged
+    case zoneChanged
+    case schema
+    case invalidResponse
+    case permanentFailure
+}
+
+public extension HouseholdZoneRecoveryApplyTransportError {
+    static func classify(_ error: Error) -> Self {
+        if let classified = error as? Self { return classified }
+        if let transportError = error as? HouseholdZoneRecoveryTransportError {
+            switch transportError {
+            case .partialFailure:
+                return .partialFailure
+            case .mismatchedZone:
+                return .zoneChanged
+            case .invalidCursor, .missingZoneResult, .unreadableAsset,
+                 .invalidAssetDigest, .emptyFingerprint:
+                return .permanentFailure
+            }
+        }
+        guard let cloudError = error as? CKError else { return .permanentFailure }
+        switch cloudError.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable,
+             .requestRateLimited, .zoneBusy:
+            return .transient
+        case .partialFailure, .batchRequestFailed:
+            return .partialFailure
+        case .serverRecordChanged:
+            return .conflict
+        case .permissionFailure:
+            return .permissionDenied
+        case .notAuthenticated, .accountTemporarilyUnavailable:
+            return .accountChanged
+        case .zoneNotFound, .userDeletedZone:
+            return .zoneChanged
+        case .badContainer, .badDatabase, .constraintViolation,
+             .invalidArguments, .serverRejectedRequest:
+            return .schema
+        default:
+            return .permanentFailure
+        }
+    }
+}
+
 /// Opaque continuation returned by one exact-zone page fetch.
 public struct HouseholdZoneRecoveryPageCursor: @unchecked Sendable {
     public let identifier: String
@@ -74,14 +124,27 @@ public protocol HouseholdZoneRecoveryTransport {
     func inputFingerprint(for zoneID: CKRecordZone.ID) async throws -> String
 }
 
+/// Apply-only capability. The analyzer remains typed to `HouseholdZoneRecoveryTransport`, which
+/// intentionally cannot write. A batch has no delete input and must commit all records atomically.
+public protocol HouseholdZoneRecoveryApplyTransport: HouseholdZoneRecoveryTransport {
+    func saveRecordsAtomically(
+        _ records: [CKRecord],
+        in zoneID: CKRecordZone.ID
+    ) async throws -> [CKRecord]
+}
+
 public extension HouseholdZoneRecoveryTransport {
     func inputFingerprint(for zoneID: CKRecordZone.ID) async throws -> String {
         try await HouseholdZoneRecoveryFingerprint.make(transport: self, zoneID: zoneID)
     }
 }
 
-/// Production private-database implementation of the read-only recovery capability.
-public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTransport {
+/// Production private-database implementation. Read-only callers receive only the analyzer
+/// protocol; apply callers must explicitly depend on the separate atomic-save capability.
+public struct CloudKitHouseholdZoneRecoveryTransport:
+    HouseholdZoneRecoveryTransport,
+    HouseholdZoneRecoveryApplyTransport
+{
     private let database: CKDatabase
 
     public init(containerIdentifier: String = "iCloud.app.simmersmith.cloud") {
@@ -115,6 +178,7 @@ public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTrans
             var mismatchedZone = false
             var receivedExpectedZoneResult = false
             var nextCursor: HouseholdZoneRecoveryPageCursor?
+            var zoneFailure: Error?
 
             operation.recordWasChangedBlock = { recordID, result in
                 guard recordID.zoneID == zoneID else {
@@ -158,15 +222,19 @@ public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTrans
                             serverChangeToken: token,
                             identifier: identifier)
                     }
-                case .failure:
-                    partialFailure = true
+                case .failure(let error):
+                    zoneFailure = error
                 }
             }
             operation.fetchRecordZoneChangesResultBlock = { result in
                 if mismatchedZone {
                     continuation.resume(throwing: HouseholdZoneRecoveryTransportError.mismatchedZone)
+                } else if let zoneFailure {
+                    continuation.resume(throwing:
+                        HouseholdZoneRecoveryApplyTransportError.classify(zoneFailure))
                 } else if partialFailure {
-                    continuation.resume(throwing: HouseholdZoneRecoveryTransportError.partialFailure)
+                    continuation.resume(throwing:
+                        HouseholdZoneRecoveryApplyTransportError.partialFailure)
                 } else if !receivedExpectedZoneResult {
                     continuation.resume(throwing: HouseholdZoneRecoveryTransportError.missingZoneResult)
                 } else {
@@ -177,7 +245,8 @@ public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTrans
                             records: records,
                             nextCursor: nextCursor))
                     case .failure(let error):
-                        continuation.resume(throwing: error)
+                        continuation.resume(throwing:
+                            HouseholdZoneRecoveryApplyTransportError.classify(error))
                     }
                 }
             }
@@ -195,6 +264,9 @@ public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTrans
         } catch let error as CKError where error.code == .unknownItem {
             return nil
         }
+        catch {
+            throw HouseholdZoneRecoveryApplyTransportError.classify(error)
+        }
     }
 
     public func assetPayload(for asset: CKAsset) async throws -> HouseholdZoneRecoveryAssetPayload {
@@ -211,6 +283,67 @@ public struct CloudKitHouseholdZoneRecoveryTransport: HouseholdZoneRecoveryTrans
     public func inputFingerprint(for zoneID: CKRecordZone.ID) async throws -> String {
         try await HouseholdZoneRecoveryFingerprint.make(transport: self, zoneID: zoneID)
     }
+
+    public func saveRecordsAtomically(
+        _ records: [CKRecord],
+        in zoneID: CKRecordZone.ID
+    ) async throws -> [CKRecord] {
+        guard !records.isEmpty,
+              records.allSatisfy({ $0.recordID.zoneID == zoneID }),
+              Set(records.map(\.recordID)).count == records.count else {
+            throw HouseholdZoneRecoveryApplyTransportError.invalidResponse
+        }
+
+        return try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[CKRecord], Error>) in
+            let operation = CKModifyRecordsOperation(
+                recordsToSave: records,
+                recordIDsToDelete: nil)
+            operation.isAtomic = true
+            operation.savePolicy = .ifServerRecordUnchanged
+
+            let expectedIDs = Set(records.map(\.recordID))
+            let lock = NSLock()
+            var savedRecords: [CKRecord.ID: CKRecord] = [:]
+            var observedRecordFailure = false
+            operation.perRecordSaveBlock = { recordID, result in
+                lock.withLock {
+                    switch result {
+                    case .success(let savedRecord):
+                        guard savedRecord.recordID == recordID,
+                              savedRecord.recordID.zoneID == zoneID else {
+                            observedRecordFailure = true
+                            return
+                        }
+                        savedRecords[recordID] = savedRecord
+                    case .failure:
+                        observedRecordFailure = true
+                    }
+                }
+            }
+            operation.modifyRecordsResultBlock = { result in
+                let observation = lock.withLock {
+                    (savedRecords, observedRecordFailure)
+                }
+                switch result {
+                case .success:
+                    guard !observation.1, Set(observation.0.keys) == expectedIDs else {
+                        continuation.resume(
+                            throwing: HouseholdZoneRecoveryApplyTransportError.partialFailure)
+                        return
+                    }
+                    continuation.resume(returning: records.compactMap {
+                        observation.0[$0.recordID]
+                    })
+                case .failure(let error):
+                    continuation.resume(throwing:
+                        HouseholdZoneRecoveryApplyTransportError.classify(error))
+                }
+            }
+            database.add(operation)
+        }
+    }
+
 
     private static func cursorIdentifier(_ token: CKServerChangeToken) -> String? {
         guard let bytes = try? NSKeyedArchiver.archivedData(

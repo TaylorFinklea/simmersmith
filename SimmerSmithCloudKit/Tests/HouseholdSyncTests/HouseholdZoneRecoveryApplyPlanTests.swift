@@ -272,8 +272,14 @@ struct HouseholdZoneRecoveryApplyPlanTests {
             entry("take-source", type: "Recipe", action: .conflict, decision: .source),
         ])
         let records = ["copy", "same", "keep-target", "take-source"].map { sourceRecord($0, type: "Recipe") }
+        let targetRecords = ["keep-target", "take-source"].map {
+            targetRecord($0, type: "Recipe")
+        }
 
-        let plan = try makePlan(manifest: manifest, records: records)
+        let plan = try makePlan(
+            manifest: manifest,
+            records: records,
+            targetRecords: targetRecords)
 
         #expect(plan.records.map { $0.record.recordID.recordName } == ["copy", "take-source"])
     }
@@ -357,6 +363,21 @@ struct HouseholdZoneRecoveryApplyPlanTests {
         #expect(record.recordID.zoneID == targetZone)
         #expect(record.recordID.recordName == HouseholdZoneRecoveryReceipt.recordName(manifestDigest: plan.manifestDigest))
         #expect(decoded == receipt)
+        #expect(receipt.sourceInputFingerprint == "source-fingerprint")
+        #expect(receipt.initialTargetInputFingerprint == "target-fingerprint")
+        #expect(receipt.approvedIdentityActions == plan.approvedIdentityActions)
+        #expect(receipt.targetRecordApplicationDigestProgress
+            == plan.targetRecordApplicationDigestProgress)
+        #expect(receipt.status == .inProgress)
+        #expect(receipt.completedAt == nil)
+        #expect(receipt.completedBatches.isEmpty)
+        #expect(receipt.expectedTargetRecordApplicationDigests.isEmpty)
+
+        let json = try JSONEncoder().encode(receipt)
+        #expect(try JSONDecoder().decode(
+            HouseholdZoneRecoveryReceipt.self,
+            from: json
+        ) == receipt)
     }
 
     @Test("receipt resumes only the same digest and exact observed target state")
@@ -365,7 +386,11 @@ struct HouseholdZoneRecoveryApplyPlanTests {
         let plan = try makePlan(manifest: manifest, records: [sourceRecord("recipe-a", type: "Recipe")])
         let receipt = plan.initialReceipt
 
-        #expect(try plan.resume(receipt: receipt, observedTargetFingerprint: "target-fingerprint") == receipt)
+        let initialDigest = receipt.expectedTargetApplicationDigest
+        #expect(try plan.resume(
+            receipt: receipt,
+            observedTargetApplicationDigest: initialDigest
+        ) == receipt)
 
         let otherManifest = try makeManifest(
             sourceInputFingerprint: "changed-source",
@@ -374,10 +399,14 @@ struct HouseholdZoneRecoveryApplyPlanTests {
             manifest: otherManifest,
             records: [sourceRecord("recipe-a", type: "Recipe")])
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.differentManifestDigest) {
-            _ = try otherPlan.resume(receipt: receipt, observedTargetFingerprint: "target-fingerprint")
+            _ = try otherPlan.resume(
+                receipt: receipt,
+                observedTargetApplicationDigest: initialDigest)
         }
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.targetDiverged) {
-            _ = try plan.resume(receipt: receipt, observedTargetFingerprint: "changed-target")
+            _ = try plan.resume(
+                receipt: receipt,
+                observedTargetApplicationDigest: "changed-target-application")
         }
     }
 
@@ -387,17 +416,30 @@ struct HouseholdZoneRecoveryApplyPlanTests {
         let plan = try makePlan(
             manifest: manifest,
             records: [sourceRecord("recipe-a", type: "Recipe")])
+        let initialReceipt = plan.initialReceipt
         let divergentReceipt = try HouseholdZoneRecoveryReceipt(
             manifestDigest: plan.manifestDigest,
+            sourceInputFingerprint: initialReceipt.sourceInputFingerprint,
+            initialTargetInputFingerprint:
+                initialReceipt.initialTargetInputFingerprint,
             targetZoneOwnerName: targetZone.ownerName,
             targetZoneName: targetZone.zoneName,
+            approvedIdentityActions: initialReceipt.approvedIdentityActions,
             batchDigests: ["different-batch-digest"],
-            expectedTargetFingerprint: "target-fingerprint")
+            targetApplicationDigests: [
+                initialReceipt.expectedTargetApplicationDigest,
+                "different-target-application-digest",
+            ],
+            targetRecordApplicationDigestProgress: [
+                initialReceipt.targetRecordApplicationDigestProgress[0],
+                initialReceipt.targetRecordApplicationDigestProgress[1],
+            ])
 
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchPlanDiverged) {
             _ = try plan.resume(
                 receipt: divergentReceipt,
-                observedTargetFingerprint: "target-fingerprint")
+                observedTargetApplicationDigest:
+                    divergentReceipt.expectedTargetApplicationDigest)
         }
     }
 
@@ -413,42 +455,161 @@ struct HouseholdZoneRecoveryApplyPlanTests {
             records: [sourceRecord("child", type: "Recipe"), sourceRecord("parent", type: "Recipe")])
         var receipt = plan.initialReceipt
 
+        let completionDate = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.incompleteReceipt) {
-            _ = try receipt.markingTerminalComplete(observedTargetFingerprint: "target-fingerprint")
+            _ = try receipt.markingTerminalComplete(
+                observedTargetApplicationDigest:
+                    receipt.expectedTargetApplicationDigest,
+                completedAt: completionDate)
         }
-        receipt = try receipt.recordingCompletedBatch(
-            plan.batches[0].digest,
-            resultingTargetFingerprint: "after-parent")
+        receipt = try receipt.recordingCompletedBatch(plan.batches[0].digest)
         #expect(receipt.completedBatchDigests == [plan.batches[0].digest])
-        #expect(try plan.resume(receipt: receipt, observedTargetFingerprint: "after-parent") == receipt)
+        #expect(receipt.completedBatches == [
+            HouseholdZoneRecoveryCompletedBatch(
+                index: 0,
+                digest: plan.batches[0].digest),
+        ])
+        #expect(receipt.expectedTargetRecordApplicationDigests
+            == plan.targetRecordApplicationDigestProgress[1])
+        #expect(try plan.resume(
+            receipt: receipt,
+            observedTargetApplicationDigest: receipt.expectedTargetApplicationDigest
+        ) == receipt)
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchOutOfOrder) {
-            _ = try receipt.recordingCompletedBatch(
-                plan.batches[0].digest,
-                resultingTargetFingerprint: "duplicate")
+            _ = try receipt.recordingCompletedBatch(plan.batches[0].digest)
         }
-        receipt = try receipt.recordingCompletedBatch(
-            plan.batches[1].digest,
-            resultingTargetFingerprint: "after-child")
+        receipt = try receipt.recordingCompletedBatch(plan.batches[1].digest)
         #expect(receipt.completedBatchDigests == plan.batches.map(\.digest))
         #expect(!receipt.isTerminalComplete)
         #expect(throws: HouseholdZoneRecoveryApplyPlanError.targetDiverged) {
             _ = try receipt.markingTerminalComplete(
-                observedTargetFingerprint: "divergent-target")
+                observedTargetApplicationDigest: "divergent-target",
+                completedAt: completionDate)
         }
-        receipt = try receipt.markingTerminalComplete(observedTargetFingerprint: "after-child")
+        receipt = try receipt.markingTerminalComplete(
+            observedTargetApplicationDigest:
+                receipt.expectedTargetApplicationDigest,
+            completedAt: completionDate)
         #expect(receipt.isTerminalComplete)
-        #expect(try plan.resume(receipt: receipt, observedTargetFingerprint: "after-child") == receipt)
+        #expect(receipt.status == .complete)
+        #expect(receipt.completedAt == completionDate)
+        #expect(try plan.resume(
+            receipt: receipt,
+            observedTargetApplicationDigest: receipt.expectedTargetApplicationDigest
+        ) == receipt)
+        let persistedTerminal = receipt.makeRecord()
+        #expect(persistedTerminal["status"] as? String
+            == HouseholdZoneRecoveryReceiptStatus.complete.rawValue)
+        #expect(persistedTerminal["completedAt"] as? Date == completionDate)
+        #expect(try HouseholdZoneRecoveryReceipt(record: persistedTerminal) == receipt)
     }
+
+    @Test("target application digest excludes receipt and system metadata but detects application divergence")
+    func targetApplicationDigestHasStableBoundaries() throws {
+        let source = sourceRecord("recipe-a", type: "Recipe")
+        source["name"] = "Soup" as CKRecordValue
+        let manifest = try makeManifest(entries: [
+            entry("recipe-a", type: "Recipe", action: .skipIdentical),
+        ])
+        let target = targetRecord("recipe-a", type: "Recipe")
+        target["name"] = "Soup" as CKRecordValue
+        let plan = try makePlan(
+            manifest: manifest,
+            records: [source],
+            targetRecords: [target])
+        let receiptRecord = plan.initialReceipt.makeRecord()
+
+        let baseline = try plan.targetApplicationDigest(records: [target])
+        let withReceipt = try plan.targetApplicationDigest(
+            records: [receiptRecord, target])
+        let withSystemMetadata = targetRecord("recipe-a", type: "Recipe")
+        withSystemMetadata["name"] = "Soup" as CKRecordValue
+        withSystemMetadata.parent = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "system-parent", zoneID: targetZone),
+            action: .none)
+        let systemStable = try plan.targetApplicationDigest(
+            records: [withSystemMetadata])
+
+        #expect(baseline == plan.initialReceipt.expectedTargetApplicationDigest)
+        #expect(withReceipt == baseline)
+        #expect(systemStable == baseline)
+        #expect(try plan.resume(
+            receipt: plan.initialReceipt,
+            observedTargetApplicationDigest: baseline
+        ) == plan.initialReceipt)
+        #expect(plan.expectedFinalRecordApplicationDigest(
+            for: identity("recipe-a", type: "Recipe").target
+        ) == plan.expectedFinalRecordApplicationDigests[
+            identity("recipe-a", type: "Recipe").target.sortKey
+        ])
+
+        let divergent = targetRecord("recipe-a", type: "Recipe")
+        divergent["name"] = "Changed soup" as CKRecordValue
+        let divergentDigest = try plan.targetApplicationDigest(records: [divergent])
+        #expect(divergentDigest != baseline)
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.targetDiverged) {
+            _ = try plan.resume(
+                receipt: plan.initialReceipt,
+                observedTargetApplicationDigest: divergentDigest)
+        }
+    }
+
+    @Test("receipt Codable and CKRecord decoding reject malformed or extraneous state")
+    func receiptDecodingIsStrict() throws {
+        let manifest = try makeManifest(entries: [entry("recipe-a", type: "Recipe")])
+        let plan = try makePlan(
+            manifest: manifest,
+            records: [sourceRecord("recipe-a", type: "Recipe")])
+        let record = plan.initialReceipt.makeRecord()
+        record["unexpected"] = "contaminated" as CKRecordValue
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.invalidReceipt) {
+            _ = try HouseholdZoneRecoveryReceipt(record: record)
+        }
+        let missingFingerprint = plan.initialReceipt.makeRecord()
+        missingFingerprint["sourceInputFingerprint"] = nil
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.invalidReceipt) {
+            _ = try HouseholdZoneRecoveryReceipt(record: missingFingerprint)
+        }
+
+        let corruptProgress = plan.initialReceipt.makeRecord()
+        corruptProgress["targetRecordApplicationDigestProgress"] =
+            Data("not-json".utf8) as CKRecordValue
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.invalidReceipt) {
+            _ = try HouseholdZoneRecoveryReceipt(record: corruptProgress)
+        }
+
+        let data = try JSONEncoder().encode(plan.initialReceipt)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var extraneousObject = object
+        extraneousObject["unexpected"] = "contaminated"
+        let extraneous = try JSONSerialization.data(withJSONObject: extraneousObject)
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.invalidReceipt) {
+            _ = try JSONDecoder().decode(
+                HouseholdZoneRecoveryReceipt.self,
+                from: extraneous)
+        }
+        object["status"] = HouseholdZoneRecoveryReceiptStatus.complete.rawValue
+        let malformed = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.invalidReceipt) {
+            _ = try JSONDecoder().decode(
+                HouseholdZoneRecoveryReceipt.self,
+                from: malformed)
+        }
+    }
+
 
     private func makePlan(
         manifest: HouseholdZoneRecoveryManifest,
         records: some Sequence<CKRecord>,
+        targetRecords: [CKRecord] = [],
         stagingRootURL: URL? = nil
     ) throws -> HouseholdZoneRecoveryApplyPlan {
         try HouseholdZoneRecoveryApplyPlan(
             manifest: manifest,
             approval: HouseholdZoneRecoveryApproval(manifestDigest: manifest.digest()),
             sourceRecords: Array(records),
+            targetRecords: targetRecords,
             stagingRootURL: stagingRootURL)
     }
 
@@ -481,6 +642,12 @@ struct HouseholdZoneRecoveryApplyPlanTests {
         CKRecord(
             recordType: type,
             recordID: CKRecord.ID(recordName: name, zoneID: sourceZone))
+    }
+
+    private func targetRecord(_ name: String, type: String) -> CKRecord {
+        CKRecord(
+            recordType: type,
+            recordID: CKRecord.ID(recordName: name, zoneID: targetZone))
     }
 
     private func identity(_ name: String, type: String) -> HouseholdZoneRecoveryIdentity {

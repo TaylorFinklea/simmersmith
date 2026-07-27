@@ -9,6 +9,8 @@ public enum HouseholdZoneRecoveryApplyPlanError: Error, Equatable, Sendable {
     case missingSourceRecord(String)
     case duplicateSourceRecord(String)
     case sourceRecordMismatch(String)
+    case missingTargetRecord(String)
+    case duplicateTargetRecord(String)
     case referenceOutsideSourceZone(field: String)
     case unsupportedApplicationValue(field: String)
     case missingAsset(field: String)
@@ -68,11 +70,18 @@ public struct HouseholdZoneRecoveryPreparedRecord {
 public struct HouseholdZoneRecoveryApplyBatch {
     public let index: Int
     public let digest: String
+    public let resultingTargetApplicationDigest: String
     public let records: [HouseholdZoneRecoveryPreparedRecord]
 
-    public init(index: Int, digest: String, records: [HouseholdZoneRecoveryPreparedRecord]) {
+    public init(
+        index: Int,
+        digest: String,
+        resultingTargetApplicationDigest: String,
+        records: [HouseholdZoneRecoveryPreparedRecord]
+    ) {
         self.index = index
         self.digest = digest
+        self.resultingTargetApplicationDigest = resultingTargetApplicationDigest
         self.records = records
     }
 }
@@ -133,18 +142,72 @@ enum HouseholdZoneRecoveryRecordReconstructor {
     }
 }
 
+public struct HouseholdZoneRecoveryReceiptIdentityAction:
+    Codable, Equatable, Sendable
+{
+    public let identity: MirrorRecordIdentity
+    public let action: HouseholdZoneRecoveryAction
+    public let decision: HouseholdZoneRecoveryDecision?
+
+    public init(
+        identity: MirrorRecordIdentity,
+        action: HouseholdZoneRecoveryAction,
+        decision: HouseholdZoneRecoveryDecision?
+    ) {
+        self.identity = identity
+        self.action = action
+        self.decision = decision
+    }
+}
+
+public struct HouseholdZoneRecoveryCompletedBatch: Codable, Equatable, Sendable {
+    public let index: Int
+    public let digest: String
+
+    public init(index: Int, digest: String) {
+        self.index = index
+        self.digest = digest
+    }
+}
+
+public enum HouseholdZoneRecoveryReceiptStatus:
+    String, Codable, Equatable, Sendable
+{
+    case inProgress = "in-progress"
+    case complete
+}
+
 public struct HouseholdZoneRecoveryReceipt: Codable, Equatable, Sendable {
     public static let currentFormatVersion = 1
     public static let recordType = "HouseholdRecoveryReceipt"
 
     public let formatVersion: Int
     public let manifestDigest: String
+    public let sourceInputFingerprint: String
+    public let initialTargetInputFingerprint: String
     public let targetZoneOwnerName: String
     public let targetZoneName: String
+    public let approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction]
     public let batchDigests: [String]
-    public let completedBatchDigests: [String]
-    public let expectedTargetFingerprint: String
-    public let isTerminalComplete: Bool
+    public let targetApplicationDigests: [String]
+    public let targetRecordApplicationDigestProgress: [[String: String]]
+    public let completedBatches: [HouseholdZoneRecoveryCompletedBatch]
+    public let status: HouseholdZoneRecoveryReceiptStatus
+    public let completedAt: Date?
+    private let approvedIdentityActionsRecordData: Data
+    private let batchDigestsRecordData: Data
+    private let targetApplicationDigestsRecordData: Data
+    private let targetRecordApplicationDigestProgressRecordData: Data
+    private let completedBatchesRecordData: Data
+
+    public var completedBatchDigests: [String] { completedBatches.map(\.digest) }
+    public var isTerminalComplete: Bool { status == .complete }
+    public var expectedTargetApplicationDigest: String {
+        targetApplicationDigests[completedBatches.count]
+    }
+    public var expectedTargetRecordApplicationDigests: [String: String] {
+        targetRecordApplicationDigestProgress[completedBatches.count]
+    }
 
     public static func recordName(manifestDigest: String) -> String {
         "recovery:\(manifestDigest)"
@@ -153,60 +216,220 @@ public struct HouseholdZoneRecoveryReceipt: Codable, Equatable, Sendable {
     public init(
         formatVersion: Int = HouseholdZoneRecoveryReceipt.currentFormatVersion,
         manifestDigest: String,
+        sourceInputFingerprint: String,
+        initialTargetInputFingerprint: String,
         targetZoneOwnerName: String,
         targetZoneName: String,
+        approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction],
         batchDigests: [String],
-        completedBatchDigests: [String] = [],
-        expectedTargetFingerprint: String,
-        isTerminalComplete: Bool = false
+        targetApplicationDigests: [String],
+        targetRecordApplicationDigestProgress: [[String: String]],
+        completedBatches: [HouseholdZoneRecoveryCompletedBatch] = [],
+        status: HouseholdZoneRecoveryReceiptStatus = .inProgress,
+        completedAt: Date? = nil
     ) throws {
         guard formatVersion == Self.currentFormatVersion else {
             throw HouseholdZoneRecoveryApplyPlanError.unsupportedReceiptVersion
         }
+        let canonicalActions = approvedIdentityActions.sorted {
+            $0.identity.sortKey < $1.identity.sortKey
+        }
+        let approvedKeys = approvedIdentityActions.map(\.identity.sortKey)
+        let completedShapeIsValid = completedBatches.enumerated().allSatisfy {
+            index, completed in
+            completed.index == index
+                && index < batchDigests.count
+                && completed.digest == batchDigests[index]
+        }
+        let progressShapeIsValid = targetRecordApplicationDigestProgress.allSatisfy {
+            Set($0.keys).isSubset(of: Set(approvedKeys))
+                && $0.values.allSatisfy { !$0.isEmpty }
+        }
+        let terminalShapeIsValid: Bool
+        switch status {
+        case .inProgress:
+            terminalShapeIsValid = completedAt == nil
+        case .complete:
+            terminalShapeIsValid =
+                completedBatches.count == batchDigests.count && completedAt != nil
+        }
         guard !manifestDigest.isEmpty,
+              !sourceInputFingerprint.isEmpty,
+              !initialTargetInputFingerprint.isEmpty,
               !targetZoneOwnerName.isEmpty,
               !targetZoneName.isEmpty,
-              !expectedTargetFingerprint.isEmpty,
+              canonicalActions == approvedIdentityActions,
+              Set(approvedKeys).count == approvedKeys.count,
+              approvedIdentityActions.allSatisfy({
+                  $0.identity.zoneOwnerName == targetZoneOwnerName
+                    && $0.identity.zoneName == targetZoneName
+                    && HouseholdZoneRecoveryClassifier.supportedProductionRecordTypes
+                        .contains($0.identity.recordType)
+                    && (($0.action == .conflict && $0.decision != nil)
+                        || ($0.action != .conflict && $0.decision == nil))
+              }),
               Set(batchDigests).count == batchDigests.count,
-              completedBatchDigests.count <= batchDigests.count,
-              Array(batchDigests.prefix(completedBatchDigests.count)) == completedBatchDigests,
-              !isTerminalComplete || completedBatchDigests == batchDigests else {
+              batchDigests.allSatisfy({ !$0.isEmpty }),
+              targetApplicationDigests.count == batchDigests.count + 1,
+              targetApplicationDigests.allSatisfy({ !$0.isEmpty }),
+              targetRecordApplicationDigestProgress.count == batchDigests.count + 1,
+              progressShapeIsValid,
+              Set(targetRecordApplicationDigestProgress.last.map { Array($0.keys) } ?? [])
+                == Set(approvedKeys),
+              completedBatches.count <= batchDigests.count,
+              completedShapeIsValid,
+              terminalShapeIsValid else {
+            throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
+        }
+        let recordPayloads: (Data, Data, Data, Data, Data)
+        do {
+            recordPayloads = (
+                try Self.encodeJSON(approvedIdentityActions),
+                try Self.encodeJSON(batchDigests),
+                try Self.encodeJSON(targetApplicationDigests),
+                try Self.encodeJSON(targetRecordApplicationDigestProgress),
+                try Self.encodeJSON(completedBatches))
+        } catch {
             throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
         }
         self.formatVersion = formatVersion
         self.manifestDigest = manifestDigest
+        self.sourceInputFingerprint = sourceInputFingerprint
+        self.initialTargetInputFingerprint = initialTargetInputFingerprint
         self.targetZoneOwnerName = targetZoneOwnerName
         self.targetZoneName = targetZoneName
+        self.approvedIdentityActions = approvedIdentityActions
         self.batchDigests = batchDigests
-        self.completedBatchDigests = completedBatchDigests
-        self.expectedTargetFingerprint = expectedTargetFingerprint
-        self.isTerminalComplete = isTerminalComplete
+        self.targetApplicationDigests = targetApplicationDigests
+        self.targetRecordApplicationDigestProgress =
+            targetRecordApplicationDigestProgress
+        self.completedBatches = completedBatches
+        self.status = status
+        self.completedAt = completedAt
+        approvedIdentityActionsRecordData = recordPayloads.0
+        batchDigestsRecordData = recordPayloads.1
+        targetApplicationDigestsRecordData = recordPayloads.2
+        targetRecordApplicationDigestProgressRecordData = recordPayloads.3
+        completedBatchesRecordData = recordPayloads.4
+    }
+
+    public init(from decoder: Decoder) throws {
+        let baseKeys: Set<String> = [
+            "formatVersion",
+            "manifestDigest",
+            "sourceInputFingerprint",
+            "initialTargetInputFingerprint",
+            "targetZoneOwnerName",
+            "targetZoneName",
+            "approvedIdentityActions",
+            "batchDigests",
+            "targetApplicationDigests",
+            "targetRecordApplicationDigestProgress",
+            "completedBatches",
+            "status",
+        ]
+        let container: KeyedDecodingContainer<AnyCodingKey>
+        let payload: Payload
+        do {
+            container = try decoder.container(keyedBy: AnyCodingKey.self)
+            let keys = Set(container.allKeys.map(\.stringValue))
+            guard keys == baseKeys || keys == baseKeys.union(["completedAt"]) else {
+                throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
+            }
+            payload = try Payload(from: decoder)
+        } catch let error as HouseholdZoneRecoveryApplyPlanError {
+            throw error
+        } catch {
+            throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
+        }
+        try self.init(
+            formatVersion: payload.formatVersion,
+            manifestDigest: payload.manifestDigest,
+            sourceInputFingerprint: payload.sourceInputFingerprint,
+            initialTargetInputFingerprint: payload.initialTargetInputFingerprint,
+            targetZoneOwnerName: payload.targetZoneOwnerName,
+            targetZoneName: payload.targetZoneName,
+            approvedIdentityActions: payload.approvedIdentityActions,
+            batchDigests: payload.batchDigests,
+            targetApplicationDigests: payload.targetApplicationDigests,
+            targetRecordApplicationDigestProgress:
+                payload.targetRecordApplicationDigestProgress,
+            completedBatches: payload.completedBatches,
+            status: payload.status,
+            completedAt: payload.completedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try Payload(self).encode(to: encoder)
     }
 
     public init(record: CKRecord) throws {
+        let baseKeys: Set<String> = [
+            "formatVersion",
+            "manifestDigest",
+            "sourceInputFingerprint",
+            "initialTargetInputFingerprint",
+            "targetZoneOwnerName",
+            "targetZoneName",
+            "approvedIdentityActions",
+            "batchDigests",
+            "targetApplicationDigests",
+            "targetRecordApplicationDigestProgress",
+            "completedBatches",
+            "status",
+        ]
+        let allKeys = Set(record.allKeys())
         guard record.recordType == Self.recordType,
+              allKeys == baseKeys || allKeys == baseKeys.union(["completedAt"]),
               let formatNumber = record["formatVersion"] as? NSNumber,
               let manifestDigest = record["manifestDigest"] as? String,
+              let sourceInputFingerprint = record["sourceInputFingerprint"] as? String,
+              let initialTargetInputFingerprint =
+                record["initialTargetInputFingerprint"] as? String,
               let targetZoneOwnerName = record["targetZoneOwnerName"] as? String,
               let targetZoneName = record["targetZoneName"] as? String,
-              let batchDigests = record["batchDigests"] as? [String],
-              let completedBatchDigests = record["completedBatchDigests"] as? [String],
-              let expectedTargetFingerprint = record["expectedTargetFingerprint"] as? String,
-              let terminalNumber = record["isTerminalComplete"] as? NSNumber,
+              let approvedData = record["approvedIdentityActions"] as? Data,
+              let batchData = record["batchDigests"] as? Data,
+              let targetApplicationData = record["targetApplicationDigests"] as? Data,
+              let targetRecordData =
+                record["targetRecordApplicationDigestProgress"] as? Data,
+              let completedData = record["completedBatches"] as? Data,
+              let statusRawValue = record["status"] as? String,
+              let status = HouseholdZoneRecoveryReceiptStatus(rawValue: statusRawValue),
+              (status == .complete) == allKeys.contains("completedAt"),
               record.recordID.recordName == Self.recordName(manifestDigest: manifestDigest),
               record.recordID.zoneID.ownerName == targetZoneOwnerName,
               record.recordID.zoneID.zoneName == targetZoneName else {
             throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
         }
-        try self.init(
-            formatVersion: formatNumber.intValue,
-            manifestDigest: manifestDigest,
-            targetZoneOwnerName: targetZoneOwnerName,
-            targetZoneName: targetZoneName,
-            batchDigests: batchDigests,
-            completedBatchDigests: completedBatchDigests,
-            expectedTargetFingerprint: expectedTargetFingerprint,
-            isTerminalComplete: terminalNumber.boolValue)
+        do {
+            try self.init(
+                formatVersion: formatNumber.intValue,
+                manifestDigest: manifestDigest,
+                sourceInputFingerprint: sourceInputFingerprint,
+                initialTargetInputFingerprint: initialTargetInputFingerprint,
+                targetZoneOwnerName: targetZoneOwnerName,
+                targetZoneName: targetZoneName,
+                approvedIdentityActions: try Self.decodeJSON(
+                    [HouseholdZoneRecoveryReceiptIdentityAction].self,
+                    from: approvedData),
+                batchDigests: try Self.decodeJSON([String].self, from: batchData),
+                targetApplicationDigests: try Self.decodeJSON(
+                    [String].self,
+                    from: targetApplicationData),
+                targetRecordApplicationDigestProgress: try Self.decodeJSON(
+                    [[String: String]].self,
+                    from: targetRecordData),
+                completedBatches: try Self.decodeJSON(
+                    [HouseholdZoneRecoveryCompletedBatch].self,
+                    from: completedData),
+                status: status,
+                completedAt: record["completedAt"] as? Date)
+        } catch let error as HouseholdZoneRecoveryApplyPlanError {
+            throw error
+        } catch {
+            throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
+        }
     }
 
     public func makeRecord() -> CKRecord {
@@ -218,55 +441,152 @@ public struct HouseholdZoneRecoveryReceipt: Codable, Equatable, Sendable {
                 zoneID: zoneID))
         record["formatVersion"] = formatVersion as CKRecordValue
         record["manifestDigest"] = manifestDigest as CKRecordValue
+        record["sourceInputFingerprint"] = sourceInputFingerprint as CKRecordValue
+        record["initialTargetInputFingerprint"] =
+            initialTargetInputFingerprint as CKRecordValue
         record["targetZoneOwnerName"] = targetZoneOwnerName as CKRecordValue
         record["targetZoneName"] = targetZoneName as CKRecordValue
-        record["batchDigests"] = batchDigests as CKRecordValue
-        record["completedBatchDigests"] = completedBatchDigests as CKRecordValue
-        record["expectedTargetFingerprint"] = expectedTargetFingerprint as CKRecordValue
-        record["isTerminalComplete"] = isTerminalComplete as CKRecordValue
+        record["approvedIdentityActions"] =
+            approvedIdentityActionsRecordData as CKRecordValue
+        record["batchDigests"] = batchDigestsRecordData as CKRecordValue
+        record["targetApplicationDigests"] =
+            targetApplicationDigestsRecordData as CKRecordValue
+        record["targetRecordApplicationDigestProgress"] =
+            targetRecordApplicationDigestProgressRecordData as CKRecordValue
+        record["completedBatches"] =
+            completedBatchesRecordData as CKRecordValue
+        record["status"] = status.rawValue as CKRecordValue
+        record["completedAt"] = completedAt as CKRecordValue?
         return record
     }
 
-    public func recordingCompletedBatch(
-        _ digest: String,
-        resultingTargetFingerprint: String
-    ) throws -> Self {
-        guard !isTerminalComplete,
-              completedBatchDigests.count < batchDigests.count,
-              batchDigests[completedBatchDigests.count] == digest else {
+    public func recordingCompletedBatch(_ digest: String) throws -> Self {
+        let index = completedBatches.count
+        guard status == .inProgress,
+              index < batchDigests.count,
+              batchDigests[index] == digest else {
             throw HouseholdZoneRecoveryApplyPlanError.batchOutOfOrder
         }
         return try Self(
             manifestDigest: manifestDigest,
+            sourceInputFingerprint: sourceInputFingerprint,
+            initialTargetInputFingerprint: initialTargetInputFingerprint,
             targetZoneOwnerName: targetZoneOwnerName,
             targetZoneName: targetZoneName,
+            approvedIdentityActions: approvedIdentityActions,
             batchDigests: batchDigests,
-            completedBatchDigests: completedBatchDigests + [digest],
-            expectedTargetFingerprint: resultingTargetFingerprint)
+            targetApplicationDigests: targetApplicationDigests,
+            targetRecordApplicationDigestProgress:
+                targetRecordApplicationDigestProgress,
+            completedBatches: completedBatches + [
+                HouseholdZoneRecoveryCompletedBatch(index: index, digest: digest),
+            ])
     }
 
-    public func markingTerminalComplete(observedTargetFingerprint: String) throws -> Self {
-        guard completedBatchDigests == batchDigests else {
+    public func markingTerminalComplete(
+        observedTargetApplicationDigest: String,
+        completedAt: Date
+    ) throws -> Self {
+        guard completedBatches.count == batchDigests.count else {
             throw HouseholdZoneRecoveryApplyPlanError.incompleteReceipt
         }
-        guard observedTargetFingerprint == expectedTargetFingerprint else {
+        guard observedTargetApplicationDigest == expectedTargetApplicationDigest else {
             throw HouseholdZoneRecoveryApplyPlanError.targetDiverged
         }
-        if isTerminalComplete { return self }
+        if status == .complete {
+            guard self.completedAt == completedAt else {
+                throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
+            }
+            return self
+        }
         return try Self(
             manifestDigest: manifestDigest,
+            sourceInputFingerprint: sourceInputFingerprint,
+            initialTargetInputFingerprint: initialTargetInputFingerprint,
             targetZoneOwnerName: targetZoneOwnerName,
             targetZoneName: targetZoneName,
+            approvedIdentityActions: approvedIdentityActions,
             batchDigests: batchDigests,
-            completedBatchDigests: completedBatchDigests,
-            expectedTargetFingerprint: expectedTargetFingerprint,
-            isTerminalComplete: true)
+            targetApplicationDigests: targetApplicationDigests,
+            targetRecordApplicationDigestProgress:
+                targetRecordApplicationDigestProgress,
+            completedBatches: completedBatches,
+            status: .complete,
+            completedAt: completedAt)
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            stringValue = String(intValue)
+            self.intValue = intValue
+        }
+    }
+
+    private struct Payload: Codable {
+        let formatVersion: Int
+        let manifestDigest: String
+        let sourceInputFingerprint: String
+        let initialTargetInputFingerprint: String
+        let targetZoneOwnerName: String
+        let targetZoneName: String
+        let approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction]
+        let batchDigests: [String]
+        let targetApplicationDigests: [String]
+        let targetRecordApplicationDigestProgress: [[String: String]]
+        let completedBatches: [HouseholdZoneRecoveryCompletedBatch]
+        let status: HouseholdZoneRecoveryReceiptStatus
+        let completedAt: Date?
+
+        init(_ receipt: HouseholdZoneRecoveryReceipt) {
+            formatVersion = receipt.formatVersion
+            manifestDigest = receipt.manifestDigest
+            sourceInputFingerprint = receipt.sourceInputFingerprint
+            initialTargetInputFingerprint = receipt.initialTargetInputFingerprint
+            targetZoneOwnerName = receipt.targetZoneOwnerName
+            targetZoneName = receipt.targetZoneName
+            approvedIdentityActions = receipt.approvedIdentityActions
+            batchDigests = receipt.batchDigests
+            targetApplicationDigests = receipt.targetApplicationDigests
+            targetRecordApplicationDigestProgress =
+                receipt.targetRecordApplicationDigestProgress
+            completedBatches = receipt.completedBatches
+            status = receipt.status
+            completedAt = receipt.completedAt
+        }
+    }
+
+    private static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(value)
+    }
+
+    private static func decodeJSON<T: Decodable>(
+        _ type: T.Type,
+        from data: Data
+    ) throws -> T {
+        try JSONDecoder().decode(type, from: data)
     }
 }
 
 public struct HouseholdZoneRecoveryApplyPlan {
     public let manifestDigest: String
     public let targetZoneID: CKRecordZone.ID
+    public let sourceInputFingerprint: String
+    public let initialTargetInputFingerprint: String
+    public let approvedTargetIdentities: [MirrorRecordIdentity]
+    public let approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction]
+    public let targetRecordApplicationDigestProgress: [[String: String]]
+    public let expectedFinalTargetApplicationDigest: String
+    public let expectedFinalRecordApplicationDigests: [String: String]
     public let stagingDirectoryURL: URL
     public let batches: [HouseholdZoneRecoveryApplyBatch]
     public let initialReceipt: HouseholdZoneRecoveryReceipt
@@ -279,6 +599,7 @@ public struct HouseholdZoneRecoveryApplyPlan {
         manifest: HouseholdZoneRecoveryManifest,
         approval: HouseholdZoneRecoveryApproval,
         sourceRecords: [CKRecord],
+        targetRecords: [CKRecord] = [],
         stagingRootURL: URL? = nil
     ) throws {
         do {
@@ -303,23 +624,66 @@ public struct HouseholdZoneRecoveryApplyPlan {
             throw HouseholdZoneRecoveryApplyPlanError.assetStagingFailed(field: "")
         }
 
-        let writableEntries = manifest.approvedEntries.filter(Self.requiresSourceWrite)
+        let approvedEntries = manifest.approvedEntries
+        let writableEntries = approvedEntries.filter(Self.requiresSourceWrite)
         let sources = try Self.indexSourceRecords(sourceRecords, sourceZoneID: sourceZoneID)
+        let targets = try Self.indexTargetRecords(targetRecords, targetZoneID: targetZoneID)
         var preparedByKey: [String: HouseholdZoneRecoveryPreparedRecord] = [:]
-        for entry in writableEntries {
+        for entry in approvedEntries
+        where entry.action != .conflict || entry.decision == .source
+        {
             let key = entry.identity.source.sortKey
             guard let source = sources[key] else {
                 throw HouseholdZoneRecoveryApplyPlanError.missingSourceRecord(key)
             }
-            let prepared = try Self.reconstruct(
+            preparedByKey[key] = try Self.reconstruct(
                 entry: entry,
                 source: source,
                 sourceZoneID: sourceZoneID,
                 targetZoneID: targetZoneID,
                 stagingDirectoryURL: stagingDirectoryURL)
-            preparedByKey[key] = prepared
         }
 
+        var targetState: [String: CKRecord] = [:]
+        for entry in approvedEntries {
+            let targetKey = entry.identity.target.sortKey
+            switch entry.action {
+            case .copy:
+                break
+            case .skipIdentical:
+                guard let prepared = preparedByKey[entry.identity.source.sortKey] else {
+                    throw HouseholdZoneRecoveryApplyPlanError.missingSourceRecord(
+                        entry.identity.source.sortKey)
+                }
+                targetState[targetKey] = prepared.record
+            case .conflict:
+                guard let target = targets[targetKey] else {
+                    throw HouseholdZoneRecoveryApplyPlanError.missingTargetRecord(targetKey)
+                }
+                targetState[targetKey] = target
+            }
+        }
+
+        let approvedTargetIdentities = approvedEntries
+            .map(\.identity.target)
+            .sorted { $0.sortKey < $1.sortKey }
+        let approvedIdentityActions = approvedEntries.map {
+            HouseholdZoneRecoveryReceiptIdentityAction(
+                identity: $0.identity.target,
+                action: $0.action,
+                decision: $0.decision)
+        }.sorted { $0.identity.sortKey < $1.identity.sortKey }
+        var targetApplicationDigests = [
+            try Self.targetApplicationDigest(
+                manifestDigest: manifestDigest,
+                approvedTargetIdentities: approvedTargetIdentities,
+                recordsByKey: targetState)
+        ]
+        var targetRecordApplicationDigestProgress = [
+            try Self.targetRecordApplicationDigests(
+                approvedTargetIdentities: approvedTargetIdentities,
+                recordsByKey: targetState)
+        ]
         let layers = try Self.dependencyLayers(entries: writableEntries)
         var batches: [HouseholdZoneRecoveryApplyBatch] = []
         for (index, layer) in layers.enumerated() {
@@ -334,40 +698,122 @@ public struct HouseholdZoneRecoveryApplyPlan {
                 manifestDigest: manifestDigest,
                 index: index,
                 records: records)
+            for prepared in records {
+                targetState[prepared.identity.target.sortKey] = prepared.record
+            }
+            let resultingTargetApplicationDigest = try Self.targetApplicationDigest(
+                manifestDigest: manifestDigest,
+                approvedTargetIdentities: approvedTargetIdentities,
+                recordsByKey: targetState)
+            targetApplicationDigests.append(resultingTargetApplicationDigest)
+            targetRecordApplicationDigestProgress.append(
+                try Self.targetRecordApplicationDigests(
+                    approvedTargetIdentities: approvedTargetIdentities,
+                    recordsByKey: targetState))
             batches.append(HouseholdZoneRecoveryApplyBatch(
                 index: index,
                 digest: digest,
+                resultingTargetApplicationDigest: resultingTargetApplicationDigest,
                 records: records))
+        }
+
+        guard let finalRecordDigests =
+            targetRecordApplicationDigestProgress.last else {
+            throw HouseholdZoneRecoveryApplyPlanError.invalidReceipt
         }
 
         self.manifestDigest = manifestDigest
         self.targetZoneID = targetZoneID
+        self.sourceInputFingerprint = manifest.sourceInputFingerprint
+        self.initialTargetInputFingerprint = manifest.targetInputFingerprint
+        self.approvedTargetIdentities = approvedTargetIdentities
+        self.approvedIdentityActions = approvedIdentityActions
+        self.targetRecordApplicationDigestProgress =
+            targetRecordApplicationDigestProgress
+        self.expectedFinalTargetApplicationDigest =
+            targetApplicationDigests[targetApplicationDigests.count - 1]
+        self.expectedFinalRecordApplicationDigests = finalRecordDigests
         self.stagingDirectoryURL = stagingDirectoryURL
         self.batches = batches
         self.initialReceipt = try HouseholdZoneRecoveryReceipt(
             manifestDigest: manifestDigest,
+            sourceInputFingerprint: manifest.sourceInputFingerprint,
+            initialTargetInputFingerprint: manifest.targetInputFingerprint,
             targetZoneOwnerName: targetZoneID.ownerName,
             targetZoneName: targetZoneID.zoneName,
+            approvedIdentityActions: approvedIdentityActions,
             batchDigests: batches.map(\.digest),
-            expectedTargetFingerprint: manifest.targetInputFingerprint)
+            targetApplicationDigests: targetApplicationDigests,
+            targetRecordApplicationDigestProgress:
+                targetRecordApplicationDigestProgress)
     }
 
     public func resume(
         receipt: HouseholdZoneRecoveryReceipt,
-        observedTargetFingerprint: String
+        observedTargetApplicationDigest: String
     ) throws -> HouseholdZoneRecoveryReceipt {
         guard receipt.manifestDigest == manifestDigest else {
             throw HouseholdZoneRecoveryApplyPlanError.differentManifestDigest
         }
         guard receipt.targetZoneOwnerName == targetZoneID.ownerName,
               receipt.targetZoneName == targetZoneID.zoneName,
-              receipt.expectedTargetFingerprint == observedTargetFingerprint else {
+              receipt.expectedTargetApplicationDigest == observedTargetApplicationDigest else {
             throw HouseholdZoneRecoveryApplyPlanError.targetDiverged
         }
-        guard receipt.batchDigests == batches.map(\.digest) else {
+        guard receipt.sourceInputFingerprint == sourceInputFingerprint,
+              receipt.initialTargetInputFingerprint == initialTargetInputFingerprint,
+              receipt.approvedIdentityActions == approvedIdentityActions,
+              receipt.batchDigests == batches.map(\.digest),
+              receipt.targetApplicationDigests
+                == initialReceipt.targetApplicationDigests,
+              receipt.targetRecordApplicationDigestProgress
+                == targetRecordApplicationDigestProgress else {
             throw HouseholdZoneRecoveryApplyPlanError.batchPlanDiverged
         }
         return receipt
+    }
+
+    /// Canonicalizes only approved target identities and their application fields. Recovery
+    /// receipts, unrelated records, change tags, parent/share metadata, and all other CloudKit
+    /// system metadata are excluded by construction.
+    public func targetApplicationDigest(records: [CKRecord]) throws -> String {
+        let recordsByKey = try indexedApprovedTargetRecords(records)
+        return try Self.targetApplicationDigest(
+            manifestDigest: manifestDigest,
+            approvedTargetIdentities: approvedTargetIdentities,
+            recordsByKey: recordsByKey)
+    }
+
+    public func targetRecordApplicationDigests(
+        records: [CKRecord]
+    ) throws -> [String: String] {
+        let recordsByKey = try indexedApprovedTargetRecords(records)
+        return try Self.targetRecordApplicationDigests(
+            approvedTargetIdentities: approvedTargetIdentities,
+            recordsByKey: recordsByKey)
+    }
+
+    public func expectedFinalRecordApplicationDigest(
+        for identity: MirrorRecordIdentity
+    ) -> String? {
+        expectedFinalRecordApplicationDigests[identity.sortKey]
+    }
+
+    private func indexedApprovedTargetRecords(
+        _ records: [CKRecord]
+    ) throws -> [String: CKRecord] {
+        let expectedKeys = Set(approvedTargetIdentities.map(\.sortKey))
+        var recordsByKey: [String: CKRecord] = [:]
+        for record in records {
+            let identity = MirrorRecordIdentity(record)
+            guard expectedKeys.contains(identity.sortKey) else { continue }
+            guard record.recordID.zoneID == targetZoneID else { continue }
+            guard recordsByKey.updateValue(record, forKey: identity.sortKey) == nil else {
+                throw HouseholdZoneRecoveryApplyPlanError.duplicateTargetRecord(
+                    identity.sortKey)
+            }
+        }
+        return recordsByKey
     }
 
     private static func requiresSourceWrite(_ entry: HouseholdZoneRecoveryEntry) -> Bool {
@@ -412,6 +858,29 @@ public struct HouseholdZoneRecoveryApplyPlan {
         }
         return result
     }
+
+    private static func indexTargetRecords(
+        _ records: [CKRecord],
+        targetZoneID: CKRecordZone.ID
+    ) throws -> [String: CKRecord] {
+        var result: [String: CKRecord] = [:]
+        for record in records {
+            guard record.recordID.zoneID == targetZoneID else {
+                throw HouseholdZoneRecoveryApplyPlanError.sourceRecordMismatch(
+                    MirrorRecordIdentity(record).sortKey)
+            }
+            guard HouseholdZoneRecoveryClassifier.supportedProductionRecordTypes
+                .contains(record.recordType) else {
+                continue
+            }
+            let key = MirrorRecordIdentity(record).sortKey
+            guard result.updateValue(record, forKey: key) == nil else {
+                throw HouseholdZoneRecoveryApplyPlanError.duplicateTargetRecord(key)
+            }
+        }
+        return result
+    }
+
 
     private static func reconstruct(
         entry: HouseholdZoneRecoveryEntry,
@@ -569,6 +1038,70 @@ public struct HouseholdZoneRecoveryApplyPlan {
             fileURL: destinationURL,
             byteCount: bytes.count,
             sha256: digest)
+    }
+
+    private static func targetRecordApplicationDigests(
+        approvedTargetIdentities: [MirrorRecordIdentity],
+        recordsByKey: [String: CKRecord]
+    ) throws -> [String: String] {
+        var digests: [String: String] = [:]
+        for identity in approvedTargetIdentities {
+            guard let record = recordsByKey[identity.sortKey] else { continue }
+            digests[identity.sortKey] = try recordApplicationDigest(
+                identity: identity,
+                record: record)
+        }
+        return digests
+    }
+
+    private static func targetApplicationDigest(
+        manifestDigest: String,
+        approvedTargetIdentities: [MirrorRecordIdentity],
+        recordsByKey: [String: CKRecord]
+    ) throws -> String {
+        var writer = CanonicalWriter()
+        writer.append("household-zone-recovery-target-application-v1")
+        writer.append(manifestDigest)
+        writer.append(approvedTargetIdentities.count)
+        for identity in approvedTargetIdentities {
+            writer.append(identity)
+            guard let record = recordsByKey[identity.sortKey] else {
+                writer.append("missing")
+                continue
+            }
+            writer.append("present")
+            writer.append(try recordApplicationDigest(identity: identity, record: record))
+        }
+        return ShadowMirrorDigest.sha256(writer.data)
+    }
+
+    private static func recordApplicationDigest(
+        identity: MirrorRecordIdentity,
+        record: CKRecord
+    ) throws -> String {
+        guard MirrorRecordIdentity(record) == identity else {
+            throw HouseholdZoneRecoveryApplyPlanError.sourceRecordMismatch(
+                MirrorRecordIdentity(record).sortKey)
+        }
+        var writer = CanonicalWriter()
+        writer.append("household-zone-recovery-target-record-application-v1")
+        writer.append(identity)
+        let fieldNames = try applicationFieldNames(for: record.recordType)
+        writer.append(fieldNames.count)
+        for fieldName in fieldNames {
+            writer.append(fieldName)
+            do {
+                try writer.append(record[fieldName] as Any?)
+            } catch {
+                if record[fieldName] is CKAsset {
+                    throw HouseholdZoneRecoveryApplyPlanError.invalidAssetDigest(
+                        field: fieldName)
+                }
+                throw HouseholdZoneRecoveryApplyPlanError.unsupportedApplicationValue(
+                    field: fieldName)
+            }
+        }
+        return ShadowMirrorDigest.sha256(writer.data)
     }
 
     private static func batchDigest(
