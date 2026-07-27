@@ -143,6 +143,9 @@ extension AppState {
     /// One gate shared by owner boot, participant boot, share acceptance, and reconciliation.
     /// Malformed bytes are deliberately left untouched for intervention/recovery evidence.
     func householdLifecycleAllowsEntry() -> Bool {
+        if activeHouseholdZoneRecoveryBoundary != nil {
+            return false
+        }
         switch householdLifecycleGateState() {
         case .absent:
             return true

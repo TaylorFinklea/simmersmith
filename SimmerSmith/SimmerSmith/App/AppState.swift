@@ -430,6 +430,44 @@ enum HouseholdLifecycleReplayOutcome: Equatable {
     case unexpectedOwnerZoneDeletion
     case factoryResetNeedsImport
 }
+
+@MainActor
+final class HouseholdZoneRecoveryAppSessionBoundary: HouseholdZoneRecoveryApplyBoundary {
+    let sessionAuthority = HouseholdSessionAuthority(initiallyAuthoritative: true)
+    let capturedSnapshot: HouseholdZoneRecoveryAuthoritySnapshot
+    weak var appState: AppState?
+    private(set) var isParked = true
+
+    init(
+        appState: AppState,
+        snapshot: HouseholdZoneRecoveryAuthoritySnapshot
+    ) {
+        self.appState = appState
+        capturedSnapshot = snapshot
+    }
+
+    func currentAuthoritySnapshot() async throws -> HouseholdZoneRecoveryApplyAuthoritySnapshot {
+        guard let appState else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+        return try await appState.currentHouseholdZoneRecoveryApplyAuthority(for: self)
+    }
+
+    func normalSessionIsParked() async -> Bool {
+        guard let appState else { return false }
+        return isParked
+            && appState.activeHouseholdZoneRecoveryBoundary === self
+            && appState.householdSession == nil
+            && appState.sessionBootEpoch == capturedSnapshot.sessionEpoch
+    }
+
+    func unparkNormalSession() async {
+        guard isParked else { return }
+        isParked = false
+        sessionAuthority.revoke()
+        await appState?.unparkNormalSessionAfterHouseholdZoneRecovery(self)
+    }
+}
 #endif
 
 @MainActor
@@ -491,6 +529,7 @@ final class AppState {
     // app target still compiles on platforms without CloudKit.
     #if canImport(CloudKit)
     @ObservationIgnored var householdSession: HouseholdSession?
+    @ObservationIgnored var activeHouseholdZoneRecoveryBoundary: HouseholdZoneRecoveryAppSessionBoundary?
     @ObservationIgnored let launchObservationRecorder: LaunchObservationRecorder
     /// Session currently inside the serialized construction/start path. Lifecycle callbacks are
     /// installed before its first await, so the epoch-first choke point must be able to revoke
@@ -620,6 +659,81 @@ final class AppState {
             && session.zoneID.ownerName == snapshot.targetScope.zoneOwnerName
             && session.householdID == snapshot.targetScope.householdID
             && session.engine.activeMirrorScopeSnapshot == snapshot.targetScope
+    }
+
+    func parkNormalSessionForHouseholdZoneRecovery(
+        _ expected: HouseholdZoneRecoveryAuthoritySnapshot
+    ) async throws -> any HouseholdZoneRecoveryApplyBoundary {
+        guard activeHouseholdZoneRecoveryBoundary == nil else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+        let current = try await householdZoneRecoveryAuthoritySnapshot()
+        guard current == expected,
+              let session = householdSession,
+              isCurrentAuthoritativeHouseholdSession(
+                session,
+                requestEpoch: expected.sessionEpoch) else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+
+        beginEpochFirstHouseholdTransition(clearPersonalData: false)
+        let parkedSnapshot = HouseholdZoneRecoveryAuthoritySnapshot(
+            accountFingerprint: expected.accountFingerprint,
+            sourceScope: expected.sourceScope,
+            targetScope: expected.targetScope,
+            sessionEpoch: sessionBootEpoch)
+        let boundary = HouseholdZoneRecoveryAppSessionBoundary(
+            appState: self,
+            snapshot: parkedSnapshot)
+        activeHouseholdZoneRecoveryBoundary = boundary
+        // Keep the explicit recovery surface mounted while normal repositories and sync are
+        // parked. Other boot entry points remain denied by `householdLifecycleAllowsEntry()`.
+        householdLaunchPhase = .ready
+        guard await boundary.normalSessionIsParked() else {
+            activeHouseholdZoneRecoveryBoundary = nil
+            boundary.sessionAuthority.revoke()
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+        return boundary
+    }
+
+    func currentHouseholdZoneRecoveryApplyAuthority(
+        for boundary: HouseholdZoneRecoveryAppSessionBoundary
+    ) async throws -> HouseholdZoneRecoveryApplyAuthoritySnapshot {
+        let expected = boundary.capturedSnapshot
+        guard activeHouseholdZoneRecoveryBoundary === boundary,
+              boundary.isParked,
+              householdSession == nil,
+              bootingHouseholdSession == nil,
+              sessionBootEpoch == expected.sessionEpoch else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+        let accountRecordName = try await householdLifecycleExecutor.currentAccountRecordName()
+        guard let accountRecordName,
+              !accountRecordName.isEmpty,
+              activeHouseholdZoneRecoveryBoundary === boundary,
+              householdSession == nil,
+              bootingHouseholdSession == nil,
+              sessionBootEpoch == expected.sessionEpoch,
+              expected.targetScope.accountRecordName == accountRecordName,
+              expected.accountFingerprint
+                == ShadowMirrorDigest.sha256(Data(accountRecordName.utf8)) else {
+            throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+        }
+        return HouseholdZoneRecoveryApplyAuthoritySnapshot(
+            accountFingerprint: expected.accountFingerprint,
+            sourceScope: expected.sourceScope,
+            targetScope: expected.targetScope,
+            sessionEpoch: expected.sessionEpoch)
+    }
+
+    func unparkNormalSessionAfterHouseholdZoneRecovery(
+        _ boundary: HouseholdZoneRecoveryAppSessionBoundary
+    ) async {
+        guard activeHouseholdZoneRecoveryBoundary === boundary else { return }
+        activeHouseholdZoneRecoveryBoundary = nil
+        householdLaunchPhase = .resolving
+        await ensureHouseholdSession()
     }
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)

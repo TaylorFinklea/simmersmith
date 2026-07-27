@@ -10,17 +10,95 @@ struct HouseholdZoneRecoveryViewModelTests {
     final class RecordingStore: HouseholdZoneRecoveryManifestStoring {
         private(set) var saved: [HouseholdZoneRecoveryStoredArtifact] = []
         private(set) var removeCount = 0
+        var storedArtifact: HouseholdZoneRecoveryStoredArtifact?
 
         func save(_ manifest: HouseholdZoneRecoveryManifest) throws -> HouseholdZoneRecoveryStoredArtifact {
             let artifact = try HouseholdZoneRecoveryStoredArtifact(
                 canonicalManifestBytes: manifest.canonicalJSONBytes(),
                 digest: manifest.digest())
             saved.append(artifact)
+            storedArtifact = artifact
             return artifact
+        }
+
+        func load() throws -> HouseholdZoneRecoveryStoredArtifact? {
+            storedArtifact
         }
 
         func remove() throws {
             removeCount += 1
+            storedArtifact = nil
+        }
+    }
+
+    final class RecordingApplyBoundary: HouseholdZoneRecoveryApplyBoundary {
+        let sessionAuthority = HouseholdSessionAuthority(initiallyAuthoritative: true)
+        var snapshot: HouseholdZoneRecoveryApplyAuthoritySnapshot
+        private(set) var isParked = true
+        private(set) var unparkCount = 0
+
+        init(snapshot: HouseholdZoneRecoveryAuthoritySnapshot) {
+            self.snapshot = HouseholdZoneRecoveryApplyAuthoritySnapshot(
+                accountFingerprint: snapshot.accountFingerprint,
+                sourceScope: snapshot.sourceScope,
+                targetScope: snapshot.targetScope,
+                sessionEpoch: snapshot.sessionEpoch)
+        }
+
+        func currentAuthoritySnapshot() async throws -> HouseholdZoneRecoveryApplyAuthoritySnapshot {
+            snapshot
+        }
+
+        func normalSessionIsParked() async -> Bool {
+            isParked
+        }
+
+        func unparkNormalSession() async {
+            isParked = false
+            unparkCount += 1
+            sessionAuthority.revoke()
+        }
+    }
+
+    final class RecordingApplyOperation: HouseholdZoneRecoveryApplying {
+        let totalBatchCount: Int
+        private(set) var maximumBatchCounts: [Int] = []
+        var results: [HouseholdZoneRecoveryApplyResult]
+
+        init(
+            totalBatchCount: Int,
+            results: [HouseholdZoneRecoveryApplyResult]
+        ) {
+            self.totalBatchCount = totalBatchCount
+            self.results = results
+        }
+
+        func apply(maximumBatchCount: Int) async -> HouseholdZoneRecoveryApplyResult {
+            maximumBatchCounts.append(maximumBatchCount)
+            return results.removeFirst()
+        }
+    }
+    final class SuspendingApplyOperation: HouseholdZoneRecoveryApplying {
+        let totalBatchCount = 1
+        let started = AsyncStream.makeStream(of: Void.self)
+        private let result: HouseholdZoneRecoveryApplyResult
+
+        init(result: HouseholdZoneRecoveryApplyResult) {
+            self.result = result
+        }
+
+        func apply(maximumBatchCount: Int) async -> HouseholdZoneRecoveryApplyResult {
+            started.continuation.yield()
+            try? await Task.sleep(for: .seconds(30))
+            return result
+        }
+    }
+
+    final class SnapshotBox {
+        var value: HouseholdZoneRecoveryAuthoritySnapshot
+
+        init(_ value: HouseholdZoneRecoveryAuthoritySnapshot) {
+            self.value = value
         }
     }
 
@@ -106,12 +184,39 @@ struct HouseholdZoneRecoveryViewModelTests {
             sessionEpoch: epoch)
     }
 
+    private func receipt(
+        completedBatchCount: Int,
+        totalBatchCount: Int,
+        complete: Bool = false
+    ) throws -> HouseholdZoneRecoveryReceipt {
+        let batchDigests = (0..<totalBatchCount).map { "batch-\($0)" }
+        return try HouseholdZoneRecoveryReceipt(
+            manifestDigest: "manifest-digest",
+            sourceInputFingerprint: "source-fingerprint",
+            initialTargetInputFingerprint: "target-fingerprint",
+            targetZoneOwnerName: targetScope.zoneOwnerName,
+            targetZoneName: targetScope.zoneName,
+            approvedIdentityActions: [],
+            batchDigests: batchDigests,
+            targetApplicationDigests: (0...totalBatchCount).map { "target-\($0)" },
+            targetRecordApplicationDigestProgress: Array(
+                repeating: [:],
+                count: totalBatchCount + 1),
+            completedBatches: batchDigests.prefix(completedBatchCount).enumerated().map {
+                HouseholdZoneRecoveryCompletedBatch(index: $0.offset, digest: $0.element)
+            },
+            status: complete ? .complete : .inProgress,
+            completedAt: complete ? Date(timeIntervalSince1970: 1_000) : nil)
+    }
+
     private func makeViewModel(
         available: Bool = true,
         snapshot: HouseholdZoneRecoveryAuthoritySnapshot? = nil,
         authorityIsCurrent: @escaping HouseholdZoneRecoveryViewModel.AuthorityValidator = { _ in true },
         analyze: @escaping HouseholdZoneRecoveryViewModel.AnalysisProvider,
-        store: RecordingStore = RecordingStore()
+        store: RecordingStore = RecordingStore(),
+        parkNormalSession: HouseholdZoneRecoveryViewModel.ParkNormalSession? = nil,
+        prepareApply: HouseholdZoneRecoveryViewModel.ApplyPreparationProvider? = nil
     ) -> (HouseholdZoneRecoveryViewModel, RecordingStore) {
         let snapshot = snapshot ?? self.snapshot()
         return (
@@ -120,12 +225,20 @@ struct HouseholdZoneRecoveryViewModelTests {
                 authoritySnapshot: { snapshot },
                 authorityIsCurrent: authorityIsCurrent,
                 analyze: analyze,
-                manifestStore: store),
+                manifestStore: store,
+                parkNormalSession: parkNormalSession,
+                prepareApply: prepareApply),
             store)
     }
 
+
     private func waitUntilSettled(_ viewModel: HouseholdZoneRecoveryViewModel) async {
         while case .analyzing = viewModel.state {
+            await Task.yield()
+        }
+    }
+    private func waitUntilApplySettled(_ viewModel: HouseholdZoneRecoveryViewModel) async {
+        while viewModel.applyIsRunning {
             await Task.yield()
         }
     }
@@ -307,6 +420,9 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(viewModel.approvalAvailable)
         #expect(store.saved.map(\.digest) == [approvedDigest])
         #expect(store.saved.first?.canonicalManifestBytes == viewModel.canonicalManifestBytes)
+        #expect(viewModel.storedApprovalDigest == approvedDigest)
+        viewModel.typedDigestConfirmation = approvedDigest
+        #expect(viewModel.canRequestApplyConfirmation)
     }
 
     @Test("include all decides only undecided provenance and persists one canonical artifact")
@@ -408,6 +524,353 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(message == "Recovery analysis failed without changing household data.")
         #expect(!message.contains("SECRET"))
         #expect(store.saved.isEmpty)
+    }
+
+    @Test("apply is unavailable outside debug or TestFlight and never parks normal sync")
+    func applyGateFailsClosed() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        var parkCalls = 0
+        let (viewModel, _) = makeViewModel(
+            available: false,
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in
+                parkCalls += 1
+                return RecordingApplyBoundary(snapshot: self.snapshot())
+            },
+            prepareApply: { _, _, _ in
+                Issue.record("Apply preparation must not run outside debug/TestFlight")
+                return RecordingApplyOperation(totalBatchCount: 0, results: [])
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(viewModel.storedApprovalDigest == nil)
+        #expect(viewModel.canRequestApplyConfirmation == false)
+        #expect(parkCalls == 0)
+        #expect(viewModel.applyFailureMessage == "Recovery apply is unavailable in this build.")
+    }
+
+    @Test("exact stored digest and destructive second confirmation are both required")
+    func exactDigestAndSecondConfirmationGateApply() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 0,
+            results: [.verifiedCompletion(try receipt(
+                completedBatchCount: 0,
+                totalBatchCount: 0,
+                complete: true))])
+        var parkCalls = 0
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in
+                parkCalls += 1
+                return boundary
+            },
+            prepareApply: { stored, _, _ in
+                #expect(stored == artifact)
+                return operation
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = "wrong-digest"
+        viewModel.requestApplyConfirmation()
+        #expect(viewModel.canRequestApplyConfirmation == false)
+        #expect(parkCalls == 0)
+
+        viewModel.typedDigestConfirmation = artifact.digest
+        #expect(viewModel.canRequestApplyConfirmation)
+        viewModel.requestApplyConfirmation()
+        #expect(viewModel.applyState == .awaitingDestructiveConfirmation)
+        #expect(parkCalls == 0)
+        #expect(viewModel.destructiveConfirmationMessage.contains("source"))
+        #expect(viewModel.destructiveConfirmationMessage.contains("preserved"))
+
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(parkCalls == 1)
+        #expect(operation.maximumBatchCounts == [1])
+        #expect(boundary.unparkCount == 1)
+        #expect(viewModel.applyState == .verifiedCompletion(
+            completedBatchCount: 0,
+            totalBatchCount: 0))
+    }
+
+    @Test("authority or epoch change after confirmation stops before parking")
+    func authorityChangeAfterConfirmationStopsApply() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let currentSnapshot = SnapshotBox(snapshot(epoch: 41))
+        var parkCalls = 0
+        let viewModel = HouseholdZoneRecoveryViewModel(
+            isRecoveryAvailable: { true },
+            authoritySnapshot: { currentSnapshot.value },
+            authorityIsCurrent: { $0.sessionEpoch == currentSnapshot.value.sessionEpoch },
+            analyze: { _, _, _ in self.analysis(approved) },
+            manifestStore: store,
+            parkNormalSession: { _ in
+                parkCalls += 1
+                return RecordingApplyBoundary(snapshot: currentSnapshot.value)
+            },
+            prepareApply: { _, _, _ in
+                Issue.record("Apply must not prepare after an epoch change")
+                return RecordingApplyOperation(totalBatchCount: 0, results: [])
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        currentSnapshot.value = snapshot(epoch: 42)
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(parkCalls == 0)
+        #expect(viewModel.applyFailureMessage == "The household session changed before recovery apply.")
+    }
+
+    @Test("analysis and review decisions cannot mutate approval while apply is running")
+    func applyLocksAnalysisAndReviewControls() async throws {
+        let conflictIdentity = identity("approved-conflict")
+        let provenanceIdentity = identity("approved-provenance")
+        let approved = try manifest(
+            entries: [
+                HouseholdZoneRecoveryEntry(
+                    identity: conflictIdentity,
+                    action: .conflict,
+                    decision: .source),
+            ],
+            unresolved: [
+                HouseholdZoneRecoveryUnresolvedEntry(
+                    entry: HouseholdZoneRecoveryEntry(
+                        identity: provenanceIdentity,
+                        action: .copy),
+                    decision: .include),
+            ])
+        let store = RecordingStore()
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = SuspendingApplyOperation(result: .progress(try receipt(
+            completedBatchCount: 0,
+            totalBatchCount: 1)))
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { _, _, _ in operation })
+
+        viewModel.analyze()
+        await waitUntilSettled(viewModel)
+        let digest = try #require(viewModel.storedApprovalDigest)
+        viewModel.typedDigestConfirmation = digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        for await _ in operation.started.stream.prefix(1) { break }
+
+        let applyingState = viewModel.applyState
+        let storedArtifact = store.storedArtifact
+        let approvalAuthority = viewModel.storedApprovalAuthority
+        viewModel.decideConflict(conflictIdentity, decision: .target)
+        viewModel.decideProvenance(provenanceIdentity, decision: .exclude)
+        viewModel.decideAllProvenance(.exclude)
+        viewModel.analyze()
+
+        #expect(viewModel.applyState == applyingState)
+        #expect(viewModel.storedApprovalDigest == digest)
+        #expect(store.storedArtifact == storedArtifact)
+        #expect(viewModel.storedApprovalAuthority == approvalAuthority)
+        #expect(viewModel.preview?.authority == approvalAuthority)
+
+        viewModel.cancelApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(viewModel.applyState == .resumableStop(
+            completedBatchCount: 0,
+            totalBatchCount: 1))
+        #expect(store.storedArtifact == storedArtifact)
+        #expect(boundary.unparkCount == 1)
+    }
+
+    @Test("cancelling apply stops resumably and unparks normal sync")
+    func applyCancellationIsResumable() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = SuspendingApplyOperation(result: .progress(try receipt(
+            completedBatchCount: 0,
+            totalBatchCount: 1)))
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { _, _, _ in operation })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        for await _ in operation.started.stream.prefix(1) { break }
+        viewModel.cancelApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(viewModel.applyState == .resumableStop(
+            completedBatchCount: 0,
+            totalBatchCount: 1))
+        #expect(boundary.unparkCount == 1)
+    }
+
+    @Test("apply advances one bounded batch at a time and reports verified completion")
+    func boundedProgressAndSuccess() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 2,
+            results: [
+                .progress(try receipt(completedBatchCount: 1, totalBatchCount: 2)),
+                .verifiedCompletion(try receipt(
+                    completedBatchCount: 2,
+                    totalBatchCount: 2,
+                    complete: true)),
+            ])
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { _, _, _ in operation })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(operation.maximumBatchCounts == [1, 1])
+        #expect(viewModel.applyState == .verifiedCompletion(
+            completedBatchCount: 2,
+            totalBatchCount: 2))
+        #expect(boundary.unparkCount == 1)
+    }
+
+    @Test("transient stop stays resumable and is never retried automatically")
+    func transientStopDoesNotRetry() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 2,
+            results: [.resumableStop(
+                try receipt(completedBatchCount: 1, totalBatchCount: 2),
+                .transientTransport)])
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { _, _, _ in operation })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+        await Task.yield()
+
+        #expect(operation.maximumBatchCounts == [1])
+        #expect(viewModel.applyState == .resumableStop(
+            completedBatchCount: 1,
+            totalBatchCount: 2))
+    }
+
+    @Test("conflict identity remains local and stops without retry")
+    func conflictStopsWithLocalIdentity() async throws {
+        let approvedIdentity = identity("local-conflict-record")
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: approvedIdentity, action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 1,
+            results: [.conflict(nil, approvedIdentity)])
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { _, _, _ in operation })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(operation.maximumBatchCounts == [1])
+        #expect(viewModel.applyState == .conflict(
+            completedBatchCount: 0,
+            totalBatchCount: 1))
+        #expect(viewModel.localConflictIdentity == approvedIdentity)
+        #expect(viewModel.applyStatusMessage == "Recovery stopped because target data changed.")
+        #expect(!viewModel.applyStatusMessage.contains("local-conflict-record"))
+    }
+
+    @Test("a changed stored manifest is not retried under the confirmed digest")
+    func changedStoredManifestInvalidatesConfirmation() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let changed = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("different-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        var parkCalls = 0
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in
+                parkCalls += 1
+                return RecordingApplyBoundary(snapshot: self.snapshot())
+            },
+            prepareApply: { _, _, _ in
+                Issue.record("Changed manifest must not prepare")
+                return RecordingApplyOperation(totalBatchCount: 0, results: [])
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        _ = try store.save(changed)
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(parkCalls == 0)
+        #expect(viewModel.applyFailureMessage == "The approved recovery manifest changed. Review it again.")
     }
 
     @Test("application-support store round-trips canonical bytes and verifies the digest")
