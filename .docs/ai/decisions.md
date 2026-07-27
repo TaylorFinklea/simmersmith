@@ -2207,3 +2207,18 @@ Phase B implementation only; no CloudKit apply is authorized until its separate 
 error-prone taps. Keeping apply in a later binary preserves the read-only trust boundary and allows
 target reconstruction, receipts, idempotency, and input-fingerprint invalidation to be reviewed
 before any production write.
+
+## 2026-07-27 — Build 170 is the default-off recovery vehicle; default-on moves to 171
+
+**Context.** The approved 641-record recovery required a reviewed target-only apply engine, resumable
+receipt, explicit two-confirmation TestFlight UI, and a fresh physical-delivery binary. Builds 167-169
+were read-only analyzer and approval vehicles.
+
+**Decision.** Ship those apply capabilities in build 170 with
+`CacheFirstLaunchPolicy.staticDefault == false`. Require one digest-bound Roshar apply plus Roshar/Sel
+full-fetch and cached convergence before closing recovery blockers. The blocked default-on candidate
+moves to build 171 and still requires the independent cross-account participant matrix.
+
+**Why.** Recovery proof and cache-first rollout are distinct destructive/routing gates. Keeping build
+170 default-off limits the new write path to the explicit approved recovery action and prevents owner
+recovery success from being mistaken for participant evidence.

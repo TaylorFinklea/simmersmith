@@ -316,11 +316,11 @@ Commit: `feat(cloudkit): apply approved household recovery`
 
 Cover exact digest confirmation, disabled apply before approval, authority/epoch changes, progress, resumable failure, conflict, success, and inability to trigger from normal launch/App Store gate.
 
-- [ ] **Step 2: Implement explicit apply control**
+- [x] **Step 2: Implement explicit apply control**
 
 Require the exact approved digest, destructive-action confirmation language that states source is preserved, and a second authority recheck. Keep all details local and logs count-only.
 
-- [ ] **Step 3: Verify, review, and ship a new default-off recovery build**
+- [x] **Step 3: Verify, review, and ship a new default-off recovery build**
 
 Run full package/app verification, exact feature SHA CI, separate release bump, ASC `VALID`, and preserved-data installation. Keep default-on blocked.
 
