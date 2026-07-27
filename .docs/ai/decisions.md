@@ -2189,3 +2189,21 @@ the blocked default-on candidate moves to 167.
 **Why.** CloudKit's exact-zone database discovery is stronger owner evidence than an optimistic
 local create request. Receive-only households must be resumable without making a local edit.
 Participant authority still requires its separate successful-fetch proof and is not inferred.
+
+## 2026-07-25 — Approve the exact 641-record recovery manifest; keep apply separate
+
+**Context.** Build 168's read-only exact-zone analyzer found 641 supported source records that are
+absent from the genuine target, five explicit exclusions, and no conflicts or blocked dependencies.
+The approved recovery scope is all real household data. Per-record provenance taps would not add
+meaningful safety after the classifier's fixture/system exclusions.
+
+**Decision.** Treat the user's explicit “Include all 641” selection as one provenance decision over
+all still-undecided candidates, preserving explicit exclusions and any prior per-record decisions.
+Build 169 produced and the user approved canonical manifest digest
+`32b692f3d7d9edf1a7d3ea5f6a7ba2cf85ec1e81ca291f6ff34d31a65f49a280`. This approval authorizes
+Phase B implementation only; no CloudKit apply is authorized until its separate preflight gate.
+
+**Why.** One canonical, digest-bound bulk decision is auditable and deterministic without 641
+error-prone taps. Keeping apply in a later binary preserves the read-only trust boundary and allows
+target reconstruction, receipts, idempotency, and input-fingerprint invalidation to be reviewed
+before any production write.

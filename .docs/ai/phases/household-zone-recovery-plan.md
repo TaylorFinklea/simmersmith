@@ -19,7 +19,7 @@
 - Conflicting target records require an explicit per-record source/target decision; no implicit LWW.
 - Preserve record names and application fields; rebuild target-zone identities, references, and assets; never copy CloudKit system fields.
 - Apply is idempotent and crash-resumable through a target-zone receipt; source remains the rollback reference.
-- Build 167 remains blocked default-on. Every recovery vehicle keeps `CacheFirstLaunchPolicy.staticDefault == false`.
+- Build 170 remains blocked default-on. Every recovery vehicle keeps `CacheFirstLaunchPolicy.staticDefault == false`.
 - Do not run apply or any production CloudKit write before the explicit Task 6 approval gate.
 
 ---

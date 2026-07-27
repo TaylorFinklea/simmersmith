@@ -319,4 +319,14 @@ performance evidence; P2h adds device-gate evidence.
   the reserved source holds eight profiles, 28 recipes, 72 meals, eight weeks, groceries, and
   managed ingredients. P0 `simmersmith-fkn` closed with root cause proven; P0 `simmersmith-mpa`
   owns non-destructive preview/approval/copy recovery. No source record, share, or zone changed.
-  Both device overrides were restored OFF; owner matrix and default-on build 167 remain blocked.
+  Both device overrides were restored OFF; owner matrix and default-on build 170 remain blocked.
+- Recovery Phase A shipped in builds 167-169 with `staticDefault=false`. Build 167 exposed a
+  sequential target-lookup hang; commit `2349b34` replaced 641 serial record fetches with one
+  exact-zone target snapshot and passed exact CI run `30183132201`. Build 168 then completed the
+  zero-write preview: 641 copy candidates, five excluded records, zero conflicts, zero blocked.
+- The user explicitly selected bulk include for all 641 undecided production candidates. Build 169
+  regenerated and atomically stored the approved canonical manifest. Pulled artifact verification
+  confirmed 641 `include`/`copy` entries, five exclusions (three system, one CKShare, one known
+  fixture), zero blocked entries, and digest
+  `32b692f3d7d9edf1a7d3ea5f6a7ba2cf85ec1e81ca291f6ff34d31a65f49a280`.
+  Analyze and approval performed no CloudKit writes; Phase B remains separately gated.
