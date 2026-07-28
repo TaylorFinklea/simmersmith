@@ -263,6 +263,366 @@ struct HouseholdZoneRecoveryApplyPlanTests {
         #expect(Set(firstNames[0]).isSuperset(of: ["cycle-a", "cycle-b"]))
     }
 
+    @Test("a layer of many independent records is chunked into deterministic, capacity-bound batches")
+    func chunksLargeIndependentLayerByRecordCount() throws {
+        let count = 450
+        let names = (0..<count).map { String(format: "rec-%04d", $0) }
+        let entries = names.map { entry($0, type: "Recipe") }
+        let manifest = try makeManifest(entries: entries)
+        let records = names.map { sourceRecord($0, type: "Recipe") }
+        let plan = try makePlan(manifest: manifest, records: records)
+
+        let expectedBatchCount = Int(
+            ceil(Double(count) / Double(HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount)))
+        #expect(plan.batches.count == expectedBatchCount)
+        #expect(plan.batches.map(\.index) == Array(0..<expectedBatchCount))
+        for batch in plan.batches.dropLast() {
+            #expect(batch.records.count == HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount)
+        }
+        #expect(plan.batches.allSatisfy {
+            $0.records.count <= HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount
+        })
+        let flattenedNames = plan.batches.flatMap { $0.records.map { $0.record.recordID.recordName } }
+        #expect(Set(flattenedNames) == Set(names))
+        #expect(flattenedNames.count == Set(flattenedNames).count)
+    }
+
+    @Test("a record never lands at or before the batch holding a required dependency it must follow")
+    func neverPlacesDependentAtOrBeforeItsRequiredDependencyBatch() throws {
+        let baseCount = HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount + 50
+        let baseNames = (0..<baseCount).map { String(format: "base-%04d", $0) }
+        let baseEntries = baseNames.map { entry($0, type: "Recipe") }
+        let dependentEntry = entry(
+            "dependent", type: "Recipe",
+            dependencies: baseNames.map { dependency($0, type: "Recipe") })
+        let manifest = try makeManifest(entries: baseEntries + [dependentEntry])
+        let records = (baseNames + ["dependent"]).map { sourceRecord($0, type: "Recipe") }
+        let plan = try makePlan(manifest: manifest, records: records)
+
+        #expect(plan.batches.count > 2)
+        let dependentBatchIndex = try #require(plan.batches.first {
+            $0.records.contains { $0.record.recordID.recordName == "dependent" }
+        }?.index)
+        let baseBatchIndices = plan.batches.compactMap { batch -> Int? in
+            batch.records.contains { baseNames.contains($0.record.recordID.recordName) }
+                ? batch.index
+                : nil
+        }
+        #expect(!baseBatchIndices.isEmpty)
+        #expect(baseBatchIndices.allSatisfy { $0 < dependentBatchIndex })
+    }
+
+    @Test("a single record whose fields exceed the shared per-batch byte budget gets its own dedicated batch")
+    func isolatesOversizedRecordIntoItsOwnBatch() throws {
+        let oversizedEntry = entry("oversized", type: "Recipe")
+        let siblingEntry = entry("sibling", type: "Recipe")
+        let manifest = try makeManifest(entries: [oversizedEntry, siblingEntry])
+
+        // Sized just under the per-record ceiling so it stays legal on its own. Two records this
+        // size (~2 MB combined) still cannot share the ~2 MB per-request budget once the receipt
+        // and framing overhead are subtracted, so each still lands in its own batch.
+        let oversizedNotesSize = HouseholdZoneRecoveryApplyPlan.maximumRecordBytes
+            - HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+            - "notes".utf8.count
+            - 100
+        let oversized = sourceRecord("oversized", type: "Recipe")
+        oversized["notes"] = Data(count: oversizedNotesSize) as CKRecordValue
+        let sibling = sourceRecord("sibling", type: "Recipe")
+        sibling["notes"] = Data(count: oversizedNotesSize) as CKRecordValue
+
+        let plan = try makePlan(manifest: manifest, records: [oversized, sibling])
+
+        let oversizedBatch = try #require(plan.batches.first {
+            $0.records.contains { $0.record.recordID.recordName == "oversized" }
+        })
+        #expect(oversizedBatch.records.count == 1)
+        #expect(oversizedBatch.records[0].record.recordID.recordName == "oversized")
+        #expect(plan.batches.count == 2)
+        for batch in plan.batches {
+            #expect(batch.records.count + 1 <= HouseholdZoneRecoveryApplyPlan.maximumBatchItemCount)
+            for prepared in batch.records {
+                #expect(HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+                    + HouseholdZoneRecoveryApplyPlan.estimatedRecordBytes(for: prepared.record)
+                    <= HouseholdZoneRecoveryApplyPlan.maximumRecordBytes)
+            }
+        }
+    }
+
+    @Test("a record at or over the per-record byte ceiling is refused rather than emitting an over-limit record")
+    func recordAtOrOverPerRecordCeilingThrows() throws {
+        let manifest = try makeManifest(entries: [entry("way-too-big", type: "Recipe")])
+        let record = sourceRecord("way-too-big", type: "Recipe")
+        record["notes"] = Data(count: HouseholdZoneRecoveryApplyPlan.maximumRecordBytes) as CKRecordValue
+
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable) {
+            _ = try makePlan(manifest: manifest, records: [record])
+        }
+    }
+
+    @Test("the co-written receipt's bytes count against the shared batch budget: record bytes alone would fit in one batch, but the receipt forces a second")
+    func receiptByteCostForcesAnAdditionalBatch() throws {
+        let skipCount = 500
+        let skipNames = (0..<skipCount).map { String(format: "skip-%04d", $0) }
+        let skipEntries = skipNames.map { entry($0, type: "Recipe", action: .skipIdentical) }
+        let skipRecords = skipNames.map { sourceRecord($0, type: "Recipe") }
+        let bigAEntry = entry("big-a", type: "Recipe")
+        let bigBEntry = entry("big-b", type: "Recipe")
+        let manifest = try makeManifest(entries: skipEntries + [bigAEntry, bigBEntry])
+        let manifestDigest = try manifest.digest()
+        let identityActions = (skipEntries + [bigAEntry, bigBEntry]).map {
+            HouseholdZoneRecoveryReceiptIdentityAction(
+                identity: $0.identity.target, action: $0.action, decision: $0.decision)
+        }.sorted { $0.identity.sortKey < $1.identity.sortKey }
+
+        // skipIdentical entries are never batched (no CKRecord is ever written for them) but
+        // they still inflate approvedIdentityActions and every per-batch application-digest
+        // snapshot in the receipt, so this measures a real receipt cost record bytes alone
+        // never see.
+        let receiptBytesForOneBatch = try HouseholdZoneRecoveryApplyPlan.estimatedReceiptBytes(
+            manifestDigest: manifestDigest,
+            sourceInputFingerprint: "source-fingerprint",
+            initialTargetInputFingerprint: "target-fingerprint",
+            targetZoneID: targetZone,
+            approvedIdentityActions: identityActions,
+            batchCount: 1)
+        let recordByteBudgetForOneBatch = HouseholdZoneRecoveryApplyPlan.maximumBatchRequestBytes
+            - receiptBytesForOneBatch
+            - HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+        let combinedFieldBytes = recordByteBudgetForOneBatch + 50_000
+        let combinedClusterBytes =
+            2 * HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes + combinedFieldBytes
+        // Fits the raw CloudKit per-request ceiling on record bytes alone (i.e. would pass if the
+        // receipt were ignored)...
+        #expect(combinedClusterBytes <= HouseholdZoneRecoveryApplyPlan.maximumBatchRequestBytes)
+        // ...but exceeds the real, receipt-aware budget for a single shared batch.
+        #expect(combinedClusterBytes > recordByteBudgetForOneBatch)
+
+        let perRecordNotesBytes = combinedFieldBytes / 2 - "notes".utf8.count
+        let bigA = sourceRecord("big-a", type: "Recipe")
+        bigA["notes"] = Data(count: perRecordNotesBytes) as CKRecordValue
+        let bigB = sourceRecord("big-b", type: "Recipe")
+        bigB["notes"] = Data(count: perRecordNotesBytes) as CKRecordValue
+
+        let plan = try makePlan(manifest: manifest, records: skipRecords + [bigA, bigB])
+
+        #expect(plan.batches.count == 2)
+        let batchedNames = Set(plan.batches.flatMap { $0.records.map { $0.record.recordID.recordName } })
+        #expect(batchedNames == ["big-a", "big-b"])
+        for batch in plan.batches {
+            #expect(batch.records.count == 1)
+        }
+    }
+
+    @Test("an atomic dependency cluster too large for one request throws batchCapacityUnsatisfiable instead of emitting an over-limit batch")
+    func atomicClusterExceedingCapacityThrows() throws {
+        // A hub-and-spoke mutual-dependency graph (rather than a long chain) forms one strongly
+        // connected component of `count` records while keeping SCC-discovery recursion depth at
+        // 2 regardless of `count`, since every spoke's only dependency (the hub) is already on
+        // the DFS stack when the spoke is visited.
+        let count = HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount + 1
+        let names = (0..<count).map { String(format: "cycle-%04d", $0) }
+        let hubName = names[0]
+        let spokeNames = Array(names.dropFirst())
+        let hubEntry = entry(
+            hubName, type: "Recipe",
+            dependencies: spokeNames.map { dependency($0, type: "Recipe") })
+        let spokeEntries = spokeNames.map { name in
+            entry(name, type: "Recipe", dependencies: [dependency(hubName, type: "Recipe")])
+        }
+        let manifest = try makeManifest(entries: [hubEntry] + spokeEntries)
+        let records = names.map { sourceRecord($0, type: "Recipe") }
+
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable) {
+            _ = try makePlan(manifest: manifest, records: records)
+        }
+    }
+
+    @Test("the real 657-entry, 142/515 cross-layer approved manifest shape converges on the pinned field-less batch shape and provably fits one CloudKit request")
+    func realManifestShapeProducesCapacityBoundBatches() throws {
+        let (manifest, records, parentCount, childCount) = try realManifestShapeManifest()
+        let plan = try makePlan(manifest: manifest, records: records)
+
+        #expect(plan.records.count == parentCount + childCount)
+        #expect(plan.batches.count == 3)
+        #expect(plan.batches.map(\.records.count) == [142, 399, 116])
+        try assertBatchesFitOneRequest(plan)
+    }
+
+    @Test("the same real manifest shape with realistic per-record bytes converges on a byte-bound (not item-count-bound) batch shape that still provably fits one CloudKit request")
+    func realManifestShapeWithRealisticBytesIsByteBound() throws {
+        let (manifest, records, parentCount, childCount) = try realManifestShapeManifest(recordNotesBytes: 4_000)
+        let plan = try makePlan(manifest: manifest, records: records)
+
+        #expect(plan.records.count == parentCount + childCount)
+        #expect(plan.batches.count == 3)
+        #expect(plan.batches.map(\.records.count) == [142, 347, 168])
+        #expect(plan.batches.allSatisfy {
+            $0.records.count < HouseholdZoneRecoveryApplyPlan.maximumBatchRecordCount
+        })
+        try assertBatchesFitOneRequest(plan)
+    }
+
+    private func realManifestShapeManifest(recordNotesBytes: Int? = nil) throws -> (
+        manifest: HouseholdZoneRecoveryManifest, records: [CKRecord], parentCount: Int, childCount: Int
+    ) {
+        let parentCount = 142
+        let childCount = 515
+        let parentNames = (0..<parentCount).map { String(format: "parent-%04d", $0) }
+        let childNames = (0..<childCount).map { String(format: "child-%04d", $0) }
+        let parentEntries = parentNames.map { entry($0, type: "Recipe") }
+        let childEntries = childNames.enumerated().map { offset, name in
+            entry(name, type: "Recipe", dependencies: [
+                dependency(parentNames[offset % parentCount], type: "Recipe"),
+            ])
+        }
+        let manifest = try makeManifest(entries: parentEntries + childEntries)
+        let records = (parentNames + childNames).map { name -> CKRecord in
+            let record = sourceRecord(name, type: "Recipe")
+            if let recordNotesBytes {
+                record["notes"] = Data(count: recordNotesBytes) as CKRecordValue
+            }
+            return record
+        }
+        return (manifest, records, parentCount, childCount)
+    }
+
+    private func assertBatchesFitOneRequest(_ plan: HouseholdZoneRecoveryApplyPlan) throws {
+        for batch in plan.batches {
+            #expect(batch.records.count + 1 <= HouseholdZoneRecoveryApplyPlan.maximumBatchItemCount)
+            for prepared in batch.records {
+                #expect(HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+                    + HouseholdZoneRecoveryApplyPlan.estimatedRecordBytes(for: prepared.record)
+                    <= HouseholdZoneRecoveryApplyPlan.maximumRecordBytes)
+            }
+            let recordBytes = batch.records.reduce(0) {
+                $0 + HouseholdZoneRecoveryApplyPlan.estimatedRecordBytes(for: $1.record)
+            }
+            let receiptBytes = try HouseholdZoneRecoveryApplyPlan.estimatedReceiptBytes(
+                manifestDigest: plan.manifestDigest,
+                sourceInputFingerprint: plan.sourceInputFingerprint,
+                initialTargetInputFingerprint: plan.initialTargetInputFingerprint,
+                targetZoneID: plan.targetZoneID,
+                approvedIdentityActions: plan.approvedIdentityActions,
+                batchCount: plan.batches.count)
+            #expect(receiptBytes + HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+                <= HouseholdZoneRecoveryApplyPlan.maximumRecordBytes)
+            let framing = HouseholdZoneRecoveryApplyPlan.framingAllowanceBytes(
+                recordCount: batch.records.count)
+            #expect(recordBytes + receiptBytes + framing
+                <= HouseholdZoneRecoveryApplyPlan.maximumBatchRequestBytes)
+        }
+    }
+
+    @Test("a receipt whose own bytes exhaust the per-request budget is refused before any batch is chunked")
+    func receiptExhaustedBudgetThrows() throws {
+        // Enough skipIdentical approved identities inflate the receipt's per-batch digest-progress
+        // map (O(approvedIdentities x batchCount)) until it alone exceeds the per-request budget,
+        // even though skipIdentical entries never produce a batched record. Binary search finds
+        // the exact crossover count for this zone's real sortKey lengths instead of guessing one.
+        let manifestDigest = "receipt-exhaustion-manifest-digest"
+        func identityActions(count: Int) -> [HouseholdZoneRecoveryReceiptIdentityAction] {
+            (0..<count).map { index in
+                HouseholdZoneRecoveryReceiptIdentityAction(
+                    identity: identity(String(format: "skip-%05d", index), type: "Recipe").target,
+                    action: .skipIdentical,
+                    decision: nil)
+            }.sorted { $0.identity.sortKey < $1.identity.sortKey }
+        }
+        func fitsBudget(count: Int) throws -> Bool {
+            let receiptBytes = try HouseholdZoneRecoveryApplyPlan.estimatedReceiptBytes(
+                manifestDigest: manifestDigest,
+                sourceInputFingerprint: "source-fingerprint",
+                initialTargetInputFingerprint: "target-fingerprint",
+                targetZoneID: targetZone,
+                approvedIdentityActions: identityActions(count: count),
+                batchCount: 1)
+            return receiptBytes + HouseholdZoneRecoveryApplyPlan.perItemFramingAllowanceBytes
+                <= HouseholdZoneRecoveryApplyPlan.maximumBatchRequestBytes
+        }
+        var low = 1
+        var high = 1
+        while try fitsBudget(count: high) {
+            low = high
+            high *= 2
+        }
+        while high - low > 1 {
+            let mid = (low + high) / 2
+            if try fitsBudget(count: mid) {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        let exhaustingCount = high
+
+        let names = (0..<exhaustingCount).map { String(format: "skip-%05d", $0) }
+        let entries = names.map { entry($0, type: "Recipe", action: .skipIdentical) }
+        let manifest = try makeManifest(entries: entries)
+        let records = names.map { sourceRecord($0, type: "Recipe") }
+
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable) {
+            _ = try makePlan(manifest: manifest, records: records)
+        }
+    }
+
+    @Test("a batch count that cannot converge within the fixpoint's iteration bound is refused rather than looping unboundedly")
+    func fixpointNonConvergenceThrows() throws {
+        let count = 450
+        let names = (0..<count).map { String(format: "rec-%04d", $0) }
+        let entries = names.map { entry($0, type: "Recipe") }
+        let manifest = try makeManifest(entries: entries)
+        let manifestDigest = try manifest.digest()
+        let identityActions = entries.map {
+            HouseholdZoneRecoveryReceiptIdentityAction(
+                identity: $0.identity.target, action: $0.action, decision: $0.decision)
+        }.sorted { $0.identity.sortKey < $1.identity.sortKey }
+        let preparedRecords = names.map { name in
+            HouseholdZoneRecoveryPreparedRecord(
+                identity: identity(name, type: "Recipe"),
+                record: targetRecord(name, type: "Recipe"),
+                assets: [])
+        }
+
+        // A single 450-entry layer always needs 2 batches purely from the item-count ceiling
+        // (450 > maximumBatchRecordCount), so round 1 never converges on its assumed 1-batch
+        // guess; capping the fixpoint at 1 iteration makes that non-convergence deterministic.
+        #expect(throws: HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable) {
+            _ = try HouseholdZoneRecoveryApplyPlan.planChunkedBatches(
+                layers: [entries],
+                layerRecords: [preparedRecords],
+                manifestDigest: manifestDigest,
+                sourceInputFingerprint: "source-fingerprint",
+                initialTargetInputFingerprint: "target-fingerprint",
+                targetZoneID: targetZone,
+                approvedIdentityActions: identityActions,
+                maximumIterations: 1)
+        }
+    }
+
+
+    @Test("chunked batch splitting is deterministic and preserves the final target application digest")
+    func chunkingIsDeterministicAndDigestPreserving() throws {
+        let count = 300
+        let names = (0..<count).map { String(format: "det-%04d", $0) }
+        let entries = names.map { entry($0, type: "Recipe") }
+        let manifest = try makeManifest(entries: entries)
+        let records = names.map { name -> CKRecord in
+            let record = sourceRecord(name, type: "Recipe")
+            record["name"] = name as CKRecordValue
+            return record
+        }
+
+        let first = try makePlan(manifest: manifest, records: records)
+        let second = try makePlan(manifest: manifest, records: records)
+
+        #expect(first.batches.map(\.digest) == second.batches.map(\.digest))
+        #expect(first.expectedFinalTargetApplicationDigest == second.expectedFinalTargetApplicationDigest)
+
+        let allTargetRecords = first.records.map(\.record)
+        let wholeSetDigest = try first.targetApplicationDigest(records: allTargetRecords)
+        #expect(wholeSetDigest == first.expectedFinalTargetApplicationDigest)
+    }
+
     @Test("skip-identical and target-selected conflicts are not reconstructed")
     func plansOnlySourceSelectedWrites() throws {
         let manifest = try makeManifest(entries: [

@@ -327,6 +327,7 @@ final class HouseholdZoneRecoveryViewModel {
     private(set) var applyState: ApplyState = .idle
     private(set) var storedApprovalDigest: String?
     private(set) var localConflictIdentity: HouseholdZoneRecoveryIdentity?
+    private(set) var applyDiagnostic: HouseholdZoneRecoveryApplyDiagnostic?
     var typedDigestConfirmation = ""
 
     init(
@@ -429,9 +430,10 @@ final class HouseholdZoneRecoveryViewModel {
         case .applying(let completed, let total):
             return "Applied \(completed) of \(total) bounded batches."
         case .resumableStop(let completed, let total):
-            return "Recovery stopped safely after \(completed) of \(total) batches. Resume manually with the same digest."
+            return "Recovery stopped safely after \(completed) of \(total) batches"
+                + "\(Self.diagnosticClause(applyDiagnostic)). Resume manually with the same digest."
         case .conflict:
-            return "Recovery stopped because target data changed."
+            return "Recovery stopped because target data changed\(Self.diagnosticClause(applyDiagnostic))."
         case .verifiedCompletion(let completed, let total):
             return "Verified recovery completion: \(completed) of \(total) batches."
         case .failed(let message):
@@ -653,6 +655,7 @@ final class HouseholdZoneRecoveryViewModel {
         var boundary: (any HouseholdZoneRecoveryApplyBoundary)?
         var completedBatchCount = 0
         var totalBatchCount = 0
+        applyDiagnostic = nil
         do {
             guard let confirmedDigest = storedApprovalDigest,
                   typedDigestConfirmation == confirmedDigest,
@@ -696,9 +699,11 @@ final class HouseholdZoneRecoveryViewModel {
                     totalBatchCount: totalBatchCount)
                 let result = await operation.apply(maximumBatchCount: 1)
                 switch result {
-                case .preflightRejected:
+                case .preflightRejected(_, let diagnostic):
+                    applyDiagnostic = diagnostic
                     applyState = .failed(
-                        "Recovery apply stopped before the next write because its safety checks changed.")
+                        "Recovery apply stopped before the next write because its safety checks changed"
+                            + "\(Self.diagnosticClause(diagnostic)).")
                     shouldContinue = false
                 case .progress(let receipt):
                     let nextCompleted = receipt.completedBatchDigests.count
@@ -714,29 +719,33 @@ final class HouseholdZoneRecoveryViewModel {
                         completedBatchCount: completedBatchCount,
                         totalBatchCount: totalBatchCount)
                     await Task.yield()
-                case .resumableStop(let receipt, _):
+                case .resumableStop(let receipt, _, let diagnostic):
                     completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
+                    applyDiagnostic = diagnostic
                     applyState = .resumableStop(
                         completedBatchCount: completedBatchCount,
                         totalBatchCount: totalBatchCount)
                     shouldContinue = false
-                case .conflict(let receipt, let identity):
+                case .conflict(let receipt, let identity, let diagnostic):
                     completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
                     localConflictIdentity = identity
+                    applyDiagnostic = diagnostic
                     applyState = .conflict(
                         completedBatchCount: completedBatchCount,
                         totalBatchCount: totalBatchCount)
                     shouldContinue = false
                 case .verifiedCompletion(let receipt):
                     completedBatchCount = receipt.completedBatchDigests.count
+                    applyDiagnostic = nil
                     applyState = .verifiedCompletion(
                         completedBatchCount: completedBatchCount,
                         totalBatchCount: totalBatchCount)
                     shouldContinue = false
                 }
             }
+            let diagnosticForLog = applyDiagnostic
             Self.logger.info(
-                "apply_stopped completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public)")
+                "apply_stopped completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public) diagnosticCategory=\(diagnosticForLog?.category.rawValue ?? "none", privacy: .public) diagnosticBatchIndex=\(diagnosticForLog?.batchIndex ?? -1, privacy: .public) diagnosticBatchRecordCount=\(diagnosticForLog?.batchRecordCount ?? -1, privacy: .public)")
         } catch is CancellationError {
             applyState = .resumableStop(
                 completedBatchCount: completedBatchCount,
@@ -749,6 +758,10 @@ final class HouseholdZoneRecoveryViewModel {
         } catch HouseholdZoneRecoveryViewModelError.invalidStoredArtifact {
             applyState = .failed("The approved recovery manifest changed. Review it again.")
             Self.logger.error("apply_artifact_changed")
+        } catch HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable {
+            applyState = .failed(
+                "Recovery apply stopped before any write because an approved batch cannot fit one CloudKit request (batchCapacityUnsatisfiable).")
+            Self.logger.error("apply_plan_capacity_unsatisfiable")
         } catch {
             applyState = Task.isCancelled
                 ? .resumableStop(
@@ -958,6 +971,14 @@ final class HouseholdZoneRecoveryViewModel {
         reason == HouseholdZoneRecoveryBlockedEntry.missingDependencyReason
             ? "Missing required data"
             : "Not eligible for recovery"
+    }
+
+    private static func diagnosticClause(_ diagnostic: HouseholdZoneRecoveryApplyDiagnostic?) -> String {
+        guard let diagnostic else { return "" }
+        if let batchIndex = diagnostic.batchIndex, let batchRecordCount = diagnostic.batchRecordCount {
+            return " (\(diagnostic.category.rawValue), batch \(batchIndex), \(batchRecordCount) records)"
+        }
+        return " (\(diagnostic.category.rawValue))"
     }
 }
 

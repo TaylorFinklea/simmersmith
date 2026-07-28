@@ -63,6 +63,82 @@ public extension HouseholdZoneRecoveryApplyTransportError {
     }
 }
 
+/// Fine-grained CloudKit error classification for apply-path diagnostics. Deliberately finer
+/// than `HouseholdZoneRecoveryApplyTransportError`, which only distinguishes retry behavior;
+/// this preserves the CKError code family so a caller can surface a privacy-safe diagnostic
+/// (e.g. `limitExceeded`) instead of a single opaque stop reason. Contains no record names,
+/// field values, or other household content.
+public enum HouseholdZoneRecoveryApplyDiagnosticSignal: String, Equatable, Sendable {
+    case limitExceeded
+    case quotaExceeded
+    case serverRecordChanged
+    case unknownItem
+    case invalidArguments
+    case zoneNotFound
+    case notAuthenticated
+    case networkUnavailable
+    case partialFailure
+    case zoneChanged
+    case permissionDenied
+    case other
+}
+
+public extension HouseholdZoneRecoveryApplyDiagnosticSignal {
+    static func classify(_ error: Error) -> Self {
+        if let signal = error as? Self { return signal }
+        if let applyError = error as? HouseholdZoneRecoveryApplyTransportError {
+            switch applyError {
+            case .transient: return .networkUnavailable
+            case .partialFailure: return .partialFailure
+            case .conflict: return .serverRecordChanged
+            case .permissionDenied: return .permissionDenied
+            case .accountChanged: return .notAuthenticated
+            case .zoneChanged: return .zoneChanged
+            case .schema: return .invalidArguments
+            case .invalidResponse, .permanentFailure: return .other
+            }
+        }
+        if let transportError = error as? HouseholdZoneRecoveryTransportError {
+            switch transportError {
+            case .partialFailure:
+                return .partialFailure
+            case .mismatchedZone:
+                return .zoneChanged
+            case .invalidCursor, .missingZoneResult, .unreadableAsset,
+                 .invalidAssetDigest, .emptyFingerprint:
+                return .other
+            }
+        }
+        guard let cloudError = error as? CKError else { return .other }
+        switch cloudError.code {
+        case .limitExceeded:
+            return .limitExceeded
+        case .quotaExceeded:
+            return .quotaExceeded
+        case .serverRecordChanged:
+            return .serverRecordChanged
+        case .unknownItem:
+            return .unknownItem
+        case .zoneNotFound, .userDeletedZone:
+            return .zoneNotFound
+        case .notAuthenticated, .accountTemporarilyUnavailable:
+            return .notAuthenticated
+        case .networkUnavailable, .networkFailure, .serviceUnavailable,
+             .requestRateLimited, .zoneBusy:
+            return .networkUnavailable
+        case .partialFailure, .batchRequestFailed:
+            return .partialFailure
+        case .invalidArguments, .badContainer, .badDatabase,
+             .constraintViolation, .serverRejectedRequest:
+            return .invalidArguments
+        case .permissionFailure:
+            return .permissionDenied
+        default:
+            return .other
+        }
+    }
+}
+
 /// Opaque continuation returned by one exact-zone page fetch.
 public struct HouseholdZoneRecoveryPageCursor: @unchecked Sendable {
     public let identifier: String
@@ -230,8 +306,7 @@ public struct CloudKitHouseholdZoneRecoveryTransport:
                 if mismatchedZone {
                     continuation.resume(throwing: HouseholdZoneRecoveryTransportError.mismatchedZone)
                 } else if let zoneFailure {
-                    continuation.resume(throwing:
-                        HouseholdZoneRecoveryApplyTransportError.classify(zoneFailure))
+                    continuation.resume(throwing: zoneFailure)
                 } else if partialFailure {
                     continuation.resume(throwing:
                         HouseholdZoneRecoveryApplyTransportError.partialFailure)
@@ -245,8 +320,7 @@ public struct CloudKitHouseholdZoneRecoveryTransport:
                             records: records,
                             nextCursor: nextCursor))
                     case .failure(let error):
-                        continuation.resume(throwing:
-                            HouseholdZoneRecoveryApplyTransportError.classify(error))
+                        continuation.resume(throwing: error)
                     }
                 }
             }
@@ -263,9 +337,6 @@ public struct CloudKitHouseholdZoneRecoveryTransport:
             return record
         } catch let error as CKError where error.code == .unknownItem {
             return nil
-        }
-        catch {
-            throw HouseholdZoneRecoveryApplyTransportError.classify(error)
         }
     }
 
@@ -336,8 +407,7 @@ public struct CloudKitHouseholdZoneRecoveryTransport:
                         observation.0[$0.recordID]
                     })
                 case .failure(let error):
-                    continuation.resume(throwing:
-                        HouseholdZoneRecoveryApplyTransportError.classify(error))
+                    continuation.resume(throwing: error)
                 }
             }
             database.add(operation)

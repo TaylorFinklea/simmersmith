@@ -57,11 +57,67 @@ public enum HouseholdZoneRecoveryApplyStopReason: Equatable, Sendable {
     case assetCleanupFailed
 }
 
+/// Privacy-safe evidence for a stopped or conflicting apply, distinguishing the underlying
+/// CloudKit/session failure family without ever carrying record names or field values.
+public enum HouseholdZoneRecoveryApplyDiagnosticCategory: String, Codable, Equatable, Sendable {
+    case limitExceeded
+    case quotaExceeded
+    case serverRecordChanged
+    case unknownItem
+    case invalidArguments
+    case zoneNotFound
+    case notAuthenticated
+    case networkUnavailable
+    case partialFailure
+    case zoneChanged
+    case authorityChanged
+    case sessionParked
+    case permissionDenied
+    case incompatibleReceipt
+    case manifestRejected
+    case applyPlanMismatch
+    case sourceInputChanged
+    case targetInputChanged
+    case invalidReceipt
+    case other
+}
+
+extension HouseholdZoneRecoveryApplyDiagnosticCategory {
+    init(signal: HouseholdZoneRecoveryApplyDiagnosticSignal) {
+        self = HouseholdZoneRecoveryApplyDiagnosticCategory(rawValue: signal.rawValue) ?? .other
+    }
+}
+
+/// Additional, privacy-safe evidence attached to a stopped or conflicting apply: which
+/// diagnostic family caused it and, when a batch write was actually attempted, that batch's
+/// index and record count. Never carries record names, field values, or other content.
+public struct HouseholdZoneRecoveryApplyDiagnostic: Equatable, Sendable {
+    public let category: HouseholdZoneRecoveryApplyDiagnosticCategory
+    public let batchIndex: Int?
+    public let batchRecordCount: Int?
+
+    public init(
+        category: HouseholdZoneRecoveryApplyDiagnosticCategory,
+        batchIndex: Int?,
+        batchRecordCount: Int?
+    ) {
+        self.category = category
+        self.batchIndex = batchIndex
+        self.batchRecordCount = batchRecordCount
+    }
+}
+
 public enum HouseholdZoneRecoveryApplyResult: Equatable, Sendable {
-    case preflightRejected(HouseholdZoneRecoveryApplyPreflightFailure)
+    case preflightRejected(HouseholdZoneRecoveryApplyPreflightFailure, HouseholdZoneRecoveryApplyDiagnostic?)
     case progress(HouseholdZoneRecoveryReceipt)
-    case resumableStop(HouseholdZoneRecoveryReceipt?, HouseholdZoneRecoveryApplyStopReason)
-    case conflict(HouseholdZoneRecoveryReceipt?, HouseholdZoneRecoveryIdentity?)
+    case resumableStop(
+        HouseholdZoneRecoveryReceipt?,
+        HouseholdZoneRecoveryApplyStopReason,
+        HouseholdZoneRecoveryApplyDiagnostic?)
+    case conflict(
+        HouseholdZoneRecoveryReceipt?,
+        HouseholdZoneRecoveryIdentity?,
+        HouseholdZoneRecoveryApplyDiagnostic?)
     case verifiedCompletion(HouseholdZoneRecoveryReceipt)
 }
 
@@ -115,9 +171,9 @@ public struct HouseholdZoneRecoveryApplier {
         do {
             try manifest.verify(approval)
         } catch let error as HouseholdZoneRecoveryPlanError {
-            return .preflightRejected(.manifest(error))
+            return .preflightRejected(.manifest(error), diagnostic(.manifestRejected))
         } catch {
-            return .preflightRejected(.applyPlanMismatch)
+            return .preflightRejected(.applyPlanMismatch, diagnostic(.applyPlanMismatch))
         }
         guard maximumBatchCount >= 0,
               (try? manifest.digest()) == applyPlan.manifestDigest,
@@ -125,10 +181,10 @@ public struct HouseholdZoneRecoveryApplier {
               capturedAuthority.accountFingerprint == manifest.accountFingerprint,
               capturedAuthority.sourceScope == manifest.sourceScope,
               capturedAuthority.targetScope == manifest.targetScope else {
-            return .preflightRejected(.applyPlanMismatch)
+            return .preflightRejected(.applyPlanMismatch, diagnostic(.applyPlanMismatch))
         }
         if let failure = await checkAuthorityAndParking() {
-            return .preflightRejected(preflightFailure(failure))
+            return .preflightRejected(preflightFailure(failure), diagnostic(for: failure))
         }
 
         let receiptID = CKRecord.ID(
@@ -150,7 +206,7 @@ public struct HouseholdZoneRecoveryApplier {
             do {
                 receipt = try HouseholdZoneRecoveryReceipt(record: receiptRecord)
             } catch {
-                return .preflightRejected(.invalidReceipt)
+                return .preflightRejected(.invalidReceipt, diagnostic(.incompatibleReceipt))
             }
             let observed: String
             switch await observedTargetApplicationDigest(receipt: receipt) {
@@ -164,9 +220,11 @@ public struct HouseholdZoneRecoveryApplier {
                     receipt: receipt,
                     observedTargetApplicationDigest: observed)
             } catch HouseholdZoneRecoveryApplyPlanError.targetDiverged {
-                return .conflict(receipt, nil)
+                return .conflict(receipt, nil, diagnostic(.serverRecordChanged))
+            } catch HouseholdZoneRecoveryApplyPlanError.batchPlanDiverged {
+                return .preflightRejected(.invalidReceipt, diagnostic(.incompatibleReceipt))
             } catch {
-                return .preflightRejected(.invalidReceipt)
+                return .preflightRejected(.invalidReceipt, diagnostic(.invalidReceipt))
             }
             isFirstWrite = false
         } else {
@@ -200,8 +258,8 @@ public struct HouseholdZoneRecoveryApplier {
 
             if let failure = await checkAuthorityAndParking() {
                 return firstBatchStillNeedsInputFence
-                    ? .preflightRejected(preflightFailure(failure))
-                    : .resumableStop(receipt, stopReason(failure))
+                    ? .preflightRejected(preflightFailure(failure), diagnostic(for: failure))
+                    : .resumableStop(receipt, stopReason(failure), diagnostic(for: failure))
             }
 
             let batch = applyPlan.batches[receipt.completedBatchDigests.count]
@@ -209,7 +267,7 @@ public struct HouseholdZoneRecoveryApplier {
             do {
                 nextReceipt = try receipt.recordingCompletedBatch(batch.digest)
             } catch {
-                return .preflightRejected(.invalidReceipt)
+                return .preflightRejected(.invalidReceipt, diagnostic(.invalidReceipt))
             }
             let records: [CKRecord]
             switch await recordsForAtomicBatch(
@@ -232,20 +290,31 @@ public struct HouseholdZoneRecoveryApplier {
             } catch {
                 return stop(
                     for: error,
-                    receipt: firstBatchStillNeedsInputFence ? nil : receipt)
+                    receipt: firstBatchStillNeedsInputFence ? nil : receipt,
+                    batchIndex: batch.index,
+                    batchRecordCount: batch.records.count)
             }
             receipt = nextReceipt
             appliedBatchCount += 1
             firstBatchStillNeedsInputFence = false
 
             if let failure = await checkAuthorityAndParking() {
-                return .resumableStop(receipt, stopReason(failure))
+                return .resumableStop(
+                    receipt,
+                    stopReason(failure),
+                    diagnostic(for: failure, batchIndex: batch.index, batchRecordCount: batch.records.count))
             }
             switch await observedTargetApplicationDigest(receipt: receipt) {
             case .success(let digest):
                 guard digest == batch.resultingTargetApplicationDigest,
                       digest == receipt.expectedTargetApplicationDigest else {
-                    return .conflict(receipt, nil)
+                    return .conflict(
+                        receipt,
+                        nil,
+                        diagnostic(
+                            .serverRecordChanged,
+                            batchIndex: batch.index,
+                            batchRecordCount: batch.records.count))
                 }
             case .failure(let result):
                 return result
@@ -269,10 +338,10 @@ public struct HouseholdZoneRecoveryApplier {
             return stop(for: error, receipt: nil)
         }
         if let failure = await checkAuthorityAndParking() {
-            return .preflightRejected(preflightFailure(failure))
+            return .preflightRejected(preflightFailure(failure), diagnostic(for: failure))
         }
         guard sourceFingerprint == manifest.sourceInputFingerprint else {
-            return .preflightRejected(.sourceInputChanged)
+            return .preflightRejected(.sourceInputChanged, diagnostic(.sourceInputChanged))
         }
 
         let targetFingerprint: String
@@ -283,10 +352,10 @@ public struct HouseholdZoneRecoveryApplier {
             return stop(for: error, receipt: nil)
         }
         if let failure = await checkAuthorityAndParking() {
-            return .preflightRejected(preflightFailure(failure))
+            return .preflightRejected(preflightFailure(failure), diagnostic(for: failure))
         }
         guard targetFingerprint == manifest.targetInputFingerprint else {
-            return .preflightRejected(.targetInputChanged)
+            return .preflightRejected(.targetInputChanged, diagnostic(.targetInputChanged))
         }
         return nil
     }
@@ -336,7 +405,7 @@ public struct HouseholdZoneRecoveryApplier {
             return rejection
         }
         if let failure = await checkAuthorityAndParking() {
-            return .resumableStop(receipt, stopReason(failure))
+            return .resumableStop(receipt, stopReason(failure), diagnostic(for: failure))
         }
         do {
             _ = try await transport.saveRecordsAtomically(
@@ -346,7 +415,7 @@ public struct HouseholdZoneRecoveryApplier {
             return stop(for: error, receipt: receipt)
         }
         if let failure = await checkAuthorityAndParking() {
-            return .resumableStop(terminalReceipt, stopReason(failure))
+            return .resumableStop(terminalReceipt, stopReason(failure), diagnostic(for: failure))
         }
         return cleanupAssets(after: terminalReceipt)
     }
@@ -431,24 +500,24 @@ public struct HouseholdZoneRecoveryApplier {
                 return .failure(stop(for: error, receipt: receipt))
             }
             if let failure = await checkAuthorityAndParking() {
-                return .failure(.resumableStop(receipt, stopReason(failure)))
+                return .failure(.resumableStop(receipt, stopReason(failure), diagnostic(for: failure)))
             }
             guard page.zoneID == applyPlan.targetZoneID,
                   page.records.allSatisfy({ $0.recordID.zoneID == applyPlan.targetZoneID }) else {
-                return .failure(.resumableStop(receipt, .zoneChanged))
+                return .failure(.resumableStop(receipt, .zoneChanged, diagnostic(.zoneChanged)))
             }
             guard page.partialFailureCount == 0 else {
-                return .failure(.resumableStop(receipt, .partialFailure))
+                return .failure(.resumableStop(receipt, .partialFailure, diagnostic(.partialFailure)))
             }
             for record in page.records {
                 guard recordIDs.insert(record.recordID).inserted else {
-                    return .failure(.resumableStop(receipt, .partialFailure))
+                    return .failure(.resumableStop(receipt, .partialFailure, diagnostic(.partialFailure)))
                 }
                 records.append(record)
             }
             cursor = page.nextCursor
             if let cursor, !cursorIDs.insert(cursor.identifier).inserted {
-                return .failure(.resumableStop(receipt, .partialFailure))
+                return .failure(.resumableStop(receipt, .partialFailure, diagnostic(.partialFailure)))
             }
         } while cursor != nil
         return .success(TargetSnapshot(
@@ -473,7 +542,7 @@ public struct HouseholdZoneRecoveryApplier {
         }
         guard current.recordType == payload.recordType,
               (try? HouseholdZoneRecoveryReceipt(record: current)) == currentReceipt else {
-            return .failure(.preflightRejected(.invalidReceipt))
+            return .failure(.preflightRejected(.invalidReceipt, diagnostic(.incompatibleReceipt)))
         }
         let conditional = current.copy() as! CKRecord
         for key in payload.allKeys() {
@@ -486,10 +555,11 @@ public struct HouseholdZoneRecoveryApplier {
         receipt: HouseholdZoneRecoveryReceipt?,
         observedRecords: [CKRecord]?
     ) -> HouseholdZoneRecoveryApplyResult {
+        let resultDiagnostic = diagnostic(.serverRecordChanged)
         guard let receipt, let observedRecords,
               let observedDigests = try? applyPlan.targetRecordApplicationDigests(
                 records: observedRecords) else {
-            return .conflict(receipt, nil)
+            return .conflict(receipt, nil, resultDiagnostic)
         }
         let expected = receipt.expectedTargetRecordApplicationDigests
         let differingKey = Set(expected.keys)
@@ -500,9 +570,9 @@ public struct HouseholdZoneRecoveryApplier {
               let entry = manifest.approvedEntries.first(where: {
                   $0.identity.target.sortKey == differingKey
               }) else {
-            return .conflict(receipt, nil)
+            return .conflict(receipt, nil, resultDiagnostic)
         }
-        return .conflict(receipt, entry.identity)
+        return .conflict(receipt, entry.identity, resultDiagnostic)
     }
 
     private func cleanupAssets(
@@ -515,7 +585,7 @@ public struct HouseholdZoneRecoveryApplier {
             }
             return .verifiedCompletion(receipt)
         } catch {
-            return .resumableStop(receipt, .assetCleanupFailed)
+            return .resumableStop(receipt, .assetCleanupFailed, diagnostic(.other))
         }
     }
     private func recordsForAtomicBatch(
@@ -543,6 +613,11 @@ public struct HouseholdZoneRecoveryApplier {
                 observedRecords: approved))
         }
 
+        // NOTE: `current.copy()` retains every key already on the target record, including
+        // ones `HouseholdSyncEngine.fieldKeys` deliberately preserves beyond the manifest's
+        // reconstructed fields. Those bytes ride along in the atomic write unaccounted for by
+        // `estimatedRecordBytes`, which measures only the prepared record; the per-item framing
+        // allowance is assumed to absorb them.
         var records: [CKRecord] = batch.records.map { prepared in
             guard let current = snapshot.recordsByID[prepared.record.recordID] else {
                 return prepared.record
@@ -553,8 +628,9 @@ public struct HouseholdZoneRecoveryApplier {
         }
         let receiptPayload = nextReceipt.makeRecord()
         if let current = snapshot.recordsByID[receiptPayload.recordID] {
-            guard current.recordType == receiptPayload.recordType else {
-                return .failure(.preflightRejected(.invalidReceipt))
+            guard current.recordType == receiptPayload.recordType,
+                  (try? HouseholdZoneRecoveryReceipt(record: current)) == currentReceipt else {
+                return .failure(.preflightRejected(.invalidReceipt, diagnostic(.incompatibleReceipt)))
             }
             let conditional = current.copy() as! CKRecord
             for key in receiptPayload.allKeys() {
@@ -610,27 +686,64 @@ public struct HouseholdZoneRecoveryApplier {
 
     private func stop(
         for error: Error,
-        receipt: HouseholdZoneRecoveryReceipt?
+        receipt: HouseholdZoneRecoveryReceipt?,
+        batchIndex: Int? = nil,
+        batchRecordCount: Int? = nil
     ) -> HouseholdZoneRecoveryApplyResult {
-        let error = HouseholdZoneRecoveryApplyTransportError.classify(error)
-        switch error {
+        let signalCategory = HouseholdZoneRecoveryApplyDiagnosticCategory(
+            signal: HouseholdZoneRecoveryApplyDiagnosticSignal.classify(error))
+        let resultDiagnostic = HouseholdZoneRecoveryApplyDiagnostic(
+            category: signalCategory,
+            batchIndex: batchIndex,
+            batchRecordCount: batchRecordCount)
+        let classified = HouseholdZoneRecoveryApplyTransportError.classify(error)
+        switch classified {
         case .transient:
-            return .resumableStop(receipt, .transientTransport)
+            return .resumableStop(receipt, .transientTransport, resultDiagnostic)
         case .partialFailure:
-            return .resumableStop(receipt, .partialFailure)
+            return .resumableStop(receipt, .partialFailure, resultDiagnostic)
         case .conflict:
-            return .conflict(receipt, nil)
+            return .conflict(receipt, nil, resultDiagnostic)
         case .permissionDenied:
-            return .resumableStop(receipt, .permissionDenied)
+            return .resumableStop(receipt, .permissionDenied, resultDiagnostic)
         case .accountChanged:
-            return .resumableStop(receipt, .accountChanged)
+            return .resumableStop(receipt, .accountChanged, resultDiagnostic)
         case .zoneChanged:
-            return .resumableStop(receipt, .zoneChanged)
+            return .resumableStop(receipt, .zoneChanged, resultDiagnostic)
         case .schema:
-            return .resumableStop(receipt, .schema)
+            return .resumableStop(receipt, .schema, resultDiagnostic)
         case .invalidResponse, .permanentFailure:
-            return .resumableStop(receipt, .permanentTransport)
+            return .resumableStop(receipt, .permanentTransport, resultDiagnostic)
         }
+    }
+
+    private func diagnostic(
+        for failure: AuthorityFailure,
+        batchIndex: Int? = nil,
+        batchRecordCount: Int? = nil
+    ) -> HouseholdZoneRecoveryApplyDiagnostic {
+        let category: HouseholdZoneRecoveryApplyDiagnosticCategory
+        switch failure {
+        case .changed, .notAuthoritative:
+            category = .authorityChanged
+        case .notParked:
+            category = .sessionParked
+        }
+        return HouseholdZoneRecoveryApplyDiagnostic(
+            category: category,
+            batchIndex: batchIndex,
+            batchRecordCount: batchRecordCount)
+    }
+
+    private func diagnostic(
+        _ category: HouseholdZoneRecoveryApplyDiagnosticCategory,
+        batchIndex: Int? = nil,
+        batchRecordCount: Int? = nil
+    ) -> HouseholdZoneRecoveryApplyDiagnostic {
+        HouseholdZoneRecoveryApplyDiagnostic(
+            category: category,
+            batchIndex: batchIndex,
+            batchRecordCount: batchRecordCount)
     }
 
     private func preflightFailure(

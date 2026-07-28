@@ -646,6 +646,78 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(viewModel.applyFailureMessage == "The household session changed before recovery apply.")
     }
 
+    @Test("preflight-rejected apply renders the diagnostic clause and never the verified-completion sentence")
+    func preflightRejectedApplyRendersDiagnostic() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let diagnostic = HouseholdZoneRecoveryApplyDiagnostic(
+            category: .incompatibleReceipt, batchIndex: nil, batchRecordCount: nil)
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 0,
+            results: [.preflightRejected(.invalidReceipt, diagnostic)])
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { stored, _, _ in
+                #expect(stored == artifact)
+                return operation
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(viewModel.applyFailureMessage?.contains("incompatibleReceipt") == true)
+        if case .verifiedCompletion = viewModel.applyState {
+            Issue.record("a preflight rejection must never render as verified completion")
+        }
+        #expect(!viewModel.applyStatusMessage.contains("Verified recovery completion"))
+    }
+
+    @Test("stopped-apply diagnostic rendering and logging is count-only and never carries record names")
+    func resumableStopDiagnosticIsCountOnly() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("SECRET-RECORD-NAME"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        let boundary = RecordingApplyBoundary(snapshot: snapshot())
+        let diagnostic = HouseholdZoneRecoveryApplyDiagnostic(
+            category: .limitExceeded, batchIndex: 2, batchRecordCount: 17)
+        let operation = RecordingApplyOperation(
+            totalBatchCount: 3,
+            results: [.resumableStop(nil, .permanentTransport, diagnostic)])
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in boundary },
+            prepareApply: { stored, _, _ in
+                #expect(stored == artifact)
+                return operation
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        let message = viewModel.applyStatusMessage
+        #expect(message.contains("limitExceeded"))
+        #expect(message.contains("batch 2"))
+        #expect(message.contains("17 records"))
+        #expect(!message.contains("SECRET-RECORD-NAME"))
+        #expect(!message.contains(targetScope.zoneName))
+        #expect(!message.contains(sourceScope.zoneName))
+    }
+
     @Test("analysis and review decisions cannot mutate approval while apply is running")
     func applyLocksAnalysisAndReviewControls() async throws {
         let conflictIdentity = identity("approved-conflict")
@@ -786,7 +858,8 @@ struct HouseholdZoneRecoveryViewModelTests {
             totalBatchCount: 2,
             results: [.resumableStop(
                 try receipt(completedBatchCount: 1, totalBatchCount: 2),
-                .transientTransport)])
+                .transientTransport,
+                nil)])
         let (viewModel, _) = makeViewModel(
             analyze: { _, _, _ in self.analysis(approved) },
             store: store,
@@ -817,7 +890,7 @@ struct HouseholdZoneRecoveryViewModelTests {
         let boundary = RecordingApplyBoundary(snapshot: snapshot())
         let operation = RecordingApplyOperation(
             totalBatchCount: 1,
-            results: [.conflict(nil, approvedIdentity)])
+            results: [.conflict(nil, approvedIdentity, nil)])
         let (viewModel, _) = makeViewModel(
             analyze: { _, _, _ in self.analysis(approved) },
             store: store,
@@ -837,6 +910,69 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(viewModel.localConflictIdentity == approvedIdentity)
         #expect(viewModel.applyStatusMessage == "Recovery stopped because target data changed.")
         #expect(!viewModel.applyStatusMessage.contains("local-conflict-record"))
+    }
+
+    @Test("a stopped apply renders the diagnostic clause and never the completion sentence; a verified completion renders no diagnostic clause")
+    func stoppedApplyRendersDiagnosticNeverCompletion() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let diagnostic = HouseholdZoneRecoveryApplyDiagnostic(
+            category: .limitExceeded,
+            batchIndex: 0,
+            batchRecordCount: 142)
+
+        let stoppedStore = RecordingStore()
+        let stoppedArtifact = try stoppedStore.save(approved)
+        let stoppedBoundary = RecordingApplyBoundary(snapshot: snapshot())
+        let stoppedOperation = RecordingApplyOperation(
+            totalBatchCount: 3,
+            results: [.resumableStop(
+                try receipt(completedBatchCount: 0, totalBatchCount: 3),
+                .permanentTransport,
+                diagnostic)])
+        let (stoppedViewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: stoppedStore,
+            parkNormalSession: { _ in stoppedBoundary },
+            prepareApply: { _, _, _ in stoppedOperation })
+
+        await stoppedViewModel.loadStoredApproval()
+        stoppedViewModel.typedDigestConfirmation = stoppedArtifact.digest
+        stoppedViewModel.requestApplyConfirmation()
+        stoppedViewModel.confirmApply()
+        await waitUntilApplySettled(stoppedViewModel)
+
+        #expect(stoppedViewModel.applyState == .resumableStop(
+            completedBatchCount: 0,
+            totalBatchCount: 3))
+        #expect(stoppedViewModel.applyStatusMessage == "Recovery stopped safely after 0 of 3 batches "
+            + "(limitExceeded, batch 0, 142 records). Resume manually with the same digest.")
+        #expect(!stoppedViewModel.applyStatusMessage.contains("Verified recovery completion"))
+
+        let completedStore = RecordingStore()
+        let completedArtifact = try completedStore.save(approved)
+        let completedBoundary = RecordingApplyBoundary(snapshot: snapshot())
+        let completedOperation = RecordingApplyOperation(
+            totalBatchCount: 3,
+            results: [.verifiedCompletion(try receipt(
+                completedBatchCount: 3,
+                totalBatchCount: 3,
+                complete: true))])
+        let (completedViewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: completedStore,
+            parkNormalSession: { _ in completedBoundary },
+            prepareApply: { _, _, _ in completedOperation })
+
+        await completedViewModel.loadStoredApproval()
+        completedViewModel.typedDigestConfirmation = completedArtifact.digest
+        completedViewModel.requestApplyConfirmation()
+        completedViewModel.confirmApply()
+        await waitUntilApplySettled(completedViewModel)
+
+        #expect(completedViewModel.applyStatusMessage == "Verified recovery completion: 3 of 3 batches.")
+        #expect(!completedViewModel.applyStatusMessage.contains("("))
     }
 
     @Test("a changed stored manifest is not retried under the confirmed digest")
@@ -872,6 +1008,41 @@ struct HouseholdZoneRecoveryViewModelTests {
         #expect(parkCalls == 0)
         #expect(viewModel.applyFailureMessage == "The approved recovery manifest changed. Review it again.")
     }
+    @Test("an unsatisfiable batch capacity is reported as its own diagnosable failure, not a generic stop")
+    func unsatisfiableBatchCapacityIsDiagnosable() async throws {
+        let approved = try manifest(entries: [
+            HouseholdZoneRecoveryEntry(identity: identity("approved-record"), action: .copy),
+        ])
+        let store = RecordingStore()
+        let artifact = try store.save(approved)
+        var parkCalls = 0
+        let (viewModel, _) = makeViewModel(
+            analyze: { _, _, _ in self.analysis(approved) },
+            store: store,
+            parkNormalSession: { _ in
+                parkCalls += 1
+                return RecordingApplyBoundary(snapshot: self.snapshot())
+            },
+            prepareApply: { _, _, _ in
+                throw HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable
+            })
+
+        await viewModel.loadStoredApproval()
+        viewModel.typedDigestConfirmation = artifact.digest
+        viewModel.requestApplyConfirmation()
+        viewModel.confirmApply()
+        await waitUntilApplySettled(viewModel)
+
+        #expect(parkCalls == 1)
+        #expect(viewModel.applyFailureMessage?.contains("batchCapacityUnsatisfiable") == true)
+        #expect(
+            viewModel.applyFailureMessage
+                != "Recovery apply stopped safely without changing the source.")
+        if case .verifiedCompletion = viewModel.applyState {
+            Issue.record("an unsatisfiable capacity must never render as verified completion")
+        }
+    }
+
 
     @Test("application-support store round-trips canonical bytes and verifies the digest")
     func manifestStoreRoundTripsCanonicalArtifact() throws {

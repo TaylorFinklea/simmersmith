@@ -23,6 +23,7 @@ public enum HouseholdZoneRecoveryApplyPlanError: Error, Equatable, Sendable {
     case batchPlanDiverged
     case batchOutOfOrder
     case incompleteReceipt
+    case batchCapacityUnsatisfiable
 }
 
 public enum HouseholdZoneRecoveryAssetLifetime: String, Codable, Equatable, Sendable {
@@ -591,6 +592,31 @@ public struct HouseholdZoneRecoveryApplyPlan {
     public let batches: [HouseholdZoneRecoveryApplyBatch]
     public let initialReceipt: HouseholdZoneRecoveryReceipt
 
+    /// CloudKit's hard per-request ceiling on the number of items (records) a single operation
+    /// may carry.
+    public static let maximumBatchItemCount = 400
+    /// CloudKit's hard per-request ceiling on total encoded request bytes.
+    public static let maximumBatchRequestBytes = 2_000_000
+    /// CloudKit's hard per-record ceiling on a single record's encoded field bytes, excluding
+    /// CKAsset payloads (which upload out of band). Distinct from `maximumBatchRequestBytes`:
+    /// a request can stay under the request-wide cap while still carrying one record CloudKit
+    /// will reject outright for exceeding this per-record cap.
+    public static let maximumRecordBytes = 1_000_000
+    /// Every atomic write also carries the resumable receipt record in the same CloudKit request
+    /// (`HouseholdZoneRecoveryApplier.recordsForAtomicBatch`), so a batch's own record count must
+    /// leave room for it under `maximumBatchItemCount`.
+    public static let maximumBatchRecordCount = maximumBatchItemCount - 1
+    /// Fixed allowance per request item (a prepared record or the receipt) covering CKRecord
+    /// envelope bytes the field-level estimator doesn't itself measure: recordName, recordType,
+    /// zoneID owner/zone names, and CloudKit protocol/JSON structural overhead.
+    static let perItemFramingAllowanceBytes = 512
+    /// Bound on the receipt-size/record-budget fixpoint below: enough rounds for the two-way
+    /// feedback (fewer batches -> smaller receipt -> more room for records -> fewer batches) to
+    /// settle for any real manifest shape, without looping unboundedly on a shape that never will.
+    /// Internal rather than private so tests can override it directly through
+    /// `planChunkedBatches(maximumIterations:)` to drive non-convergence deterministically.
+    static let maximumBatchCapacityFixpointIterations = 8
+
     public var records: [HouseholdZoneRecoveryPreparedRecord] {
         batches.flatMap(\.records)
     }
@@ -685,15 +711,25 @@ public struct HouseholdZoneRecoveryApplyPlan {
                 recordsByKey: targetState)
         ]
         let layers = try Self.dependencyLayers(entries: writableEntries)
-        var batches: [HouseholdZoneRecoveryApplyBatch] = []
-        for (index, layer) in layers.enumerated() {
-            let records = try layer.map { entry -> HouseholdZoneRecoveryPreparedRecord in
+        let layerRecords = try layers.map { layer in
+            try layer.map { entry -> HouseholdZoneRecoveryPreparedRecord in
                 guard let prepared = preparedByKey[entry.identity.source.sortKey] else {
                     throw HouseholdZoneRecoveryApplyPlanError.missingSourceRecord(
                         entry.identity.source.sortKey)
                 }
                 return prepared
             }
+        }
+        let chunkedBatches = try Self.planChunkedBatches(
+            layers: layers,
+            layerRecords: layerRecords,
+            manifestDigest: manifestDigest,
+            sourceInputFingerprint: manifest.sourceInputFingerprint,
+            initialTargetInputFingerprint: manifest.targetInputFingerprint,
+            targetZoneID: targetZoneID,
+            approvedIdentityActions: approvedIdentityActions)
+        var batches: [HouseholdZoneRecoveryApplyBatch] = []
+        for (index, records) in chunkedBatches.enumerated() {
             let digest = try Self.batchDigest(
                 manifestDigest: manifestDigest,
                 index: index,
@@ -1129,6 +1165,244 @@ public struct HouseholdZoneRecoveryApplyPlan {
         }
         return ShadowMirrorDigest.sha256(writer.data)
     }
+
+    /// Resolves the two-way feedback between batch count and receipt size: the receipt CloudKit
+    /// co-writes with every batch (`HouseholdZoneRecoveryApplier.recordsForAtomicBatch`) carries
+    /// the full per-batch digest history, so its size grows with the very batch count a smaller
+    /// record budget produces. Starting from an optimistic single-batch guess, each round measures
+    /// the receipt for the resulting batch count, shrinks the record budget by that amount, and
+    /// re-chunks every layer; the loop returns as soon as the batch count stops changing. A
+    /// shape that never settles, whose record budget goes non-positive, or whose receipt alone
+    /// (plus its own framing) would break the per-record byte ceiling is rejected rather than
+    /// emitting a batch CloudKit is guaranteed to reject. `maximumIterations` defaults to
+    /// `maximumBatchCapacityFixpointIterations`; tests may pass a smaller bound to drive
+    /// non-convergence deterministically.
+    static func planChunkedBatches(
+        layers: [[HouseholdZoneRecoveryEntry]],
+        layerRecords: [[HouseholdZoneRecoveryPreparedRecord]],
+        manifestDigest: String,
+        sourceInputFingerprint: String,
+        initialTargetInputFingerprint: String,
+        targetZoneID: CKRecordZone.ID,
+        approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction],
+        maximumIterations: Int = maximumBatchCapacityFixpointIterations
+    ) throws -> [[HouseholdZoneRecoveryPreparedRecord]] {
+        var assumedBatchCount = 1
+        for _ in 0..<maximumIterations {
+            let receiptBytes = try estimatedReceiptBytes(
+                manifestDigest: manifestDigest,
+                sourceInputFingerprint: sourceInputFingerprint,
+                initialTargetInputFingerprint: initialTargetInputFingerprint,
+                targetZoneID: targetZoneID,
+                approvedIdentityActions: approvedIdentityActions,
+                batchCount: assumedBatchCount)
+            let recordByteBudget =
+                maximumBatchRequestBytes - receiptBytes - perItemFramingAllowanceBytes
+            guard recordByteBudget > 0,
+                  receiptBytes + perItemFramingAllowanceBytes <= maximumRecordBytes else {
+                throw HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable
+            }
+            var chunks: [[HouseholdZoneRecoveryPreparedRecord]] = []
+            for (layer, records) in zip(layers, layerRecords) {
+                chunks.append(contentsOf: try chunkedBatchRecords(
+                    entries: layer,
+                    records: records,
+                    recordByteBudget: recordByteBudget))
+            }
+            guard !chunks.isEmpty else { return chunks }
+            if chunks.count == assumedBatchCount { return chunks }
+            assumedBatchCount = chunks.count
+        }
+        throw HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable
+    }
+
+    /// Measures the exact byte cost of the receipt shape the Applier co-writes for a plan with
+    /// `batchCount` batches, by constructing a real `HouseholdZoneRecoveryReceipt` with the plan's
+    /// actual approved-identity actions (the only receipt content already fixed before chunking)
+    /// and placeholder — but real-length, real-hashed — digests standing in for the ones that
+    /// don't exist until chunking completes. `completedBatches` is filled to its maximum size
+    /// (every batch complete) because that is the actual largest receipt this plan ever writes:
+    /// the co-written receipt after the final batch, just before terminal verification. Feeding
+    /// the resulting record through `estimatedRecordBytes` reuses the identical per-field
+    /// estimator applied to ordinary prepared records, so the two estimates stay consistent.
+    static func estimatedReceiptBytes(
+        manifestDigest: String,
+        sourceInputFingerprint: String,
+        initialTargetInputFingerprint: String,
+        targetZoneID: CKRecordZone.ID,
+        approvedIdentityActions: [HouseholdZoneRecoveryReceiptIdentityAction],
+        batchCount: Int
+    ) throws -> Int {
+        let approvedKeys = approvedIdentityActions.map(\.identity.sortKey)
+        let batchDigests = (0..<batchCount).map {
+            ShadowMirrorDigest.sha256(Data("household-zone-recovery-capacity-batch-\($0)".utf8))
+        }
+        let targetApplicationDigests = (0...batchCount).map {
+            ShadowMirrorDigest.sha256(Data("household-zone-recovery-capacity-target-\($0)".utf8))
+        }
+        let fullRecordDigestMap = Dictionary(uniqueKeysWithValues: approvedKeys.map {
+            ($0, ShadowMirrorDigest.sha256(Data("household-zone-recovery-capacity-record-\($0)".utf8)))
+        })
+        let targetRecordApplicationDigestProgress = Array(
+            repeating: fullRecordDigestMap,
+            count: batchCount + 1)
+        let completedBatches = batchDigests.enumerated().map {
+            HouseholdZoneRecoveryCompletedBatch(index: $0.offset, digest: $0.element)
+        }
+        let syntheticReceipt = try HouseholdZoneRecoveryReceipt(
+            manifestDigest: manifestDigest,
+            sourceInputFingerprint: sourceInputFingerprint,
+            initialTargetInputFingerprint: initialTargetInputFingerprint,
+            targetZoneOwnerName: targetZoneID.ownerName,
+            targetZoneName: targetZoneID.zoneName,
+            approvedIdentityActions: approvedIdentityActions,
+            batchDigests: batchDigests,
+            targetApplicationDigests: targetApplicationDigests,
+            targetRecordApplicationDigestProgress: targetRecordApplicationDigestProgress,
+            completedBatches: completedBatches)
+        return estimatedRecordBytes(for: syntheticReceipt.makeRecord())
+    }
+
+    /// Per-request framing allowance for `recordCount` prepared records plus the one receipt
+    /// record every atomic write co-writes alongside them.
+    static func framingAllowanceBytes(recordCount: Int) -> Int {
+        (recordCount + 1) * perItemFramingAllowanceBytes
+    }
+
+    /// Splits one dependency layer's prepared records into ordered, capacity-bound batches.
+    /// A required-dependency edge between two entries can only exist within the same layer when
+    /// they belong to the same strongly-connected component computed by `dependencyLayers`
+    /// (a genuine cycle) — any one-directional dependency forces its target into an earlier
+    /// layer. Union-find recovers those same-component clusters so a cycle is never split across
+    /// batches, while independent entries (the common case; every production dependency is a
+    /// one-directional parent/child edge, so clusters are singletons in practice) are packed
+    /// greedily in deterministic `sortKey` order. A cluster that alone exceeds any of the three
+    /// CloudKit ceilings — record count, the shared per-batch byte budget, or one record's own
+    /// `maximumRecordBytes` cap — can be neither split without breaking atomicity nor dropped,
+    /// so it throws instead of ever emitting a batch CloudKit is guaranteed to reject.
+    private static func chunkedBatchRecords(
+        entries: [HouseholdZoneRecoveryEntry],
+        records: [HouseholdZoneRecoveryPreparedRecord],
+        recordByteBudget: Int
+    ) throws -> [[HouseholdZoneRecoveryPreparedRecord]] {
+        guard !entries.isEmpty else { return [] }
+        let indexByTargetKey = Dictionary(uniqueKeysWithValues: entries.enumerated().map {
+            ($0.element.identity.target.sortKey, $0.offset)
+        })
+        var parent = Array(entries.indices)
+        func find(_ node: Int) -> Int {
+            var root = node
+            while parent[root] != root { root = parent[root] }
+            var current = node
+            while parent[current] != current {
+                let next = parent[current]
+                parent[current] = root
+                current = next
+            }
+            return root
+        }
+        func union(_ a: Int, _ b: Int) {
+            let rootA = find(a)
+            let rootB = find(b)
+            guard rootA != rootB else { return }
+            parent[max(rootA, rootB)] = min(rootA, rootB)
+        }
+        for (index, entry) in entries.enumerated() {
+            for dependency in entry.dependencies where dependency.requirement == .required {
+                if let dependencyIndex = indexByTargetKey[dependency.identity.target.sortKey] {
+                    union(index, dependencyIndex)
+                }
+            }
+        }
+        var clusterMembers: [Int: [Int]] = [:]
+        for index in entries.indices {
+            clusterMembers[find(index), default: []].append(index)
+        }
+        let orderedClusters = clusterMembers.values
+            .map { $0.sorted() }
+            .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+
+        var chunks: [[HouseholdZoneRecoveryPreparedRecord]] = []
+        var currentChunk: [HouseholdZoneRecoveryPreparedRecord] = []
+        var currentRecordCount = 0
+        var currentItemBytes = 0
+
+        func flushCurrentChunk() {
+            guard !currentChunk.isEmpty else { return }
+            chunks.append(currentChunk)
+            currentChunk = []
+            currentRecordCount = 0
+            currentItemBytes = 0
+        }
+
+        for cluster in orderedClusters {
+            let clusterRecords = cluster.map { records[$0] }
+            let clusterItemByteCosts = clusterRecords.map {
+                perItemFramingAllowanceBytes + estimatedRecordBytes(for: $0.record)
+            }
+            guard clusterItemByteCosts.allSatisfy({ $0 <= maximumRecordBytes }) else {
+                throw HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable
+            }
+            let clusterItemBytes = clusterItemByteCosts.reduce(0, +)
+            let clusterRecordCount = clusterRecords.count
+            guard clusterRecordCount <= maximumBatchRecordCount,
+                  clusterItemBytes <= recordByteBudget else {
+                throw HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable
+            }
+            let fitsCurrentChunk = currentChunk.isEmpty
+                || (currentRecordCount + clusterRecordCount <= maximumBatchRecordCount
+                    && currentItemBytes + clusterItemBytes <= recordByteBudget)
+            if !fitsCurrentChunk {
+                flushCurrentChunk()
+            }
+            currentChunk.append(contentsOf: clusterRecords)
+            currentRecordCount += clusterRecordCount
+            currentItemBytes += clusterItemBytes
+        }
+        flushCurrentChunk()
+        return chunks
+    }
+
+    /// Fixed per-asset allowance counted against the byte budget in place of the asset's real
+    /// size: CKAsset payloads upload out of band from the record's field data, so estimating
+    /// their true byte count would over-count the atomic write this budget actually guards.
+    private static let assetPayloadAllowanceBytes = 256
+
+    /// Estimated encodable-field bytes for one CKRecord (a prepared record or a receipt record),
+    /// excluding the per-item framing allowance applied separately by `framingAllowanceBytes`.
+    static func estimatedRecordBytes(for record: CKRecord) -> Int {
+        record.allKeys().reduce(0) { total, key in
+            guard let value = record[key] else { return total }
+            return total + key.utf8.count + estimatedFieldPayloadBytes(value)
+        }
+    }
+
+    private static func estimatedFieldPayloadBytes(_ value: Any) -> Int {
+        if value is CKAsset { return assetPayloadAllowanceBytes }
+        if let value = value as? String { return value.utf8.count }
+        if let value = value as? Data { return value.count }
+        if value is Date { return 8 }
+        if value is NSNumber { return 8 }
+        if value is CLLocation { return 64 }
+        if let value = value as? CKRecord.Reference { return referencePayloadBytes(value) }
+        if let values = value as? [String] { return values.reduce(0) { $0 + $1.utf8.count } }
+        if let values = value as? [Date] { return values.count * 8 }
+        if let values = value as? [Data] { return values.reduce(0) { $0 + $1.count } }
+        if let values = value as? [NSNumber] { return values.count * 8 }
+        if let values = value as? [CLLocation] { return values.count * 64 }
+        if let values = value as? [CKRecord.Reference] {
+            return values.reduce(0) { $0 + referencePayloadBytes($1) }
+        }
+        return 0
+    }
+
+    private static func referencePayloadBytes(_ reference: CKRecord.Reference) -> Int {
+        reference.recordID.recordName.utf8.count
+            + reference.recordID.zoneID.zoneName.utf8.count
+            + reference.recordID.zoneID.ownerName.utf8.count
+            + 16
+    }
+
 
     private static func dependencyLayers(
         entries: [HouseholdZoneRecoveryEntry]
