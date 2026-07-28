@@ -2222,3 +2222,25 @@ moves to build 171 and still requires the independent cross-account participant 
 **Why.** Recovery proof and cache-first rollout are distinct destructive/routing gates. Keeping build
 170 default-off limits the new write path to the explicit approved recovery action and prevents owner
 recovery success from being mistaken for participant evidence.
+
+## 2026-07-28 — Size recovery batches against all three CloudKit ceilings; default-on moves to 172
+
+**Context.** Build 170's apply of the approved 657-record manifest wrote zero records while the UI
+showed a terminal line that read as finished. On-device re-analysis afterwards reported candidates 657,
+copy 657, identical 0 — proof nothing landed. `dependencyLayers` for that manifest is [142, 515] and the
+applier wrote one atomic `CKModifyRecordsOperation` per layer, so the 515-record request could never be
+accepted. Every stop reason was discarded by the view, so the device could not name the failure. No
+fake-transport test could catch either defect.
+
+**Decision.** Size batches against all three CloudKit request ceilings — 400 items, 2 MB per request,
+1 MB per record — and count the receipt that is co-written in the same atomic request (427,576 bytes at
+this manifest's 3-batch shape). Because receipt size grows with batch count while a smaller byte budget
+raises batch count, resolve the budget as a bounded fixpoint and throw `batchCapacityUnsatisfiable`
+rather than emit a request CloudKit will reject. Surface a privacy-safe diagnostic category plus batch
+index and record count on every non-success terminal apply state. Build 171 is the new default-off
+recovery vehicle; the blocked default-on candidate moves to 172.
+
+**Why.** The original batching was untestable against a fake transport and silently unrunnable in
+production; the ceilings are the real contract and the receipt is part of the request, so the budget
+must include it. A recovery tool whose failure cannot be named on the device costs a full build cycle
+per diagnosis — the diagnostic is load-bearing, not cosmetic.

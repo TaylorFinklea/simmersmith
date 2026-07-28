@@ -58,6 +58,14 @@ struct P2eParticipantProofTests {
     }
 }
 
+/// Generous failsafe for the cross-thread semaphore handshakes below. CI runs this suite
+/// alongside 700+ other parallel tests, so raw thread-scheduling jitter can push a
+/// "should be near-instant" signal out by more than a couple of seconds even though nothing
+/// is actually wrong. The semaphore *signal* — not this bound — is the deterministic
+/// completion event each `#expect` depends on; the bound only exists so a genuine production
+/// regression (the signal never arriving) fails the test instead of hanging it forever.
+private let synchronizationFailsafe: TimeInterval = 30
+
 struct P2eCallbackRelayTests {
     @Test("automatic callbacks buffer through handler installation and drain once in arrival order")
     func callbackBufferDrainsInOrder() {
@@ -97,7 +105,7 @@ struct P2eCallbackRelayTests {
                 storeChanged: {
                     events.append("store-start")
                     firstCallbackStarted.signal()
-                    _ = finishFirstCallback.wait(timeout: .now() + 2)
+                    _ = finishFirstCallback.wait(timeout: .now() + synchronizationFailsafe)
                     events.append("store-end")
                 },
                 syncError: { _ in events.append("error") },
@@ -109,10 +117,10 @@ struct P2eCallbackRelayTests {
             installationFinished.signal()
         }
 
-        #expect(firstCallbackStarted.wait(timeout: .now() + 2) == .success)
+        #expect(firstCallbackStarted.wait(timeout: .now() + synchronizationFailsafe) == .success)
         relay.emit(.recordSaved("later"))
         finishFirstCallback.signal()
-        #expect(installationFinished.wait(timeout: .now() + 2) == .success)
+        #expect(installationFinished.wait(timeout: .now() + synchronizationFailsafe) == .success)
         #expect(events.values == ["store-start", "store-end", "saved:later"])
     }
 

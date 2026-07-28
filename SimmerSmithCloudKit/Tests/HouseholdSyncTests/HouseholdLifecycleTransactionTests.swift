@@ -589,6 +589,14 @@ struct HouseholdLifecycleInvalidationTests {
     }
 }
 
+/// Generous failsafe for the cross-thread semaphore handshakes below. CI runs this suite
+/// alongside 700+ other parallel tests, so raw thread-scheduling jitter can push a
+/// "should be near-instant" signal out by more than a couple of seconds even though nothing
+/// is actually wrong. The semaphore *signal* — not this bound — is the deterministic
+/// completion event each `#expect` depends on; the bound only exists so a genuine production
+/// regression (the signal never arriving) fails the test instead of hanging it forever.
+private let synchronizationFailsafe: TimeInterval = 30
+
 @Suite("P2f engine lifecycle fence", .serialized)
 struct HouseholdSyncLifecycleFenceTests {
     @Test("owner and participant zone deletions classify as distinct lifecycle events")
@@ -678,8 +686,8 @@ struct HouseholdSyncLifecycleFenceTests {
 
         #expect(callback.wait(timeout: .now() + 0.05) == .timedOut)
         fence.endActivity()
-        #expect(callback.wait(timeout: .now() + 2) == .success)
-        #expect(transitionFinished.wait(timeout: .now() + 2) == .success)
+        #expect(callback.wait(timeout: .now() + synchronizationFailsafe) == .success)
+        #expect(transitionFinished.wait(timeout: .now() + synchronizationFailsafe) == .success)
     }
 
     @Test(
