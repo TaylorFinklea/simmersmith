@@ -164,16 +164,27 @@ extension AppState {
 
     /// The mandatory non-suspending lifecycle choke point. Epoch/readiness/projections move
     /// first; only then are the old session's capabilities and callbacks revoked.
+    ///
+    /// `preservingLaunchPhase` lets a caller that is NOT tearing down the visible app (the
+    /// household-zone-recovery park path) reuse every other effect here — epoch bump, session
+    /// nil-out, repository/projection detach, authority revoke — without ever letting
+    /// `householdLaunchPhase` observably become `.resolving`. `RootView` gates its entire
+    /// `MainTabView` tree on that phase; a transient `.resolving` here would tear down the
+    /// exact recovery surface driving this transition (simmersmith recovery-apply-survival
+    /// fix). Every other caller keeps the original synchronous `.resolving` publish.
     @discardableResult
     func beginEpochFirstHouseholdTransition(
         clearPersonalData: Bool,
         interventionMessage: String? = nil,
-        parkOwnerScopeForAdoption: Bool = false
+        parkOwnerScopeForAdoption: Bool = false,
+        preservingLaunchPhase: Bool = false
     ) -> Bool {
         let tearingDownSession = householdSession ?? bootingHouseholdSession
 
         sessionBootEpoch &+= 1
-        householdLaunchPhase = .resolving
+        if !preservingLaunchPhase {
+            householdLaunchPhase = .resolving
+        }
         householdAuthority = interventionMessage.map {
             .intervention(message: $0)
         } ?? .none

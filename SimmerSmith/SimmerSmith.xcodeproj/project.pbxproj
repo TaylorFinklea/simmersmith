@@ -45,6 +45,7 @@
 		2E6732493EA6B5FC41E47431 /* RecipeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708008F3105E37EDF228F3B1 /* RecipeDetailView.swift */; };
 		2E793B9082BDBBF722F22B80 /* AppState+ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B31AF3AF1169A88A794BC88 /* AppState+ReleaseNotes.swift */; };
 		2FDABE135C585E16674FD5D4 /* HouseholdZoneRecoveryViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9286C34074E5AFFF047CD047 /* HouseholdZoneRecoveryViewModelTests.swift */; };
+		AE2A602125CB2118D35BC40C /* HouseholdZoneRecoveryAppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8153071695A2F07FB7586484 /* HouseholdZoneRecoveryAppStateTests.swift */; };
 		3098BEF548FEFA2F08C93899 /* IngredientVariationManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E17ED832EC47C3BFD37E9 /* IngredientVariationManagementSection.swift */; };
 		30DBAAAB74B4D75C4D147B1E /* VoiceCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52086E84A5714DECD4E1229F /* VoiceCommandService.swift */; };
 		33B2B158AE35CE5A95414D5D /* GroceryTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D259DF81D5A9A31461E55E26 /* GroceryTabView.swift */; };
@@ -368,6 +369,7 @@
 		90A0C4DDF646587A7D3FC139 /* DayNutritionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayNutritionSheet.swift; sourceTree = "<group>"; };
 		9198792752E0165F0CA595CE /* GroceryArchiveSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryArchiveSheet.swift; sourceTree = "<group>"; };
 		9286C34074E5AFFF047CD047 /* HouseholdZoneRecoveryViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdZoneRecoveryViewModelTests.swift; sourceTree = "<group>"; };
+		8153071695A2F07FB7586484 /* HouseholdZoneRecoveryAppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdZoneRecoveryAppStateTests.swift; sourceTree = "<group>"; };
 		93F63F17E10C86615058DC2D /* AppState+TopBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+TopBar.swift"; sourceTree = "<group>"; };
 		943154DAFF1DC47F701B6AF6 /* HeroRecipeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroRecipeCard.swift; sourceTree = "<group>"; };
 		948ABB7833B8C8B3E7ACAC20 /* GroceryReminderMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroceryReminderMapping.swift; sourceTree = "<group>"; };
@@ -868,6 +870,7 @@
 				111DA57109DA2D2F93F73076 /* EventRepositoryTests.swift */,
 				5F3D3D6CEEEF59D59A354501 /* HouseholdSyncEngineBootstrapTests.swift */,
 				9286C34074E5AFFF047CD047 /* HouseholdZoneRecoveryViewModelTests.swift */,
+				8153071695A2F07FB7586484 /* HouseholdZoneRecoveryAppStateTests.swift */,
 				10F2651453388012A92A0B07 /* IngredientMigrationTests.swift */,
 				D2B44BD9684625B260FED074 /* IngredientRepositoryTests.swift */,
 				AB6695AFDEECB8F5C47DC339 /* IngredientResolverIntegrationTests.swift */,
@@ -1080,6 +1083,7 @@
 				D0EFF83A41BF21A2786E39CA /* EventRepositoryTests.swift in Sources */,
 				D865E9CCB959E03AE4906063 /* HouseholdSyncEngineBootstrapTests.swift in Sources */,
 				2FDABE135C585E16674FD5D4 /* HouseholdZoneRecoveryViewModelTests.swift in Sources */,
+				AE2A602125CB2118D35BC40C /* HouseholdZoneRecoveryAppStateTests.swift in Sources */,
 				368BEC84777371321A7ED052 /* IngredientMigrationTests.swift in Sources */,
 				9A1B24BD9D96779C225C0DB6 /* IngredientRepositoryTests.swift in Sources */,
 				8ABB7D934E891BFDD6373316 /* IngredientResolverIntegrationTests.swift in Sources */,

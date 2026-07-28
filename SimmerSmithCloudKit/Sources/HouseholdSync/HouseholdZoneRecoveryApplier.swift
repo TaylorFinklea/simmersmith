@@ -83,7 +83,7 @@ public enum HouseholdZoneRecoveryApplyDiagnosticCategory: String, Codable, Equat
 }
 
 extension HouseholdZoneRecoveryApplyDiagnosticCategory {
-    init(signal: HouseholdZoneRecoveryApplyDiagnosticSignal) {
+    public init(signal: HouseholdZoneRecoveryApplyDiagnosticSignal) {
         self = HouseholdZoneRecoveryApplyDiagnosticCategory(rawValue: signal.rawValue) ?? .other
     }
 }

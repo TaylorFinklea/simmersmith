@@ -2244,3 +2244,23 @@ recovery vehicle; the blocked default-on candidate moves to 172.
 production; the ceilings are the real contract and the receipt is part of the request, so the budget
 must include it. A recovery tool whose failure cannot be named on the device costs a full build cycle
 per diagnosis — the diagnostic is load-bearing, not cosmetic.
+
+## 2026-07-28 — The recovery apply run belongs to AppState, not to a sheet
+
+**Context.** Builds 170 and 171 both wrote zero records. Device evidence: the apply never left
+"Parking normal sync and verifying the approved manifest…", and the app dismissed Settings by itself
+about five seconds later. The recovery view lives inside a sheet that `WeekView` presents, and `WeekView`
+exists only while `householdLaunchPhase == .ready`. Parking calls
+`beginEpochFirstHouseholdTransition`, which publishes `.resolving` before park pins `.ready` again, and
+the transition to `.ready` re-fires `evaluatePendingReleaseNotes()`, which presents a root sheet over the
+open Settings sheet. Either path destroys the view that owned `applyTask`, so SwiftUI cancelled the apply
+mid-prepare and the resulting stop was written to a view model nobody could see.
+
+**Decision.** `AppState` owns the apply run and its `Task`; view teardown cannot cancel it, and only an
+explicit cancel stops it. Parking for recovery keeps the phase pinned to `.ready` with no transient
+`.resolving`, and suppresses user-facing root presentations while a recovery boundary is active. The last
+run's outcome persists next to the approved manifest as enum/count fields so its reason survives teardown.
+
+**Why.** A destructive, resumable, once-only operation must not inherit a SwiftUI view's lifetime,
+especially when the operation itself perturbs the state that view tree is derived from. Two full build
+cycles were spent diagnosing a cancellation that left no readable trace.

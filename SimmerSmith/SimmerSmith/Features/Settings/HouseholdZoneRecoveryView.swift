@@ -78,6 +78,11 @@ protocol HouseholdZoneRecoveryManifestStoring: AnyObject {
     func save(_ manifest: HouseholdZoneRecoveryManifest) throws -> HouseholdZoneRecoveryStoredArtifact
     func load() throws -> HouseholdZoneRecoveryStoredArtifact?
     func remove() throws
+    func saveLastApplyOutcome(_ outcome: HouseholdZoneRecoveryApplyOutcome) throws
+    func loadLastApplyOutcome() throws -> HouseholdZoneRecoveryApplyOutcome?
+    /// Best-effort invalidation of the persisted outcome, called the moment a new run starts
+    /// so a run killed mid-flight can never be reported using an older run's outcome.
+    func removeLastApplyOutcome() throws
 }
 
 @MainActor
@@ -97,6 +102,11 @@ final class HouseholdZoneRecoveryManifestStore: HouseholdZoneRecoveryManifestSto
         fileURL = directory.appendingPathComponent("approved-manifest.json", isDirectory: false)
     }
 
+    private var outcomeFileURL: URL {
+        fileURL.deletingLastPathComponent()
+            .appendingPathComponent("last-apply-outcome.json", isDirectory: false)
+    }
+
     func save(_ manifest: HouseholdZoneRecoveryManifest) throws -> HouseholdZoneRecoveryStoredArtifact {
         let artifact = try HouseholdZoneRecoveryStoredArtifact(
             canonicalManifestBytes: manifest.canonicalJSONBytes(),
@@ -104,6 +114,8 @@ final class HouseholdZoneRecoveryManifestStore: HouseholdZoneRecoveryManifestSto
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try DurableLifecycleFileSupport.write(try encoder.encode(artifact), to: fileURL)
+        // A newly approved digest invalidates any outcome recorded against a prior manifest.
+        try? DurableLifecycleFileSupport.remove(outcomeFileURL)
         return artifact
     }
 
@@ -120,6 +132,24 @@ final class HouseholdZoneRecoveryManifestStore: HouseholdZoneRecoveryManifestSto
 
     func remove() throws {
         try DurableLifecycleFileSupport.remove(fileURL)
+        try? DurableLifecycleFileSupport.remove(outcomeFileURL)
+    }
+
+    func saveLastApplyOutcome(_ outcome: HouseholdZoneRecoveryApplyOutcome) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try DurableLifecycleFileSupport.write(try encoder.encode(outcome), to: outcomeFileURL)
+    }
+
+    func loadLastApplyOutcome() throws -> HouseholdZoneRecoveryApplyOutcome? {
+        guard FileManager.default.fileExists(atPath: outcomeFileURL.path) else { return nil }
+        return try JSONDecoder().decode(
+            HouseholdZoneRecoveryApplyOutcome.self,
+            from: Data(contentsOf: outcomeFileURL))
+    }
+
+    func removeLastApplyOutcome() throws {
+        try DurableLifecycleFileSupport.remove(outcomeFileURL)
     }
 }
 
@@ -130,6 +160,19 @@ protocol HouseholdZoneRecoveryApplyBoundary:
 {
     func unparkNormalSession() async
 }
+
+/// Read-only view of an AppState-owned apply run, observed by the view model without owning
+/// the driving `Task` (see `AppState.activeHouseholdZoneRecoveryApplyRun`). The production
+/// `HouseholdZoneRecoveryApplyRun` conforms retroactively below; tests substitute a fake so
+/// the view model can be exercised without a real `AppState`.
+@MainActor
+protocol HouseholdZoneRecoveryApplyRunObserving: AnyObject {
+    var state: HouseholdZoneRecoveryApplyRunState { get }
+    var diagnostic: HouseholdZoneRecoveryApplyDiagnostic? { get }
+    var localConflictIdentity: HouseholdZoneRecoveryIdentity? { get }
+}
+
+extension HouseholdZoneRecoveryApplyRun: HouseholdZoneRecoveryApplyRunObserving {}
 
 @MainActor
 protocol HouseholdZoneRecoveryApplying: AnyObject {
@@ -270,6 +313,26 @@ struct HouseholdZoneRecoveryPreview: Equatable, Sendable {
     let approvalAvailable: Bool
 }
 
+/// Durable, privacy-safe snapshot of the last finished household-zone-recovery apply run.
+/// Persisted beside the approved manifest so a torn-down, backgrounded, or previously killed
+/// apply's outcome is still readable on the next view appearance. Contains only enum/count
+/// fields — never record names, field values, digests, or other household content.
+struct HouseholdZoneRecoveryApplyOutcome: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Equatable, Sendable {
+        case resumableStop
+        case conflict
+        case verifiedCompletion
+        case failed
+    }
+
+    let kind: Kind
+    let completedBatchCount: Int
+    let totalBatchCount: Int
+    let diagnosticCategory: HouseholdZoneRecoveryApplyDiagnosticCategory?
+    let diagnosticBatchIndex: Int?
+    let diagnosticBatchRecordCount: Int?
+}
+
 @MainActor
 @Observable
 final class HouseholdZoneRecoveryViewModel {
@@ -298,14 +361,15 @@ final class HouseholdZoneRecoveryViewModel {
         [HouseholdZoneRecoveryIdentity: HouseholdZoneRecoveryProvenanceDecision],
         [HouseholdZoneRecoveryIdentity: HouseholdZoneRecoveryDecision]
     ) async throws -> HouseholdZoneRecoveryAnalysis
-    typealias ParkNormalSession = @MainActor (
-        HouseholdZoneRecoveryAuthoritySnapshot
-    ) async throws -> any HouseholdZoneRecoveryApplyBoundary
-    typealias ApplyPreparationProvider = @MainActor (
+    /// Requests that `AppState` start (and own) the apply run; returns `nil` when `AppState`
+    /// refuses to start one (build gate, digest/authority mismatch, or one already in flight).
+    typealias ApplyRunStarter = @MainActor (
         HouseholdZoneRecoveryStoredArtifact,
-        HouseholdZoneRecoveryAuthoritySnapshot,
-        any HouseholdZoneRecoveryApplyBoundary
-    ) async throws -> any HouseholdZoneRecoveryApplying
+        String,
+        HouseholdZoneRecoveryAuthoritySnapshot
+    ) -> (any HouseholdZoneRecoveryApplyRunObserving)?
+    typealias ApplyRunCanceler = @MainActor () -> Void
+    typealias ActiveApplyRunProvider = @MainActor () -> (any HouseholdZoneRecoveryApplyRunObserving)?
 
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "app.simmersmith.ios",
@@ -316,18 +380,35 @@ final class HouseholdZoneRecoveryViewModel {
     private let authorityIsCurrent: AuthorityValidator
     private let analysisProvider: AnalysisProvider
     private let manifestStore: any HouseholdZoneRecoveryManifestStoring
-    private let parkNormalSession: ParkNormalSession?
-    private let prepareApply: ApplyPreparationProvider?
+    private let startApplyRun: ApplyRunStarter?
+    private let cancelApplyRun: ApplyRunCanceler?
+    private let activeApplyRun: ActiveApplyRunProvider?
     private var approvedAuthority: HouseholdZoneRecoveryAuthoritySnapshot?
     private var analysisTask: Task<Void, Never>?
-    private var applyTask: Task<Void, Never>?
     private var requestGeneration = 0
 
+    /// Apply state when no `AppState`-owned run is active: pre-run gating (idle/awaiting
+    /// confirmation/local gate failures) or a terminal outcome restored from disk or from a
+    /// run that has since finished. Superseded by the live run's state whenever one exists.
+    private var localApplyState: ApplyState = .idle
+    private var restoredDiagnostic: HouseholdZoneRecoveryApplyDiagnostic?
+    /// `true` only when `localApplyState` came from `last-apply-outcome.json` (a genuinely
+    /// previous session's result), never when it reflects a run this instance just observed
+    /// finish live. Drives the "Previous attempt" framing so a restored outcome can never be
+    /// mistaken for a fresh result.
+    private var restoredFromDisk = false
+    /// `true` from the moment the operator requests a fresh destructive confirmation until
+    /// either that attempt actually starts a run or this instance re-enters the restore/
+    /// analyze path. Explicitly recorded rather than inferred from `localApplyState`, because
+    /// `.idle` is ALSO the value of a brand-new instance's initial state and of a restore that
+    /// found no outcome file — exactly the state of any instance mounted while a run already
+    /// in flight (started by another instance) has not yet finished. Inferring "fresh attempt"
+    /// from `.idle` would make such an instance collapse that run's terminal outcome to idle
+    /// the moment it finishes, hiding a real failure as "nothing happened".
+    private var freshAttemptRequested = false
+
     private(set) var state: State = .idle
-    private(set) var applyState: ApplyState = .idle
     private(set) var storedApprovalDigest: String?
-    private(set) var localConflictIdentity: HouseholdZoneRecoveryIdentity?
-    private(set) var applyDiagnostic: HouseholdZoneRecoveryApplyDiagnostic?
     var typedDigestConfirmation = ""
 
     init(
@@ -335,18 +416,19 @@ final class HouseholdZoneRecoveryViewModel {
         authoritySnapshot: @escaping AuthoritySnapshotProvider,
         authorityIsCurrent: @escaping AuthorityValidator,
         analyze: @escaping AnalysisProvider,
-        manifestStore: any HouseholdZoneRecoveryManifestStoring
-        ,
-        parkNormalSession: ParkNormalSession? = nil,
-        prepareApply: ApplyPreparationProvider? = nil
+        manifestStore: any HouseholdZoneRecoveryManifestStoring,
+        startApplyRun: ApplyRunStarter? = nil,
+        cancelApplyRun: ApplyRunCanceler? = nil,
+        activeApplyRun: ActiveApplyRunProvider? = nil
     ) {
         self.isRecoveryAvailable = isRecoveryAvailable
         self.authoritySnapshot = authoritySnapshot
         self.authorityIsCurrent = authorityIsCurrent
         analysisProvider = analyze
         self.manifestStore = manifestStore
-        self.parkNormalSession = parkNormalSession
-        self.prepareApply = prepareApply
+        self.startApplyRun = startApplyRun
+        self.cancelApplyRun = cancelApplyRun
+        self.activeApplyRun = activeApplyRun
     }
 
     convenience init(appState: AppState) {
@@ -364,13 +446,14 @@ final class HouseholdZoneRecoveryViewModel {
                         conflictDecisions: conflictDecisions)
             },
             manifestStore: HouseholdZoneRecoveryManifestStore(),
-            parkNormalSession: { try await appState.parkNormalSessionForHouseholdZoneRecovery($0) },
-            prepareApply: { artifact, authority, boundary in
-                try await HouseholdZoneRecoveryProductionApplyOperation.prepare(
+            startApplyRun: { artifact, confirmedDigest, authority in
+                appState.startHouseholdZoneRecoveryApply(
                     artifact: artifact,
-                    authority: authority,
-                    boundary: boundary)
-            })
+                    confirmedDigest: confirmedDigest,
+                    authority: authority)
+            },
+            cancelApplyRun: { appState.cancelHouseholdZoneRecoveryApply() },
+            activeApplyRun: { appState.activeHouseholdZoneRecoveryApplyRun })
     }
 
     var preview: HouseholdZoneRecoveryPreview? {
@@ -399,6 +482,53 @@ final class HouseholdZoneRecoveryViewModel {
             && !applyIsRunning
     }
 
+    /// True whenever `AppState` owns a run that has not yet reached a terminal state. Used
+    /// only to gate a *fresh start* (`confirmApply`) against a concurrent in-flight run — a
+    /// terminal run must never block starting a new one.
+    private var hasNonTerminalActiveRun: Bool {
+        guard let run = activeApplyRun?() else { return false }
+        return !Self.isTerminal(run.state)
+    }
+
+    /// True when the run `AppState` currently owns should still dictate the screen: either
+    /// it hasn't finished yet, or it has finished but the operator has not yet explicitly
+    /// requested a fresh attempt. A run that just finished still owns the screen until a
+    /// fresh attempt begins — only then does it stop being authoritative, even though
+    /// `AppState` keeps retaining it. This is what lets a live run's own conflict identity
+    /// render while it's the current result, yet keeps a stale identity or an un-prefixed
+    /// restored outcome from sitting beside a NEW attempt. Deliberately keyed off the
+    /// explicit `freshAttemptRequested` flag rather than `localApplyState == .idle`: `.idle`
+    /// is also the initial state of a brand-new instance and of a restore that found no
+    /// outcome file, so a view model mounted while another instance's run is still in
+    /// flight must keep rendering that run's terminal outcome instead of collapsing to idle.
+    private var runIsAuthoritative: Bool {
+        guard let run = activeApplyRun?() else { return false }
+        guard Self.isTerminal(run.state) else { return true }
+        return !freshAttemptRequested
+    }
+
+    /// Live when `AppState` owns a run that has not finished, or when this instance is
+    /// between requesting and receiving that run. Once a run reaches a terminal state it
+    /// stops dictating the screen the moment a fresh local attempt begins: a pre-run local
+    /// state (idle / awaiting confirmation) wins so re-confirming and starting a fresh run
+    /// is always possible without relaunching.
+    var applyState: ApplyState {
+        guard let run = activeApplyRun?() else { return localApplyState }
+        return runIsAuthoritative ? Self.mapRunState(run.state) : localApplyState
+    }
+
+    var applyDiagnostic: HouseholdZoneRecoveryApplyDiagnostic? {
+        if let run = activeApplyRun?() {
+            return run.diagnostic
+        }
+        return restoredDiagnostic
+    }
+
+    var localConflictIdentity: HouseholdZoneRecoveryIdentity? {
+        guard runIsAuthoritative else { return nil }
+        return activeApplyRun?()?.localConflictIdentity
+    }
+
     var applyIsRunning: Bool {
         switch applyState {
         case .preparing, .applying:
@@ -418,6 +548,7 @@ final class HouseholdZoneRecoveryViewModel {
     }
 
     var applyStatusMessage: String {
+        let isRestored = !runIsAuthoritative && restoredFromDisk
         switch applyState {
         case .idle:
             return storedApprovalDigest == nil
@@ -430,14 +561,17 @@ final class HouseholdZoneRecoveryViewModel {
         case .applying(let completed, let total):
             return "Applied \(completed) of \(total) bounded batches."
         case .resumableStop(let completed, let total):
-            return "Recovery stopped safely after \(completed) of \(total) batches"
+            let base = "Recovery stopped safely after \(completed) of \(total) batches"
                 + "\(Self.diagnosticClause(applyDiagnostic)). Resume manually with the same digest."
+            return isRestored ? "Previous attempt — " + base : base
         case .conflict:
-            return "Recovery stopped because target data changed\(Self.diagnosticClause(applyDiagnostic))."
+            let base = "Recovery stopped because target data changed\(Self.diagnosticClause(applyDiagnostic))."
+            return isRestored ? "Previous attempt — " + base : base
         case .verifiedCompletion(let completed, let total):
-            return "Verified recovery completion: \(completed) of \(total) batches."
+            let base = "Verified recovery completion: \(completed) of \(total) batches."
+            return isRestored ? "Previous attempt — " + base : base
         case .failed(let message):
-            return message
+            return isRestored ? "Previous attempt — \(message)" : message
         }
     }
 
@@ -451,14 +585,16 @@ final class HouseholdZoneRecoveryViewModel {
         guard isRecoveryAvailable() else {
             storedApprovalDigest = nil
             approvedAuthority = nil
-            applyState = .failed("Recovery apply is unavailable in this build.")
+            localApplyState = .failed("Recovery apply is unavailable in this build.")
+            restoredDiagnostic = nil
+            restoredFromDisk = false
             return
         }
         do {
             guard let artifact = try manifestStore.load() else {
                 storedApprovalDigest = nil
                 approvedAuthority = nil
-                applyState = .idle
+                restoreLastOutcomeIfAvailable()
                 return
             }
             let manifest = try artifact.manifest()
@@ -472,36 +608,73 @@ final class HouseholdZoneRecoveryViewModel {
             }
             storedApprovalDigest = artifact.digest
             approvedAuthority = authority
-            applyState = .idle
+            restoreLastOutcomeIfAvailable()
         } catch {
             storedApprovalDigest = nil
             approvedAuthority = nil
-            applyState = .failed("The stored recovery approval could not be verified.")
+            localApplyState = .failed("The stored recovery approval could not be verified.")
+            restoredDiagnostic = nil
+            restoredFromDisk = false
             Self.logger.error("apply_approval_load_failed")
         }
     }
 
     func requestApplyConfirmation() {
         guard canRequestApplyConfirmation else { return }
-        applyState = .awaitingDestructiveConfirmation
+        localApplyState = .awaitingDestructiveConfirmation
+        restoredFromDisk = false
+        freshAttemptRequested = true
     }
 
     func cancelApplyConfirmation() {
-        guard applyState == .awaitingDestructiveConfirmation else { return }
-        applyState = .idle
+        guard localApplyState == .awaitingDestructiveConfirmation else { return }
+        localApplyState = .idle
     }
 
+    /// Re-validates the destructive gate at confirm time (authority/digest can go stale
+    /// between the first and second confirmation), then asks `AppState` to start (and own)
+    /// the run. This view model never builds or holds the driving `Task` itself, so tearing
+    /// down the view can never cancel an in-flight apply.
     func confirmApply() {
-        guard applyState == .awaitingDestructiveConfirmation,
-              applyTask == nil else { return }
-        applyState = .preparing
-        applyTask = Task { [weak self] in
-            await self?.performApply()
+        guard localApplyState == .awaitingDestructiveConfirmation,
+              !hasNonTerminalActiveRun else { return }
+        guard isRecoveryAvailable() else {
+            localApplyState = .failed("Recovery apply is unavailable in this build.")
+            restoredFromDisk = false
+            return
         }
+        guard let confirmedDigest = storedApprovalDigest,
+              typedDigestConfirmation == confirmedDigest,
+              let approvedAuthority,
+              authorityIsCurrent(approvedAuthority) else {
+            localApplyState = .failed("The household session changed before recovery apply.")
+            restoredFromDisk = false
+            return
+        }
+        guard let artifact = try? manifestStore.load(), artifact.digest == confirmedDigest else {
+            localApplyState = .failed("The approved recovery manifest changed. Review it again.")
+            restoredFromDisk = false
+            return
+        }
+        guard let startApplyRun,
+              let run = startApplyRun(artifact, confirmedDigest, approvedAuthority) else {
+            localApplyState = .failed("Recovery apply could not start. Review it again.")
+            restoredFromDisk = false
+            return
+        }
+        // The prior run's outcome must never be attributed to this fresh attempt: a run
+        // killed mid-flight would otherwise resurrect and understate what came before it.
+        try? manifestStore.removeLastApplyOutcome()
+        restoredFromDisk = false
+        restoredDiagnostic = nil
+        freshAttemptRequested = false
+        localApplyState = .preparing
+        beginTrackingCompletion(of: run)
     }
 
+    /// The only path that may stop an `AppState`-owned run. Never wired to view teardown.
     func cancelApply() {
-        applyTask?.cancel()
+        cancelApplyRun?()
     }
 
 
@@ -545,7 +718,10 @@ final class HouseholdZoneRecoveryViewModel {
         storedApprovalDigest = nil
         approvedAuthority = nil
         typedDigestConfirmation = ""
-        applyState = .idle
+        localApplyState = .idle
+        restoredDiagnostic = nil
+        restoredFromDisk = false
+        freshAttemptRequested = false
         analysisTask?.cancel()
         requestGeneration &+= 1
         let generation = requestGeneration
@@ -651,129 +827,78 @@ final class HouseholdZoneRecoveryViewModel {
         }
     }
 
-    private func performApply() async {
-        var boundary: (any HouseholdZoneRecoveryApplyBoundary)?
-        var completedBatchCount = 0
-        var totalBatchCount = 0
-        applyDiagnostic = nil
+    /// Observes the AppState-owned run without polling (via `withObservationTracking`) and
+    /// persists its outcome exactly once it reaches a terminal state. Deliberately captures
+    /// `self` strongly and is never cancelled by view teardown: it must keep this view model
+    /// alive long enough to write `last-apply-outcome.json` even after the SwiftUI view (and
+    /// its `@State`-held reference to this instance) has been torn down. It exits on its own
+    /// as soon as the terminal outcome is persisted.
+    private func beginTrackingCompletion(of run: any HouseholdZoneRecoveryApplyRunObserving) {
+        Task {
+            await Self.awaitTerminalState(of: run)
+            persistOutcome(from: run)
+        }
+    }
+
+    private static func awaitTerminalState(of run: any HouseholdZoneRecoveryApplyRunObserving) async {
+        while !isTerminal(run.state) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = run.state
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    private static func isTerminal(_ state: HouseholdZoneRecoveryApplyRunState) -> Bool {
+        switch state {
+        case .preparing, .applying:
+            return false
+        case .resumableStop, .conflict, .verifiedCompletion, .failed:
+            return true
+        }
+    }
+
+    private func persistOutcome(from run: any HouseholdZoneRecoveryApplyRunObserving) {
+        guard let outcome = Self.outcome(from: run.state, diagnostic: run.diagnostic) else { return }
+        localApplyState = Self.applyState(from: outcome)
+        restoredDiagnostic = Self.diagnostic(from: outcome)
+        restoredFromDisk = false
         do {
-            guard let confirmedDigest = storedApprovalDigest,
-                  typedDigestConfirmation == confirmedDigest,
-                  let approvedAuthority,
-                  let parkNormalSession,
-                  let prepareApply,
-                  let artifact = try manifestStore.load(),
-                  artifact.digest == confirmedDigest else {
-                throw HouseholdZoneRecoveryViewModelError.invalidStoredArtifact
-            }
-            let manifest = try artifact.manifest()
-            guard manifest.accountFingerprint == approvedAuthority.accountFingerprint,
-                  manifest.sourceScope == approvedAuthority.sourceScope,
-                  manifest.targetScope == approvedAuthority.targetScope else {
-                throw HouseholdZoneRecoveryViewModelError.invalidStoredArtifact
-            }
-
-            let currentAuthority = try await authoritySnapshot()
-            guard currentAuthority == approvedAuthority,
-                  authorityIsCurrent(currentAuthority) else {
-                throw HouseholdZoneRecoveryViewModelError.invalidAuthority
-            }
-            try Task.checkCancellation()
-
-            let parkedBoundary = try await parkNormalSession(currentAuthority)
-            boundary = parkedBoundary
-            try Task.checkCancellation()
-
-            let operation = try await prepareApply(artifact, currentAuthority, parkedBoundary)
-            totalBatchCount = operation.totalBatchCount
-            var shouldContinue = true
-            while shouldContinue {
-                if Task.isCancelled {
-                    applyState = .resumableStop(
-                        completedBatchCount: completedBatchCount,
-                        totalBatchCount: totalBatchCount)
-                    break
-                }
-                applyState = .applying(
-                    completedBatchCount: completedBatchCount,
-                    totalBatchCount: totalBatchCount)
-                let result = await operation.apply(maximumBatchCount: 1)
-                switch result {
-                case .preflightRejected(_, let diagnostic):
-                    applyDiagnostic = diagnostic
-                    applyState = .failed(
-                        "Recovery apply stopped before the next write because its safety checks changed"
-                            + "\(Self.diagnosticClause(diagnostic)).")
-                    shouldContinue = false
-                case .progress(let receipt):
-                    let nextCompleted = receipt.completedBatchDigests.count
-                    guard nextCompleted > completedBatchCount else {
-                        applyState = .resumableStop(
-                            completedBatchCount: completedBatchCount,
-                            totalBatchCount: totalBatchCount)
-                        shouldContinue = false
-                        break
-                    }
-                    completedBatchCount = nextCompleted
-                    applyState = .applying(
-                        completedBatchCount: completedBatchCount,
-                        totalBatchCount: totalBatchCount)
-                    await Task.yield()
-                case .resumableStop(let receipt, _, let diagnostic):
-                    completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
-                    applyDiagnostic = diagnostic
-                    applyState = .resumableStop(
-                        completedBatchCount: completedBatchCount,
-                        totalBatchCount: totalBatchCount)
-                    shouldContinue = false
-                case .conflict(let receipt, let identity, let diagnostic):
-                    completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
-                    localConflictIdentity = identity
-                    applyDiagnostic = diagnostic
-                    applyState = .conflict(
-                        completedBatchCount: completedBatchCount,
-                        totalBatchCount: totalBatchCount)
-                    shouldContinue = false
-                case .verifiedCompletion(let receipt):
-                    completedBatchCount = receipt.completedBatchDigests.count
-                    applyDiagnostic = nil
-                    applyState = .verifiedCompletion(
-                        completedBatchCount: completedBatchCount,
-                        totalBatchCount: totalBatchCount)
-                    shouldContinue = false
-                }
-            }
-            let diagnosticForLog = applyDiagnostic
+            try manifestStore.saveLastApplyOutcome(outcome)
             Self.logger.info(
-                "apply_stopped completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public) diagnosticCategory=\(diagnosticForLog?.category.rawValue ?? "none", privacy: .public) diagnosticBatchIndex=\(diagnosticForLog?.batchIndex ?? -1, privacy: .public) diagnosticBatchRecordCount=\(diagnosticForLog?.batchRecordCount ?? -1, privacy: .public)")
-        } catch is CancellationError {
-            applyState = .resumableStop(
-                completedBatchCount: completedBatchCount,
-                totalBatchCount: totalBatchCount)
-            Self.logger.info(
-                "apply_cancelled completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public)")
-        } catch HouseholdZoneRecoveryViewModelError.invalidAuthority {
-            applyState = .failed("The household session changed before recovery apply.")
-            Self.logger.error("apply_authority_changed")
-        } catch HouseholdZoneRecoveryViewModelError.invalidStoredArtifact {
-            applyState = .failed("The approved recovery manifest changed. Review it again.")
-            Self.logger.error("apply_artifact_changed")
-        } catch HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable {
-            applyState = .failed(
-                "Recovery apply stopped before any write because an approved batch cannot fit one CloudKit request (batchCapacityUnsatisfiable).")
-            Self.logger.error("apply_plan_capacity_unsatisfiable")
+                "apply_outcome_persisted kind=\(outcome.kind.rawValue, privacy: .public) completed=\(outcome.completedBatchCount, privacy: .public) total=\(outcome.totalBatchCount, privacy: .public) diagnosticCategory=\(outcome.diagnosticCategory?.rawValue ?? "none", privacy: .public)")
         } catch {
-            applyState = Task.isCancelled
-                ? .resumableStop(
-                    completedBatchCount: completedBatchCount,
-                    totalBatchCount: totalBatchCount)
-                : .failed("Recovery apply stopped safely without changing the source.")
-            Self.logger.error("apply_failed")
+            Self.logger.error(
+                "apply_outcome_persist_failed kind=\(outcome.kind.rawValue, privacy: .public) completed=\(outcome.completedBatchCount, privacy: .public) total=\(outcome.totalBatchCount, privacy: .public)")
         }
-        if let boundary {
-            await boundary.unparkNormalSession()
+    }
+
+    private func restoreLastOutcomeIfAvailable() {
+        freshAttemptRequested = false
+        guard let outcome = try? manifestStore.loadLastApplyOutcome() else {
+            localApplyState = .idle
+            restoredDiagnostic = nil
+            restoredFromDisk = false
+            return
         }
-        applyTask = nil
+        localApplyState = Self.applyState(from: outcome)
+        restoredDiagnostic = Self.diagnostic(from: outcome)
+        restoredFromDisk = true
+    }
+
+    private func publish(
+        analysis: HouseholdZoneRecoveryAnalysis,
+        authority: HouseholdZoneRecoveryAuthoritySnapshot
+    ) throws {
+        let preview = try Self.makePreview(
+            authority: authority,
+            manifest: analysis.manifest,
+            summary: analysis.summary)
+        try persistIfApprovable(preview)
+        state = .preview(preview)
     }
 
     private func performAnalysis(generation: Int) async {
@@ -812,18 +937,6 @@ final class HouseholdZoneRecoveryViewModel {
         if generation == requestGeneration {
             analysisTask = nil
         }
-    }
-
-    private func publish(
-        analysis: HouseholdZoneRecoveryAnalysis,
-        authority: HouseholdZoneRecoveryAuthoritySnapshot
-    ) throws {
-        let preview = try Self.makePreview(
-            authority: authority,
-            manifest: analysis.manifest,
-            summary: analysis.summary)
-        try persistIfApprovable(preview)
-        state = .preview(preview)
     }
 
     private func publishRebuiltManifest(
@@ -869,7 +982,9 @@ final class HouseholdZoneRecoveryViewModel {
         let artifact = try manifestStore.save(preview.manifest)
         storedApprovalDigest = artifact.digest
         approvedAuthority = preview.authority
-        applyState = .idle
+        localApplyState = .idle
+        restoredDiagnostic = nil
+        restoredFromDisk = false
     }
 
     private func authorityChangedDuringReview() {
@@ -980,6 +1095,97 @@ final class HouseholdZoneRecoveryViewModel {
         }
         return " (\(diagnostic.category.rawValue))"
     }
+
+    private static func mapRunState(_ state: HouseholdZoneRecoveryApplyRunState) -> ApplyState {
+        switch state {
+        case .preparing:
+            return .preparing
+        case .applying(let completed, let total):
+            return .applying(completedBatchCount: completed, totalBatchCount: total)
+        case .resumableStop(let completed, let total):
+            return .resumableStop(completedBatchCount: completed, totalBatchCount: total)
+        case .conflict(let completed, let total):
+            return .conflict(completedBatchCount: completed, totalBatchCount: total)
+        case .verifiedCompletion(let completed, let total):
+            return .verifiedCompletion(completedBatchCount: completed, totalBatchCount: total)
+        case .failed(let message, _, _):
+            return .failed(message)
+        }
+    }
+
+    private static func outcome(
+        from state: HouseholdZoneRecoveryApplyRunState,
+        diagnostic: HouseholdZoneRecoveryApplyDiagnostic?
+    ) -> HouseholdZoneRecoveryApplyOutcome? {
+        switch state {
+        case .preparing, .applying:
+            return nil
+        case .resumableStop(let completed, let total):
+            return HouseholdZoneRecoveryApplyOutcome(
+                kind: .resumableStop,
+                completedBatchCount: completed,
+                totalBatchCount: total,
+                diagnosticCategory: diagnostic?.category,
+                diagnosticBatchIndex: diagnostic?.batchIndex,
+                diagnosticBatchRecordCount: diagnostic?.batchRecordCount)
+        case .conflict(let completed, let total):
+            return HouseholdZoneRecoveryApplyOutcome(
+                kind: .conflict,
+                completedBatchCount: completed,
+                totalBatchCount: total,
+                diagnosticCategory: diagnostic?.category,
+                diagnosticBatchIndex: diagnostic?.batchIndex,
+                diagnosticBatchRecordCount: diagnostic?.batchRecordCount)
+        case .verifiedCompletion(let completed, let total):
+            return HouseholdZoneRecoveryApplyOutcome(
+                kind: .verifiedCompletion,
+                completedBatchCount: completed,
+                totalBatchCount: total,
+                diagnosticCategory: nil,
+                diagnosticBatchIndex: nil,
+                diagnosticBatchRecordCount: nil)
+        case .failed(_, let completed, let total):
+            return HouseholdZoneRecoveryApplyOutcome(
+                kind: .failed,
+                completedBatchCount: completed,
+                totalBatchCount: total,
+                diagnosticCategory: diagnostic?.category,
+                diagnosticBatchIndex: diagnostic?.batchIndex,
+                diagnosticBatchRecordCount: diagnostic?.batchRecordCount)
+        }
+    }
+
+    private static func applyState(from outcome: HouseholdZoneRecoveryApplyOutcome) -> ApplyState {
+        switch outcome.kind {
+        case .resumableStop:
+            return .resumableStop(
+                completedBatchCount: outcome.completedBatchCount,
+                totalBatchCount: outcome.totalBatchCount)
+        case .conflict:
+            return .conflict(
+                completedBatchCount: outcome.completedBatchCount,
+                totalBatchCount: outcome.totalBatchCount)
+        case .verifiedCompletion:
+            return .verifiedCompletion(
+                completedBatchCount: outcome.completedBatchCount,
+                totalBatchCount: outcome.totalBatchCount)
+        case .failed:
+            let clause = diagnosticClause(diagnostic(from: outcome))
+            return .failed(
+                "Recovery apply stopped before completion after "
+                    + "\(outcome.completedBatchCount) of \(outcome.totalBatchCount) batches\(clause).")
+        }
+    }
+
+    private static func diagnostic(
+        from outcome: HouseholdZoneRecoveryApplyOutcome
+    ) -> HouseholdZoneRecoveryApplyDiagnostic? {
+        guard let category = outcome.diagnosticCategory else { return nil }
+        return HouseholdZoneRecoveryApplyDiagnostic(
+            category: category,
+            batchIndex: outcome.diagnosticBatchIndex,
+            batchRecordCount: outcome.diagnosticBatchRecordCount)
+    }
 }
 
 struct HouseholdZoneRecoveryView: View {
@@ -1008,7 +1214,6 @@ struct HouseholdZoneRecoveryView: View {
         .task { await viewModel.loadStoredApproval() }
         .onDisappear {
             viewModel.cancelAnalysis()
-            viewModel.cancelApply()
         }
         .confirmationDialog(
             "Apply approved recovery manifest?",

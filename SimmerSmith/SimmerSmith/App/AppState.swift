@@ -468,6 +468,58 @@ final class HouseholdZoneRecoveryAppSessionBoundary: HouseholdZoneRecoveryApplyB
         await appState?.unparkNormalSessionAfterHouseholdZoneRecovery(self)
     }
 }
+
+/// Mirrors `HouseholdZoneRecoveryViewModel.ApplyState` minus the pre-park UI-only cases
+/// (`idle`, `awaitingDestructiveConfirmation`) — those belong to the view that hasn't
+/// started a run yet, not to the run `AppState` drives once one exists.
+enum HouseholdZoneRecoveryApplyRunState: Equatable, Sendable {
+    case preparing
+    case applying(completedBatchCount: Int, totalBatchCount: Int)
+    case resumableStop(completedBatchCount: Int, totalBatchCount: Int)
+    case conflict(completedBatchCount: Int, totalBatchCount: Int)
+    case verifiedCompletion(completedBatchCount: Int, totalBatchCount: Int)
+    case failed(String, completedBatchCount: Int, totalBatchCount: Int)
+}
+
+/// Injection seam for the CloudKit-backed apply preparation (fetch source/target, build the
+/// plan, construct the applier). Production installs
+/// `HouseholdZoneRecoveryProductionApplyOperation.prepare`; tests substitute a deterministic
+/// fake so the drive loop can be exercised without live CloudKit.
+typealias HouseholdZoneRecoveryApplyPreparationProvider = @MainActor (
+    HouseholdZoneRecoveryStoredArtifact,
+    HouseholdZoneRecoveryAuthoritySnapshot,
+    any HouseholdZoneRecoveryApplyBoundary
+) async throws -> any HouseholdZoneRecoveryApplying
+
+/// AppState-owned handle to one household-zone-recovery apply run. Kept alive by `AppState`
+/// itself (see `AppState.activeHouseholdZoneRecoveryApplyRun` / the driving `Task` stored on
+/// `AppState`), never by a view or view model, so a SwiftUI teardown of the recovery screen
+/// cannot cancel the batch loop mid-flight. `state`/`diagnostic`/`localConflictIdentity` are
+/// its only externally observable outputs; only `AppState.driveHouseholdZoneRecoveryApply`
+/// may mutate them.
+@MainActor
+@Observable
+final class HouseholdZoneRecoveryApplyRun {
+    private(set) var state: HouseholdZoneRecoveryApplyRunState
+    private(set) var diagnostic: HouseholdZoneRecoveryApplyDiagnostic?
+    private(set) var localConflictIdentity: HouseholdZoneRecoveryIdentity?
+
+    init(state: HouseholdZoneRecoveryApplyRunState = .preparing) {
+        self.state = state
+    }
+
+    fileprivate func publish(_ state: HouseholdZoneRecoveryApplyRunState) {
+        self.state = state
+    }
+
+    fileprivate func publish(diagnostic: HouseholdZoneRecoveryApplyDiagnostic?) {
+        self.diagnostic = diagnostic
+    }
+
+    fileprivate func publish(localConflictIdentity: HouseholdZoneRecoveryIdentity?) {
+        self.localConflictIdentity = localConflictIdentity
+    }
+}
 #endif
 
 @MainActor
@@ -676,7 +728,14 @@ final class AppState {
             throw HouseholdZoneRecoveryViewModelError.invalidAuthority
         }
 
-        beginEpochFirstHouseholdTransition(clearPersonalData: false)
+        // Reuses `beginEpochFirstHouseholdTransition`'s epoch bump / session nil-out /
+        // repository-and-projection detach / authority revoke unchanged, but pins
+        // `householdLaunchPhase` at `.ready` throughout: RootView gates its whole
+        // MainTabView tree (and therefore the Settings sheet hosting the recovery view
+        // that just called this) on that phase, so a transient `.resolving` here would
+        // tear down the very surface driving this apply. Other boot entry points stay
+        // denied by `householdLifecycleAllowsEntry()` while a boundary is active.
+        beginEpochFirstHouseholdTransition(clearPersonalData: false, preservingLaunchPhase: true)
         let parkedSnapshot = HouseholdZoneRecoveryAuthoritySnapshot(
             accountFingerprint: expected.accountFingerprint,
             sourceScope: expected.sourceScope,
@@ -686,9 +745,6 @@ final class AppState {
             appState: self,
             snapshot: parkedSnapshot)
         activeHouseholdZoneRecoveryBoundary = boundary
-        // Keep the explicit recovery surface mounted while normal repositories and sync are
-        // parked. Other boot entry points remain denied by `householdLifecycleAllowsEntry()`.
-        householdLaunchPhase = .ready
         guard await boundary.normalSessionIsParked() else {
             activeHouseholdZoneRecoveryBoundary = nil
             boundary.sessionAuthority.revoke()
@@ -735,6 +791,230 @@ final class AppState {
         householdLaunchPhase = .resolving
         await ensureHouseholdSession()
     }
+
+    // MARK: - Household-zone-recovery apply run
+
+    /// Last-started apply run for this app session, owned and driven by `AppState` itself —
+    /// not by any view or view model. Stays non-nil (holding its terminal state) after the
+    /// run finishes so a recovery screen that remounts later can still read the outcome;
+    /// `startHouseholdZoneRecoveryApply` replaces it with a fresh run on the next attempt.
+    private(set) var activeHouseholdZoneRecoveryApplyRun: HouseholdZoneRecoveryApplyRun?
+    /// The `Task` actually driving the batch loop. Lives on `AppState`, not on any view or
+    /// view model — the whole point of this fix. Only `cancelHouseholdZoneRecoveryApply()`
+    /// cancels it; SwiftUI tearing down the recovery screen must never reach it.
+    @ObservationIgnored private var householdZoneRecoveryApplyTask: Task<Void, Never>?
+    @ObservationIgnored var householdZoneRecoveryApplyPreparation: HouseholdZoneRecoveryApplyPreparationProvider = {
+        artifact, authority, boundary in
+        try await HouseholdZoneRecoveryProductionApplyOperation.prepare(
+            artifact: artifact,
+            authority: authority,
+            boundary: boundary)
+    }
+    private static let householdZoneRecoveryApplyLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "app.simmersmith.ios",
+        category: "HouseholdZoneRecovery")
+
+    /// Starts one apply run, or refuses and returns `nil`. Refuses outside a DEBUG/TestFlight
+    /// build, whenever a run is already in flight, without a digest the caller typed to match
+    /// the stored approval byte-for-byte, or without an authority `AppState` itself still
+    /// recognizes as the current owner household — the same three gates
+    /// `HouseholdZoneRecoveryViewModel.confirmApply()` enforced before this moved here. A
+    /// normal launch never has an approved artifact/authority pair to offer, so it can never
+    /// reach a non-nil result. Parking, preparation, and the batch loop all run on a `Task`
+    /// owned by `self`, so nothing about the caller's own lifetime (a view disappearing, a
+    /// view model deiniting) can cancel it — only `cancelHouseholdZoneRecoveryApply()` can.
+    @discardableResult
+    func startHouseholdZoneRecoveryApply(
+        artifact: HouseholdZoneRecoveryStoredArtifact,
+        confirmedDigest: String,
+        authority: HouseholdZoneRecoveryAuthoritySnapshot
+    ) -> HouseholdZoneRecoveryApplyRun? {
+        guard DebugGate.showsCloudKitChecks,
+              householdZoneRecoveryApplyTask == nil,
+              confirmedDigest == artifact.digest,
+              isCurrentHouseholdZoneRecoveryAuthority(authority) else {
+            return nil
+        }
+        let run = HouseholdZoneRecoveryApplyRun()
+        activeHouseholdZoneRecoveryApplyRun = run
+        householdZoneRecoveryApplyTask = Task { [weak self] in
+            await self?.driveHouseholdZoneRecoveryApply(
+                artifact: artifact,
+                confirmedDigest: confirmedDigest,
+                authority: authority,
+                run: run)
+        }
+        return run
+    }
+
+    /// The one explicit way to stop a running apply. View teardown must never call this —
+    /// only an explicit user "Cancel" action should. Resuming afterward requires starting a
+    /// brand-new run with the same confirmed digest; nothing here auto-retries.
+    func cancelHouseholdZoneRecoveryApply() {
+        householdZoneRecoveryApplyTask?.cancel()
+    }
+
+    /// The batch-driving loop itself, unchanged in substance from what
+    /// `HouseholdZoneRecoveryViewModel.performApply()` used to do — only its home moved, from
+    /// a view-owned `Task` to this AppState-owned one. Every safety recheck (digest, manifest
+    /// scope, live authority, cancellation before each suspending step) is preserved exactly.
+    private func driveHouseholdZoneRecoveryApply(
+        artifact: HouseholdZoneRecoveryStoredArtifact,
+        confirmedDigest: String,
+        authority: HouseholdZoneRecoveryAuthoritySnapshot,
+        run: HouseholdZoneRecoveryApplyRun
+    ) async {
+        var boundary: (any HouseholdZoneRecoveryApplyBoundary)?
+        var completedBatchCount = 0
+        var totalBatchCount = 0
+        do {
+            guard confirmedDigest == artifact.digest else {
+                throw HouseholdZoneRecoveryViewModelError.invalidStoredArtifact
+            }
+            let manifest = try artifact.manifest()
+            guard manifest.accountFingerprint == authority.accountFingerprint,
+                  manifest.sourceScope == authority.sourceScope,
+                  manifest.targetScope == authority.targetScope else {
+                throw HouseholdZoneRecoveryViewModelError.invalidStoredArtifact
+            }
+
+            let currentAuthority = try await householdZoneRecoveryAuthoritySnapshot()
+            guard currentAuthority == authority,
+                  isCurrentHouseholdZoneRecoveryAuthority(currentAuthority) else {
+                throw HouseholdZoneRecoveryViewModelError.invalidAuthority
+            }
+            try Task.checkCancellation()
+
+            let parkedBoundary = try await parkNormalSessionForHouseholdZoneRecovery(currentAuthority)
+            boundary = parkedBoundary
+            try Task.checkCancellation()
+
+            let operation = try await householdZoneRecoveryApplyPreparation(
+                artifact, currentAuthority, parkedBoundary)
+            totalBatchCount = operation.totalBatchCount
+            var shouldContinue = true
+            while shouldContinue {
+                if Task.isCancelled {
+                    run.publish(.resumableStop(
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    break
+                }
+                run.publish(.applying(
+                    completedBatchCount: completedBatchCount,
+                    totalBatchCount: totalBatchCount))
+                let result = await operation.apply(maximumBatchCount: 1)
+                switch result {
+                case .preflightRejected(_, let diagnostic):
+                    run.publish(diagnostic: diagnostic)
+                    run.publish(.failed(
+                        "Recovery apply stopped before the next write because its safety checks changed"
+                            + "\(Self.householdZoneRecoveryDiagnosticClause(diagnostic)).",
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    shouldContinue = false
+                case .progress(let receipt):
+                    let nextCompleted = receipt.completedBatchDigests.count
+                    guard nextCompleted > completedBatchCount else {
+                        run.publish(.resumableStop(
+                            completedBatchCount: completedBatchCount,
+                            totalBatchCount: totalBatchCount))
+                        shouldContinue = false
+                        break
+                    }
+                    completedBatchCount = nextCompleted
+                    run.publish(.applying(
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    await Task.yield()
+                case .resumableStop(let receipt, _, let diagnostic):
+                    completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
+                    run.publish(diagnostic: diagnostic)
+                    run.publish(.resumableStop(
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    shouldContinue = false
+                case .conflict(let receipt, let identity, let diagnostic):
+                    completedBatchCount = receipt?.completedBatchDigests.count ?? completedBatchCount
+                    run.publish(localConflictIdentity: identity)
+                    run.publish(diagnostic: diagnostic)
+                    run.publish(.conflict(
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    shouldContinue = false
+                case .verifiedCompletion(let receipt):
+                    completedBatchCount = receipt.completedBatchDigests.count
+                    run.publish(diagnostic: nil)
+                    run.publish(.verifiedCompletion(
+                        completedBatchCount: completedBatchCount,
+                        totalBatchCount: totalBatchCount))
+                    shouldContinue = false
+                }
+            }
+            let diagnosticForLog = run.diagnostic
+            Self.householdZoneRecoveryApplyLogger.info(
+                "apply_stopped completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public) diagnosticCategory=\(diagnosticForLog?.category.rawValue ?? "none", privacy: .public) diagnosticBatchIndex=\(diagnosticForLog?.batchIndex ?? -1, privacy: .public) diagnosticBatchRecordCount=\(diagnosticForLog?.batchRecordCount ?? -1, privacy: .public)")
+        } catch is CancellationError {
+            run.publish(.resumableStop(
+                completedBatchCount: completedBatchCount,
+                totalBatchCount: totalBatchCount))
+            Self.householdZoneRecoveryApplyLogger.info(
+                "apply_cancelled completed=\(completedBatchCount, privacy: .public) total=\(totalBatchCount, privacy: .public)")
+        } catch HouseholdZoneRecoveryViewModelError.invalidAuthority {
+            run.publish(diagnostic: HouseholdZoneRecoveryApplyDiagnostic(
+                category: .authorityChanged, batchIndex: nil, batchRecordCount: nil))
+            run.publish(.failed(
+                "The household session changed before recovery apply.",
+                completedBatchCount: completedBatchCount,
+                totalBatchCount: totalBatchCount))
+            Self.householdZoneRecoveryApplyLogger.error("apply_authority_changed")
+        } catch HouseholdZoneRecoveryViewModelError.invalidStoredArtifact {
+            run.publish(diagnostic: HouseholdZoneRecoveryApplyDiagnostic(
+                category: .manifestRejected, batchIndex: nil, batchRecordCount: nil))
+            run.publish(.failed(
+                "The approved recovery manifest changed. Review it again.",
+                completedBatchCount: completedBatchCount,
+                totalBatchCount: totalBatchCount))
+            Self.householdZoneRecoveryApplyLogger.error("apply_artifact_changed")
+        } catch HouseholdZoneRecoveryApplyPlanError.batchCapacityUnsatisfiable {
+            run.publish(diagnostic: HouseholdZoneRecoveryApplyDiagnostic(
+                category: .limitExceeded, batchIndex: nil, batchRecordCount: nil))
+            run.publish(.failed(
+                "Recovery apply stopped before any write because an approved batch cannot fit one CloudKit request (batchCapacityUnsatisfiable).",
+                completedBatchCount: completedBatchCount,
+                totalBatchCount: totalBatchCount))
+            Self.householdZoneRecoveryApplyLogger.error("apply_plan_capacity_unsatisfiable")
+        } catch {
+            let category = HouseholdZoneRecoveryApplyDiagnosticCategory(
+                signal: HouseholdZoneRecoveryApplyDiagnosticSignal.classify(error))
+            run.publish(diagnostic: HouseholdZoneRecoveryApplyDiagnostic(
+                category: category, batchIndex: nil, batchRecordCount: nil))
+            run.publish(Task.isCancelled
+                ? .resumableStop(
+                    completedBatchCount: completedBatchCount,
+                    totalBatchCount: totalBatchCount)
+                : .failed(
+                    "Recovery apply stopped safely without changing the source.",
+                    completedBatchCount: completedBatchCount,
+                    totalBatchCount: totalBatchCount))
+            Self.householdZoneRecoveryApplyLogger.error(
+                "apply_failed category=\(category.rawValue, privacy: .public)")
+        }
+        if let boundary {
+            await boundary.unparkNormalSession()
+        }
+        householdZoneRecoveryApplyTask = nil
+    }
+
+    private static func householdZoneRecoveryDiagnosticClause(
+        _ diagnostic: HouseholdZoneRecoveryApplyDiagnostic?
+    ) -> String {
+        guard let diagnostic else { return "" }
+        if let batchIndex = diagnostic.batchIndex, let batchRecordCount = diagnostic.batchRecordCount {
+            return " (\(diagnostic.category.rawValue), batch \(batchIndex), \(batchRecordCount) records)"
+        }
+        return " (\(diagnostic.category.rawValue))"
+    }
     #endif
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
@@ -742,7 +1022,28 @@ final class AppState {
     /// simmersmith-224: release notes awaiting their once-per-update showing.
     /// Set by `evaluatePendingReleaseNotes()` once the household is ready;
     /// cleared when the sheet is dismissed. See `AppState+ReleaseNotes`.
-    var pendingReleaseNotes: ReleaseNotesPresentation?
+    ///
+    /// Hand-written accessors — mirroring exactly what `@Observable` synthesizes for a plain
+    /// stored property — so the setter can refuse writes while a household-zone-recovery
+    /// boundary is parked. A release-notes sheet presented over the recovery surface would
+    /// dismiss it the same way the `.resolving` flicker `parkNormalSessionForHouseholdZoneRecovery`
+    /// no longer publishes would have. `evaluatePendingReleaseNotes()` becomes a no-op for the
+    /// duration; any notes it would have surfaced show normally once the boundary unparks.
+    @ObservationIgnored private var pendingReleaseNotesStorage: ReleaseNotesPresentation?
+    var pendingReleaseNotes: ReleaseNotesPresentation? {
+        get {
+            access(keyPath: \.pendingReleaseNotes)
+            return pendingReleaseNotesStorage
+        }
+        set {
+            #if canImport(CloudKit)
+            guard activeHouseholdZoneRecoveryBoundary == nil else { return }
+            #endif
+            withMutation(keyPath: \.pendingReleaseNotes) {
+                pendingReleaseNotesStorage = newValue
+            }
+        }
+    }
 
     // Tracks the refresh task started by clearLocalCache() so that a
     // follow-up resetConnection() can cancel it before it races with the
