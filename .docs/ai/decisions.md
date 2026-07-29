@@ -2264,3 +2264,26 @@ run's outcome persists next to the approved manifest as enum/count fields so its
 **Why.** A destructive, resumable, once-only operation must not inherit a SwiftUI view's lifetime,
 especially when the operation itself perturbs the state that view tree is derived from. Two full build
 cycles were spent diagnosing a cancellation that left no readable trace.
+
+## 2026-07-28 — Household data recovered out-of-band; delete the recovery feature
+
+**Context.** The owner recovered the stranded household data without the in-app tool: on a second
+device they rejoined iCloud and restored a device backup, which returned enough data to move forward.
+The in-app analyze/apply path never completed a successful production apply across builds 168-172.
+
+**Decision.** Delete the household-zone-recovery feature outright — analyzer, classifier, plan model,
+apply plan, applier, apply transport, the TestFlight UI, the AppState-owned run, and all of their tests.
+No shims, no deprecated aliases. Close `simmersmith-mpa`. Keep the verification-namespace zone-eligibility
+repair, which is independent and still load-bearing: legacy `household-*-test` ids stay excluded from
+launch, discovery, and automatic cleanup.
+
+**Why.** The recovery tool existed for exactly one stranded dataset. That dataset is recovered, so the
+feature is now a large, destructive, CloudKit-writing surface with no remaining user and no way to earn
+its keep. Keeping it would mean carrying a write path that never proved itself in production.
+
+**Worth remembering.** Three defects were found and fixed along the way, each invisible to
+fake-transport tests and each costing a build cycle: batching that ignored CloudKit's per-request
+ceilings, a destructive operation whose lifetime was owned by a SwiftUI sheet the operation itself tore
+down, and terminal states that discarded the reason they stopped. The general lessons — budget the real
+request including anything co-written, never let a long destructive run inherit a view's lifetime, and
+make every non-success terminal state name itself durably — outlive this feature.

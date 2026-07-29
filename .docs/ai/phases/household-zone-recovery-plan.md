@@ -1,5 +1,11 @@
 # Household Zone Recovery Implementation Plan
 
+> **CLOSED 2026-07-28 — historical record only. Do not execute.** The stranded data was recovered
+> out-of-band (the owner rejoined iCloud on a second device and restored a device backup), and this
+> feature was deleted rather than finished. No code in the repo implements it. Builds 168-172 never
+> completed a successful production apply; the three defects found along the way are recorded in
+> `.docs/ai/decisions.md` 2026-07-28.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Safely preview, approve, and idempotently copy all user-approved household data from the reserved `household-spc-recipe-test` zone into the genuine production household without mutating the source.

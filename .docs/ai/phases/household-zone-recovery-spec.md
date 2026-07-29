@@ -2,7 +2,10 @@
 
 ## Status
 
-Approved design, 2026-07-25. Implementation is blocked until the user approves this written spec.
+**CLOSED 2026-07-28 — historical record only.** The stranded data was recovered out-of-band (the owner
+rejoined iCloud on a second device and restored a device backup), and the feature this spec describes was
+deleted rather than finished. No code in the repo implements it. Kept for the problem analysis and the
+failure lessons; see `.docs/ai/decisions.md` 2026-07-28. Approved design was 2026-07-25.
 
 ## Problem
 

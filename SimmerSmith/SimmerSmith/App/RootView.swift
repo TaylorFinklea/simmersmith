@@ -52,7 +52,7 @@ struct RootView: View {
         // covers the user who signs into iCloud in Settings and comes back,
         // which the app's `.task` (cold launch only) would miss.
         .onChange(of: appState.householdLaunchPhase, initial: true) { _, phase in
-            guard phase == .ready, appState.activeHouseholdZoneRecoveryBoundary == nil else { return }
+            guard phase == .ready else { return }
             appState.evaluatePendingReleaseNotes()
         }
         #endif
