@@ -368,3 +368,23 @@ deleted as of `7f9830d`, so this is the first matrix run against shipping-shaped
 it, since `.cached` makes the WAL append required and synchronous ahead of the store mutation. That
 reframes e0a from a launch-latency optimization into the durability fix, and it makes re-running
 Step 2 with the override ON the cheapest way to confirm.
+
+## P2h Task 5 — same rows re-run with the override ON (build 173)
+
+Owner re-ran the matrix on build 173 with the cache-first override enabled, 2026-07-29. Every row
+passed, **including the crash-durability row that failed with the override off**: a meal deleted and
+force-quit within about a second stayed deleted, and an immediate add survived.
+
+This confirms the prior inference. `simmersmith-9w4` is scoped to the `.normal` plane by
+`HouseholdSyncEngine.swift:571`; the `.cached` plane makes the shadow-mirror WAL append required and
+synchronous ahead of the store mutation, so the mutation is on disk before the UI reflects it. The
+defect is consequently an argument *for* the cutover rather than a blocker against it.
+
+Still outstanding before `staticDefault` may flip, unchanged by this result:
+
+- The paired sixty-launch distribution (30 override-off, 30 override-on, one seeded device). Without
+  it there is no evidence the cached path meets the spec's absolute acceptance of median ≤1.0 s and
+  p95 ≤1.5 s to `MainTabView`.
+- The cross-account participant matrix. No real participant device on a second Apple Account has ever
+  run the cached path: participant cached launch, share adopt, and participant revocation are all
+  unproven. Owner devices cannot substitute — Sel is same-account and therefore an owner.
