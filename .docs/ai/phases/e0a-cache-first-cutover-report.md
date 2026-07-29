@@ -330,3 +330,41 @@ performance evidence; P2h adds device-gate evidence.
   fixture), zero blocked entries, and digest
   `32b692f3d7d9edf1a7d3ea5f6a7ba2cf85ec1e81ca291f6ff34d31a65f49a280`.
   Analyze and approval performed no CloudKit writes; Phase B remains separately gated.
+
+## P2h Task 5 — owner-representative device rows (build 173, cache-first OFF)
+
+Owner-run on Roshar and Sel, 2026-07-29, TestFlight build 173 (`24d0f16`). The recovery feature is
+deleted as of `7f9830d`, so this is the first matrix run against shipping-shaped code.
+
+- **Step 1 (online + offline launch) — PASS.** Both devices launched with real household data and no
+  cached-content flash. The app remained usable throughout airplane mode; an edit made while in
+  airplane mode propagated to the second device after connectivity returned. No offline identity
+  fallback problem was observed.
+- **Step 2 (mutation + crash recovery) — FAIL, tracked as `simmersmith-9w4` (P1).** Deleting a meal
+  and force-quitting within roughly one second resurrected the meal on relaunch; adding a meal and
+  force-quitting immediately lost the addition. Owner notes normal sync is fast, so real-world
+  exposure is small. Root cause is one mechanism, code-traced: with `dataPlaneMode == .normal` the
+  mutation lives only in the in-memory `HouseholdLocalStore` dictionary and `CKSyncEngine`'s
+  in-memory pending state, because `HouseholdSyncEngine.swift:571` sets
+  `durableMirrorRequired = (dataPlaneMode == .cached)` and the shadow-mirror WAL append result is
+  therefore discarded in the shipping default. The only route to the network is `WeekRepository`'s
+  unawaited `Task { await self?.drainSync() }`, so durability depends on that round trip beating
+  process death. Add-vanishes and delete-resurrects are the same defect in opposite directions.
+  `ShadowMirrorNormalizationTests.crashAfterNormalizationAppendReplaysExactlyOnce` cannot catch it:
+  it only ever exercises the WAL path, never `.normal`.
+- **Step 3 (convergence) — PASS on the gate, two follow-ups filed.** Roshar and Sel always converged
+  to identical state with no pending duplicates. The winning device is not consistent between runs
+  and there is no merge UI (`simmersmith-9sz`, product decision). A "couldn't safely merge to iCloud"
+  alert appeared a few times with no retry or relaunch affordance, leaving recovery to guesswork
+  (`simmersmith-8j1`). Account-boundary switching remains environment-blocked by choice; the owner
+  account cannot be safely restored, and the plan permits marking it rather than forcing it.
+- **Step 4 (paired launch distribution) — outstanding.** Requires 30 manual force-quit foreground
+  launches with the override OFF and 30 with it ON, on one seeded device. Timings come from the
+  device's unified log (`launch_task_started` → `main_tab_visible`); `log stream --device-name` is
+  unsupported on this host, so capture is via `xcrun devicectl device sysdiagnose` after each half.
+
+**Consequence worth noting.** Step 2's defect is confined to the default-off `.normal` plane by
+`HouseholdSyncEngine.swift:571`. [INFERENCE, not device-proven] the cache-first cutover should close
+it, since `.cached` makes the WAL append required and synchronous ahead of the store mutation. That
+reframes e0a from a launch-latency optimization into the durability fix, and it makes re-running
+Step 2 with the override ON the cheapest way to confirm.
