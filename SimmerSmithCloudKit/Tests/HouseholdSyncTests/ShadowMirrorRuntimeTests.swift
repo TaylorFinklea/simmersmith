@@ -44,6 +44,65 @@ func p1ColdStartStateIsAlwaysNil() {
     #expect(HouseholdSyncEngine.coldStartStateSerialization() == nil)
 }
 
+@Test("required normal durability opens the exact writer before a mutation can be accepted")
+func requiredNormalDurabilityPreparesWriter() throws {
+    let root = try runtimeDirectory()
+    let preparation = try HouseholdMutationDurabilityPreparation.make(
+        policy: .required,
+        scope: runtimeScope(),
+        rootDirectory: root)
+    let runtime = try #require(preparation.runtime)
+    let record = runtimeRecord(recordName: "normal-required")
+
+    #expect(preparation.requiresDurableMirror)
+    #expect(runtime.appendSaveBeforeMutation(record, mutationGeneration: 1))
+
+    let recovered = try ShadowMirrorCheckpointWriter(
+        scope: runtimeScope(), rootDirectory: root
+    ).normalizeForBootstrapSynchronously()
+    #expect(recovered.snapshot.recoveryState.outbox.count == 1)
+    #expect(recovered.snapshot.recoveryState.outbox.first?.record?.identity.recordName
+        == "normal-required")
+}
+
+@Test("recovery-pending durability requires a writer but never creates a competing one")
+func recoveryPendingDurabilityDoesNotPrepareWriter() throws {
+    let preparation = try HouseholdMutationDurabilityPreparation.make(
+        policy: .recoveryPending,
+        scope: runtimeScope(),
+        rootDirectory: try runtimeDirectory())
+
+    #expect(preparation.requiresDurableMirror)
+    #expect(preparation.runtime == nil)
+}
+
+@Test("best-effort diagnostics remain independent from exact-scope durability")
+func bestEffortDurabilityDoesNotPrepareWriter() throws {
+    let preparation = try HouseholdMutationDurabilityPreparation.make(
+        policy: .bestEffort,
+        scope: nil,
+        rootDirectory: nil)
+
+    #expect(!preparation.requiresDurableMirror)
+    #expect(preparation.runtime == nil)
+}
+
+@Test("every required durability mode rejects construction without a durable root")
+func requiredDurabilityRejectsMissingRoot() {
+    #expect(throws: MirrorCheckpointError.self) {
+        _ = try HouseholdMutationDurabilityPreparation.make(
+            policy: .required,
+            scope: runtimeScope(),
+            rootDirectory: nil)
+    }
+    #expect(throws: MirrorCheckpointError.self) {
+        _ = try HouseholdMutationDurabilityPreparation.make(
+            policy: .recoveryPending,
+            scope: runtimeScope(),
+            rootDirectory: nil)
+    }
+}
+
 @Test("shadow runtime never publishes state newer than its completed fetch snapshot")
 func shadowRuntimeRejectsStateNewerThanSnapshot() async throws {
     let root = try runtimeDirectory()

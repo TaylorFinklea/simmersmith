@@ -641,20 +641,14 @@ extension AppState {
 
         // 1. Resolve the household id: discover first, mint only if none exists. A verified
         // cached candidate may bypass the zone census because its exact scope is already named.
-        let cachedCandidate: MirrorBootstrapCandidate?
-        let recoveryCandidate: MirrorRecoveryCandidate?
-        if cacheFirstLaunchEnabled {
-            let selection = bootstrapSelection(
-                accountRecordName: accountRecordName,
-                request: .owner(accountRecordName: accountRecordName),
-                expectedRole: .owner,
-                expectedZone: nil)
-            cachedCandidate = selection.cachedCandidate
-            recoveryCandidate = selection.recoveryCandidate
-        } else {
-            cachedCandidate = nil
-            recoveryCandidate = nil
-        }
+        let selection = bootstrapSelection(
+            accountRecordName: accountRecordName,
+            request: .owner(accountRecordName: accountRecordName),
+            expectedRole: .owner,
+            expectedZone: nil,
+            mode: cacheFirstLaunchEnabled ? .cachedAllowed : .recoveryOnly)
+        let cachedCandidate = selection.cachedCandidate
+        let recoveryCandidate = selection.recoveryCandidate
         let householdID: String?
         if let cachedHouseholdID = cachedCandidate?.bootstrap.scope.householdID {
             householdID = cachedHouseholdID
@@ -689,7 +683,7 @@ extension AppState {
         } catch {
             householdLaunchPhase = .resolving
             householdAuthority = .intervention(
-                message: "Couldn't establish an exact household cache identity.")
+                message: "Couldn't prepare safe local household storage. Retry when storage is available.")
             return
         }
         bootingHouseholdSession = session
@@ -941,7 +935,8 @@ extension AppState {
         accountRecordName: String,
         request: MirrorBootstrapRequest,
         expectedRole: MirrorRole,
-        expectedZone: MirrorZoneReference?
+        expectedZone: MirrorZoneReference?,
+        mode: MirrorBootstrapSelectionMode = .cachedAllowed
     ) -> BootstrapSelection {
         let root = householdLifecyclePaths.shadowRootURL
         let observationContext = HouseholdSyncBootstrapObservationContext(
@@ -950,6 +945,7 @@ extension AppState {
         let result = ShadowMirrorBootstrapCatalog.open(
             request: request,
             rootDirectory: root,
+            mode: mode,
             observationContext: observationContext)
         switch result.outcome {
         case .none:

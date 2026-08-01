@@ -2287,3 +2287,21 @@ ceilings, a destructive operation whose lifetime was owned by a SwiftUI sheet th
 down, and terminal states that discarded the reason they stopped. The general lessons — budget the real
 request including anything co-written, never let a long destructive run inherit a view's lifetime, and
 make every non-success terminal state name itself durably — outlive this feature.
+
+## 2026-08-01 — Mutation durability is independent of cache-first presentation
+
+**Context.** Build 173 proved that an immediate force-quit could lose a save or resurrect a delete
+with cache-first OFF, while the same row passed with cache-first ON. The `.normal` engine treated its
+mirror as best-effort and attached it later from an unawaited account lookup, so an accepted mutation
+could exist only in memory until CKSyncEngine drained.
+
+**Decision.** Every production exact-scope session requires a durable mutation writer regardless of
+presentation mode. Ordinary normal startup opens that writer before engine construction. A session
+with pending recovery owns the selected writer, remains non-authoritative, and rejects mutations until
+a nil-state full fetch and atomic recovery overlay install it. Cache-first OFF may select normalized
+durable outbox intent for recovery, but never checkpoint records or serialized engine state.
+
+**Why.** Cache-first is a launch-performance and presentation choice, not a data-safety choice.
+WAL-before-store ordering makes accepted intent survive process termination without allowing stale
+checkpoint content to render when the user has disabled cached launch. Single-writer ownership and
+false authority during recovery prevent duplicate appenders and premature mutations.

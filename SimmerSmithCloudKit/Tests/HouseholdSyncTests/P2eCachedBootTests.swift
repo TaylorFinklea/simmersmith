@@ -223,6 +223,14 @@ struct P2eDataPlanePolicyTests {
         #expect(HouseholdDataPlanePolicy.allows(.delete, mode: .normal))
         #expect(HouseholdDataPlanePolicy.allows(.zoneRecreation, mode: .normal))
     }
+
+    @Test("durability intervention copy is independent of cache presentation mode")
+    func durabilityFailureCopyIsModeNeutral() {
+        let message = MirrorDurabilityFailure().message
+
+        #expect(!message.localizedCaseInsensitiveContains("cached"))
+        #expect(message.localizedCaseInsensitiveContains("storage"))
+    }
 }
 
 struct P2fSessionAuthorityTests {

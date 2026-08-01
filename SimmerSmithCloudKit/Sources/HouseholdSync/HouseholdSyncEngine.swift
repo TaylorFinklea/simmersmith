@@ -248,9 +248,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     public let zoneID: CKRecordZone.ID
     public let store: HouseholdLocalStore
     private let stateURL: URL
-    /// P1 shadow-only checkpoint runtime. It is intentionally optional until a complete account
-    /// scope has been resolved. The same gate orders store snapshots, generation bookkeeping,
-    /// state coverage, durable outbox transitions, and lifecycle fencing.
+    /// Scoped durable checkpoint runtime. Exact production sessions install it during
+    /// construction; recovery-pending and best-effort diagnostic engines may temporarily omit it.
+    /// The same gate orders store snapshots, generation bookkeeping, state coverage, durable
+    /// outbox transitions, and lifecycle fencing.
     private let shadowMirrorLock = NSLock()
     private var shadowMirror: ShadowMirrorRuntime?
     private var shadowCoverageRevision: UInt64 = 0
@@ -273,9 +274,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     private var participantCheckpointProof: MirrorParticipantFetchCheckpointProof?
     private var shadowCaptureAllowed = true
     private var shadowMissedLocalMutation = false
-    /// Cached bootstrap and successful recovery overlay sessions depend on their durable
-    /// outbox. Unlike P1's diagnostic mirror, they must reject a mutation when the WAL cannot
-    /// record it before the live store and sync-engine state change.
+    /// Required-durability sessions depend on their durable outbox and reject a mutation when the
+    /// WAL cannot record it before the live store and sync-engine state change. Best-effort
+    /// diagnostic construction retains the historical non-blocking behavior.
     private var durableMirrorRequired = false
     /// A materialized bootstrap/recovery lease pins all CKAsset and WAL roots referenced by the
     /// active store/runtime. It remains owned for the entire session and is released only after
@@ -439,7 +440,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     }
 
     /// Durably transition the exact local generation to sent before CKSyncEngine may receive its
-    /// payload. Cached/recovery sessions fail closed; P1 preserves its diagnostic-only mirror.
+    /// payload. Required-durability sessions fail closed; best-effort diagnostics do not.
     private func prepareSentGenerationLocked(
         _ id: CKRecord.ID,
         generation: Int?
@@ -502,6 +503,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             merger: merger,
             shadowMirrorRootDirectory: shadowMirrorRootDirectory,
             dataPlaneMode: dataPlaneMode,
+            mutationDurability: .bestEffort,
             authority: authority,
             observer: nil,
             clock: HouseholdSyncBootstrapObservationSupport.systemClock,
@@ -523,6 +525,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         merger: RecordMerger? = nil,
         shadowMirrorRootDirectory: URL? = nil,
         dataPlaneMode: HouseholdDataPlaneMode = .normal,
+        mutationDurability: HouseholdMutationDurability,
         authority: HouseholdSessionAuthority? = nil
     ) throws {
         try self.init(
@@ -535,6 +538,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             merger: merger,
             shadowMirrorRootDirectory: shadowMirrorRootDirectory,
             dataPlaneMode: dataPlaneMode,
+            mutationDurability: mutationDurability,
             authority: authority,
             observer: nil,
             clock: HouseholdSyncBootstrapObservationSupport.systemClock,
@@ -551,6 +555,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         merger: RecordMerger?,
         shadowMirrorRootDirectory: URL?,
         dataPlaneMode: HouseholdDataPlaneMode,
+        mutationDurability: HouseholdMutationDurability,
         authority: HouseholdSessionAuthority?,
         observer: HouseholdSyncBootstrapObserver?,
         clock: @escaping HouseholdSyncMonotonicClock,
@@ -568,7 +573,6 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         self.lifecycleFence = HouseholdSyncLifecycleFence(authority: sessionAuthority)
         self.shadowRootDirectory = shadowMirrorRootDirectory
         self.bootstrapGate = nil
-        self.durableMirrorRequired = dataPlaneMode == .cached
         self.bootstrapObserver = observer
         self.bootstrapObservationClock = clock
         // simmersmith-c7r: assign BEFORE `self.syncEngine` is constructed below. With
@@ -584,6 +588,12 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 expectedZoneID: zoneID,
                 ownsZone: ownsZone)
         }
+        let durability = try HouseholdMutationDurabilityPreparation.make(
+            policy: mutationDurability,
+            scope: validatedInitialMirrorScope,
+            rootDirectory: shadowMirrorRootDirectory)
+        self.shadowMirror = durability.runtime
+        self.durableMirrorRequired = durability.requiresDurableMirror
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -940,7 +950,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     /// The shadow generation remains write-only until P2 independently validates cache restore.
     static func coldStartStateSerialization() -> CKSyncEngine.State.Serialization? { nil }
 
-    // MARK: P1 shadow mirror
+    // MARK: Durable shadow mirror
 
     /// Enables scoped checkpoint capture only after a caller has a complete account identity.
     /// This never changes the active `CKSyncEngine` configuration or hydrates `store`; P1 keeps
@@ -1287,9 +1297,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     // MARK: Public mutation API
 
     /// Must be called under `shadowMirrorLock`. Every path that creates a new local save intent
-    /// uses this same seam, including a fetched-conflict merge. P1 treats a failed diagnostic
-    /// append as non-blocking; cached/recovery sessions require the append before any generation,
-    /// store, or engine-state mutation.
+    /// uses this same seam, including a fetched-conflict merge. Best-effort diagnostics treat a
+    /// failed append as non-blocking; required-durability sessions require it before any
+    /// generation, store, or engine-state mutation.
     private func appendSaveToMirrorBeforeMutationLocked(
         _ record: CKRecord,
         mutationGeneration: UInt64
@@ -1306,9 +1316,9 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     }
 
     /// Stage a record save: write it locally, then tell the engine it's pending. The
-    /// zone is created lazily on the first save. Cache-first/recovery sessions return `false`
-    /// before mutating when their durable WAL cannot accept the intent; P1 preserves its
-    /// historical diagnostic-only behavior and returns `true` after the normal mutation.
+    /// zone is created lazily on the first save. Required-durability sessions return `false`
+    /// before mutating when their WAL cannot accept the intent; best-effort diagnostics preserve
+    /// the historical behavior and return `true` after the normal mutation.
     @discardableResult
     public func save(_ record: CKRecord) -> Bool {
         guard Self.isRecordIDInActiveZone(record.recordID, zoneID: zoneID) else {
@@ -1348,7 +1358,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             return true
         }
         if let durabilityFailure {
-            note("cached save denied: WAL append failed")
+            note("durable save denied: WAL append failed")
             callbackRelay.emit(.durabilityFailure(durabilityFailure))
         }
         return accepted
@@ -1413,7 +1423,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             shadowCoverageRevision &+= 1
         }
         if let durabilityFailure {
-            note("cached delete denied: WAL append failed")
+            note("durable delete denied: WAL append failed")
             callbackRelay.emit(.durabilityFailure(durabilityFailure))
             return .durabilityFailure(durabilityFailure)
         }
@@ -1662,7 +1672,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         guard let batch else { return nil }
         // The initializer may cap a large pending set. Transition only the exact save/delete
         // payloads it selected, and transition every one before returning anything to CloudKit.
-        // A partial WAL failure returns no batch; cached/recovery remains intervention-blocked
+        // A partial WAL failure returns no batch; required durability remains intervention-blocked
         // rather than sending an intent whose durable delivery state is still pending.
         let selectedRecordIDs = batch.recordsToSave.map(\.recordID) + batch.recordIDsToDelete
         for recordID in selectedRecordIDs {
@@ -1672,7 +1682,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                 return prepareSentGenerationLocked(recordID, generation: generation)
             }
             guard accepted else {
-                note("cached send denied: WAL sent transition failed")
+                note("durable send denied: WAL sent transition failed")
                 callbackRelay.emit(.durabilityFailure(MirrorDurabilityFailure()))
                 return nil
             }
@@ -1694,7 +1704,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         emitStoreChanged: Bool
     ) {
         var durabilityFailure: MirrorDurabilityFailure?
-        var supersededCachedSave = false
+        var supersededDurableSave = false
         shadowMirrorLock.withLock {
             let pendingSave = hasPendingSaveLocked(recordID)
             if durableMirrorRequired, hasPendingRecordChangeLocked(recordID) {
@@ -1708,24 +1718,24 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                     .deleteRecord(recordID),
                 ])
                 sentGeneration.removeValue(forKey: recordID)
-                supersededCachedSave = pendingSave
+                supersededDurableSave = pendingSave
             }
-            // P1 remains exact: fetched deletion removes the store record even if its
-            // diagnostic engine still has a pending save. Cached/recovery first writes
-            // the terminal WAL transition above so restart cannot resurrect it.
+            // Best-effort diagnostics still remove the store record even with a pending save.
+            // Required durability first writes the terminal WAL transition above so restart
+            // cannot resurrect it.
             store.removeRecord(recordID)
             shadowCoverageRevision &+= 1
             note("fetched del \(recordID.recordName)")
         }
         if let durabilityFailure {
-            note("cached fetched delete denied: WAL transition failed")
+            note("durable fetched delete denied: WAL transition failed")
             callbackRelay.emit(.durabilityFailure(durabilityFailure))
-        } else if supersededCachedSave {
+        } else if supersededDurableSave {
             callbackRelay.emit(.syncError(SyncFailure(
                 recordName: recordID.recordName,
                 code: .unknownItem,
                 kind: .permanent,
-                message: "A cached change was removed on another device and needs attention.")))
+                message: "A local change was removed on another device and needs attention.")))
         }
         if emitStoreChanged {
             callbackRelay.emit(.storeChanged)
@@ -1817,7 +1827,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
                     note("fetched mod \(remote.recordID.recordName)")
                 }
                 if let durabilityFailure {
-                    note("cached fetched merge denied: WAL append failed")
+                    note("durable fetched merge denied: WAL append failed")
                     callbackRelay.emit(.durabilityFailure(durabilityFailure))
                 }
             }

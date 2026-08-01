@@ -157,6 +157,74 @@ func ownerCachedResumeMaterializesOverlaidBootstrap() async throws {
     _ = try writer.recoveredCheckpointSynchronously()
 }
 
+@Test("recovery-only selection returns a current generation's normalized outbox without cached records")
+func recoveryOnlySelectionUsesCurrentGenerationOutbox() async throws {
+    let root = try catalogRoot()
+    try await seedCachedScope(root: root, scope: catalogScope(), zone: catalogZone)
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        mode: .recoveryOnly)
+
+    guard case .recoveryOnly(let plan, _) = result.outcome else {
+        Issue.record("expected recovery-only plan, got \(result.outcome)")
+        return
+    }
+    #expect(result.diagnostics.isEmpty)
+    #expect(plan.scope == catalogScope())
+    #expect(plan.outbox.count == 1)
+    #expect(plan.outbox.first?.record?.identity.recordName == "recipe-1")
+    #expect(plan.pendingChanges.map(\.operation) == [.save])
+    #expect(plan.interventionCount == 0)
+}
+
+@Test("recovery-only selection ignores current checkpoint records when the normalized outbox is empty")
+func recoveryOnlySelectionReturnsNoneForEmptyOutbox() async throws {
+    let root = try catalogRoot()
+    let writer = try ShadowMirrorCheckpointWriter(scope: catalogScope(), rootDirectory: root)
+    try await writer.publish(
+        records: [catalogRecord("checkpoint-only")],
+        engineState: engineState())
+    await writer.fenceAndPark()
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        mode: .recoveryOnly)
+
+    guard case .none = result.outcome else {
+        Issue.record("an empty durable outbox must not expose checkpoint content")
+        return
+    }
+    #expect(result.diagnostics.isEmpty)
+}
+
+@Test("recovery-only selection never revives an acknowledged intent")
+func recoveryOnlySelectionExcludesAcknowledgedIntent() async throws {
+    let root = try catalogRoot()
+    let writer = try ShadowMirrorCheckpointWriter(scope: catalogScope(), rootDirectory: root)
+    let sequence = try await writer.appendSave(
+        catalogRecord("acknowledged"), mutationGeneration: 1, changedFields: ["name"])
+    _ = try await writer.markSent(sequence: sequence, mutationGeneration: 1)
+    try await writer.publish(
+        records: [catalogRecord("acknowledged")],
+        engineState: engineState())
+    _ = try await writer.acknowledge(sequence: sequence, mutationGeneration: 1)
+    await writer.fenceAndPark()
+
+    let result = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "user-a"),
+        rootDirectory: root,
+        mode: .recoveryOnly)
+
+    guard case .none = result.outcome else {
+        Issue.record("an acknowledged intent must not become recoverable again")
+        return
+    }
+    #expect(result.diagnostics.isEmpty)
+}
+
 @Test("owner catalog leaves a valid legacy verification scope untouched and unselected")
 func ownerCatalogExcludesLegacyVerificationScopeBeforeMaterialization() async throws {
     let root = try catalogRoot()

@@ -406,6 +406,36 @@ func appBootstrapSelectionBridgesCatalogObservations() async throws {
     #expect(count == 2)
 }
 
+@Test("app bootstrap selection exposes durable recovery without cached presentation")
+@MainActor
+func appBootstrapSelectionBridgesRecoveryOnlyMode() async throws {
+    let serialization = try await captureSerialization(pending: [])
+    let directory = try bootstrapRoot()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let root = directory.appendingPathComponent("shadow-mirror", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try await seedScope(root: root, serialization: serialization, includeDelete: false)
+
+    let state = AppState(
+        modelContainer: try makeSimmerSmithModelContainer(inMemory: true),
+        cacheFirstLaunchEnabled: false,
+        householdLifecycleDirectoryURL: directory)
+    let selection = state.bootstrapSelection(
+        accountRecordName: "bootstrap-probe-account",
+        request: .owner(accountRecordName: "bootstrap-probe-account"),
+        expectedRole: .owner,
+        expectedZone: nil,
+        mode: .recoveryOnly)
+
+    #expect(selection.cachedCandidate == nil)
+    let candidate = try #require(selection.recoveryCandidate)
+    #expect(candidate.plan.scope == bootstrapScope())
+    #expect(candidate.plan.outbox.count == 1)
+    #expect(candidate.plan.pendingChanges.map(\.operation) == [.save])
+    candidate.writer.releaseGenerationLeaseSynchronously(candidate.plan.lease.id)
+    candidate.writer.fenceSynchronously()
+}
+
 @Test("main tab visibility is recorded once per launch")
 func appLaunchRecorderRecordsMainTabVisibilityOnce() {
     let capture = AppLaunchObservationCapture()
@@ -1122,7 +1152,7 @@ func cachedWALFailureFailsClosedBeforeMutation() async throws {
     session.onAuthorityEvent = { authorityEvents.append($0) }
     await Task.yield()
     #expect(authorityEvents == [
-        .intervention("Couldn't save this cached change safely. Retry when storage is available.")
+        .intervention("Couldn't save this change safely. Retry when storage is available.")
     ])
 
     let p1Store = HouseholdLocalStore()
@@ -1136,6 +1166,143 @@ func cachedWALFailureFailsClosedBeforeMutation() async throws {
     #expect(p1.save(p1Record))
     #expect(p1Store.record(for: p1Record.recordID) != nil)
     #expect(p1.hasPendingRecordChanges)
+}
+
+@MainActor
+@Test("required normal save is recovery-selectable before any asynchronous drain")
+func requiredNormalSaveIsDurableBeforeDrain() throws {
+    let root = try bootstrapRoot()
+    let store = HouseholdLocalStore()
+    let authority = HouseholdSessionAuthority(initiallyAuthoritative: true)
+    var engine: HouseholdSyncEngine? = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        ownsZone: true,
+        initialMirrorScope: bootstrapScope(),
+        shadowMirrorRootDirectory: root,
+        dataPlaneMode: .normal,
+        mutationDurability: .required,
+        authority: authority)
+    let record = bootstrapRecord("normal-save-survives")
+
+    #expect(engine?.save(record) == true)
+    engine = nil
+
+    let restart = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "bootstrap-probe-account"),
+        rootDirectory: root,
+        mode: .recoveryOnly)
+    guard case .recoveryOnly(let plan, let writer) = restart.outcome else {
+        Issue.record("required normal save did not produce a recovery plan")
+        return
+    }
+    #expect(plan.pendingChanges.map(\.operation) == [.save])
+    #expect(plan.outbox.first?.record?.identity.recordName == record.recordID.recordName)
+
+    let restartStore = HouseholdLocalStore()
+    restartStore.setRecord(bootstrapRecord(record.recordID.recordName, value: "server"))
+    let recoveryAuthority = HouseholdSessionAuthority(initiallyAuthoritative: false)
+    let recoveredEngine = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: restartStore,
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        ownsZone: true,
+        initialMirrorScope: bootstrapScope(),
+        shadowMirrorRootDirectory: root,
+        dataPlaneMode: .normal,
+        mutationDurability: .recoveryPending,
+        authority: recoveryAuthority)
+    try recoveredEngine.applyRecoveryPlan(plan, writer: writer)
+
+    #expect(restartStore.record(for: record.recordID)?["name"] as? String == "v1")
+    #expect(recoveredEngine.canonicalPendingChangesSnapshot().map(\.operation) == [.save])
+    #expect(!recoveredEngine.hasSessionAuthority)
+    #expect(recoveredEngine.promoteSessionAuthority())
+}
+
+@MainActor
+@Test("required normal delete is recovery-selectable before any asynchronous drain")
+func requiredNormalDeleteIsDurableBeforeDrain() throws {
+    let root = try bootstrapRoot()
+    let store = HouseholdLocalStore()
+    let record = bootstrapRecord("normal-delete-survives")
+    store.setRecord(record)
+    var engine: HouseholdSyncEngine? = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        ownsZone: true,
+        initialMirrorScope: bootstrapScope(),
+        shadowMirrorRootDirectory: root,
+        dataPlaneMode: .normal,
+        mutationDurability: .required,
+        authority: HouseholdSessionAuthority(initiallyAuthoritative: true))
+
+    #expect(engine?.delete(record.recordID) == .allowed)
+    engine = nil
+
+    let restart = ShadowMirrorBootstrapCatalog.open(
+        request: .owner(accountRecordName: "bootstrap-probe-account"),
+        rootDirectory: root,
+        mode: .recoveryOnly)
+    guard case .recoveryOnly(let plan, let writer) = restart.outcome else {
+        Issue.record("required normal delete did not produce a recovery plan")
+        return
+    }
+    #expect(plan.pendingChanges.map(\.operation) == [.delete])
+    #expect(plan.outbox.first?.tombstone?.recordName == record.recordID.recordName)
+
+    let restartStore = HouseholdLocalStore()
+    restartStore.setRecord(bootstrapRecord(record.recordID.recordName, value: "server"))
+    let recoveryAuthority = HouseholdSessionAuthority(initiallyAuthoritative: false)
+    let recoveredEngine = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: restartStore,
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        ownsZone: true,
+        initialMirrorScope: bootstrapScope(),
+        shadowMirrorRootDirectory: root,
+        dataPlaneMode: .normal,
+        mutationDurability: .recoveryPending,
+        authority: recoveryAuthority)
+    try recoveredEngine.applyRecoveryPlan(plan, writer: writer)
+
+    #expect(restartStore.record(for: record.recordID) == nil)
+    #expect(recoveredEngine.canonicalPendingChangesSnapshot().map(\.operation) == [.delete])
+    #expect(!recoveredEngine.hasSessionAuthority)
+    #expect(recoveredEngine.promoteSessionAuthority())
+}
+
+@MainActor
+@Test("recovery-pending normal engine rejects mutations until its one writer is installed")
+func recoveryPendingNormalEngineRejectsEarlyMutation() throws {
+    let store = HouseholdLocalStore()
+    let engine = try HouseholdSyncEngine(
+        database: makeDatabase(),
+        zoneID: bootstrapZone,
+        store: store,
+        stateURL: temporaryStateURL(),
+        automaticSync: false,
+        ownsZone: true,
+        initialMirrorScope: bootstrapScope(),
+        shadowMirrorRootDirectory: try bootstrapRoot(),
+        dataPlaneMode: .normal,
+        mutationDurability: .recoveryPending,
+        authority: HouseholdSessionAuthority(initiallyAuthoritative: true))
+    let record = bootstrapRecord("recovery-not-ready")
+
+    #expect(!engine.save(record))
+    #expect(store.record(for: record.recordID) == nil)
+    #expect(!engine.hasPendingRecordChanges)
 }
 
 @Test("recovery overlay also rejects a failed WAL append before local mutation")
@@ -1635,7 +1802,7 @@ struct P2fCoreFix5CachedWALTests {
         #expect(session.store.record(for: hardDeleteRecordID(hardDelete, zoneID: session.zoneID)) != nil)
         #expect((session.store.record(for: eventID)?["linkedWeekID"] as? String) == weekID)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("duplicate-week collapse stops before drain or loser delete when reparent save rejects the WAL")
@@ -1672,7 +1839,7 @@ struct P2fCoreFix5CachedWALTests {
 
         #expect(session.store.record(for: loserID) != nil)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("backup restore throws durability failure without a second drain or synced tail after required save rejection")
@@ -1815,7 +1982,7 @@ struct P2fCoreFix6CachedWALTests {
         #expect(GroceryCodec.decode(retainedAfterFailure).eventQuantity == retained.eventQuantity)
         #expect((session.store.record(for: eventRecord.recordID)?["linkedWeekID"] as? String) == weekID)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 }
 
@@ -1868,7 +2035,7 @@ struct P2fCoreFix7WALPropagationTests {
         }
         #expect(session.store.record(for: hardDeleteRecordID(tombstone, zoneID: session.zoneID)) != nil)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("week meal replacement stops before cascading delete when its first upsert rejects the WAL")
@@ -1915,7 +2082,7 @@ struct P2fCoreFix7WALPropagationTests {
 
         #expect(session.store.record(for: staleMealID) != nil)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("recipe child diff stops before stale-child delete when its first public save rejects the WAL")
@@ -1958,7 +2125,7 @@ struct P2fCoreFix7WALPropagationTests {
 
         #expect(session.store.record(for: staleChildID) != nil)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("event attendee sync stops before stale-attendee delete when its first public save rejects the WAL")
@@ -2013,7 +2180,7 @@ struct P2fCoreFix7WALPropagationTests {
 
         #expect(session.store.record(for: staleAttendeeID) != nil)
         #expect(session.engine.canonicalPendingChangesSnapshot() == pendingBefore)
-        #expect(!session.engine.eventTrace.contains("cached delete denied: WAL append failed"))
+        #expect(!session.engine.eventTrace.contains("durable delete denied: WAL append failed"))
     }
 
     @Test("event merge stops before row and link writes when its first save rejects the WAL")

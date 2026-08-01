@@ -10,6 +10,12 @@ public enum HouseholdDataPlaneMode: Equatable, Sendable {
     case cached
 }
 
+public enum HouseholdMutationDurability: Equatable, Sendable {
+    case bestEffort
+    case required
+    case recoveryPending
+}
+
 public enum HouseholdDataPlaneOperation: Equatable, Sendable {
     case save
     case delete
@@ -98,13 +104,13 @@ public enum HouseholdDataPlanePolicy {
     }
 }
 
-/// A cached or recovered session could not durably append its local intent before a mutation.
-/// P1 continues with its historical diagnostic-only mirror behavior; cache-first sessions must
-/// stop before modifying their store because a later restart could otherwise lose that intent.
+/// A required session could not durably append its local intent before a mutation. Best-effort
+/// diagnostic engines retain their historical behavior; production sessions stop before changing
+/// the store because a later restart could otherwise lose that intent.
 public struct MirrorDurabilityFailure: Equatable, Sendable {
     public let message: String
 
-    public init(message: String = "Couldn't save this cached change safely. Retry when storage is available.") {
+    public init(message: String = "Couldn't save this change safely. Retry when storage is available.") {
         self.message = message
     }
 }

@@ -27,6 +27,11 @@ public enum MirrorBootstrapRequest: Equatable, Sendable {
     case participant(accountRecordName: String, markerZone: MirrorZoneReference?)
 }
 
+public enum MirrorBootstrapSelectionMode: Equatable, Sendable {
+    case cachedAllowed
+    case recoveryOnly
+}
+
 /// Privacy-safe anomaly diagnostics: counts only, never account/household/record identifiers.
 public enum MirrorBootstrapDiagnostic: Equatable, Sendable {
     case multipleOwnerCandidates(count: Int)
@@ -137,6 +142,7 @@ public enum ShadowMirrorBootstrapCatalog {
     public static func open(
         request: MirrorBootstrapRequest,
         rootDirectory: URL,
+        mode: MirrorBootstrapSelectionMode = .cachedAllowed,
         observationContext: HouseholdSyncBootstrapObservationContext? = nil
     ) -> MirrorBootstrapCatalogResult {
         if case .participant(_, nil) = request {
@@ -180,6 +186,28 @@ public enum ShadowMirrorBootstrapCatalog {
             observer?(.bundleValidated(durationNanoseconds: validationDuration))
             let scopeDirectory = rootDirectory
                 .appendingPathComponent(selected.scope.cacheKey, isDirectory: true)
+            if mode == .recoveryOnly {
+                guard !normalized.snapshot.recoveryState.outbox.isEmpty else {
+                    writer.fenceSynchronously()
+                    return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
+                }
+                let lease = writer.acquireGenerationLeaseSynchronously(
+                    generationID: nil,
+                    pinnedJournalAssetSequences: Set(
+                        normalized.snapshot.recoveryState.outbox.map(\.sequence)))
+                do {
+                    let plan = try ShadowMirrorBootstrapMaterializer.materializeRecoveryPlan(
+                        normalized: normalized,
+                        scopeDirectory: scopeDirectory,
+                        lease: lease)
+                    return MirrorBootstrapCatalogResult(
+                        outcome: .recoveryOnly(plan, writer: writer), diagnostics: [])
+                } catch {
+                    writer.quarantineAndReleaseGenerationLeaseSynchronously(lease.id)
+                    observer?(.candidateRejected(quarantined: true))
+                    return MirrorBootstrapCatalogResult(outcome: .none, diagnostics: [])
+                }
+            }
             if let bundle = normalized.snapshot.current {
                 // Legacy participant generations may carry an old Boolean `zoneEnsured` set
                 // by a local save. They retain their WAL as recovery-only, but never render

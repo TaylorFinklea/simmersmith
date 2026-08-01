@@ -23,6 +23,39 @@ public enum ShadowMirrorScopeFactory {
     }
 }
 
+struct HouseholdMutationDurabilityPreparation {
+    let runtime: ShadowMirrorRuntime?
+    let requiresDurableMirror: Bool
+
+    static func make(
+        policy: HouseholdMutationDurability,
+        scope: MirrorScope?,
+        rootDirectory: URL?
+    ) throws -> Self {
+        switch policy {
+        case .bestEffort:
+            return Self(runtime: nil, requiresDurableMirror: false)
+        case .required:
+            guard let scope else { throw MirrorCheckpointError.scopeMismatch }
+            guard let rootDirectory else {
+                throw MirrorCheckpointError.notCacheReady("shadow mirror root unavailable")
+            }
+            let writer = try ShadowMirrorCheckpointWriter(
+                scope: scope,
+                rootDirectory: rootDirectory)
+            return Self(
+                runtime: ShadowMirrorRuntime(writer: writer),
+                requiresDurableMirror: true)
+        case .recoveryPending:
+            guard scope != nil else { throw MirrorCheckpointError.scopeMismatch }
+            guard rootDirectory != nil else {
+                throw MirrorCheckpointError.notCacheReady("shadow mirror root unavailable")
+            }
+            return Self(runtime: nil, requiresDurableMirror: true)
+        }
+    }
+}
+
 /// One immutable boundary captured under `HouseholdSyncEngine`'s mirror gate. Publication may
 /// happen after that gate is released because the outbox/tombstone high-water is fixed here;
 /// later WAL transitions remain above it and replay over the installed generation.

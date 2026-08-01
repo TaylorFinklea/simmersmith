@@ -247,8 +247,8 @@ final class HouseholdSession {
     /// on sign-out — otherwise a different household signed in on this device would
     /// inherit the prior household's sync token (Task-3 token-leakage risk).
     private let stateURL: URL
-    /// Scoped P1 shadow generations live beside, but never replace, the legacy active-engine
-    /// state token. A new session receives a complete `MirrorScope` only after identity resolves.
+    /// Scoped durable generations live beside, but never replace, the active-engine state token.
+    /// A production session receives a complete `MirrorScope` before construction.
     let shadowMirrorRootURL: URL
     /// True only when a verified P2e candidate was constructed and activated. A rejected
     /// candidate falls back to the existing nil-state/full-fetch engine.
@@ -265,9 +265,6 @@ final class HouseholdSession {
         case released
     }
     private var recoveryCandidateDisposition: RecoveryCandidateDisposition
-    /// Invalidated by clear/detach so a late account-identity callback cannot re-enable an old
-    /// writer after this session has been torn down or parked for adoption.
-    private var shadowCaptureNonce = UUID()
     /// The cached boot tail belongs to one promoted session. It is intentionally session-local so
     /// retries resume from their first incomplete operation and teardown discards its state.
     private var deferredSystemWork = DeferredCachedSystemWorkPlan()
@@ -447,6 +444,7 @@ final class HouseholdSession {
                     merger: merger,
                     shadowMirrorRootDirectory: shadowMirrorRootURL,
                     dataPlaneMode: .normal,
+                    mutationDurability: recoveryCandidate == nil ? .required : .recoveryPending,
                     authority: authority)
             }
             // Test/debug compatibility only. Production AppState resolves and supplies the
@@ -594,29 +592,6 @@ final class HouseholdSession {
     /// set syncPhase. Must not crash if iCloud is unavailable — sets .offline on throw.
     func start() async {
         syncPhase = .loading  // AppState.SyncPhase.loading
-
-        // P1 shadow capture is deliberately best-effort and never gates active-engine creation
-        // or the first full fetch. A supplied cached/recovery writer is the continuity source;
-        // a generic late identity task must never park or replace it with a pre-overlay runtime.
-        if !isCachedBootstrap && !isRecoveryOnly {
-            let shadowCaptureNonce = shadowCaptureNonce
-            let shadowRole: MirrorRole = role.isOwner ? .owner : .participant
-            let shadowZoneID = zoneID
-            let shadowHouseholdID = householdID
-            let shadowRootURL = shadowMirrorRootURL
-            Task { @MainActor [weak self] in
-                let accountRecordName = try? await HouseholdShareFlow().currentUserRecordName()
-                guard let scope = ShadowMirrorScopeFactory.make(
-                        accountRecordName: accountRecordName,
-                        zoneID: shadowZoneID,
-                        householdID: shadowHouseholdID,
-                        role: shadowRole) else {
-                    return
-                }
-                guard let self, self.shadowCaptureNonce == shadowCaptureNonce else { return }
-                try? await self.engine.enableShadowMirror(scope: scope, rootDirectory: shadowRootURL)
-            }
-        }
 
         if isCachedBootstrap {
             // Cached household content is already materialized and activated. Do not ensure a
@@ -774,7 +749,6 @@ final class HouseholdSession {
     func clearState() {
         revokeAuthority()
         discardDeferredSystemWork()
-        shadowCaptureNonce = UUID()
         releasePendingRecoveryCandidateForLifecycle()
         _ = engine.clearShadowMirror()
         try? FileManager.default.removeItem(at: stateURL)
@@ -789,7 +763,6 @@ final class HouseholdSession {
     func parkForOwnerToParticipantAdoption() -> Bool {
         revokeAuthority()
         discardDeferredSystemWork()
-        shadowCaptureNonce = UUID()
         releasePendingRecoveryCandidateForLifecycle()
         let parked = engine.parkShadowMirrorForAdoption()
         repairScheduler.deactivate()
@@ -807,7 +780,6 @@ final class HouseholdSession {
     func detach() {
         revokeAuthority()
         discardDeferredSystemWork()
-        shadowCaptureNonce = UUID()
         releasePendingRecoveryCandidateForLifecycle()
         engine.parkShadowMirror()
         repairScheduler.deactivate()

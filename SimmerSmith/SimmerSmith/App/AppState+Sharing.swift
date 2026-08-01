@@ -537,7 +537,7 @@ extension AppState {
         }
         let candidate: MirrorBootstrapCandidate?
         let recoveryCandidate: MirrorRecoveryCandidate?
-        if cacheFirstLaunchEnabled, !marker.requiresDurableMigration {
+        if !marker.requiresDurableMigration {
             let selection = bootstrapSelection(
                 accountRecordName: accountRecordName,
                 request: .participant(
@@ -548,7 +548,8 @@ extension AppState {
                 expectedRole: .participant,
                 expectedZone: MirrorZoneReference(
                     ownerName: marker.ownerName,
-                    zoneName: marker.zoneName))
+                    zoneName: marker.zoneName),
+                mode: cacheFirstLaunchEnabled ? .cachedAllowed : .recoveryOnly)
             candidate = selection.cachedCandidate
             recoveryCandidate = selection.recoveryCandidate
         } else {
@@ -631,7 +632,7 @@ extension AppState {
         } catch {
             householdLaunchPhase = .resolving
             householdAuthority = .intervention(
-                message: "Couldn't establish an exact shared-household cache identity.")
+                message: "Couldn't prepare safe local shared-household storage. Retry when storage is available.")
             return nil
         }
         bootingHouseholdSession = session
