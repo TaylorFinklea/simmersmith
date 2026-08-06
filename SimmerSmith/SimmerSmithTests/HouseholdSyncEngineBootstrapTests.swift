@@ -1423,6 +1423,7 @@ func ownerAndParticipantRecoveryAuthorityProductionPath() throws {
             householdID: scope.householdID,
             role: role,
             recoveryCandidate: MirrorRecoveryCandidate(plan: plan, writer: writer))
+        try session.engine.applyRecoveryPlan(plan, writer: writer)
         let first = CKRecord(
             recordType: "Recipe",
             recordID: CKRecord.ID(recordName: "pending-1", zoneID: session.zoneID))
@@ -1442,8 +1443,7 @@ func ownerAndParticipantRecoveryAuthorityProductionPath() throws {
         #expect(session.engine.pendingRecordChangeCount == 2)
         #expect(state.householdAuthority == .intervention(
             message: "1 durable change needs attention."))
-        session.detach()
-        writer.releaseGenerationLeaseSynchronously(lease.id)
+        session.engine.parkShadowMirror()
     }
 }
 

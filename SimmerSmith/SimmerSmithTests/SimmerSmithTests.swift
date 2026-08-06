@@ -60,14 +60,6 @@ struct SimmerSmithTests {
     }
 }
 
-@MainActor
-struct VoicePlanningBallastFlagTests {
-    @Test("Ballast voice parsing remains disabled by default")
-    func ballastParseDefaultsOff() {
-        #expect(VoicePlanningCoordinator.useBallastParse == false)
-    }
-}
-
 @Suite
 struct RecipeEditorIngredientPolicyTests {
     @Test

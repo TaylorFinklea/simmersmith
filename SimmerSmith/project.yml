@@ -10,8 +10,6 @@ packages:
     path: ../SimmerSmithKit
   SimmerSmithCloudKit:
     path: ../SimmerSmithCloudKit
-  SimmerSmithBallastAdapter:
-    path: ../SimmerSmithBallastAdapter
 targets:
   SimmerSmith:
     type: application
@@ -25,7 +23,6 @@ targets:
         buildPhase: resources
     dependencies:
       - package: SimmerSmithKit
-      - package: SimmerSmithBallastAdapter
       - package: SimmerSmithCloudKit
         product: CloudKitProvisioning
 

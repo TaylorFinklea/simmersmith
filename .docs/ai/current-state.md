@@ -1,17 +1,17 @@
 # Current State
 Branch: main
-Note: P8 runner `214ec20` separate from e0a; build 174 metadata `781bc3f`, upload not started.
+Note: build 174 metadata `781bc3f`; Ballast retired from source/build/CI; upload not started.
 
 ## Plan
 - [x] `simmersmith-9w4` spec + adversarial review (`kimi-k3`, `glm-5.2`).
 - [x] Required normal WAL, recovery-only catalog selection, owner/participant startup wiring.
 - [x] Package tests + static app parse; report: `phases/normal-mode-crash-durability-report.md`.
+- [x] Ballast retirement + universal app CI; report: `phases/ballast-retirement-report.md`.
 - [?] awaiting human verify: cache-first OFF owner + participant add/delete immediate-force-quit matrix.
 
 ## Blockers
 - `simmersmith-9w4`: code complete; device crash-durability evidence still required before closure.
-- App-host tests blocked before compile by missing repo-local `ballast/`; do not change dependency config.
-- Build 174 release blocked: restore sibling `ballast/`, Apple signing identity, ASC Keychain entries + local `.p8`.
+- Build 174 release: Apple Distribution identity present; blocked only by ASC Keychain entries + local `.p8`.
 - `.beads/` database absent; do not reinitialize. `e0a` remains blocked by `h1g` + cross-account matrix.
 - Shipping default stays off: `CacheFirstLaunchPolicy.staticDefault == false`, and non-debug/non-sandbox resolves to `staticDefault && receipt == .appStore`.
 

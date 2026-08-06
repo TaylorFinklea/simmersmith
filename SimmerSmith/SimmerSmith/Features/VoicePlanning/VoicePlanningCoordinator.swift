@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SimmerSmithBallastAdapter
 import SimmerSmithKit
 
 /// SP-C voice week-planning — orchestrates the flow from a TEXT description of the week (typed,
@@ -10,8 +9,6 @@ import SimmerSmithKit
 @MainActor
 @Observable
 final class VoicePlanningCoordinator: Identifiable {
-    static let useBallastParse = false
-
     nonisolated let id = UUID()
     enum Phase: Equatable { case entry, planning, review, error }
 
@@ -51,23 +48,7 @@ final class VoicePlanningCoordinator: Identifiable {
     /// Return to the text box (e.g. after an error) to edit + retry.
     func backToEntry() { phase = .entry }
 
-    // The Ballast port remains a separate default-OFF release gate. Its cloud fallback is the
-    // shipping CloudParseService, injected at the application boundary.
     private func parse(transcript: String, appState: AppState) async throws -> ParsedWeeklyPlan {
-        if Self.useBallastParse {
-            let aiSvc = appState.aiService
-            let parser = BallastVoicePlanParser(
-                fmProvider: GuidedFMParseProvider(),
-                isFMAvailable: { OnDeviceParseService.availability() == .available },
-                cloudParse: { transcript in
-                    guard let aiSvc else { throw VoicePlanningError.noAI }
-                    return try await CloudParseService.parse(transcript: transcript, using: aiSvc)
-                }
-            )
-            return try await parser.parse(transcript: transcript)
-        }
-
-        // Preserve the shipping default-OFF flow byte-for-byte below this gate.
         if OnDeviceParseService.isEnabled, OnDeviceParseService.availability() == .available {
             do { return try await OnDeviceParseService.parse(transcript: transcript) }
             catch { /* degrade to cloud below */ }

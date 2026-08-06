@@ -61,15 +61,9 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 - Sharing v1 / Backup & Restore / voice planning / open-models providers / token streaming —
   shipped 2026-06-28..07-09; device gates beaded. Open models = Ollama Cloud + NeuralWatt
   (OpenRouter retired 2026-07-09, `5890cc8`).
-- Ballast voice parsing — default-OFF adapter shipped in TestFlight build 160 with a 60-case
-  synthetic golden corpus. Mock results prove wiring only; build 160 still uses the existing cloud
-  parse flow and does not exercise Ballast. Enablement remains blocked until `simmersmith-zyp`
-  passes the live hardware/non-inferiority gate. See the
-  [quarantine ADR](decisions.md#2026-07-15--ballast-voice-parse-adapter-remains-quarantined-and-default-off).
-  2026-07-16: the gate's missing prerequisite — an app-owned production-cloud baseline producer —
-  merged as `214ec20` (DebugGate-gated, dormant; spec/report + P5 run procedure in
-  `phases/p8-cloud-baseline-runner-*`). Both remaining gate steps are human, best run near
-  iOS-27 GA.
+- Ballast voice parsing experiment — RETIRED 2026-08-06. The adapter, baseline runner, evaluator,
+  AI identity lease, private package checkout, and gate `simmersmith-zyp` were removed. Voice week
+  planning keeps its existing cloud parse path; historical P8 specs/reports remain as evidence.
 - Architecture reviews v1+v2 (2026-07-01/02) rebuilt the backlog in beads; arch-v2 P1 data-safety
   wave landed 2026-07-02. **arch-v3 (2026-07-09)** = delta review of the post-v2 commits + forward
   track architecture (below).
@@ -79,7 +73,7 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 ### Awaiting User / External
 
 All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut build 174
-(metadata `781bc3f`; restore sibling Ballast, Apple signing identity, ASC Keychain + local `.p8`) · build 151 TestFlight
+(metadata `781bc3f`; Apple Distribution identity present, ASC Keychain + local `.p8` missing) · build 151 TestFlight
 device gates `6uj` (Gate-1 regression), `a97`
 (sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
 test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
@@ -108,7 +102,7 @@ Ordered by dependency, not appeal. None may be pulled forward before submission.
    capability boundary. `z69.1` is blocked on `glw` (same files).
 4. **AI & product features** — `phases/ai-feature-track-spec.md`. Wave 1 hygiene (`nt2`, `fbn`,
    `3pa`, `h2h`) is dispatchable now. Wave 2 (assistant depth: `2d1`, `a0a`, `3sf`) is gated on S6
-   and on keyless users being able to reach it at all. Wave 3 (`95h`, `zyp`, `exc`) is iOS-27 /
+   and on keyless users being able to reach it at all. Wave 3 (`95h`, `exc`) is iOS-27 /
    product-gated. `exc` is settled: **no conversational onboarding interview** (decisions.md).
 
 ### Next (committed milestones — specced 2026-05-14)

@@ -2305,3 +2305,19 @@ durable outbox intent for recovery, but never checkpoint records or serialized e
 WAL-before-store ordering makes accepted intent survive process termination without allowing stale
 checkpoint content to render when the user has disabled cached launch. Single-writer ownership and
 false authority during recovery prevent duplicate appenders and premature mutations.
+
+## 2026-08-06 — Retire Ballast and remove it from the build graph
+
+**Context.** The quarantined Ballast voice parser remained default-off and never entered the shipping
+voice path, but its sibling package checkout, private CI credential, baseline runner, evaluator, and
+AI identity lease still made normal app builds and release preparation depend on the experiment.
+
+**Decision.** Delete the Ballast adapter package and all app-owned experiment scaffolding. Remove the
+package from XcodeGen and the app target, remove the private CI checkout and conditional skips, and run
+app build/tests for every CI event. Preserve the shipping voice behavior: use on-device parsing only
+under its separate existing policy, otherwise use `CloudParseService`. Keep historical P8 documents as
+evidence; retire the live hardware/non-inferiority gate. This supersedes the 2026-07-15 quarantine ADR.
+
+**Why.** A dormant experiment must not be a release or CI availability dependency. Deleting the full
+surface restores a self-contained build while avoiding any change to the voice-planning behavior users
+actually receive.
