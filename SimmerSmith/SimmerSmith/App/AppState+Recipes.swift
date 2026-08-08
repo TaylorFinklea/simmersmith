@@ -2622,6 +2622,13 @@ extension AppState {
         #endif
     }
 
+    func defaultHouseholdServings(explicit: Int = 0) -> Int {
+        if explicit > 0 { return explicit }
+        return OnboardingProfileValues.householdSize(
+            from: profileRepository?.settings ?? [:]
+        )
+    }
+
     func generateRecipeVariationDraft(recipeID: String, goal: String) async throws -> RecipeAIDraft {
         // SP-C AI-2: on-device LLM variation via RecipeAIPrompt. Requires a key.
         #if canImport(CloudKit)
@@ -2641,7 +2648,12 @@ extension AppState {
         }
         let unit = currentUnitSystem()
         let context = recipeContext(from: recipe)
-        let prompt = RecipeAIPrompt.variationPrompt(recipe: context, goal: goal, unit: unit)
+        let prompt = RecipeAIPrompt.variationPrompt(
+            recipe: context,
+            goal: goal,
+            unit: unit,
+            defaultServings: defaultHouseholdServings()
+        )
         let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
         let response = try await aiSvc.generate(request)
         let wire = try RecipeAIParser.parseVariation(response.text)
@@ -2684,7 +2696,7 @@ extension AppState {
         #endif
     }
 
-    func generateRecipeSuggestionDraft(goal: String) async throws -> RecipeAIDraft {
+    func generateRecipeSuggestionDraft(goal: String, servings: Int = 0) async throws -> RecipeAIDraft {
         // SP-C AI-2: on-device LLM suggestion via RecipeAIPrompt. Requires a key.
         #if canImport(CloudKit)
         guard let aiSvc = aiService else {
@@ -2696,7 +2708,12 @@ extension AppState {
         }
         let unit = currentUnitSystem()
         let recentNames = recipes.prefix(20).map(\.name)
-        let prompt = RecipeAIPrompt.suggestionPrompt(goal: goal, recentNames: Array(recentNames), unit: unit)
+        let prompt = RecipeAIPrompt.suggestionPrompt(
+            goal: goal,
+            recentNames: Array(recentNames),
+            unit: unit,
+            defaultServings: defaultHouseholdServings(explicit: servings)
+        )
         let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
         let response = try await aiSvc.generate(request)
         // SP-C AI-2 review I2: the prompt asks for the `{rationale, recipe}` envelope,
@@ -2743,7 +2760,7 @@ extension AppState {
         if !trimmedHint.isEmpty {
             goal += " \(trimmedHint)"
         }
-        let aiDraft = try await generateRecipeSuggestionDraft(goal: goal)
+        let aiDraft = try await generateRecipeSuggestionDraft(goal: goal, servings: servings)
         return aiDraft.draft
         #else
         return try await apiClient.generateSideRecipeDraft(
@@ -2771,7 +2788,11 @@ extension AppState {
         }
         let unit = currentUnitSystem()
         let context = recipeContext(from: recipe)
-        let prompt = RecipeAIPrompt.companionPrompt(recipe: context, unit: unit)
+        let prompt = RecipeAIPrompt.companionPrompt(
+            recipe: context,
+            unit: unit,
+            defaultServings: defaultHouseholdServings()
+        )
         let request = AIRequest(feature: .companionDraft, prompt: prompt, wantsStructuredJSON: true)
         let response = try await aiSvc.generate(request)
         let wire = try RecipeAIParser.parseCompanion(response.text)
@@ -3037,7 +3058,8 @@ extension AppState {
             draft: context,
             instruction: prompt,
             contextHint: contextHint,
-            unit: unit
+            unit: unit,
+            defaultServings: defaultHouseholdServings()
         )
         let request = AIRequest(feature: .companionDraft, prompt: builtPrompt, wantsStructuredJSON: true)
         let response = try await aiSvc.generate(request)

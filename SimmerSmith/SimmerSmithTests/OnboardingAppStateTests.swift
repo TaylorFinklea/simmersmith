@@ -167,6 +167,26 @@ struct OnboardingAppStateTests {
         #expect(lifecycle.state == .completed)
         #expect(lifecycle.snoozeUntil == nil)
     }
+    @Test func defaultHouseholdServingsFallsBackForAbsentAndInvalidSettings() throws {
+        let absentFixture = try OnboardingAppStateFixture()
+        #expect(absentFixture.appState.defaultHouseholdServings() == 4)
+
+        let invalidFixture = try OnboardingAppStateFixture()
+        try invalidFixture.profile.setSettings([OnboardingSettings.householdSize: "not-a-number"])
+        #expect(invalidFixture.appState.defaultHouseholdServings() == 4)
+    }
+
+    @Test func defaultHouseholdServingsUsesPrivateSetting() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.profile.setSettings([OnboardingSettings.householdSize: "2"])
+        #expect(fixture.appState.defaultHouseholdServings() == 2)
+    }
+
+    @Test func defaultHouseholdServingsPreservesExplicitPositiveValue() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.profile.setSettings([OnboardingSettings.householdSize: "2"])
+        #expect(fixture.appState.defaultHouseholdServings(explicit: 7) == 7)
+    }
 }
 
 private let releaseNotesPresentation = ReleaseNotesPresentation(

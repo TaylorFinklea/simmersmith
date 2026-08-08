@@ -132,6 +132,26 @@ func variationPromptArbitraryGoal() {
     #expect(!prompt.contains("Replace meat with satisfying vegetarian protein"))
 }
 
+@Test("suggestion prompt uses the supplied household servings")
+func suggestionUsesSuppliedHouseholdServings() {
+    let prompt = RecipeAIPrompt.suggestionPrompt(
+        goal: "weeknight dinner",
+        defaultServings: 2
+    )
+    #expect(prompt.contains("\"servings\": 2"))
+    #expect(prompt.contains("serve 2 people"))
+}
+
+@Test("variation prompt preserves positive recipe servings over the default")
+func variationPreservesPositiveRecipeServingsOverDefault() {
+    let prompt = RecipeAIPrompt.variationPrompt(
+        recipe: sampleRecipe(),
+        goal: "vegetarian",
+        defaultServings: 2
+    )
+    #expect(prompt.contains("\"servings\": 4"))
+}
+
 @Test("parseVariation round-trips a {rationale, recipe} envelope")
 func parseVariationRoundTrip() throws {
     let raw = """

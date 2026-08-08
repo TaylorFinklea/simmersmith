@@ -34,27 +34,30 @@ public enum RecipeAIPrompt {
     /// recipe. Field set mirrors `recipe_search_ai.py::_build_input`'s `schema_hint`
     /// plus the `tags`/`category` fields the import path uses. Kept as one constant so
     /// every feature's instruction block stays consistent.
-    static let recipeSchemaHint = """
-    {
-      "name": "Recipe Name",
-      "source_url": "https://... (empty string if not from a web page)",
-      "source_label": "site or source name (empty string if none)",
-      "cuisine": "e.g. Italian",
-      "meal_type": "breakfast | lunch | dinner | snack | dessert",
-      "servings": 4,
-      "prep_minutes": 15,
-      "cook_minutes": 30,
-      "tags": ["optional", "descriptive", "tags"],
-      "ingredients": [
-        {"ingredient_name": "all-purpose flour", "quantity": 1.5, "unit": "cup", "prep": "sifted", "category": "Pantry"}
-      ],
-      "steps": [
-        {"instruction": "Step 1 description"},
-        {"instruction": "Step 2 description"}
-      ],
-      "notes": "short note (rationale / why-this-pick / serving tip)"
+    static func recipeSchemaHint(servings: Int = 4) -> String {
+        let effectiveServings = servings > 0 ? servings : 4
+        return """
+        {
+          "name": "Recipe Name",
+          "source_url": "https://... (empty string if not from a web page)",
+          "source_label": "site or source name (empty string if none)",
+          "cuisine": "e.g. Italian",
+          "meal_type": "breakfast | lunch | dinner | snack | dessert",
+          "servings": \(effectiveServings),
+          "prep_minutes": 15,
+          "cook_minutes": 30,
+          "tags": ["optional", "descriptive", "tags"],
+          "ingredients": [
+            {"ingredient_name": "all-purpose flour", "quantity": 1.5, "unit": "cup", "prep": "sifted", "category": "Pantry"}
+          ],
+          "steps": [
+            {"instruction": "Step 1 description"},
+            {"instruction": "Step 2 description"}
+          ],
+          "notes": "short note (rationale / why-this-pick / serving tip)"
+        }
+        """
     }
-    """
 
     /// Render a `RecipeContext` into the plain-text block the variation / companion /
     /// refine prompts show the model. Mirrors how the server's payloads carry name,
@@ -89,6 +92,14 @@ public enum RecipeAIPrompt {
         value == value.rounded() ? String(Int(value)) : String(value)
     }
 
+    private static func servingCount(source: Double?, defaultServings: Int) -> Int {
+        if let source, source > 0 {
+            let rounded = Int(source.rounded())
+            if rounded > 0 { return rounded }
+        }
+        return defaultServings > 0 ? defaultServings : 4
+    }
+
     // MARK: - (a) EXTRACTION (raw text / HTML → RecipeDraft)
 
     /// Build the prompt to EXTRACT a structured recipe from unstructured text (a
@@ -99,7 +110,7 @@ public enum RecipeAIPrompt {
         rawText: String,
         unit: UnitSystem = .us
     ) -> String {
-        """
+        return """
         \(WeekGenPrompt.unitSystemDirective(unit))
 
         You are a recipe parser. Extract the recipe from the text below into a single \
@@ -111,7 +122,7 @@ public enum RecipeAIPrompt {
         empty unless the text states them.
 
         Return ONLY a JSON object matching this schema:
-        \(recipeSchemaHint)
+        \(recipeSchemaHint())
 
         Recipe text:
         \"\"\"
@@ -180,7 +191,7 @@ public enum RecipeAIPrompt {
         - `steps[].instruction` must be a numbered cooking step, not a heading.
         - NEVER include a known allergen for any guest listed above.
         - Return ONLY a JSON object matching this schema:
-        \(recipeSchemaHint)
+        \(recipeSchemaHint())
         """
     }
 
@@ -195,8 +206,10 @@ public enum RecipeAIPrompt {
     public static func variationPrompt(
         recipe: RecipeContext,
         goal: String,
-        unit: UnitSystem = .us
+        unit: UnitSystem = .us,
+        defaultServings: Int = 4
     ) -> String {
+        let effectiveServings = servingCount(source: recipe.servings, defaultServings: defaultServings)
         let preset = VariationGoal.resolve(goal)
         let guidance = preset?.guidanceNote
             ?? "Honor the requested goal while keeping the dish recognizable and balanced."
@@ -216,6 +229,8 @@ public enum RecipeAIPrompt {
         Guidance: \(guidance) Swap only what the goal requires, keep the rest of the \
         dish intact, and keep quantities/steps realistic. \(titleHint) \(tagHint)
 
+        The generated recipe must serve \(effectiveServings) people unless the user's goal text requests another amount.
+
         In `rationale`, write 1-2 sentences naming the key swaps you made and why.
 
         Original recipe:
@@ -224,7 +239,7 @@ public enum RecipeAIPrompt {
         Return ONLY a JSON object with this shape (the recipe matches the recipe schema):
         {
           "rationale": "what changed and why",
-          "recipe": \(recipeSchemaHint)
+          "recipe": \(recipeSchemaHint(servings: effectiveServings))
         }
         """
     }
@@ -240,8 +255,10 @@ public enum RecipeAIPrompt {
     public static func suggestionPrompt(
         goal: String,
         recentNames: [String] = [],
-        unit: UnitSystem = .us
+        unit: UnitSystem = .us,
+        defaultServings: Int = 4
     ) -> String {
+        let effectiveServings = servingCount(source: nil, defaultServings: defaultServings)
         let preset = SuggestionGoal.resolve(goal)
         let mealTypeHint = preset.map { "Target meal type: \($0.mealType)." }
             ?? "Pick the most fitting meal type for the request."
@@ -266,12 +283,14 @@ public enum RecipeAIPrompt {
         \(mealTypeHint) \(note) Make it practical to cook at home, with realistic \
         ingredients (quantities + units) and clear, ordered steps.\(avoidLine)
 
+        The generated recipe must serve \(effectiveServings) people unless the user's text requests another amount.
+
         In `rationale`, write 1-2 sentences on why this recipe fits the request.
 
         Return ONLY a JSON object with this shape (the recipe matches the recipe schema):
         {
           "rationale": "why this recipe fits",
-          "recipe": \(recipeSchemaHint)
+          "recipe": \(recipeSchemaHint(servings: effectiveServings))
         }
         """
     }
@@ -285,9 +304,11 @@ public enum RecipeAIPrompt {
     /// model the recipe and the same option contract and let it match the cuisine).
     public static func companionPrompt(
         recipe: RecipeContext,
-        unit: UnitSystem = .us
+        unit: UnitSystem = .us,
+        defaultServings: Int = 4
     ) -> String {
-        """
+        let effectiveServings = servingCount(source: recipe.servings, defaultServings: defaultServings)
+        return """
         \(WeekGenPrompt.unitSystemDirective(unit))
 
         You are a recipe developer building COMPANION dishes for a main recipe. \
@@ -296,6 +317,8 @@ public enum RecipeAIPrompt {
         Match the main recipe's cuisine and flavor profile, keep each companion simple \
         (about 10 min prep, 15 min cook), and don't duplicate the main's core \
         ingredients. For each, give a one-sentence `rationale` for why it fits.
+
+        Each generated companion recipe must serve \(effectiveServings) people unless the user's text requests another amount.
 
         Use exactly these `option_id` values: "vegetable-side", "starch-side", "sauce".
 
@@ -306,7 +329,7 @@ public enum RecipeAIPrompt {
         {
           "rationale": "one sentence on the overall pairing approach",
           "options": [
-            {"option_id": "vegetable-side", "label": "Vegetable Side", "rationale": "why it fits", "recipe": \(recipeSchemaHint)},
+            {"option_id": "vegetable-side", "label": "Vegetable Side", "rationale": "why it fits", "recipe": \(recipeSchemaHint(servings: effectiveServings))},
             {"option_id": "starch-side", "label": "Starch Side", "rationale": "why it fits", "recipe": { ... }},
             {"option_id": "sauce", "label": "Sauce / Drizzle", "rationale": "why it fits", "recipe": { ... }}
           ]
@@ -325,8 +348,10 @@ public enum RecipeAIPrompt {
         draft: RecipeContext,
         instruction: String,
         contextHint: String = "",
-        unit: UnitSystem = .us
+        unit: UnitSystem = .us,
+        defaultServings: Int = 4
     ) -> String {
+        let effectiveServings = servingCount(source: draft.servings, defaultServings: defaultServings)
         var hintLine = ""
         let trimmedHint = contextHint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedHint.isEmpty {
@@ -342,6 +367,8 @@ public enum RecipeAIPrompt {
         Return the COMPLETE refined recipe (all ingredients and steps, not just the \
         changes).\(hintLine)
 
+        The generated recipe must serve \(effectiveServings) people unless the user's instruction requests another amount.
+
         In `rationale`, write one sentence describing the change you made.
 
         Current draft:
@@ -350,7 +377,7 @@ public enum RecipeAIPrompt {
         Return ONLY a JSON object with this shape (the recipe matches the recipe schema):
         {
           "rationale": "the change you made",
-          "recipe": \(recipeSchemaHint)
+          "recipe": \(recipeSchemaHint(servings: effectiveServings))
         }
         """
     }
@@ -384,7 +411,7 @@ public enum RecipeAIPrompt {
         In `notes`, write 1-2 sentences explaining why this recipe stood out.
 
         Return ONLY a JSON object matching this schema:
-        \(recipeSchemaHint)
+        \(recipeSchemaHint())
         """
     }
 }
