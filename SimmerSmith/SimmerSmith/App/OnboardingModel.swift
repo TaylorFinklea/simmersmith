@@ -6,6 +6,7 @@ enum OnboardingSettings {
     static let state = "onboarding_state"
     static let dismissCount = "onboarding_dismiss_count"
     static let snoozeUntil = "onboarding_snooze_until"
+    static let noSnoozeUntil = ""
     static let draft = "onboarding_draft"
     static let householdSize = "household_size"
     static let likedCuisines = "liked_cuisines"
@@ -78,7 +79,8 @@ struct OnboardingLifecycle: Equatable {
               dismissCount >= 0 else { return nil }
 
         let snoozeUntil: Date?
-        if let value = settings[OnboardingSettings.snoozeUntil] {
+        if let value = settings[OnboardingSettings.snoozeUntil],
+           value != OnboardingSettings.noSnoozeUntil {
             guard let date = Self.parseDate(value) else { return nil }
             snoozeUntil = date
         } else {
@@ -95,15 +97,13 @@ struct OnboardingLifecycle: Equatable {
     }
 
     var settingValues: [String: String] {
-        var values: [String: String] = [
+        [
             OnboardingSettings.version: String(version),
             OnboardingSettings.state: state.rawValue,
             OnboardingSettings.dismissCount: String(dismissCount),
+            OnboardingSettings.snoozeUntil: snoozeUntil.map(Self.formatDate)
+                ?? OnboardingSettings.noSnoozeUntil,
         ]
-        if let snoozeUntil {
-            values[OnboardingSettings.snoozeUntil] = Self.formatDate(snoozeUntil)
-        }
-        return values
     }
 
     fileprivate var isValid: Bool {

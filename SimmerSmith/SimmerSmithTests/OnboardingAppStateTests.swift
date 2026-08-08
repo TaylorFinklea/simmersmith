@@ -45,6 +45,42 @@ struct OnboardingAppStateTests {
         fixture.appState.cancelOnboarding()
         #expect(fixture.appState.pendingOnboarding == nil)
     }
+
+    @Test func secondAutomaticDismissalReloadsAsRetired() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+        let firstDismissal = Date(timeIntervalSince1970: 2_000_000_000)
+        fixture.appState.evaluatePendingOnboarding(now: firstDismissal)
+        try fixture.appState.dismissAutomaticOnboarding(now: firstDismissal)
+        fixture.appState.evaluatePendingOnboarding(now: firstDismissal.addingTimeInterval(86_400))
+        try fixture.appState.dismissAutomaticOnboarding(
+            now: firstDismissal.addingTimeInterval(86_400)
+        )
+
+        fixture.profile.reload()
+        let lifecycle = try #require(OnboardingLifecycle(settings: fixture.profile.settings))
+        #expect(lifecycle.state == .retired)
+        #expect(lifecycle.dismissCount == 2)
+        #expect(lifecycle.snoozeUntil == nil)
+    }
+
+    @Test func completionReloadsAsCompleted() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.completeOnboarding(OnboardingDraft(
+            householdSize: 2,
+            ingredientChoices: [],
+            likedCuisines: ["Thai"],
+            timeZoneIdentifier: "UTC"
+        ))
+
+        fixture.profile.reload()
+        let lifecycle = try #require(OnboardingLifecycle(settings: fixture.profile.settings))
+        #expect(lifecycle.state == .completed)
+        #expect(lifecycle.snoozeUntil == nil)
+    }
 }
 
 @MainActor

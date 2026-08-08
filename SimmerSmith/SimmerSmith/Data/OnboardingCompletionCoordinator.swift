@@ -44,10 +44,12 @@ struct OnboardingCompletionCoordinator {
         guard try projectedDraft() == staged else {
             throw Error.projectionMismatch
         }
+        let dismissCount = OnboardingLifecycle(settings: profileRepository.settings)?.dismissCount ?? 0
         try profileRepository.setSettings([
             OnboardingSettings.version: "1",
             OnboardingSettings.state: OnboardingLifecycleState.completed.rawValue,
-            OnboardingSettings.snoozeUntil: "",
+            OnboardingSettings.dismissCount: String(dismissCount),
+            OnboardingSettings.snoozeUntil: OnboardingSettings.noSnoozeUntil,
             OnboardingSettings.draft: "",
         ])
         return staged
