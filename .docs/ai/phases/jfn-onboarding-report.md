@@ -69,3 +69,16 @@ claimed by this closeout.
 
 After closeout, `git status --short` produced no output. The clean Git status is compatible with the
 intentionally gitignored `.superpowers/` SDD workspace, which is not force-added or tracked.
+
+## Final-review repair — 2026-08-08
+
+- Commit `944250d` corrects the final-review findings in the ingredient onboarding step: opening the
+  step now browses the canonical empty-query catalog, catalog failures expose a retry for the current
+  query, and ingredient selections are keyed and managed by `(baseIngredientID, choiceMode)`.
+- The Settings/manual-relaunch regression persists both `peanut/avoid` and `peanut/allergy`, then
+  verifies that both draft rows and distinct SwiftUI identities survive the relaunch.
+- Fresh app-host verification: the focused `OnboardingAppStateTests` target passed 16 tests; the full
+  `SimmerSmithTests` run passed **243 tests in 46 suites** with the existing no-iCloud and
+  background-task simulator diagnostics; generic iOS Simulator build passed.
+- The signed-device human UI gate above remains unchanged and pending. After this report commit,
+  `git status --short` is clean; `.superpowers/` remains ignored local SDD scratch.
