@@ -143,6 +143,66 @@ final class PreferenceRepository {
         reload()
     }
 
+    /// Replace onboarding's avoid/allergy projection while preserving preferred and
+    /// other choice modes. Existing logical rows are reused deterministically.
+    func reconcileAvoidancePreferences(
+        _ choices: [OnboardingIngredientChoice]
+    ) throws {
+        guard let store else { throw PreferenceRepositoryError.storeUnavailable }
+        let normalized = try OnboardingDraft(
+            householdSize: 4,
+            ingredientChoices: choices,
+            likedCuisines: [],
+            timeZoneIdentifier: TimeZone.current.identifier
+        ).normalized().ingredientChoices
+        let desired = normalized.reduce(into: [AvoidanceKey: OnboardingIngredientChoice]()) { result, choice in
+            let key = AvoidanceKey(baseIngredientID: choice.baseIngredientID, choiceMode: choice.mode.rawValue)
+            if result[key] == nil {
+                result[key] = choice
+            }
+        }
+        let rows = try store.allIngredientPreferences()
+        let managed = rows.filter { $0.choiceMode == "avoid" || $0.choiceMode == "allergy" }
+        let grouped = Dictionary(grouping: managed) {
+            AvoidanceKey(baseIngredientID: $0.baseIngredientID, choiceMode: $0.choiceMode)
+        }
+        let desiredKeys = Set(desired.keys)
+        var retainedKeys = Set<AvoidanceKey>()
+        for (index, choice) in normalized.enumerated() {
+            let key = AvoidanceKey(baseIngredientID: choice.baseIngredientID, choiceMode: choice.mode.rawValue)
+            guard retainedKeys.insert(key).inserted else { continue }
+            if let sortedRows = grouped[key]?.sorted(by: Self.avoidanceRowOrder), let row = sortedRows.first {
+                row.baseIngredientID = choice.baseIngredientID
+                row.baseIngredientName = choice.baseIngredientName
+                row.choiceMode = choice.mode.rawValue
+                row.rank = index + 1
+                row.active = true
+                for duplicate in sortedRows.dropFirst() {
+                    store.context.delete(duplicate)
+                }
+            } else {
+                try store.upsertIngredientPreference(
+                    preferenceID: UUID().uuidString,
+                    baseIngredientID: choice.baseIngredientID,
+                    baseIngredientName: choice.baseIngredientName,
+                    choiceMode: choice.mode.rawValue,
+                    rank: index + 1,
+                    active: true,
+                    brand: "",
+                    variation: ""
+                )
+            }
+        }
+        for row in managed {
+            let key = AvoidanceKey(baseIngredientID: row.baseIngredientID, choiceMode: row.choiceMode)
+            if !desiredKeys.contains(key) {
+                store.context.delete(row)
+            }
+        }
+        try store.save()
+        reload()
+    }
+
     // MARK: - Preference signal writes
 
     /// Upsert a preference signal (det-keyed on signalType + normalizedName), persist,
@@ -196,6 +256,19 @@ final class PreferenceRepository {
             active: row.active,
             updatedAt: row.updatedAt
         )
+    }
+
+    private struct AvoidanceKey: Hashable {
+        let baseIngredientID: String
+        let choiceMode: String
+    }
+
+    private static func avoidanceRowOrder(
+        _ lhs: PrivateIngredientPreference,
+        _ rhs: PrivateIngredientPreference
+    ) -> Bool {
+        if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+        return lhs.recordKey < rhs.recordKey
     }
 }
 

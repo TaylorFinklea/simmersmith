@@ -73,6 +73,7 @@
 		4DC9E1F5A9DDA9794E3424CE /* P2eCachedBootTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577655467384844019E68342 /* P2eCachedBootTests.swift */; };
 		4E6272EB11A80426C6884DCB /* CompactMealCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C86214020223D614C5A52CE /* CompactMealCard.swift */; };
 		4E9D70ECD621F2F9FA5CDC5D /* EventCreateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FAFBA63965D3D1F74752EC /* EventCreateSheet.swift */; };
+		4F9B83EC8E920D35665CAA0D /* OnboardingCompletionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FF3576E11B7367F41F7130A /* OnboardingCompletionCoordinator.swift */; };
 		522B9BEAE951752A879A8851 /* CookCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A33E0F18FC2CE75CD7A8B98A /* CookCheckView.swift */; };
 		53333C9542C3853B332E9F9F /* AppState+Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26076A4E14EE7B4C7DC0B5AD /* AppState+Profile.swift */; };
 		53D3903682897BECC71E2611 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D65D0437D1EB3F7E7704FFE /* PushService.swift */; };
@@ -216,6 +217,7 @@
 		F9E9DB18C199398DCBFBAA9E /* CloudSharingControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E391F21C071ECF29EB17F7C /* CloudSharingControllerView.swift */; };
 		FA321C275C0768C9A67973A9 /* PaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4FCB335E2D0BC704F8F261 /* PaywallSheet.swift */; };
 		FA5590E68EF07E869752CB73 /* SpokenStepService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73FAFAC99FA29E950AB9868C /* SpokenStepService.swift */; };
+		FB2F90D5E8B5A1F12CFBCD58 /* OnboardingPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA30EB9D8D110FC94B8D21D4 /* OnboardingPersistenceTests.swift */; };
 		FD12F142E93F6C92BA962DA4 /* MealQuickAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B558C851C0287AAD147DB6 /* MealQuickAddSheet.swift */; };
 		FDDAAE3A509E385CD5A86B27 /* SubstitutionSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */; };
 		FE0A34FE230DCE76754A0725 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7A6B7D9F0DD74127F7C5B35F /* Assets.xcassets */; };
@@ -313,6 +315,7 @@
 		4E8E58D8B9A530AEDFB06F7B /* EventMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMigrationLoader.swift; sourceTree = "<group>"; };
 		4F6BEBB4D9B06B80665D9652 /* WrappingHStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrappingHStack.swift; sourceTree = "<group>"; };
 		4FAB84941BEBB4EA5625E950 /* OnboardingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingModel.swift; sourceTree = "<group>"; };
+		4FF3576E11B7367F41F7130A /* OnboardingCompletionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCompletionCoordinator.swift; sourceTree = "<group>"; };
 		5000BD6EABEF48BB7358F8C5 /* SubstitutionSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubstitutionSheetView.swift; sourceTree = "<group>"; };
 		50B987531CD5D3613D68015F /* EventMealEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventMealEditorSheet.swift; sourceTree = "<group>"; };
 		510372691B220D76A81C3229 /* PantryProfileMigrationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PantryProfileMigrationLoader.swift; sourceTree = "<group>"; };
@@ -386,6 +389,7 @@
 		A8178AFC294B4845F8D0AFF3 /* SimmerSmithKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimmerSmithKit; path = ../SimmerSmithKit; sourceTree = SOURCE_ROOT; };
 		A99F4CCC2130F15AC404F605 /* AppState+Grocery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Grocery.swift"; sourceTree = "<group>"; };
 		AA12D8F99F863C413A31A02F /* SimmerSmithUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SimmerSmithUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA30EB9D8D110FC94B8D21D4 /* OnboardingPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPersistenceTests.swift; sourceTree = "<group>"; };
 		AB6695AFDEECB8F5C47DC339 /* IngredientResolverIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngredientResolverIntegrationTests.swift; sourceTree = "<group>"; };
 		AB6E839108F9DCE492AA99BF /* MealSidesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealSidesSheet.swift; sourceTree = "<group>"; };
 		ABA391135FC54F682B62E86F /* InvitationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationSheet.swift; sourceTree = "<group>"; };
@@ -653,6 +657,7 @@
 				04A31049AA00BA6CF43BF389 /* IngredientRepository.swift */,
 				4068EDAF68A8CD3DE46AE8CE /* IngredientResolutionCoordinator.swift */,
 				7FABD368F46E53789760BDBD /* MetadataRepository.swift */,
+				4FF3576E11B7367F41F7130A /* OnboardingCompletionCoordinator.swift */,
 				510372691B220D76A81C3229 /* PantryProfileMigrationLoader.swift */,
 				0F280ACD08CECCD7EE691A5A /* PantryRepository.swift */,
 				DAA8CAD86110366F8DB2710D /* PreferenceRepository.swift */,
@@ -859,6 +864,7 @@
 				AB6695AFDEECB8F5C47DC339 /* IngredientResolverIntegrationTests.swift */,
 				D6FED9D160DD2EC6B064E1F7 /* IngredientsProductFlowTests.swift */,
 				F750A8B618C8C8ED9382E560 /* MigrationReceiptCompletenessTests.swift */,
+				AA30EB9D8D110FC94B8D21D4 /* OnboardingPersistenceTests.swift */,
 				037B3799666A2336AEEECD39 /* OnboardingPolicyTests.swift */,
 				577655467384844019E68342 /* P2eCachedBootTests.swift */,
 				1C2C91FE3339F625CF7121B6 /* RecipeMemoryLiveUpdateTests.swift */,
@@ -1067,6 +1073,7 @@
 				8ABB7D934E891BFDD6373316 /* IngredientResolverIntegrationTests.swift in Sources */,
 				A020099204BC60B0BB65112B /* IngredientsProductFlowTests.swift in Sources */,
 				CAB69A8AFC679E001854E3C9 /* MigrationReceiptCompletenessTests.swift in Sources */,
+				FB2F90D5E8B5A1F12CFBCD58 /* OnboardingPersistenceTests.swift in Sources */,
 				9E6FB8130E6289456594CB77 /* OnboardingPolicyTests.swift in Sources */,
 				4DC9E1F5A9DDA9794E3424CE /* P2eCachedBootTests.swift in Sources */,
 				0533CA146A5F231B0D7D398E /* RecipeMemoryLiveUpdateTests.swift in Sources */,
@@ -1198,6 +1205,7 @@
 				D29517D5A214EA67398BD1A9 /* MetadataRepository.swift in Sources */,
 				F703FF423BA58AFF2881D9C4 /* NotificationManager.swift in Sources */,
 				29566C0588E6421779F8386A /* OnDeviceParseService.swift in Sources */,
+				4F9B83EC8E920D35665CAA0D /* OnboardingCompletionCoordinator.swift in Sources */,
 				4786CA980A218F9586630FF2 /* OnboardingMintReceiptStore.swift in Sources */,
 				C4FE2519CF31FE4C04FF57E2 /* OnboardingModel.swift in Sources */,
 				A56E3EF0404F33A7E4C82F34 /* OpenModelsPickerRow.swift in Sources */,

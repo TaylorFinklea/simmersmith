@@ -26,21 +26,39 @@ import SimmerSmithKit
 @Observable
 final class ProfileRepository {
 
-    /// The NON-AI profile settings the views read, keyed by the same setting keys the
-    /// Fly profile used (image_provider / unit_system / user_region / auto_grocery_from_meals).
+    /// The profile settings this repository owns, keyed by the same setting keys the
+    /// Fly profile used plus the onboarding projection.
     private(set) var settings: [String: String] = [:]
 
     /// The singleton dietary goal, or nil when the user hasn't set one.
     private(set) var dietaryGoal: DietaryGoal?
 
-    /// The setting keys this repository owns (NON-AI). Used to scope reads/writes so the
-    /// private plane's other rows (AI settings, when the AI track adds them) are untouched.
-    static let nonAIKeys = ["image_provider", "unit_system", "user_region", "auto_grocery_from_meals"]
+    /// The setting keys this repository owns. Used to scope reads/writes so the private
+    /// plane's other rows (AI settings, when the AI track adds them) are untouched.
+    static let nonAIKeys = [
+        "image_provider", "unit_system", "user_region", "auto_grocery_from_meals",
+    ] + Array(OnboardingSettings.ownedKeys)
 
-    private let session: HouseholdSession
+    private enum StoreSource {
+        case session(HouseholdSession)
+        case fixed(PrivatePlaneStore?)
+    }
+
+    private let storeSource: StoreSource
 
     init(session: HouseholdSession) {
-        self.session = session
+        self.storeSource = .session(session)
+    }
+
+    init(store: PrivatePlaneStore?) {
+        self.storeSource = .fixed(store)
+    }
+
+    private var store: PrivatePlaneStore? {
+        switch storeSource {
+        case .session(let session): session.privateStore
+        case .fixed(let store): store
+        }
     }
 
     // MARK: - Read
@@ -49,7 +67,7 @@ final class ProfileRepository {
     /// projection. Call on appear and after every write. A nil private store (pre-boot /
     /// iCloud unavailable) leaves the projection empty rather than throwing.
     func reload() {
-        guard let store = session.privateStore else {
+        guard let store else {
             settings = [:]
             dietaryGoal = nil
             return
@@ -70,25 +88,34 @@ final class ProfileRepository {
 
     // MARK: - Settings writes
 
-    /// Upsert a single NON-AI setting, persist, and refresh the projection. Keys outside
+    /// Upsert a single setting, persist, and refresh the projection. Keys outside
     /// `nonAIKeys` are rejected (no-op) — AI settings are not this repository's concern.
     func setSetting(_ key: String, _ value: String) {
-        guard Self.nonAIKeys.contains(key) else { return }
-        guard let store = session.privateStore else { return }
         do {
-            try store.upsertProfileSetting(key: key, value: value)
-            try store.save()
-            reload()
+            try setSettings([key: value])
         } catch {
             print("[ProfileRepository] setSetting(\(key)) failed: \(error)")
         }
+    }
+
+    /// Upsert a checked batch of owned settings, persist once, and refresh the projection.
+    func setSettings(_ values: [String: String]) throws {
+        for key in values.keys where !Self.nonAIKeys.contains(key) {
+            throw ProfileRepositoryError.unsupportedKey(key)
+        }
+        guard let store else { throw ProfileRepositoryError.storeUnavailable }
+        for key in values.keys.sorted() {
+            try store.upsertProfileSetting(key: key, value: values[key] ?? "")
+        }
+        try store.save()
+        reload()
     }
 
     // MARK: - Dietary goal writes
 
     /// Upsert the singleton dietary goal, persist, and refresh the projection.
     func saveDietaryGoal(_ goal: DietaryGoal) {
-        guard let store = session.privateStore else { return }
+        guard let store else { return }
         do {
             try store.upsertDietaryGoal(
                 goalType: goal.goalType.rawValue,
@@ -108,7 +135,7 @@ final class ProfileRepository {
 
     /// Clear the singleton dietary goal (delete the row), persist, and refresh.
     func clearDietaryGoal() {
-        guard let store = session.privateStore else { return }
+        guard let store else { return }
         do {
             if let row = try store.dietaryGoal() {
                 store.context.delete(row)
@@ -139,5 +166,10 @@ final class ProfileRepository {
             updatedAt: row.updatedAt
         )
     }
+}
+
+enum ProfileRepositoryError: Error, Equatable {
+    case storeUnavailable
+    case unsupportedKey(String)
 }
 #endif
