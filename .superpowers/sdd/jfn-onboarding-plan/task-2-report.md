@@ -41,4 +41,4 @@ GREEN (after implementation and project regeneration): the same command passed. 
 
 ## Commit
 
-- `a318a57` — `feat: persist onboarding atomically`
+- `8405ef0` — `feat: persist onboarding atomically`
