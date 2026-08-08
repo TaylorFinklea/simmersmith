@@ -182,7 +182,7 @@ enum OnboardingPolicy {
     }
 }
 
-enum OnboardingIngredientMode: String, Codable, CaseIterable, Equatable {
+enum OnboardingIngredientMode: String, Codable, CaseIterable, Equatable, Hashable {
     case avoid
     case allergy
 }
@@ -202,10 +202,15 @@ enum OnboardingDraftError: Error, LocalizedError, Equatable {
 }
 
 struct OnboardingIngredientChoice: Codable, Equatable, Hashable, Identifiable {
+    struct Identity: Hashable {
+        let baseIngredientID: String
+        let mode: OnboardingIngredientMode
+    }
+
     let baseIngredientID: String
     let baseIngredientName: String
     var mode: OnboardingIngredientMode
-    var id: String { baseIngredientID }
+    var id: Identity { Identity(baseIngredientID: baseIngredientID, mode: mode) }
 }
 
 struct OnboardingDraft: Codable, Equatable {

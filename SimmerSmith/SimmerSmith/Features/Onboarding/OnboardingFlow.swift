@@ -12,6 +12,7 @@ struct OnboardingFlow: View {
     @State private var isSearching = false
     @State private var isCompleting = false
     @State private var errorMessage: String?
+    @State private var ingredientSearchFailed = false
     @State private var ingredientMode: OnboardingIngredientMode = .avoid
 
     init(presentation: OnboardingPresentation) {
@@ -153,6 +154,16 @@ struct OnboardingFlow: View {
                         .foregroundStyle(SMColor.textSecondary)
                 }
                 .accessibilityElement(children: .combine)
+            } else if ingredientSearchFailed {
+                VStack(alignment: .leading, spacing: SMSpacing.sm) {
+                    Text("We couldn't load ingredients.")
+                        .font(SMFont.caption)
+                        .foregroundStyle(SMColor.textSecondary)
+                    Button("Retry") {
+                        Task { await searchIngredients() }
+                    }
+                    .accessibilityHint("Retries the current ingredient search.")
+                }
             } else if !ingredientSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       ingredientResults.isEmpty {
                 Text("No matching ingredients found.")
@@ -167,13 +178,19 @@ struct OnboardingFlow: View {
                             Text(ingredient.name)
                                 .foregroundStyle(SMColor.textPrimary)
                             Spacer()
-                            Image(systemName: "plus.circle")
+                            Image(systemName: isIngredientSelected(ingredient)
+                                ? "checkmark.circle.fill"
+                                : "plus.circle")
                                 .accessibilityHidden(true)
                         }
                     }
                     .buttonStyle(.bordered)
+                    .disabled(isIngredientSelected(ingredient))
                     .accessibilityLabel("Add \(ingredient.name)")
-                    .accessibilityHint("Adds as \(ingredientMode.rawValue).")
+                    .accessibilityValue(isIngredientSelected(ingredient) ? "Added" : "Not added")
+                    .accessibilityHint(isIngredientSelected(ingredient)
+                        ? "Already added as \(ingredientMode.rawValue)."
+                        : "Adds as \(ingredientMode.rawValue).")
                 }
             }
 
@@ -195,10 +212,10 @@ struct OnboardingFlow: View {
                             Spacer()
                             Button("Remove", role: .destructive) {
                                 draft.ingredientChoices.removeAll {
-                                    $0.baseIngredientID == choice.baseIngredientID
+                                    $0.id == choice.id
                                 }
                             }
-                            .accessibilityLabel("Remove \(choice.baseIngredientName)")
+                            .accessibilityLabel("Remove \(choice.baseIngredientName) \(choice.mode.rawValue)")
                         }
                         .padding(.vertical, SMSpacing.xs)
                     }
@@ -298,38 +315,38 @@ struct OnboardingFlow: View {
 
     private func searchIngredients() async {
         let query = ingredientSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            ingredientResults = []
-            return
-        }
-
         isSearching = true
+        ingredientSearchFailed = false
+        errorMessage = nil
         defer { isSearching = false }
 
         do {
             let results = try await appState.searchBaseIngredients(query: query, limit: 20)
-            guard !Task.isCancelled, ingredientSearch == query else { return }
-            ingredientResults = results.filter { ingredient in
-                !draft.ingredientChoices.contains { $0.baseIngredientID == ingredient.baseIngredientId }
-            }
+            guard !Task.isCancelled,
+                  ingredientSearch.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
+            ingredientResults = results
         } catch {
             guard !Task.isCancelled else { return }
             ingredientResults = []
             errorMessage = error.localizedDescription
+            ingredientSearchFailed = true
         }
     }
 
     private func addIngredient(_ ingredient: BaseIngredient) {
-        guard !draft.ingredientChoices.contains(where: {
-            $0.baseIngredientID == ingredient.baseIngredientId
-        }) else { return }
+        guard !isIngredientSelected(ingredient) else { return }
 
         draft.ingredientChoices.append(OnboardingIngredientChoice(
             baseIngredientID: ingredient.baseIngredientId,
             baseIngredientName: ingredient.name,
             mode: ingredientMode
         ))
-        ingredientResults.removeAll { $0.baseIngredientId == ingredient.baseIngredientId }
+    }
+
+    private func isIngredientSelected(_ ingredient: BaseIngredient) -> Bool {
+        draft.ingredientChoices.contains {
+            $0.baseIngredientID == ingredient.baseIngredientId && $0.mode == ingredientMode
+        }
     }
 
     private func isCuisineSelected(_ cuisine: String) -> Bool {

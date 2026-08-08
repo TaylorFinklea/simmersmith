@@ -46,6 +46,30 @@ struct OnboardingAppStateTests {
         #expect(fixture.appState.pendingOnboarding == nil)
     }
 
+    @Test func manualLaunchRetainsAvoidAndAllergyForTheSameIngredient() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.preferences.reconcileAvoidancePreferences([
+            OnboardingIngredientChoice(
+                baseIngredientID: "peanut",
+                baseIngredientName: "Peanut",
+                mode: .avoid
+            ),
+            OnboardingIngredientChoice(
+                baseIngredientID: "peanut",
+                baseIngredientName: "Peanut",
+                mode: .allergy
+            ),
+        ])
+
+        fixture.appState.showOnboardingFromSettings()
+
+        let choices = try #require(fixture.appState.pendingOnboarding?.draft.ingredientChoices)
+        #expect(choices.count == 2)
+        #expect(Set(choices.map(\.id)).count == 2)
+        #expect(choices.contains { $0.baseIngredientID == "peanut" && $0.mode == .avoid })
+        #expect(choices.contains { $0.baseIngredientID == "peanut" && $0.mode == .allergy })
+    }
+
     @Test func loadingPrivateDataDefersOnboardingAndReleaseNotes() throws {
         let fixture = try OnboardingAppStateFixture()
         try fixture.appState.initializeOnboardingIfNeeded(
