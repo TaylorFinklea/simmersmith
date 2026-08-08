@@ -85,6 +85,30 @@ struct OnboardingPolicyTests {
             OnboardingSettings.state: OnboardingLifecycleState.pending.rawValue,
             OnboardingSettings.dismissCount: "-1",
         ]) == nil)
+        #expect(OnboardingLifecycle(settings: [
+            OnboardingSettings.version: "1",
+            OnboardingSettings.state: OnboardingLifecycleState.pending.rawValue,
+            OnboardingSettings.dismissCount: "2",
+        ]) == nil)
+        #expect(OnboardingLifecycle(settings: [
+            OnboardingSettings.version: "1",
+            OnboardingSettings.state: OnboardingLifecycleState.pending.rawValue,
+            OnboardingSettings.dismissCount: String(Int.max),
+        ]) == nil)
+    }
+
+    @Test func fractionalSnoozeRoundTripsWithoutEarlyPresentation() throws {
+        let fractionalNow = Date(timeIntervalSince1970: 2_000_000_000.123456)
+        let update = try #require(OnboardingPolicy.dismissalUpdate(
+            lifecycle: .pending,
+            now: fractionalNow
+        ))
+        let restored = try #require(OnboardingLifecycle(settings: update.settingValues))
+        #expect(restored.snoozeUntil == update.snoozeUntil)
+        #expect(OnboardingPolicy.automaticDecision(
+            for: restored,
+            now: update.snoozeUntil!.addingTimeInterval(-0.000001)
+        ) == .wait)
     }
 
     @Test func profileValuesNormalizeAndFailClosed() {

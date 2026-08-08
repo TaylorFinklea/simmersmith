@@ -84,7 +84,12 @@ struct OnboardingLifecycle: Equatable {
         } else {
             snoozeUntil = nil
         }
-        guard state == .pending || snoozeUntil == nil else { return nil }
+        guard Self.isValid(
+            version: version,
+            state: state,
+            dismissCount: dismissCount,
+            snoozeUntil: snoozeUntil
+        ) else { return nil }
 
         self.init(version: version, state: state, dismissCount: dismissCount, snoozeUntil: snoozeUntil)
     }
@@ -101,8 +106,35 @@ struct OnboardingLifecycle: Equatable {
         return values
     }
 
+    fileprivate var isValid: Bool {
+        Self.isValid(
+            version: version,
+            state: state,
+            dismissCount: dismissCount,
+            snoozeUntil: snoozeUntil
+        )
+    }
+
+    private static func isValid(
+        version: Int,
+        state: OnboardingLifecycleState,
+        dismissCount: Int,
+        snoozeUntil: Date?
+    ) -> Bool {
+        guard version == OnboardingSettings.currentVersion, dismissCount >= 0 else { return false }
+        switch state {
+        case .pending:
+            return (dismissCount == 0 && snoozeUntil == nil)
+                || (dismissCount == 1 && snoozeUntil != nil)
+        case .completed:
+            return snoozeUntil == nil
+        case .retired:
+            return dismissCount >= 2 && snoozeUntil == nil
+        }
+    }
+
     fileprivate static func formatDate(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        String(date.timeIntervalSince1970)
     }
 
     fileprivate static func parseDate(_ value: String) -> Date? {
@@ -123,7 +155,7 @@ enum OnboardingPolicy {
         for lifecycle: OnboardingLifecycle,
         now: Date
     ) -> OnboardingAutomaticDecision {
-        guard lifecycle.state == .pending else { return .none }
+        guard lifecycle.isValid, lifecycle.state == .pending else { return .none }
         guard let snoozeUntil = lifecycle.snoozeUntil else { return .present }
         return now >= snoozeUntil ? .present : .wait
     }
@@ -132,20 +164,19 @@ enum OnboardingPolicy {
         lifecycle: OnboardingLifecycle,
         now: Date
     ) -> OnboardingLifecycle? {
-        guard lifecycle.state == .pending else { return nil }
-        let dismissCount = lifecycle.dismissCount + 1
-        if dismissCount >= 2 {
+        guard lifecycle.isValid, lifecycle.state == .pending else { return nil }
+        if lifecycle.dismissCount == 1 {
             return OnboardingLifecycle(
                 version: lifecycle.version,
                 state: .retired,
-                dismissCount: dismissCount,
+                dismissCount: 2,
                 snoozeUntil: nil
             )
         }
         return OnboardingLifecycle(
             version: lifecycle.version,
             state: .pending,
-            dismissCount: dismissCount,
+            dismissCount: lifecycle.dismissCount + 1,
             snoozeUntil: now.addingTimeInterval(86_400)
         )
     }
