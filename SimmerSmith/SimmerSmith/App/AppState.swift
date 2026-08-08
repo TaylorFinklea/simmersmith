@@ -530,6 +530,7 @@ final class AppState {
     @ObservationIgnored let householdLifecycleTransactionStore: HouseholdLifecycleTransactionStore
     @ObservationIgnored let participantMarkerStore: ParticipantMarkerStore
     @ObservationIgnored let factoryResetImportMarkerStore: DurableLifecycleFlagStore
+    @ObservationIgnored let onboardingMintReceiptStore: OnboardingMintReceiptStore
     @ObservationIgnored var householdLifecycleExecutor = HouseholdLifecycleExecutor.live
     /// Serializes every household-session boot (owner ensure + share-accept adopt) into a
     /// strict FIFO so the two independent entry points (`ensureHouseholdSession` and
@@ -570,6 +571,7 @@ final class AppState {
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?
+    var pendingOnboarding: OnboardingPresentation?
     /// simmersmith-224: release notes awaiting their once-per-update showing.
     /// Set by `evaluatePendingReleaseNotes()` once the household is ready;
     /// cleared when the sheet is dismissed. See `AppState+ReleaseNotes`.
@@ -805,6 +807,8 @@ final class AppState {
             fileURL: lifecyclePaths.participantMarkerURL)
         self.factoryResetImportMarkerStore = DurableLifecycleFlagStore(
             fileURL: lifecyclePaths.factoryResetImportMarkerURL)
+        self.onboardingMintReceiptStore = OnboardingMintReceiptStore(
+            fileURL: lifecyclePaths.onboardingMintReceiptURL)
         #endif
         self.settingsStore = settingsStore
         let connection = settingsStore.load()

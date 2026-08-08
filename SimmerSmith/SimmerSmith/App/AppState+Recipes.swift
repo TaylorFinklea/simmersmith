@@ -7,6 +7,11 @@ import HouseholdSync
 import HouseholdRecords
 import AIProviderKit
 
+struct OwnerHouseholdResolution: Equatable {
+    let householdID: String
+    let origin: OwnerHouseholdResolutionOrigin
+}
+
 /// One-shot import orchestration with an exact-session fence around every continuation
 /// effect. The concrete AppState caller supplies the epoch/session predicate and live effects.
 @MainActor
@@ -649,20 +654,27 @@ extension AppState {
             mode: cacheFirstLaunchEnabled ? .cachedAllowed : .recoveryOnly)
         let cachedCandidate = selection.cachedCandidate
         let recoveryCandidate = selection.recoveryCandidate
-        let householdID: String?
+        let householdResolution: OwnerHouseholdResolution?
         if let cachedHouseholdID = cachedCandidate?.bootstrap.scope.householdID {
-            householdID = cachedHouseholdID
+            householdResolution = OwnerHouseholdResolution(
+                householdID: cachedHouseholdID,
+                origin: .existing
+            )
         } else if let recoveryHouseholdID = recoveryCandidate?.plan.scope.householdID {
-            householdID = recoveryHouseholdID
+            householdResolution = OwnerHouseholdResolution(
+                householdID: recoveryHouseholdID,
+                origin: .existing
+            )
         } else {
-            householdID = await resolveHouseholdID(requestEpoch: requestEpoch)
+            householdResolution = await resolveHouseholdID(requestEpoch: requestEpoch)
         }
-        guard let householdID else {
+        guard let householdResolution else {
             // Discovery failed. The specific phase (.iCloudUnavailable vs .resolving)
             // was already set inside resolveHouseholdID() before returning nil. Leave
             // the session unset so a later retry can call ensureHouseholdSession() again.
             return
         }
+        let householdID = householdResolution.householdID
         guard sessionBootEpoch == requestEpoch,
               householdLifecycleAllowsEntry() else { return }
 
@@ -789,6 +801,14 @@ extension AppState {
         // resolved and the app is ready to show MainTabView.
         publishDirectHouseholdAuthority(session: session, epoch: requestEpoch)
         personalDataReadiness = session.privateStore == nil ? .unavailable : .ready
+        do {
+            try initializeOnboardingIfNeeded(
+                householdID: householdResolution.householdID,
+                origin: householdResolution.origin
+            )
+        } catch {
+            lastErrorMessage = "Couldn't initialize onboarding. Will retry."
+        }
         householdLaunchPhase = .ready
 
         // simmersmith-auc: sweep the leftover empty households from earlier builds. Kicked
@@ -1080,6 +1100,14 @@ extension AppState {
               householdSession === session else { return }
         profileRepository?.reload()
         preferenceRepository?.reload()
+        do {
+            try initializeOnboardingIfNeeded(
+                householdID: session.householdID,
+                origin: .existing
+            )
+        } catch {
+            lastErrorMessage = "Couldn't initialize onboarding. Will retry."
+        }
         mirrorProfileFromRepository()
         mirrorPreferencesFromRepository()
         syncAIDraftsFromRepo()
@@ -1269,7 +1297,7 @@ extension AppState {
     /// unavailable / transient CloudKit error — OR minting threw). The caller leaves the
     /// session unset so a later refresh retries; it must NOT fall through to minting on a
     /// discovery error, which would orphan an existing `household-<id>` zone (spec §7).
-    private func resolveHouseholdID(requestEpoch: Int) async -> String? {
+    private func resolveHouseholdID(requestEpoch: Int) async -> OwnerHouseholdResolution? {
         let provisioner = HouseholdZoneProvisioner()
 
         // 0. PREFLIGHT the iCloud account status (review finding B/F). This is the
@@ -1353,7 +1381,7 @@ extension AppState {
             // write, leaving a profile-less household. Repair it idempotently so the user
             // isn't locked into a household whose HouseholdProfile root record is missing.
             try? await provisioner.ensureHouseholdProfile(householdID: discovered, name: "My Household")
-            return discovered
+            return OwnerHouseholdResolution(householdID: discovered, origin: .existing)
         }
 
         // 2. No household zone exists (confirmed after retries) → MINT a new one: fresh
@@ -1361,9 +1389,15 @@ extension AppState {
         //    non-empty (and future discovery's HouseholdProfile signal finds it).
         let newID = UUID().uuidString
         do {
+            try onboardingMintReceiptStore.save(householdID: newID)
+        } catch {
+            lastErrorMessage = "Couldn't save your onboarding setup. Will retry."
+            return nil
+        }
+        do {
             try await provisioner.ensureHouseholdZone(householdID: newID)
             _ = try await provisioner.ensureHouseholdProfile(householdID: newID, name: "My Household")
-            return newID
+            return OwnerHouseholdResolution(householdID: newID, origin: .minted)
         } catch {
             // simmersmith-7in: re-check before writing the phase below — same hazard as the
             // other catch blocks in this function.
