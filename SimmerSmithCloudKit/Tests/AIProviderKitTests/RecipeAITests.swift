@@ -152,6 +152,19 @@ func variationPreservesPositiveRecipeServingsOverDefault() {
     #expect(prompt.contains("\"servings\": 4"))
 }
 
+@Test("variation prompt preserves fractional recipe servings exactly")
+func variationPreservesFractionalRecipeServings() {
+    var recipe = sampleRecipe()
+    recipe.servings = 2.5
+    let prompt = RecipeAIPrompt.variationPrompt(
+        recipe: recipe,
+        goal: "vegetarian",
+        defaultServings: 4
+    )
+    #expect(prompt.contains("\"servings\": 2.5"))
+    #expect(prompt.contains("serve 2.5 people"))
+}
+
 @Test("parseVariation round-trips a {rationale, recipe} envelope")
 func parseVariationRoundTrip() throws {
     let raw = """

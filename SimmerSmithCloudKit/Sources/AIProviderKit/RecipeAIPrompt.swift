@@ -35,6 +35,10 @@ public enum RecipeAIPrompt {
     /// plus the `tags`/`category` fields the import path uses. Kept as one constant so
     /// every feature's instruction block stays consistent.
     static func recipeSchemaHint(servings: Int = 4) -> String {
+        recipeSchemaHint(servings: Double(servings > 0 ? servings : 4))
+    }
+
+    private static func recipeSchemaHint(servings: Double) -> String {
         let effectiveServings = servings > 0 ? servings : 4
         return """
         {
@@ -43,7 +47,7 @@ public enum RecipeAIPrompt {
           "source_label": "site or source name (empty string if none)",
           "cuisine": "e.g. Italian",
           "meal_type": "breakfast | lunch | dinner | snack | dessert",
-          "servings": \(effectiveServings),
+          "servings": \(formatNumber(effectiveServings)),
           "prep_minutes": 15,
           "cook_minutes": 30,
           "tags": ["optional", "descriptive", "tags"],
@@ -92,12 +96,11 @@ public enum RecipeAIPrompt {
         value == value.rounded() ? String(Int(value)) : String(value)
     }
 
-    private static func servingCount(source: Double?, defaultServings: Int) -> Int {
+    private static func servingCount(source: Double?, defaultServings: Int) -> Double {
         if let source, source > 0 {
-            let rounded = Int(source.rounded())
-            if rounded > 0 { return rounded }
+            return source
         }
-        return defaultServings > 0 ? defaultServings : 4
+        return Double(defaultServings > 0 ? defaultServings : 4)
     }
 
     // MARK: - (a) EXTRACTION (raw text / HTML → RecipeDraft)
@@ -229,7 +232,7 @@ public enum RecipeAIPrompt {
         Guidance: \(guidance) Swap only what the goal requires, keep the rest of the \
         dish intact, and keep quantities/steps realistic. \(titleHint) \(tagHint)
 
-        The generated recipe must serve \(effectiveServings) people unless the user's goal text requests another amount.
+        The generated recipe must serve \(formatNumber(effectiveServings)) people unless the user's goal text requests another amount.
 
         In `rationale`, write 1-2 sentences naming the key swaps you made and why.
 
@@ -283,7 +286,7 @@ public enum RecipeAIPrompt {
         \(mealTypeHint) \(note) Make it practical to cook at home, with realistic \
         ingredients (quantities + units) and clear, ordered steps.\(avoidLine)
 
-        The generated recipe must serve \(effectiveServings) people unless the user's text requests another amount.
+        The generated recipe must serve \(formatNumber(effectiveServings)) people unless the user's text requests another amount.
 
         In `rationale`, write 1-2 sentences on why this recipe fits the request.
 
@@ -318,7 +321,7 @@ public enum RecipeAIPrompt {
         (about 10 min prep, 15 min cook), and don't duplicate the main's core \
         ingredients. For each, give a one-sentence `rationale` for why it fits.
 
-        Each generated companion recipe must serve \(effectiveServings) people unless the user's text requests another amount.
+        Each generated companion recipe must serve \(formatNumber(effectiveServings)) people unless the user's text requests another amount.
 
         Use exactly these `option_id` values: "vegetable-side", "starch-side", "sauce".
 
@@ -367,7 +370,7 @@ public enum RecipeAIPrompt {
         Return the COMPLETE refined recipe (all ingredients and steps, not just the \
         changes).\(hintLine)
 
-        The generated recipe must serve \(effectiveServings) people unless the user's instruction requests another amount.
+        The generated recipe must serve \(formatNumber(effectiveServings)) people unless the user's instruction requests another amount.
 
         In `rationale`, write one sentence describing the change you made.
 
