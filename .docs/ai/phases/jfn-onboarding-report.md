@@ -60,6 +60,12 @@ claimed by this closeout.
 ## Self-review
 
 - Scope limited to the prescribed handoff/report files plus the already-generated Xcode project.
-- No product code changes were made during closeout; `.superpowers/` remains untracked.
+- No product code changes were made during closeout; `.superpowers/` is intentionally gitignored SDD
+  scratch and is not part of the tracked worktree.
 - Deterministic gates are green; simulator entitlement/account diagnostics are expected environment
   noise, not product failures.
+
+## Final repository state
+
+After closeout, `git status --short` produced no output. The clean Git status is compatible with the
+intentionally gitignored `.superpowers/` SDD workspace, which is not force-added or tracked.
