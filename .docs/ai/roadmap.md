@@ -40,7 +40,7 @@ submission done-ness — the program below is HOW the next six weeks get there.
   spec: `phases/e0a-cache-first-cutover-spec.md`; `8qy` runs separately only if measurements prove
   projection scans block the absolute launch target.
 - **Wk4 — product depth**: `jfn` onboarding ([approved design spec](phases/jfn-onboarding-spec.md),
-  submission scope) · `wkx` week-gen eval slice ·
+  [implementation plan](phases/jfn-onboarding-plan.md), submission scope) · `wkx` week-gen eval slice ·
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
   `xwb`-stage-2 photo rendering · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
