@@ -364,6 +364,9 @@ struct HouseholdLifecyclePaths: Equatable {
 
     var transactionURL: URL { directory.appendingPathComponent("lifecycle-transaction.json") }
     var participantMarkerURL: URL { directory.appendingPathComponent("participant-marker.json") }
+    var onboardingMintReceiptURL: URL {
+        directory.appendingPathComponent("onboarding-mint-receipt.json")
+    }
     var factoryResetImportMarkerURL: URL {
         directory.appendingPathComponent("factory-reset-needs-import")
     }
