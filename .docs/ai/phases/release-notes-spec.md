@@ -157,6 +157,6 @@ all three lists empty satisfies both guards and shows no sheet.
   is back: open What's New, push Previous Releases, Back, and Close. This is not
   a `simmersmith-pto` acceptance blocker; policy, navigation, CI, and TestFlight
   distribution gates are complete.
-- When the onboarding bead (simmersmith-exc's child) lands, a brand-new user
-  would get onboarding *and* What's New. Onboarding should call
-  `markReleaseNotesSeen()` on completion to suppress the second sheet.
+- When `jfn` onboarding lands, a brand-new household would otherwise get onboarding *and* What's
+  New. Mark the current release-notes version seen on first automatic onboarding presentation so
+  the second sheet stays suppressed even when the user chooses **Skip for now**.

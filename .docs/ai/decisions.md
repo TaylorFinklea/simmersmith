@@ -2321,3 +2321,26 @@ evidence; retire the live hardware/non-inferiority gate. This supersedes the 202
 **Why.** A dormant experiment must not be a release or CI availability dependency. Deleting the full
 surface restores a self-contained build while avoiding any change to the voice-planning behavior users
 actually receive.
+
+## 2026-08-07 — New-household onboarding uses mint-aware private state
+
+**Context.** `jfn` must target new households only. Absence of user data cannot distinguish a newly
+created household from an older empty household, install-local state repeats on another device, and a
+shared household onboarding record would add authority and schema complexity to a per-user setup flow.
+
+**Decision.** The household boot path carries an explicit new-mint origin and initializes onboarding v1
+in the existing private profile plane. A matching install-local mint receipt bridges the crash window
+until private state is durable; it never overrides an authoritatively resolved different household.
+Existing and joined households with no marker never auto-present. The first automatic dismissal snoozes
+24 hours; the second retires the prompt; Settings can always relaunch it.
+
+The four deterministic screens capture household size, real catalog-backed avoid/allergy rows, explicit
+liked cuisines, and the device IANA timezone. Household size becomes the default for household meal
+generation when no explicit servings exist. Monday remains fixed; custom week starts are separate work.
+No AI call, shared CloudKit schema, new record type, backend, or existing-household migration is added.
+Completion stages one normalized private draft intent before domain writes, verifies projections, and
+marks lifecycle completion only after they converge.
+
+**Why.** Mint origin is the only exact new-household signal already available in the architecture. The
+private plane makes lifecycle and preferences cross-device for the user without creating household-wide
+coordination. Status-last, idempotent completion preserves honest recovery across partial writes.
