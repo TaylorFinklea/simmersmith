@@ -63,7 +63,7 @@
 - Produces: `OnboardingSettings`, `OnboardingProfileValues`, `OnboardingDraft`, `OnboardingIngredientChoice`, `OnboardingLifecycle`, `OnboardingPolicy`, `OnboardingPresentation`, `OwnerHouseholdResolutionOrigin`.
 - Produces: `OnboardingMintReceiptStore.load/save/clear` over `HouseholdLifecyclePaths.onboardingMintReceiptURL`.
 
-- [ ] **Step 1: Write lifecycle and receipt tests**
+- [x] **Step 1: Write lifecycle and receipt tests**
 
 Create `OnboardingPolicyTests.swift` with fixed-clock cases for pending, future snooze, due snooze, completed, retired, malformed, first dismissal, and second dismissal. Add a real temporary-file round trip:
 
@@ -133,7 +133,7 @@ struct OnboardingPolicyTests {
 }
 ```
 
-- [ ] **Step 2: Regenerate the Xcode project and prove the new tests fail**
+- [x] **Step 2: Regenerate the Xcode project and prove the new tests fail**
 
 Run:
 
@@ -149,7 +149,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -projec
 
 Expected: compilation fails because the onboarding types do not exist.
 
-- [ ] **Step 3: Implement the pure model and policy**
+- [x] **Step 3: Implement the pure model and policy**
 
 Define exact setting keys and strongly typed state in `OnboardingModel.swift`. Normalize sizes to 1...12, trim and deduplicate cuisine names case-insensitively, reject ingredient modes other than `avoid`/`allergy`, and validate the timezone with `TimeZone(identifier:)`.
 
@@ -258,7 +258,7 @@ enum OwnerHouseholdResolutionOrigin: Equatable { case existing, minted }
 blank ingredient ID/name, unsupported mode, or invalid timezone rather than silently changing a
 submitted value.
 
-- [ ] **Step 4: Implement the fsync-backed receipt**
+- [x] **Step 4: Implement the fsync-backed receipt**
 
 Add `onboardingMintReceiptURL` beside the existing lifecycle files, then use `DurableLifecycleFileSupport.write/remove` rather than UserDefaults:
 
@@ -289,11 +289,11 @@ final class OnboardingMintReceiptStore: @unchecked Sendable {
 
 `save` must reject an empty household ID, encode sorted JSON with version 1, and durably write before returning. `load` maps unreadable/invalid bytes to `.malformed` and never fabricates eligibility.
 
-- [ ] **Step 5: Run the focused tests**
+- [x] **Step 5: Run the focused tests**
 
 Run the Task 1 xcodebuild command again. Expected: `OnboardingPolicyTests` passes.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add SimmerSmith/SimmerSmith/App/OnboardingModel.swift SimmerSmith/SimmerSmith/App/OnboardingMintReceiptStore.swift SimmerSmith/SimmerSmith/App/AppState.swift SimmerSmith/SimmerSmithTests/OnboardingPolicyTests.swift SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj
@@ -317,7 +317,7 @@ git commit -m "feat: add onboarding lifecycle policy"
 - Produces: `PreferenceRepository.reconcileAvoidancePreferences(_:) throws`.
 - Produces: `OnboardingCompletionCoordinator.complete(_:)` and `resumeStagedCompletion()`.
 
-- [ ] **Step 1: Write repository and completion tests**
+- [x] **Step 1: Write repository and completion tests**
 
 Use `makeSimmerSmithPrivatePlaneContainer(inMemory: true)` and one `PrivatePlaneStore` for both repositories. Pin these behaviors:
 
@@ -395,7 +395,7 @@ struct OnboardingPersistenceTests {
 }
 ```
 
-- [ ] **Step 2: Regenerate and prove the persistence tests fail**
+- [x] **Step 2: Regenerate and prove the persistence tests fail**
 
 Run xcodegen, then:
 
@@ -405,7 +405,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -projec
 
 Expected: compilation fails on the missing checked repository and coordinator APIs.
 
-- [ ] **Step 3: Add checked profile writes**
+- [x] **Step 3: Add checked profile writes**
 
 Mirror `PreferenceRepository.StoreSource` so `ProfileRepository` supports both a live `HouseholdSession` and a fixed `PrivatePlaneStore?`. Expand the owned allowlist with all `OnboardingSettings.ownedKeys` and implement one-save batch writes:
 
@@ -430,7 +430,7 @@ func setSettings(_ values: [String: String]) throws {
 
 Keep the existing `setSetting` call sites source-compatible by wrapping `setSettings([key: value])`, logging the thrown error, and preserving their nonthrowing signature.
 
-- [ ] **Step 4: Add exact avoid/allergy reconciliation**
+- [x] **Step 4: Add exact avoid/allergy reconciliation**
 
 Implement a throwing method that:
 
@@ -450,7 +450,7 @@ func reconcileAvoidancePreferences(
 ) throws
 ```
 
-- [ ] **Step 5: Implement staged completion**
+- [x] **Step 5: Implement staged completion**
 
 `OnboardingCompletionCoordinator` is `@MainActor` and concrete over the two repositories:
 
@@ -487,7 +487,7 @@ struct OnboardingCompletionCoordinator {
 
 `complete` calls `stage` then `resumeStagedCompletion`. Never clear the draft after a mismatch or thrown repository error.
 
-- [ ] **Step 6: Run the focused tests and commit**
+- [x] **Step 6: Run the focused tests and commit**
 
 Run the Task 2 test command. Expected: all `OnboardingPersistenceTests` pass.
 
@@ -512,7 +512,7 @@ git commit -m "feat: persist onboarding atomically"
 - Produces: `pendingOnboarding`, `initializeOnboardingIfNeeded`, `evaluatePendingOnboarding`, `showOnboardingFromSettings`, `dismissAutomaticOnboarding`, `cancelOnboarding`, and `completeOnboarding`.
 - Changes `resolveHouseholdID` from an optional string to an optional typed resolution carrying `.existing` or `.minted`.
 
-- [ ] **Step 1: Write AppState lifecycle tests**
+- [x] **Step 1: Write AppState lifecycle tests**
 
 Build AppState with an in-memory app model container, an injected lifecycle directory, and fixed private repositories. Test these exact cases:
 
@@ -601,11 +601,11 @@ private final class OnboardingAppStateFixture {
 
 Import `SwiftData` in this test file for `ModelContainer`.
 
-- [ ] **Step 2: Regenerate and prove the AppState tests fail**
+- [x] **Step 2: Regenerate and prove the AppState tests fail**
 
 Run xcodegen, then the app-test command from Task 2 with `-only-testing:SimmerSmithTests/OnboardingAppStateTests`. Expected: compilation fails on missing AppState seams.
 
-- [ ] **Step 3: Add AppState-owned onboarding state**
+- [x] **Step 3: Add AppState-owned onboarding state**
 
 In `AppState` add:
 
@@ -641,7 +641,7 @@ Initialization rules:
 
 `evaluatePendingOnboarding` requires `householdLaunchPhase == .ready`, `personalDataReadiness == .ready`, no paywall/onboarding presentation, and a parsed `.present` decision. It builds the draft from a valid staged draft first, otherwise from current profile settings and active avoid/allergy preferences. Immediately before assigning an automatic presentation, it calls `markReleaseNotesSeen()`, which also clears any stale pending release-notes value.
 
-- [ ] **Step 4: Carry exact mint origin through owner boot**
+- [x] **Step 4: Carry exact mint origin through owner boot**
 
 In `AppState+Recipes.swift`, introduce:
 
@@ -662,7 +662,7 @@ Cached/recovery selection and discovered zones construct `.existing`. The zero-z
 
 Thread the resolution alongside `householdID` until repositories are wired. Call `initializeOnboardingIfNeeded` after `profileRepo.reload()` and before direct `.ready` publication. For cached boot, call it from `reloadPrivatePlaneIfCurrent` after the deferred private store opens so a crash receipt can recover on the next launch. Leave a matching receipt in place and surface a retryable `lastErrorMessage` when private initialization fails.
 
-- [ ] **Step 5: Run AppState tests and commit**
+- [x] **Step 5: Run AppState tests and commit**
 
 Run the focused `OnboardingAppStateTests` command. Expected: all tests pass.
 
@@ -687,7 +687,7 @@ git commit -m "feat: gate onboarding on household mint"
 - Consumes: `pendingOnboarding` and AppState lifecycle methods from Task 3.
 - Produces: `OnboardingFlow`, root arbitration through `evaluateReadyPresentations`, and Settings manual launch.
 
-- [ ] **Step 1: Extend AppState tests for root arbitration**
+- [x] **Step 1: Extend AppState tests for root arbitration**
 
 Add tests proving:
 
@@ -703,7 +703,7 @@ Expose one root-facing method:
 func evaluateReadyPresentations(now: Date = .now)
 ```
 
-- [ ] **Step 2: Implement deterministic root arbitration**
+- [x] **Step 2: Implement deterministic root arbitration**
 
 Replace RootView's release-notes-only ready callback with calls to `evaluateReadyPresentations()` on `householdLaunchPhase` and `personalDataReadiness` changes. Also observe `pendingPaywall`; when it changes to nil, call the same method so a launch-time paywall cannot permanently suppress onboarding. The method applies this order:
 
@@ -723,7 +723,7 @@ Attach the root-owned full-screen cover before the sheets:
 
 When an automatic flow is chosen, mark the current release notes seen before setting the presentation so a later Skip does not reveal What's New.
 
-- [ ] **Step 3: Build the four-screen flow**
+- [x] **Step 3: Build the four-screen flow**
 
 `OnboardingFlow` owns `@State private var draft`, `step`, `ingredientSearch`, `ingredientResults`, `isSearching`, `isCompleting`, and `errorMessage`. Its initializer seeds draft from `presentation.draft`.
 
@@ -744,7 +744,7 @@ Toolbar behavior:
 
 On completion error, keep the cover open, restore the Done button, and render `error.localizedDescription`. Never call an AI API. Avoid fixed text heights, add semantic labels/values and non-color selection indicators, and do not require animation so Dynamic Type, VoiceOver, and Reduce Motion remain usable.
 
-- [ ] **Step 4: Add the Settings entry**
+- [x] **Step 4: Add the Settings entry**
 
 Add a section before Ingredient Preferences:
 
@@ -762,7 +762,7 @@ Section {
 
 The button must use the root-owned presentation rather than attaching another Settings sheet.
 
-- [ ] **Step 5: Build and run focused tests**
+- [x] **Step 5: Build and run focused tests**
 
 Run xcodegen, `OnboardingAppStateTests`, then:
 
@@ -772,7 +772,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -proje
 
 Expected: tests pass and the app builds with the new SwiftUI source.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add SimmerSmith/SimmerSmith/Features/Onboarding/OnboardingFlow.swift SimmerSmith/SimmerSmith/App/RootView.swift SimmerSmith/SimmerSmith/App/AppState+Onboarding.swift SimmerSmith/SimmerSmith/Features/Settings/SettingsView.swift SimmerSmith/SimmerSmithTests/OnboardingAppStateTests.swift SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj
@@ -799,7 +799,7 @@ git commit -m "feat: add deterministic onboarding flow"
 - Consumes: profile parsing helpers from Task 1.
 - Produces: `PlanningContext.defaultServings: Int`, explicit cuisine merge, and dynamic week/assistant prompt text.
 
-- [ ] **Step 1: Write failing context and prompt tests**
+- [x] **Step 1: Write failing context and prompt tests**
 
 Extend `WeekGenContextGathererTests`:
 
@@ -826,7 +826,7 @@ Extend `WeekGenContextGathererTests`:
 
 Add AIProviderKit assertions that a context with `defaultServings: 3` produces both `"servings": 3` and an explicit “3 people” rule in WeekGenPrompt, and `Default household servings: 3` in AssistantSystemPrompt. Add a ToolRegistry assertion that `preferences_get` JSON contains `"default_servings":3`.
 
-- [ ] **Step 2: Prove the new tests fail**
+- [x] **Step 2: Prove the new tests fail**
 
 Run:
 
@@ -836,7 +836,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-pa
 
 Then run the app tests filtered to `WeekGenContextGathererTests` and `ToolRegistryAssistantContextTests`. Expected: compilation or assertions fail because default servings and explicit cuisines are not wired.
 
-- [ ] **Step 3: Extend PlanningContext and gather inputs**
+- [x] **Step 3: Extend PlanningContext and gather inputs**
 
 Add a defaulted property without breaking existing initializers:
 
@@ -863,7 +863,7 @@ Extend `WeekGenContextGatherer.build` with defaulted `explicitLikedCuisines: [St
 
 In `AppState.gatherWeekGenContext`, parse `profileRepository?.settings` through Task 1 helpers and pass both values. Invalid/absent size remains 4; invalid cuisine JSON becomes an empty explicit list.
 
-- [ ] **Step 4: Render servings through week and assistant seams**
+- [x] **Step 4: Render servings through week and assistant seams**
 
 In WeekGenPrompt use `context?.defaultServings ?? 4` in the JSON example and add this rule:
 
@@ -875,7 +875,7 @@ extraLines.append(
 
 In `AssistantSystemPrompt.renderPlanningContext`, add `Default household servings: N` before Today's date. In `ToolRegistry.preferencesGet`, add `"default_servings": context.defaultServings`.
 
-- [ ] **Step 5: Run package and app tests; commit**
+- [x] **Step 5: Run package and app tests; commit**
 
 Run the Task 5 package command and the two focused app suites. Expected: all pass.
 
@@ -898,7 +898,7 @@ git commit -m "feat: apply onboarding preferences to planning"
 - Consumes: `OnboardingProfileValues.householdSize(from:)` parsing from Task 1.
 - Produces: `AppState.defaultHouseholdServings()` and prompt-builder `defaultServings` parameters.
 
-- [ ] **Step 1: Write failing recipe-serving tests**
+- [x] **Step 1: Write failing recipe-serving tests**
 
 Add RecipeAIPrompt tests proving:
 
@@ -924,7 +924,7 @@ Add RecipeAIPrompt tests proving:
 
 Add AppState helper tests for absent/invalid -> 4, private setting 2 -> 2, and explicit positive argument -> explicit.
 
-- [ ] **Step 2: Prove the recipe tests fail**
+- [x] **Step 2: Prove the recipe tests fail**
 
 Run:
 
@@ -934,7 +934,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-pa
 
 Expected: compilation fails on the new `defaultServings` parameters.
 
-- [ ] **Step 3: Make recipe schema examples serving-aware**
+- [x] **Step 3: Make recipe schema examples serving-aware**
 
 Replace the constant schema with a function:
 
@@ -944,7 +944,7 @@ static func recipeSchemaHint(servings: Int = 4) -> String
 
 Clamp nonpositive defaults to 4. Add `defaultServings: Int = 4` after the existing defaulted arguments on `variationPrompt`, `suggestionPrompt`, `companionPrompt`, and `refinePrompt`. Use a positive source recipe/draft serving count when present; otherwise use the supplied default. Add an explicit instruction that the generated recipe serves that count unless the user's text requests another amount. Extraction/web-search retain the existing 4-person schema example because they must extract source truth rather than impose household defaults.
 
-- [ ] **Step 4: Pass the private default from AppState**
+- [x] **Step 4: Pass the private default from AppState**
 
 Add:
 
@@ -959,7 +959,7 @@ func defaultHouseholdServings(explicit: Int = 0) -> Int {
 
 Change `generateRecipeSuggestionDraft` to `func generateRecipeSuggestionDraft(goal: String, servings: Int = 0) async throws -> RecipeAIDraft`, preserving every existing caller through the default argument. Pass the effective value to variation, suggestion, companion, and refine prompt builders. In `generateSideRecipeDraft`, forward its existing `servings` argument into `generateRecipeSuggestionDraft`; a positive value wins and zero falls back to the household default. Do not change event-generation code.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run RecipeAI package tests and focused `OnboardingAppStateTests`. Expected: all pass.
 
@@ -984,11 +984,11 @@ git commit -m "feat: default generated recipes to household size"
 - Consumes: all prior task deliverables.
 - Produces: complete verification evidence and exact remaining human gate, if any.
 
-- [ ] **Step 1: Record the named human UI gate**
+- [x] **Step 1: Record the named human UI gate**
 
 The current UI-test target has only an account-agnostic launch-settles smoke and no deterministic household/private-plane launch injection. Do not add a shipping debug bypass solely for onboarding. Record this exact human gate in the report: clean account mints household -> four screens -> first Skip -> no immediate return/What's New -> due after clock/device-date advance -> second Skip -> no auto return -> Settings relaunch.
 
-- [ ] **Step 2: Run all deterministic verification**
+- [x] **Step 2: Run all deterministic verification**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithCloudKit
@@ -1001,7 +1001,7 @@ git diff --check
 
 Expected: both Swift packages, the complete app-host suite, generic simulator build, and whitespace check pass.
 
-- [ ] **Step 3: Audit the no-AI/no-shared-schema boundary**
+- [x] **Step 3: Audit the no-AI/no-shared-schema boundary**
 
 Run:
 
@@ -1019,7 +1019,7 @@ git diff cd0c2ae..HEAD -- SimmerSmithCloudKit/Sources/HouseholdRecords SimmerSmi
 
 Expected: no shared schema, backend, or web changes attributable to onboarding.
 
-- [ ] **Step 4: Write the report and update handoff state**
+- [x] **Step 4: Write the report and update handoff state**
 
 `jfn-onboarding-report.md` records:
 
@@ -1032,14 +1032,14 @@ Expected: no shared schema, backend, or web changes attributable to onboarding.
 
 Mark the spec `implemented` only after deterministic verification passes. Check every completed plan box. Update roadmap Wk4 `jfn` as implemented or awaiting only its named human gate. Keep `current-state.md` at 20 lines or fewer and point to the report rather than restating history.
 
-- [ ] **Step 5: Commit closeout docs**
+- [x] **Step 5: Commit closeout docs**
 
 ```bash
 git add .docs/ai/phases/jfn-onboarding-report.md .docs/ai/phases/jfn-onboarding-plan.md .docs/ai/phases/jfn-onboarding-spec.md .docs/ai/current-state.md .docs/ai/roadmap.md .docs/ai/decisions.md SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj
 git commit -m "docs: close deterministic onboarding phase"
 ```
 
-- [ ] **Step 6: Confirm final repository state**
+- [x] **Step 6: Confirm final repository state**
 
 Run:
 

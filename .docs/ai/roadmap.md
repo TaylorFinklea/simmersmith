@@ -39,7 +39,8 @@ submission done-ness — the program below is HOW the next six weeks get there.
   account-switch (`yqm`) + crash-recovery/token-resume device proof. Written staged/default-off
   spec: `phases/e0a-cache-first-cutover-spec.md`; `8qy` runs separately only if measurements prove
   projection scans block the absolute launch target.
-- **Wk4 — product depth**: `jfn` onboarding ([approved design spec](phases/jfn-onboarding-spec.md),
+- **Wk4 — product depth**: `jfn` onboarding implemented; awaiting the named human UI gate in
+  [the phase report](phases/jfn-onboarding-report.md) ([approved design spec](phases/jfn-onboarding-spec.md),
   [implementation plan](phases/jfn-onboarding-plan.md), submission scope) · `wkx` week-gen eval slice ·
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
   `xwb`-stage-2 photo rendering · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2

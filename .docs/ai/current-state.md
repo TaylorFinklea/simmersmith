@@ -1,20 +1,17 @@
 # Current State
-Branch: main
-Note: build 174 metadata `781bc3f`; Ballast retired from source/build/CI; upload not started.
+Branch: codex/jfn-onboarding
+Status: deterministic onboarding implementation and closeout verification complete.
+Report: `phases/jfn-onboarding-report.md`
 
 ## Plan
-- [x] `jfn` design + written spec approved: `phases/jfn-onboarding-spec.md`.
-- [x] Self-reviewed implementation plan: `phases/jfn-onboarding-plan.md`.
-- [ ] Plan Tasks 1-2: lifecycle receipt + private completion. Verify: focused app-host tests.
-- [ ] Plan Tasks 3-4: mint wiring + four-screen UI. Verify: focused tests + generic app build.
-- [ ] Plan Tasks 5-6: planning + recipe servings. Verify: package + focused app-host tests.
-- [ ] Plan Task 7: full verification + report. Verify: both packages + app tests/build + diff audit.
+- [x] `jfn` onboarding Tasks 1-7; deterministic verification passed.
 
 ## Blockers
-- `jfn`: implementation awaits the required execution-style choice.
-- `simmersmith-9w4`: code complete; device crash-durability evidence still required before closure.
-- Build 174 release: Apple Distribution identity present; blocked only by ASC Keychain entries + local `.p8`.
-- `.beads/` absent; do not reinitialize. `e0a` remains default-off pending its device gates.
+- Named human UI gate remains: clean account mints household -> four screens -> first Skip -> no immediate return/What's New -> due after clock/device-date advance -> second Skip -> no auto return -> Settings relaunch.
+- Build 174 upload and crash-durability device matrix remain separate parked gates.
+- `simmersmith-9w4`: crash-durability evidence still required before closure.
+- Build 174: Apple Distribution identity present; ASC Keychain entries + local `.p8` still missing.
+- `.beads/` absent; do not reinitialize. `e0a` remains default-off pending device gates.
 
 ## Open questions
-- Execute `jfn` inline or with explicitly authorized task subagents?
+- None for deterministic closeout.

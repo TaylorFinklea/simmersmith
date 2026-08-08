@@ -1,7 +1,7 @@
 # JFN Deterministic Onboarding
 
 Date: 2026-08-07
-Status: owner-approved design; implementation pending
+Status: implemented; deterministic verification passed; named human UI gate pending
 Roadmap: Wk4 product depth, `jfn`
 Decision authority: `decisions.md` ADRs dated 2026-07-09, 2026-07-14, and 2026-08-07
 
