@@ -221,6 +221,7 @@ final class ToolRegistry {
             "strong_likes": context.strongLikes,
             "liked_cuisines": context.likedCuisines,
             "disliked_cuisines": context.dislikedCuisines,
+            "default_servings": context.defaultServings,
         ]))
     }
 

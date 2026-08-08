@@ -163,6 +163,7 @@ public enum WeekGenPrompt {
         }
 
         // Enhanced rules — only present when context is present.
+        let defaultServings = context?.defaultServings ?? 4
         var extraRules = ""
         if let context {
             var extraLines: [String] = []
@@ -179,6 +180,9 @@ public enum WeekGenPrompt {
                 extraLines.append("- Avoid repeating any meal from the recent meals list above")
             }
             extraLines.append("- A single recipe may appear at most 3 times in one week (e.g., leftovers)")
+            extraLines.append(
+                "- Set every generated recipe's servings to \(defaultServings) unless the user explicitly requests another amount"
+            )
             if !context.staples.isEmpty {
                 extraLines.append("- Leverage pantry staples when possible to reduce grocery costs")
             }
@@ -220,7 +224,7 @@ public enum WeekGenPrompt {
               "name": "Recipe Name",
               "meal_type": "dinner",
               "cuisine": "Italian",
-              "servings": 4,
+              "servings": \(defaultServings),
               "prep_minutes": 15,
               "cook_minutes": 30,
               "ingredients": [

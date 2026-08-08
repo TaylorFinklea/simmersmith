@@ -104,6 +104,7 @@ public enum AssistantSystemPrompt {
             sections.append("Household preferences:\n" + prefLines.joined(separator: "\n"))
         }
 
+        sections.append("Default household servings: \(context.defaultServings)")
         sections.append("Today: \(todayISO)")
 
         if !activeWeekSummary.isEmpty {

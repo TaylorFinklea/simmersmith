@@ -60,6 +60,8 @@ public struct PlanningContext: Sendable, Equatable {
     /// Household shorthand aliases (e.g. "chx" → "chicken"). Injected as a preamble
     /// so the AI treats the term as if the user typed the expansion.
     public var termAliases: [String: String]
+    /// The household's default serving count for generated recipes.
+    public var defaultServings: Int
 
     public init(
         hardAvoids: [String] = [],
@@ -72,7 +74,8 @@ public struct PlanningContext: Sendable, Equatable {
         rules: [String] = [],
         dietaryGoal: DietaryGoalContext? = nil,
         allergies: [String] = [],
-        termAliases: [String: String] = [:]
+        termAliases: [String: String] = [:],
+        defaultServings: Int = 4
     ) {
         self.hardAvoids = hardAvoids
         self.strongLikes = strongLikes
@@ -85,6 +88,7 @@ public struct PlanningContext: Sendable, Equatable {
         self.dietaryGoal = dietaryGoal
         self.allergies = allergies
         self.termAliases = termAliases
+        self.defaultServings = defaultServings
     }
 }
 

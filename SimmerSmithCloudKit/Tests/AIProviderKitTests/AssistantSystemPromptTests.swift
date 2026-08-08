@@ -40,6 +40,15 @@ struct AssistantSystemPromptTests {
         #expect(!rendered.contains("HARD ALLERGIES"))
     }
 
+    @Test("default household servings render before today's date")
+    func defaultHouseholdServingsRender() {
+        let rendered = AssistantSystemPrompt.renderPlanningContext(
+            PlanningContext(defaultServings: 3), activeWeekSummary: "", todayISO: "2026-07-14"
+        )
+        #expect(rendered.contains("Default household servings: 3"))
+        #expect(rendered.contains("Today: 2026-07-14"))
+    }
+
     @Test("the active week summary is appended verbatim")
     func activeWeekSummaryAppended() {
         let summary = "Active week — id: week-1, starts 2026-07-13, status: staging.\n- Monday dinner: Tacos"

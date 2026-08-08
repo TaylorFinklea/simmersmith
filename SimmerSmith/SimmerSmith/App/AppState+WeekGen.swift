@@ -87,6 +87,12 @@ extension AppState {
             dietaryGoal: profileRepository?.dietaryGoal,
             ingredientPreferences: ingredientPreferences,
             preferenceSignals: preferenceRepository?.signals ?? [],
+            explicitLikedCuisines: OnboardingProfileValues.likedCuisines(
+                from: profileRepository?.settings ?? [:]
+            ),
+            defaultServings: OnboardingProfileValues.householdSize(
+                from: profileRepository?.settings ?? [:]
+            ),
             recentWeeks: weekRepository?.weeks ?? [],
             termAliases: aliases,
             excludeWeekId: excludeWeekId

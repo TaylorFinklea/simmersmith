@@ -51,4 +51,24 @@ struct WeekGenContextGathererTests {
         #expect(context.likedCuisines.isEmpty)
         #expect(context.dislikedCuisines.isEmpty)
     }
+
+    @Test
+    func explicitCuisinesLeadAndOverrideLearnedDislikes() {
+        let context = WeekGenContextGatherer.build(
+            pantryStaples: [],
+            dietaryGoal: nil,
+            ingredientPreferences: [],
+            preferenceSignals: [
+                .init(signalType: "cuisine", name: "Thai", normalizedName: "thai", score: -2, active: true),
+                .init(signalType: "cuisine", name: "Italian", normalizedName: "italian", score: 2, active: true),
+            ],
+            explicitLikedCuisines: ["Thai", "Mexican"],
+            defaultServings: 3,
+            recentWeeks: [],
+            termAliases: [:]
+        )
+        #expect(context.likedCuisines == ["Thai", "Mexican", "Italian"])
+        #expect(context.dislikedCuisines.isEmpty)
+        #expect(context.defaultServings == 3)
+    }
 }

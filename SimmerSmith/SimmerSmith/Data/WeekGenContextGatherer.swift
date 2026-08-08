@@ -38,6 +38,8 @@ enum WeekGenContextGatherer {
         dietaryGoal: DietaryGoal?,
         ingredientPreferences: [IngredientPreference],
         preferenceSignals: [PreferenceSignal],
+        explicitLikedCuisines: [String] = [],
+        defaultServings: Int = 4,
         recentWeeks: [WeekSnapshot],
         termAliases: [String: String],
         excludeWeekId: String? = nil
@@ -97,19 +99,30 @@ enum WeekGenContextGatherer {
         // for the accumulate/clamp/threshold rule, recorded in the "feedback→signal
         // scoring" ADR). brands/rules stay [] — no signalType writes them yet.
         let derived = PreferenceSignalScoring.derive(signals: preferenceSignals)
+        let explicitCuisines = normalizeNames(explicitLikedCuisines)
+        let learnedLikes = normalizeNames(derived.likedCuisines)
+        let learnedDislikes = normalizeNames(derived.dislikedCuisines)
+        let explicitKeys = Set(explicitCuisines.map { $0.lowercased() })
+        let likedCuisines = explicitCuisines + learnedLikes.filter {
+            !explicitKeys.contains($0.lowercased())
+        }
+        let dislikedCuisines = learnedDislikes.filter {
+            !explicitKeys.contains($0.lowercased())
+        }
 
         return PlanningContext(
             hardAvoids: mergedAvoids,
             strongLikes: derived.strongLikes,
-            likedCuisines: derived.likedCuisines,
-            dislikedCuisines: derived.dislikedCuisines,
+            likedCuisines: likedCuisines,
+            dislikedCuisines: dislikedCuisines,
             brands: [],              // AI: preference-signal context deferred (no brand signalType yet)
             staples: pantryStaples.sorted(),
             recentMeals: recentMeals,
             rules: [],               // AI: preference-signal context deferred
             dietaryGoal: goalContext,
             allergies: dedupedAllergies,
-            termAliases: termAliases
+            termAliases: termAliases,
+            defaultServings: defaultServings
         )
     }
 
@@ -121,6 +134,17 @@ enum WeekGenContextGatherer {
             out.append(item)
         }
         return out
+    }
+
+    private static func normalizeNames(_ items: [String]) -> [String] {
+        var seen = Set<String>()
+        return items.compactMap { item in
+            let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let key = trimmed.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return trimmed
+        }
     }
 }
 #endif

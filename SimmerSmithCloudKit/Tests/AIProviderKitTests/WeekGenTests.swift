@@ -134,6 +134,16 @@ func promptZeroCalorieGoalOmitted() {
     #expect(!prompt.contains("±10% of the daily calorie target"))
 }
 
+@Test("default household servings are rendered in the response shape and rules")
+func promptDefaultServings() {
+    let context = PlanningContext(defaultServings: 3)
+    let prompt = WeekGenPrompt.buildSystemPrompt(
+        profileSettings: [:], weekStart: weekStart(), context: context
+    )
+    #expect(prompt.contains("\"servings\": 3"))
+    #expect(prompt.contains("Set every generated recipe's servings to 3 unless the user explicitly requests another amount"))
+}
+
 // MARK: - Parser round-trip
 
 private let sampleResponse = """

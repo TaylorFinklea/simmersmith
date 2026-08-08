@@ -244,4 +244,19 @@ struct ToolRegistryAssistantContextTests {
         #expect(result.ok)
         #expect(recipeRepo.recipes.first?.name == "Grilled Salmon")
     }
+
+    @Test("preferences_get includes the onboarding household serving default")
+    func preferencesGetIncludesDefaultServings() async throws {
+        let (appState, _, _) = try makeWiredAppState()
+        let privateContainer = try makeSimmerSmithPrivatePlaneContainer(inMemory: true)
+        let profile = ProfileRepository(store: PrivatePlaneStore(context: privateContainer.mainContext))
+        try profile.setSettings([OnboardingSettings.householdSize: "3"])
+        appState.profileRepository = profile
+
+        let registry = ToolRegistry(appState: appState, activeWeekID: nil)
+        let result = await registry.runner(ToolCall(id: "1", name: "preferences_get", argsJSON: "{}"))
+
+        #expect(result.ok)
+        #expect(result.resultJSON.contains("\"default_servings\":3"))
+    }
 }
