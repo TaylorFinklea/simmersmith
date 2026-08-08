@@ -82,6 +82,21 @@ extension AppState {
         pendingOnboarding = OnboardingPresentation(mode: .automatic, draft: draft)
     }
 
+    func evaluateReadyPresentations(now: Date = .now) {
+        guard householdLaunchPhase == .ready, pendingPaywall == nil else { return }
+
+        switch personalDataReadiness {
+        case .loading:
+            return
+        case .ready:
+            evaluatePendingOnboarding(now: now)
+            guard pendingOnboarding == nil else { return }
+            evaluatePendingReleaseNotes()
+        case .unavailable:
+            evaluatePendingReleaseNotes()
+        }
+    }
+
     func showOnboardingFromSettings() {
         guard pendingOnboarding == nil,
               let profileRepository,

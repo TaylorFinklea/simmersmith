@@ -34,6 +34,10 @@ struct RootView: View {
             iCloudLoadingView
             #endif
         }
+        .fullScreenCover(item: $appState.pendingOnboarding) { presentation in
+            OnboardingFlow(presentation: presentation)
+                .environment(appState)
+        }
         .sheet(item: $appState.pendingPaywall) { reason in
             PaywallSheet(reason: reason)
         }
@@ -47,15 +51,17 @@ struct RootView: View {
             ReleaseNotesSheet(presentation: presentation)
         }
         #if canImport(CloudKit)
-        // Only once the household is resolved — otherwise the sheet lands on top
-        // of the loading spinner or the "Sign in to iCloud" prompt. This also
-        // covers the user who signs into iCloud in Settings and comes back,
-        // which the app's `.task` (cold launch only) would miss.
-        .onChange(of: appState.householdLaunchPhase, initial: true) { _, phase in
-            guard phase == .ready else { return }
-            appState.evaluatePendingReleaseNotes()
+        .onChange(of: appState.householdLaunchPhase, initial: true) { _, _ in
+            appState.evaluateReadyPresentations()
+        }
+        .onChange(of: appState.personalDataReadiness, initial: true) { _, _ in
+            appState.evaluateReadyPresentations()
         }
         #endif
+        .onChange(of: appState.pendingPaywall) { _, pendingPaywall in
+            guard pendingPaywall == nil else { return }
+            appState.evaluateReadyPresentations()
+        }
     }
 
     // MARK: - Loading state

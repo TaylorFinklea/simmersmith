@@ -410,6 +410,16 @@ struct SettingsView: View {
             }
 
             Section {
+                Button {
+                    appState.showOnboardingFromSettings()
+                } label: {
+                    Label("Meal planning setup", systemImage: "person.2.crop.square.stack")
+                }
+            } header: {
+                SmithSectionHeader("meal planning")
+            }
+
+            Section {
                 if appState.ingredientPreferences.isEmpty {
                     Text("Set household defaults like a preferred biscuit brand or whether to pick the cheapest option.")
                         .foregroundStyle(SMColor.textSecondary)

@@ -46,7 +46,63 @@ struct OnboardingAppStateTests {
         #expect(fixture.appState.pendingOnboarding == nil)
     }
 
-    @Test func secondAutomaticDismissalReloadsAsRetired() throws {
+    @Test func loadingPrivateDataDefersOnboardingAndReleaseNotes() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+        fixture.appState.personalDataReadiness = .loading
+
+        fixture.appState.evaluateReadyPresentations()
+
+        #expect(fixture.appState.pendingOnboarding == nil)
+        #expect(fixture.appState.pendingReleaseNotes == nil)
+    }
+
+    @Test func readyPrivateDataPresentsOnboardingBeforeReleaseNotes() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+        fixture.appState.pendingReleaseNotes = releaseNotesPresentation
+
+        fixture.appState.evaluateReadyPresentations()
+
+        #expect(fixture.appState.pendingOnboarding?.mode == .automatic)
+        #expect(fixture.appState.pendingReleaseNotes == nil)
+    }
+
+    @Test func unavailablePrivateDataSkipsOnboardingAndEvaluatesReleaseNotes() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+        fixture.appState.personalDataReadiness = .unavailable
+
+        fixture.appState.evaluateReadyPresentations()
+
+        #expect(fixture.appState.pendingOnboarding == nil)
+        #expect(fixture.appState.pendingReleaseNotes != nil)
+    }
+
+    @Test func automaticPresentationMarksReleaseNotesSeen() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+        fixture.appState.pendingReleaseNotes = releaseNotesPresentation
+
+        fixture.appState.evaluateReadyPresentations()
+
+        #expect(fixture.appState.pendingReleaseNotes == nil)
+        #expect(ReleaseNotesStore().lastSeenBuild == ReleaseNotesStore().currentBuild)
+    }
+
+    @Test func firstAutomaticDismissalStoresTwentyFourHourSnooze() throws {
         let fixture = try OnboardingAppStateFixture()
         try fixture.appState.initializeOnboardingIfNeeded(
             householdID: "new-household",
@@ -55,16 +111,46 @@ struct OnboardingAppStateTests {
         let firstDismissal = Date(timeIntervalSince1970: 2_000_000_000)
         fixture.appState.evaluatePendingOnboarding(now: firstDismissal)
         try fixture.appState.dismissAutomaticOnboarding(now: firstDismissal)
-        fixture.appState.evaluatePendingOnboarding(now: firstDismissal.addingTimeInterval(86_400))
-        try fixture.appState.dismissAutomaticOnboarding(
-            now: firstDismissal.addingTimeInterval(86_400)
+
+        fixture.profile.reload()
+        let lifecycle = try #require(OnboardingLifecycle(settings: fixture.profile.settings))
+        #expect(lifecycle.state == .pending)
+        #expect(lifecycle.dismissCount == 1)
+        #expect(lifecycle.snoozeUntil == firstDismissal.addingTimeInterval(86_400))
+    }
+
+    @Test func secondAutomaticDismissalStoresRetired() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
         )
+        let firstDismissal = Date(timeIntervalSince1970: 2_000_000_000)
+        let secondDismissal = firstDismissal.addingTimeInterval(86_400)
+        fixture.appState.evaluatePendingOnboarding(now: firstDismissal)
+        try fixture.appState.dismissAutomaticOnboarding(now: firstDismissal)
+        fixture.appState.evaluatePendingOnboarding(now: secondDismissal)
+        try fixture.appState.dismissAutomaticOnboarding(now: secondDismissal)
 
         fixture.profile.reload()
         let lifecycle = try #require(OnboardingLifecycle(settings: fixture.profile.settings))
         #expect(lifecycle.state == .retired)
         #expect(lifecycle.dismissCount == 2)
         #expect(lifecycle.snoozeUntil == nil)
+    }
+
+    @Test func manualCancelLeavesLifecycleUntouched() throws {
+        let fixture = try OnboardingAppStateFixture()
+        try fixture.appState.initializeOnboardingIfNeeded(
+            householdID: "new-household",
+            origin: .minted
+        )
+
+        fixture.appState.showOnboardingFromSettings()
+        fixture.appState.cancelOnboarding()
+
+        fixture.profile.reload()
+        #expect(OnboardingLifecycle(settings: fixture.profile.settings) == .pending)
     }
 
     @Test func completionReloadsAsCompleted() throws {
@@ -82,6 +168,19 @@ struct OnboardingAppStateTests {
         #expect(lifecycle.snoozeUntil == nil)
     }
 }
+
+private let releaseNotesPresentation = ReleaseNotesPresentation(
+    notes: [ReleaseNote(
+        build: 174,
+        version: "1.0.0",
+        date: "August 3, 2026",
+        headline: "Household edits stay put",
+        new: [],
+        improved: [],
+        fixed: ["Shared household edits are more reliable."]
+    )],
+    previousNotes: []
+)
 
 @MainActor
 private final class OnboardingAppStateFixture {
@@ -113,7 +212,11 @@ private final class OnboardingAppStateFixture {
         appState.preferenceRepository = preferences
         appState.householdLaunchPhase = .ready
         appState.personalDataReadiness = .ready
+        UserDefaults.standard.removeObject(forKey: ReleaseNotesStore.lastSeenBuildKey)
     }
 
-    deinit { try? FileManager.default.removeItem(at: directory) }
+    deinit {
+        UserDefaults.standard.removeObject(forKey: ReleaseNotesStore.lastSeenBuildKey)
+        try? FileManager.default.removeItem(at: directory)
+    }
 }
