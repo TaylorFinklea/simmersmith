@@ -2344,3 +2344,23 @@ marks lifecycle completion only after they converge.
 **Why.** Mint origin is the only exact new-household signal already available in the architecture. The
 private plane makes lifecycle and preferences cross-device for the user without creating household-wide
 coordination. Status-last, idempotent completion preserves honest recovery across partial writes.
+
+## 2026-08-11 — Shared Team API key restores automatic release signing
+
+**Context.** Build 174 archived successfully but manual export failed because `ExportOptions.plist`
+pinned `SimmerSmith App Store Build 151`, whose certificate allowlist no longer contained this Mac's
+current Apple Distribution certificate. Regenerating named profiles whenever a certificate changes is
+machine-coupled release state. The newly provisioned central Team API key passed a no-upload automatic
+export against the preserved build 174 archive, including its iCloud entitlements.
+
+**Decision.** Store the shared `.p8` in Apple's machine-wide
+`~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` location with mode `600`; keep its key and issuer
+identifiers in the existing `IOS_RELEASE_KEY_ID` and `IOS_RELEASE_ISSUER_ID` Keychain items. Default
+`release-ios.sh` to that path while retaining `IOS_RELEASE_KEY_PATH` and the legacy environment-file
+override. Export with automatic signing and do not pin a named provisioning profile or certificate.
+This supersedes the manual-profile portions of the 2026-06-18 and 2026-07-13 release-signing decisions.
+
+**Why.** A Team key can resolve the current distribution profile during export, eliminating stale
+certificate allowlists from the repository while keeping private credentials out of every project.
+The preserved-archive test proved the new route before the real export/upload, which then reached App
+Store Connect processing state `VALID`.

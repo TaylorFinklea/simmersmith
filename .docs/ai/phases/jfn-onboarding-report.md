@@ -54,8 +54,8 @@ debug bypass solely for onboarding. Human gate, verbatim: **clean account mints 
 screens -> first Skip -> no immediate return/What's New -> due after clock/device-date advance ->
 second Skip -> no auto return -> Settings relaunch.**
 
-Build 174 upload and the crash-durability device matrix remain separate parked gates and are not
-claimed by this closeout.
+Build 174 reached App Store Connect `VALID` on 2026-08-11. The signed-device onboarding gate and
+crash-durability device matrix remain separate human gates and are not claimed by this closeout.
 
 ## Self-review
 
@@ -82,3 +82,9 @@ intentionally gitignored `.superpowers/` SDD workspace, which is not force-added
   background-task simulator diagnostics; generic iOS Simulator build passed.
 - The signed-device human UI gate above remains unchanged and pending. After this report commit,
   `git status --short` is clean; `.superpowers/` remains ignored local SDD scratch.
+
+## TestFlight release — 2026-08-11
+
+- Build 174 archived successfully without Ballast, exported/uploaded with automatic signing through
+  the central Team API key, and reached App Store Connect processing state `VALID`.
+- The named signed-device onboarding gate remains pending on build 174.

@@ -7,8 +7,9 @@
 #   2. the macOS Keychain (the durable home — see bead simmersmith-ana),
 #   3. .release-ios.env (gitignored, repo root; legacy fallback).
 # Two values are needed:
-#   IOS_RELEASE_KEY_ID      — e.g. "6X83L5SG4J"; the AuthKey_<ID>.p8
-#                             file in the repo root must match.
+#   IOS_RELEASE_KEY_ID      — e.g. "6X83L5SG4J"; the matching
+#                             AuthKey_<ID>.p8 lives in Apple's standard
+#                             ~/.appstoreconnect/private_keys directory.
 #   IOS_RELEASE_ISSUER_ID   — 36-char UUID from App Store Connect → Users
 #                             and Access → Integrations → App Store Connect
 #                             API. NOT the key ID: pasting the key ID here
@@ -71,7 +72,8 @@ if [[ ! "${IOS_RELEASE_ISSUER_ID}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
     exit 1
 fi
 
-KEY_PATH="${IOS_RELEASE_KEY_PATH:-$REPO_ROOT/AuthKey_${IOS_RELEASE_KEY_ID}.p8}"
+DEFAULT_KEY_PATH="${HOME}/.appstoreconnect/private_keys/AuthKey_${IOS_RELEASE_KEY_ID}.p8"
+KEY_PATH="${IOS_RELEASE_KEY_PATH:-$DEFAULT_KEY_PATH}"
 if [[ ! -f "$KEY_PATH" ]]; then
     echo "release-ios: missing API key at $KEY_PATH" >&2
     exit 1

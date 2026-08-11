@@ -74,8 +74,7 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 
 ### Awaiting User / External
 
-All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · cut build 174
-(metadata `781bc3f`; Apple Distribution identity present, ASC Keychain + local `.p8` missing) · build 151 TestFlight
+All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · build 174 TestFlight
 device gates `6uj` (Gate-1 regression), `a97`
 (sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
 test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
