@@ -20,6 +20,21 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 175,
+            version: "1.0.0",
+            date: "August 13, 2026",
+            headline: "Your recipe photos are back",
+            new: [
+                "Recipe photos now appear throughout the Forge and on recipe details.",
+            ],
+            improved: [
+                "You can regenerate, replace, or remove a recipe image from its More menu.",
+            ],
+            fixed: [
+                "A photo change that cannot be saved now stays open and tells you to retry.",
+            ]
+        ),
+        ReleaseNote(
             build: 174,
             version: "1.0.0",
             date: "August 3, 2026",
