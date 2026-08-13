@@ -1,9 +1,9 @@
 # Recipe Photo Rendering — Implementation Report
 
-Date: 2026-08-12
-Branch: `codex/recipe-photo-rendering`
+Date: 2026-08-13
+Branch: `main`
 Base: build-174 commit `72c4033`
-Status: machine-complete; simulator UI gate partially verified, environment-blocked checks remain
+Status: shipped in TestFlight build 175; simulator UI gate partially verified, device checks remain
 
 ## Outcome
 
@@ -24,7 +24,8 @@ Status: machine-complete; simulator UI gate partially verified, environment-bloc
 - `dc68e59` — add bounded image loader
 - `b51d16a` — render stored recipe photos
 - `fdd1c91` — refresh photos after image changes
-- Branch tip follow-up — surface rejected CloudKit image writes and invalidate after accepted writes
+- `607ea60` — surface rejected CloudKit image writes and invalidate after accepted writes
+- `bb0c925` — prepare TestFlight build 175
 
 ## Verification
 
@@ -35,7 +36,8 @@ Status: machine-complete; simulator UI gate partially verified, environment-bloc
 - Signed `SimmerSmithTests` on iPhone 17 Pro / iOS 26.5: 257/257 passed, 0 failed, 0 skipped.
 - Signed iPhone 17 / iOS 26.5 simulator build: passed.
 - `git diff --check`: passed.
-- Local `main` remains clean at `72c4033`; no merge, push, build cut, build-number bump, or upload occurred.
+- `scripts/release-ios.sh`: signed archive and upload passed; App Store Connect reported build 175 `VALID`.
+- Feature branch fast-forwarded into local `main`; no push occurred.
 
 Full-scheme note: the single launch UI smoke failed twice on the separate iPhone 17 Pro simulator
 because CloudKit launch remained on `Opening your kitchen…` for 30 seconds. The app unit target is
@@ -58,4 +60,4 @@ Simulator evidence used disposable recipe `QA Photo Rendering` on iPhone 17 / iO
 generation ran. The test recipe remains; the accepted original image remains because later writes were
 rejected by the household durability gate.
 
-This gate is independent of build 174's onboarding and owner/participant crash-durability checks.
+This gate ships alongside build 175's onboarding and owner/participant crash-durability checks.

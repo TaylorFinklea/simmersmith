@@ -43,7 +43,7 @@ submission done-ness — the program below is HOW the next six weeks get there.
   [the phase report](phases/jfn-onboarding-report.md) ([approved design spec](phases/jfn-onboarding-spec.md),
   [implementation plan](phases/jfn-onboarding-plan.md), submission scope) · `wkx` week-gen eval slice ·
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
-  `xwb`-stage-2 photo rendering implemented on its feature branch; list/card/detail + fallback verified,
+  `xwb`-stage-2 photo rendering shipped in TestFlight build 175; list/card/detail + fallback verified,
   while healthy-writer mutation, hero/compact, scroll, and offline checks remain in the named human UI gate
   in [the phase report](phases/recipe-photo-rendering-report.md) · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
@@ -76,7 +76,7 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 
 ### Awaiting User / External
 
-All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · build 174 TestFlight
+All user-blocked work is beaded (`bd ready` shows it): push `main` (`tjc`) · build 175 TestFlight
 device gates `6uj` (Gate-1 regression), `a97`
 (sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
 test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
