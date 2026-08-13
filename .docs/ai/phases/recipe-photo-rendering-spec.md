@@ -2,7 +2,7 @@
 
 Date: 2026-08-12
 Roadmap item: `xwb` stage 2
-Status: approved design; awaiting written-spec review
+Status: approved; implementation plan written
 
 ## Outcome
 
