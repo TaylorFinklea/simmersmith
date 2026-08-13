@@ -1,6 +1,7 @@
 import CloudKit
 import Foundation
 import HouseholdSync
+import SimmerSmithKit
 import Testing
 
 @testable import SimmerSmith
@@ -80,5 +81,29 @@ struct RecipeMemoryLiveUpdateTests {
         #expect(repo.storeGeneration > generationWhileMissing)
         let recovered = await repo.memoryPhotoBytes(memoryID)
         #expect(recovered == jpeg)
+    }
+
+    @Test
+    func recipeImageReplacementChangesOnlyItsSummaryToken() async throws {
+        let session = HouseholdSession(householdID: "xwb-token-\(UUID().uuidString)")
+        let repo = RecipeRepository(session: session)
+        let firstID = "xwb-a-\(UUID().uuidString)"
+        let secondID = "xwb-b-\(UUID().uuidString)"
+        try repo.save(RecipeDraft(recipeId: firstID, name: "First"))
+        try repo.save(RecipeDraft(recipeId: secondID, name: "Second"))
+        repo.setImage(firstID, Data([1]), mime: "image/jpeg")
+        repo.setImage(secondID, Data([2]), mime: "image/jpeg")
+        let firstToken = try #require(
+            repo.recipes.first { $0.recipeId == firstID }?.imageUrl
+        )
+        let secondToken = try #require(
+            repo.recipes.first { $0.recipeId == secondID }?.imageUrl
+        )
+
+        try await Task.sleep(for: .milliseconds(2))
+        repo.setImage(firstID, Data([3]), mime: "image/jpeg")
+
+        #expect(repo.recipes.first { $0.recipeId == firstID }?.imageUrl != firstToken)
+        #expect(repo.recipes.first { $0.recipeId == secondID }?.imageUrl == secondToken)
     }
 }

@@ -108,9 +108,9 @@ final class RecipeRepository {
         let recipeRecords = store.records(ofType: HouseholdRecordType.recipe.recordTypeName)
         let ingredientRecords = store.records(ofType: HouseholdRecordType.recipeIngredient.recordTypeName)
         let stepRecords = store.records(ofType: HouseholdRecordType.recipeStep.recordTypeName)
-        let imageRecordNames = Set(
-            store.records(ofType: RecipeImageCodec.recordType)
-                .map { $0.recordID.recordName }
+        let imageRecordsByName = Dictionary(
+            uniqueKeysWithValues: store.records(ofType: RecipeImageCodec.recordType)
+                .map { ($0.recordID.recordName, $0) }
         )
 
         // Group children by their parent recipe ref.
@@ -135,14 +135,15 @@ final class RecipeRepository {
         for record in recipeRecords {
             let recipeValue = HouseholdRecordCodec.decode(record, as: .recipe)
             let recipeID = recipeValue.recordName
-            let hasImage = imageRecordNames.contains(RecipeImageCodec.recordName(forRecipe: recipeID))
+            let imageRecord = imageRecordsByName[RecipeImageCodec.recordName(forRecipe: recipeID)]
             let ingredients = ingredientsByRecipe[recipeID] ?? []
             let steps = stepsByRecipe[recipeID] ?? []
             let summary = RecipeRecordMapper.recipe(
                 from: recipeValue,
                 ingredients: ingredients,
                 steps: steps,
-                hasImage: hasImage
+                hasImage: imageRecord != nil,
+                imageGeneratedAt: imageRecord?["generatedAt"] as? Date
             )
             mapped.append(summary)
         }

@@ -568,6 +568,11 @@ final class AppState {
             session.hasCurrentAuthority
     }
     #endif
+    @ObservationIgnored
+    lazy var recipeImageLoader = RecipeImageLoader { [weak self] recipeID in
+        guard let self else { throw CancellationError() }
+        return try await self.fetchRecipeImageBytes(recipeID: recipeID)
+    }
     @ObservationIgnored private lazy var _assistantCoordinator: AIAssistantCoordinator = AIAssistantCoordinator(appState: self)
     var assistantCoordinator: AIAssistantCoordinator { _assistantCoordinator }
     var pendingPaywall: PaywallReason?

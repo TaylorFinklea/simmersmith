@@ -352,7 +352,11 @@ struct RecipeDetailView: View {
             // shadow-glow is what gives the "smith's mark" feel
             // without needing a custom illustration.
             ZStack(alignment: .topTrailing) {
-                RecipeHeaderImage(recipe: recipe, isLoading: isRegeneratingImage)
+                RecipeHeaderImage(
+                    recipe: recipe,
+                    isLoading: isRegeneratingImage,
+                    isDecorative: false
+                )
                     .frame(width: 200, height: 200)
                     .clipShape(Circle())
                     .overlay(
