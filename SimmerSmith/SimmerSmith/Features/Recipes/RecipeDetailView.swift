@@ -176,10 +176,25 @@ struct RecipeDetailView: View {
                             ) {
                                 Label("Share", systemImage: "square.and.arrow.up")
                             }
-                            // simmersmith-xwb stage 1: Regenerate / Use my own photo / Remove
-                            // all write successfully but RecipeHeaderImage never renders a
-                            // photo — hiding these spend/write affordances until rendering
-                            // is restored (stage 2).
+                            Divider()
+                            Button {
+                                Task { await regenerateImage(recipe) }
+                            } label: {
+                                Label("Regenerate image", systemImage: "sparkles")
+                            }
+                            .disabled(isRegeneratingImage)
+                            Button {
+                                isOverridingImage = true
+                            } label: {
+                                Label("Use my own photo", systemImage: "photo.on.rectangle.angled")
+                            }
+                            if recipe.imageUrl != nil {
+                                Button(role: .destructive) {
+                                    imageRemovalPending = true
+                                } label: {
+                                    Label("Remove image", systemImage: "trash")
+                                }
+                            }
                             Divider()
                             if recipe.archived {
                                 Button {

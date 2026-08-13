@@ -2241,6 +2241,7 @@ extension AppState {
         let updated = try await apiClient.regenerateRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
+        recipeImageLoader.invalidate(recipeID: recipeID)
     }
 
     /// Replace the recipe image with a user-uploaded photo.
@@ -2259,6 +2260,7 @@ extension AppState {
         )
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
+        recipeImageLoader.invalidate(recipeID: recipeID)
     }
 
     /// Drop the recipe's image entirely (back to the gradient).
@@ -2274,6 +2276,7 @@ extension AppState {
         let updated = try await apiClient.deleteRecipeImage(recipeID: recipeID)
         upsertRecipe(updated)
         try? cacheStore.saveRecipes(recipes)
+        recipeImageLoader.invalidate(recipeID: recipeID)
     }
 
     /// Run the backfill that generates header images for every recipe missing one.
