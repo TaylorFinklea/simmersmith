@@ -163,7 +163,7 @@ Generate a 2048×1536 solid-color PNG with `UIGraphicsImageRenderer`, pass it th
 
 ```bash
 xcodegen generate --spec SimmerSmith/project.yml
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 ```
 
 Expected: compile failure because the loader types are absent.
@@ -265,7 +265,7 @@ repo.setImage(firstID, Data([3]), mime: "image/jpeg")
 - [ ] **Step 2: Confirm red**
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test -only-testing:SimmerSmithTests/RecipeMemoryLiveUpdateTests CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests/RecipeMemoryLiveUpdateTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 ```
 
 Expected: token assertion failure because reload supplies only presence.
@@ -316,7 +316,7 @@ private func load(_ requestID: RecipeImageRequestID?) async {
 - [ ] **Step 6: Verify and commit**
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test -only-testing:SimmerSmithTests/RecipeMemoryLiveUpdateTests -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests/RecipeMemoryLiveUpdateTests -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
 git add SimmerSmith/SimmerSmith/Data/RecipeRepository.swift SimmerSmith/SimmerSmith/App/AppState.swift SimmerSmith/SimmerSmith/Features/Recipes/RecipeHeaderImage.swift SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift SimmerSmith/SimmerSmithTests/RecipeMemoryLiveUpdateTests.swift
 git commit -m "feat(recipes): render stored recipe photos"
@@ -365,7 +365,7 @@ Create a serialized suite with a private `URLProtocol` table keyed by method/pat
 
 ```bash
 xcodegen generate --spec SimmerSmith/project.yml
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test -only-testing:SimmerSmithTests/RecipeImageMutationTests CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests/RecipeImageMutationTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 ```
 
 Expected: revision assertions fail.
@@ -387,7 +387,7 @@ Restore the previously shipped `Regenerate image`, `Use my own photo`, and condi
 - [ ] **Step 5: Verify and commit**
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test -only-testing:SimmerSmithTests/RecipeImageMutationTests -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests/RecipeImageMutationTests -only-testing:SimmerSmithTests/RecipeImageLoaderTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
 git add SimmerSmith/SimmerSmith/App/AppState+Recipes.swift SimmerSmith/SimmerSmith/Features/Recipes/RecipeDetailView.swift SimmerSmith/SimmerSmithTests/RecipeImageMutationTests.swift SimmerSmith/SimmerSmith.xcodeproj/project.pbxproj
 git commit -m "feat(recipes): refresh photos after image changes"
@@ -411,7 +411,7 @@ Expected: tests and build PASS.
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithKit
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SimmerSmithCloudKit
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0.1' test CODE_SIGNING_ALLOWED=NO
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'platform=iOS Simulator,name=SimmerSmithSim' -only-testing:SimmerSmithTests CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' PROVISIONING_PROFILE_SPECIFIER=''
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SimmerSmith/SimmerSmith.xcodeproj -scheme SimmerSmith -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
