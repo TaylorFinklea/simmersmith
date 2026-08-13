@@ -243,6 +243,29 @@ private func stepDict(id: String? = nil, order: Int, instruction: String, subste
     #expect(withoutImage.imageUrl == nil)
 }
 
+@Test func imageGenerationDateRevisionsOnlyTheImageUrlToken() {
+    let recipe = makeRecipe(["recipeId": "R6-revision", "name": "Revisioned Image"])
+    let records = RecipeRecordMapper.records(from: recipe)
+    let firstDate = Date(timeIntervalSinceReferenceDate: 100)
+    let secondDate = Date(timeIntervalSinceReferenceDate: 200)
+    let first = RecipeRecordMapper.recipe(
+        from: records.recipe, ingredients: [], steps: [], hasImage: true,
+        imageGeneratedAt: firstDate)
+    let same = RecipeRecordMapper.recipe(
+        from: records.recipe, ingredients: [], steps: [], hasImage: true,
+        imageGeneratedAt: firstDate)
+    let replacement = RecipeRecordMapper.recipe(
+        from: records.recipe, ingredients: [], steps: [], hasImage: true,
+        imageGeneratedAt: secondDate)
+    let absent = RecipeRecordMapper.recipe(
+        from: records.recipe, ingredients: [], steps: [], hasImage: false,
+        imageGeneratedAt: secondDate)
+    #expect(first.imageUrl == same.imageUrl)
+    #expect(first.imageUrl != replacement.imageUrl)
+    #expect(first.imageUrl?.hasPrefix("ckasset://R6-revision?revision=") == true)
+    #expect(absent.imageUrl == nil)
+}
+
 @Test func ingredientFallbackRecordNameWhenNoId() {
     let r = makeRecipe([
         "recipeId": "R7",

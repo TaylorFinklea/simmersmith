@@ -55,11 +55,13 @@ public enum RecipeRecordMapper {
     /// Reconstruct a `RecipeSummary` from its CloudKit record set.
     /// Category-F (derived) fields are NOT echoed from the record — they are returned as nil/0/empty.
     /// `hasImage` replaces `imageUrl`: pass true when a RecipeImage record exists for this recipe.
+    /// `imageGeneratedAt` revisions the local-only token when that image is replaced.
     public static func recipe(
         from rec: HouseholdRecordValue,
         ingredients: [HouseholdRecordValue],
         steps: [HouseholdRecordValue],
-        hasImage: Bool
+        hasImage: Bool,
+        imageGeneratedAt: Date? = nil
     ) -> RecipeSummary {
         let s = rec.scalars
         let r = rec.refs
@@ -118,7 +120,8 @@ public enum RecipeRecordMapper {
 
         // Image (§5-E): imageUrl is nil when hasImage==false; the view fetches bytes via RecipeImageCodec.
         if hasImage {
-            dict["imageUrl"] = "ckasset://\(rec.recordName)"
+            let revision = imageGeneratedAt?.timeIntervalSinceReferenceDate.bitPattern ?? 0
+            dict["imageUrl"] = "ckasset://\(rec.recordName)?revision=\(String(revision, radix: 16))"
         }
 
         let jsonData = try! JSONSerialization.data(withJSONObject: dict)
