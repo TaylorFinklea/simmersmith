@@ -2,7 +2,7 @@
 
 Date: 2026-08-12
 Roadmap item: `xwb` stage 2
-Status: approved; implementation plan written
+Status: implemented; awaiting human UI verification
 
 ## Outcome
 
