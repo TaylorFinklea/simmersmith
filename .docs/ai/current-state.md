@@ -1,18 +1,19 @@
 # Current State
 Branch: codex/recipe-photo-rendering
-Status: `xwb` stage 2 machine-complete; awaiting human UI verification. Build 174 remains `VALID` and unchanged.
+Status: `xwb` stage 2 machine-complete; simulator UI partially verified. Build 174 remains `VALID` and unchanged.
 Spec: `phases/recipe-photo-rendering-spec.md`
 Report: `phases/recipe-photo-rendering-report.md`
 
 ## Plan
-- [x] Implement revisioned tokens, bounded loader, shared rendering, and targeted mutation refresh; Verify: focused TDD suites pass.
-- [x] Run machine verification; Verify: Kit 188, CloudKit 701, app-host 255/255, simulator build PASS.
-- [?] Human recipe-photo UI verification; Verify: all surfaces, fallback, scrolling, mutations, offline relaunch.
+- [x] Implement rendering + mutation truthfulness; Verify: rejected CloudKit save RED→GREEN; focused suite 4/4.
+- [x] Run machine verification; Verify: Kit 188, CloudKit 701, app-host 257/257, simulator build PASS.
+- [?] Human UI gate; verified fallback + list/card/detail upload; hero/compact, successful replace/remove, scroll, offline remain.
 
 ## Blockers
-- Build 174 onboarding and owner/participant durability checks continue independently on TestFlight.
-- Build 174 crash-durability device matrix remains a separate parked gate.
+- Build 174 onboarding + owner/participant crash-durability checks continue independently on TestFlight.
 - `simmersmith-9w4`: crash-durability evidence still required before closure.
+- QA household rejects writes with `Couldn't save this change safely`; blocks mutation/hero/compact proof.
+- Launch UI smoke reproducibly hangs on CloudKit `.resolving` on iPhone 17 Pro test simulator; separate issue.
 - `.beads/` absent; do not reinitialize. `e0a` remains default-off pending device gates.
 
 ## Open questions

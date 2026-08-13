@@ -2232,8 +2232,10 @@ extension AppState {
                 cuisine: recipe.cuisine,
                 ingredients: ingredientNames
             )
-            repo.setImage(recipeID, imageData, mime: mime)
+            let result = repo.setImage(recipeID, imageData, mime: mime)
+            guard result == .allowed else { throw result }
             mirrorRecipesFromRepository()
+            recipeImageLoader.invalidate(recipeID: recipeID)
             return
         }
         #endif
@@ -2248,8 +2250,10 @@ extension AppState {
     func uploadRecipeImage(recipeID: String, imageData: Data, mimeType: String = "image/jpeg") async throws {
         #if canImport(CloudKit)
         if let repo = recipeRepository {
-            repo.setImage(recipeID, imageData, mime: mimeType)
+            let result = repo.setImage(recipeID, imageData, mime: mimeType)
+            guard result == .allowed else { throw result }
             mirrorRecipesFromRepository()
+            recipeImageLoader.invalidate(recipeID: recipeID)
             return
         }
         #endif
@@ -2270,6 +2274,7 @@ extension AppState {
             let result = repo.removeImage(recipeID)
             guard result == .allowed else { throw result }
             mirrorRecipesFromRepository()
+            recipeImageLoader.invalidate(recipeID: recipeID)
             return
         }
         #endif

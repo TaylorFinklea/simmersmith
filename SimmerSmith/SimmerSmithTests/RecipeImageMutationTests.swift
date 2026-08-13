@@ -1,4 +1,6 @@
+import CloudKit
 import Foundation
+import HouseholdSync
 import SimmerSmithKit
 import Testing
 import UIKit
@@ -34,6 +36,64 @@ struct RecipeImageMutationTests {
         }
 
         #expect(fixture.appState.recipeImageLoader.revision(for: "R1") == 0)
+    }
+
+    @Test
+    func successfulCloudKitImageMutationsInvalidateTheRecipe() async throws {
+        let suite = "RecipeImageMutationCloudKitTests-\(UUID().uuidString)"
+        let settings = ConnectionSettingsStore(
+            defaults: try #require(UserDefaults(suiteName: suite)),
+            keychain: KeychainStore(service: suite)
+        )
+        let appState = AppState(
+            modelContainer: try makeSimmerSmithModelContainer(inMemory: true),
+            settingsStore: settings
+        )
+        let session = HouseholdSession(householdID: suite)
+        let repository = RecipeRepository(session: session)
+        appState.recipeRepository = repository
+        let recipeID = "cloudkit-image-\(UUID().uuidString)"
+        try repository.save(RecipeDraft(recipeId: recipeID, name: "CloudKit Image"))
+
+        let original = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x01])
+        let replacement = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x02])
+        try await appState.uploadRecipeImage(recipeID: recipeID, imageData: original)
+        #expect(appState.recipeImageLoader.revision(for: recipeID) == 1)
+        try await appState.uploadRecipeImage(recipeID: recipeID, imageData: replacement)
+
+        #expect(appState.recipeImageLoader.revision(for: recipeID) == 2)
+        #expect(try await appState.fetchRecipeImageBytes(recipeID: recipeID) == replacement)
+
+        #expect(session.promoteCachedAuthority())
+        try await appState.deleteRecipeImage(recipeID: recipeID)
+        #expect(appState.recipeImageLoader.revision(for: recipeID) == 3)
+    }
+
+    @Test
+    func rejectedCloudKitImageMutationDoesNotReportSuccessOrInvalidate() async throws {
+        let suite = "RecipeImageMutationRejectedCloudKitTests-\(UUID().uuidString)"
+        let settings = ConnectionSettingsStore(
+            defaults: try #require(UserDefaults(suiteName: suite)),
+            keychain: KeychainStore(service: suite)
+        )
+        let appState = AppState(
+            modelContainer: try makeSimmerSmithModelContainer(inMemory: true),
+            settingsStore: settings
+        )
+        let session = HouseholdSession(householdID: suite)
+        let repository = RecipeRepository(session: session)
+        appState.recipeRepository = repository
+        let recipeID = "cloudkit-image-rejected-\(UUID().uuidString)"
+        try repository.save(RecipeDraft(recipeId: recipeID, name: "Rejected CloudKit Image"))
+        session.detach()
+
+        await #expect(throws: HouseholdDataPlaneResult.notAuthoritative) {
+            try await appState.uploadRecipeImage(
+                recipeID: recipeID,
+                imageData: Data([0xFF, 0xD8, 0xFF, 0xE0])
+            )
+        }
+        #expect(appState.recipeImageLoader.revision(for: recipeID) == 0)
     }
 }
 

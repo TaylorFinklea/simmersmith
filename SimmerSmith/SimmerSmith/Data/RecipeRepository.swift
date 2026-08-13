@@ -503,7 +503,11 @@ final class RecipeRepository {
 
     /// Stage and save a new image for the recipe. The engine will upload the CKAsset
     /// on the next `sendChanges` pass.
-    func setImage(_ recipeId: String, _ data: Data, mime: String) {
+    @discardableResult
+    func setImage(_ recipeId: String, _ data: Data, mime: String) -> HouseholdDataPlaneResult {
+        let readiness = session.engine.dataPlaneResult(for: .save)
+        guard readiness == .allowed else { return readiness }
+
         let image = RecipeImage(
             recipeID: recipeId,
             mimeType: mime,
@@ -515,17 +519,25 @@ final class RecipeRepository {
         let id = CKRecord.ID(recordName: imgName, zoneID: session.zoneID)
 
         do {
+            let accepted: Bool
             if let existing = session.store.record(for: id) {
                 try RecipeImageCodec.encode(image, into: existing, zoneID: session.zoneID)
-                session.engine.save(existing)
+                accepted = session.engine.save(existing)
             } else {
                 let record = try RecipeImageCodec.makeRecord(image, zoneID: session.zoneID)
-                session.engine.save(record)
+                accepted = session.engine.save(record)
+            }
+            guard accepted else {
+                let rejection = session.engine.dataPlaneResult(for: .save)
+                return rejection == .allowed
+                    ? .durabilityFailure(MirrorDurabilityFailure())
+                    : rejection
             }
             reload()
             Task { [weak self] in await self?.drainSync() }
+            return .allowed
         } catch {
-            // Staging the asset file failed (disk full, etc.); leave the store untouched.
+            return .durabilityFailure(MirrorDurabilityFailure())
         }
     }
 
