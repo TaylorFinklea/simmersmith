@@ -56,5 +56,7 @@ Status: `[?] awaiting human verify`
   the repair; it also proves a subsequent required WAL save is accepted.
 - Machine verification: `SimmerSmithCloudKit` 702/702, `SimmerSmithKit` 188/188, signed app-target
   tests 257/257, generic iOS build, and `git diff --check` passed.
+- Build 176 is locally prepared with regenerated project metadata and a release-note entry; its
+  focused release-note suites passed 18/18 and the post-bump generic iOS build passed.
 - Status remains `[?] awaiting human verify`: rerun owner add/delete crash durability on build 176;
   participant evidence still requires a distinct participant iCloud account.

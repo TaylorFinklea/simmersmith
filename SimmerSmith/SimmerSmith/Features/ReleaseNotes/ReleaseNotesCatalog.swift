@@ -20,6 +20,17 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 176,
+            version: "1.0.0",
+            date: "August 14, 2026",
+            headline: "Household changes stay reliable",
+            new: [],
+            improved: [],
+            fixed: [
+                "Meal plans and recipe photos now save reliably after syncing across devices.",
+            ]
+        ),
+        ReleaseNote(
             build: 175,
             version: "1.0.0",
             date: "August 13, 2026",
