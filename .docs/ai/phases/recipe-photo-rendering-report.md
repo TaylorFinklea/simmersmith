@@ -3,7 +3,7 @@
 Date: 2026-08-13
 Branch: `main`
 Base: build-174 commit `72c4033`
-Status: shipped in TestFlight build 175; simulator UI gate partially verified, device checks remain
+Status: shipped in TestFlight build 175; physical UI gate partially verified, healthy-writer checks blocked
 
 ## Outcome
 
@@ -46,18 +46,23 @@ green; the reproducible launch gate is outside the touched recipe-photo path and
 ## Human verification gate
 
 - [ ] Existing photos render with the correct crop in recipe list, hero, compact, card, and detail
-  surfaces. Verified: list, card, detail. Blocked: hero/compact could not be populated because the
-  simulator household rejects favorite/week writes.
+  surfaces. Verified: list/card/detail in simulator plus list/compact/detail on Sel and Roshar.
+  Blocked: hero could not be populated because the household rejects favorite/week writes.
 - [x] A recipe without a photo keeps the gradient and meal icon in list, card, and detail.
-- [ ] Rapid scrolling remains smooth and never flashes an empty rectangle.
+- [x] Rapid scrolling remains smooth and never flashes an empty rectangle. Two upward passes and
+  one downward pass on Sel retained every row image or fallback.
 - [ ] Regenerate and upload replace the visible photo; remove returns to the illustration. Initial
-  upload rendered across list/card/detail. Replacement and removal correctly surface the existing
-  `Couldn't save this change safely` durability failure and preserve the current image; a successful
-  replacement/removal needs a healthy household writer. Regenerate was not invoked, avoiding AI spend.
+  upload rendered across list/card/detail on Sel, survived force-quit/relaunch, and synced to Roshar's
+  list/detail. Replacement failed safely twice; removal failed safely on both Sel and Roshar with
+  `Couldn't save this change safely`. A successful replacement/removal needs a healthy household
+  writer. Regenerate was not invoked, avoiding AI spend.
 - [ ] Offline relaunch shows locally available assets and safely falls back for unavailable assets.
 
-Simulator evidence used disposable recipe `QA Photo Rendering` on iPhone 17 / iOS 26.5. No AI image
-generation ran. The test recipe remains; the accepted original image remains because later writes were
-rejected by the household durability gate.
+Simulator evidence used disposable recipe `QA Photo Rendering` on iPhone 17 / iOS 26.5. Physical
+evidence used Honey Garlic Butter Salmon en Papillote on Sel/iPadOS 26.6 and Roshar/iOS 26.6. No AI
+image generation ran. The neutral uploaded test photo remains on Honey Garlic Butter Salmon because
+cleanup is rejected by the household durability gate. Offline automation was not attempted because
+WDA was reachable only through the devices' Wi-Fi addresses; severing the control path would not
+produce trustworthy evidence.
 
 This gate ships alongside build 175's onboarding and owner/participant crash-durability checks.

@@ -1,20 +1,19 @@
 # Current State
 Branch: main
-Status: `xwb` stage 2 shipped in TestFlight build 175; App Store Connect status `VALID`.
-Spec: `phases/recipe-photo-rendering-spec.md`
-Report: `phases/recipe-photo-rendering-report.md`
+Status: build 175 `VALID`; physical-device QA found an owner-write release blocker.
+Spec/report: `phases/recipe-photo-rendering-spec.md` / `phases/recipe-photo-rendering-report.md`
 
 ## Plan
 - [x] Merge recipe-photo rendering and prepare build 175; Verify: fast-forward merge + release-note preflight.
 - [x] Archive, upload, and process build 175; Verify: `scripts/release-ios.sh` reported terminal `VALID`.
-- [?] Human UI gate; verified fallback + list/card/detail upload; hero/compact, successful replace/remove, scroll, offline remain.
+- [x] Manual Settings onboarding; Verify: all four screens traversed on Roshar/iOS 26.6.
+- [?] Owner durability; cache-first OFF + synced, but writes reject before add/delete persistence can be tested.
+- [?] Clean-account onboarding + participant durability; no eligible account/device available.
+- [?] Photo UI; physical list/compact/detail, fallback, upload persistence, and rapid scroll pass; hero/offline/healthy-writer mutations remain.
 
 ## Blockers
-- Build 175 carries onboarding + owner/participant crash-durability retests forward.
-- `simmersmith-9w4`: crash-durability evidence still required before closure.
-- QA household rejects writes with `Couldn't save this change safely`; blocks mutation/hero/compact proof.
-- Launch UI smoke reproducibly hangs on CloudKit `.resolving` on iPhone 17 Pro test simulator; separate issue.
+- Roshar owner session rejects meal and image mutations with `Couldn't save this change safely`; `simmersmith-9w4` stays open.
+- Sel + Roshar are owner/same-account representatives, not a participant or clean-account matrix.
+- Neutral test photo remains on Honey Garlic Butter Salmon; remove failed safely on both devices.
+- Offline WDA check needs a non-Wi-Fi control path; current endpoint is the device LAN address.
 - `.beads/` absent; do not reinitialize. `e0a` remains default-off pending device gates.
-
-## Open questions
-- None.

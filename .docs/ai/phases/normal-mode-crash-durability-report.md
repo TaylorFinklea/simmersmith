@@ -27,3 +27,20 @@ Status: `[?] awaiting human verify`
 - TestFlight, cache-first OFF, owner + participant: delete -> immediate force-quit -> relaunch stays deleted.
 - Participant build 173 cache warm-up retest: OFF -> force quit/relaunch/full sync + ~30s -> ON -> force quit -> time two relaunches.
 - Close `simmersmith-9w4` only after device evidence; `.beads/` is currently absent, so do not recreate tracker state here.
+
+## Physical-device attempt — 2026-08-14
+
+- TestFlight build 175 on Roshar (iPhone 15 Pro, iOS 26.6) was an owner session: Settings exposed
+  the owner-only `Share with your partner` action. Cache-first was changed from ON to OFF, the app
+  was force-quit/relaunched, and Settings reported iCloud synced at 07:56 before mutation.
+- Quick add `QA Crash Durability 175` was saved; the process-termination command was dispatched
+  1,003 ms after the Save command began (device signal-delivery latency was not separately
+  instrumented). Relaunch + 15 seconds showed the breakfast slot empty.
+- The timed result is not accepted durability evidence: a control save without a kill also produced
+  no record, and selecting an existing recipe without a kill immediately surfaced
+  `Couldn't save this change safely. Retry when storage is available.` The owner writer is rejecting
+  the mutation before there is an accepted record whose crash persistence can be measured.
+- Delete durability is blocked by the same condition because no disposable household record can be
+  accepted first. Participant durability remains untested: Sel and Roshar represent the owner/same
+  account, not a participant on a distinct iCloud account.
+- Status remains `[?] awaiting human verify`; release gate fails at the healthy-writer precondition.

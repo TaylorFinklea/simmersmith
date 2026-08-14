@@ -39,12 +39,14 @@ submission done-ness — the program below is HOW the next six weeks get there.
   account-switch (`yqm`) + crash-recovery/token-resume device proof. Written staged/default-off
   spec: `phases/e0a-cache-first-cutover-spec.md`; `8qy` runs separately only if measurements prove
   projection scans block the absolute launch target.
-- **Wk4 — product depth**: `jfn` onboarding implemented; awaiting the named human UI gate in
+- **Wk4 — product depth**: `jfn` onboarding implemented; manual four-screen device flow passed on
+  Roshar/build 175, while clean-account mint/snooze/retirement still awaits the named human UI gate in
   [the phase report](phases/jfn-onboarding-report.md) ([approved design spec](phases/jfn-onboarding-spec.md),
   [implementation plan](phases/jfn-onboarding-plan.md), submission scope) · `wkx` week-gen eval slice ·
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
-  `xwb`-stage-2 photo rendering shipped in TestFlight build 175; list/card/detail + fallback verified,
-  while healthy-writer mutation, hero/compact, scroll, and offline checks remain in the named human UI gate
+  `xwb`-stage-2 photo rendering shipped in TestFlight build 175; physical list/compact/detail,
+  fallback, cross-device persistence, and rapid scroll verified, while healthy-writer mutation, hero,
+  and offline checks remain in the named human UI gate
   in [the phase report](phases/recipe-photo-rendering-report.md) · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
 - **Wk5 — release closure**: `3sf` streaming (cut FIRST if slipping) · `5w8`+990.11 privacy/terms

@@ -88,3 +88,16 @@ intentionally gitignored `.superpowers/` SDD workspace, which is not force-added
 - Build 174 archived successfully without Ballast, exported/uploaded with automatic signing through
   the central Team API key, and reached App Store Connect processing state `VALID`.
 - The named signed-device onboarding gate remains pending on build 174.
+
+## Signed-device QA — 2026-08-14
+
+- TestFlight build 175 on Roshar (iPhone 15 Pro, iOS 26.6) opened the existing owner household; this
+  is not a clean account and cannot validate household minting or automatic first-launch policy.
+- Settings -> Meal planning setup passed: all four screens rendered and Continue advanced through
+  household size, ingredient search/preferences, cuisines, and the final week summary. Cancel
+  returned without saving changes.
+- What's New appeared by itself on the existing-household launch and did not overlap onboarding.
+  That observation does not clear the named clean-account overlap gate because automatic onboarding
+  was not eligible to present.
+- Still required on a genuinely clean iCloud account: automatic four-screen presentation, first
+  Skip + 24-hour snooze, second Skip + retirement, relaunch behavior, and household minting.
