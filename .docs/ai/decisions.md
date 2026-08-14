@@ -2364,3 +2364,20 @@ This supersedes the manual-profile portions of the 2026-06-18 and 2026-07-13 rel
 certificate allowlists from the repository while keeping private credentials out of every project.
 The preserved-archive test proved the new route before the real export/upload, which then reached App
 Store Connect processing state `VALID`.
+
+## 2026-08-14 — Snapshot callback-scoped CloudKit assets before async checkpoint publication
+
+**Context.** Build 175 could accept the first recipe-photo upload, then reject later meal and image
+mutations with a durability failure. Fetched `CKAsset` URLs are owned by CloudKit's delegate callback,
+but the shadow mirror copied only the `CKRecord` and deferred reading the asset until asynchronous
+checkpoint generation. Once CloudKit removed the temporary file, publication marked the required WAL
+not cache-ready and every later mutation failed closed.
+
+**Decision.** While the fetch callback still owns valid asset URLs, synchronously copy only the asset
+files into a short-lived app temporary directory and point the immutable fetch snapshot at those
+copies. Keep record archival, hashing, generation construction, and durable publication asynchronous.
+The staging directory is lifetime-bound to the fetch snapshot/publication and removed when released.
+
+**Why.** CloudKit's callback lifetime is the only reliable seam for retaining fetched asset bytes.
+Staging just the assets pays the minimum synchronous cost while preserving the existing WAL-first
+mutation guarantee and off-main checkpoint work.

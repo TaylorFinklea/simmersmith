@@ -66,3 +66,11 @@ WDA was reachable only through the devices' Wi-Fi addresses; severing the contro
 produce trustworthy evidence.
 
 This gate ships alongside build 175's onboarding and owner/participant crash-durability checks.
+
+## Build 175 healthy-writer follow-up — 2026-08-14
+
+The shared mutation blocker traced to fetched CloudKit photo assets expiring before asynchronous
+checkpoint publication copied them. The repaired mirror stages callback-owned asset bytes while their
+URLs are valid; the focused regression proves checkpoint publication and a later required WAL save both
+succeed after the original asset disappears. Full CloudKit, Kit, signed app-target, and generic iOS
+verification passed. Replacement/removal and cross-device rendering still need build 176 device proof.

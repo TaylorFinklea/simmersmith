@@ -63,6 +63,27 @@ struct ShadowMirrorPublication: @unchecked Sendable {
     let records: [CKRecord]
     let engineState: MirrorEngineState
     let recoveryState: ShadowMirrorCheckpointRecoveryState
+    let assetStaging: ShadowMirrorPublicationAssetStaging?
+}
+
+/// CloudKit owns fetched `CKAsset` callback URLs and may remove them as soon as the delegate
+/// returns. Keep only those bytes alive across asynchronous checkpoint generation; the staging
+/// directory is released with the last snapshot/publication that references it.
+final class ShadowMirrorPublicationAssetStaging: @unchecked Sendable {
+    let directory: URL
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "simmersmith-shadow-publication-\(UUID().uuidString)",
+            isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: directory)
+    }
 }
 
 /// The synchronous side of P1 shadow capture. The active engine owns its store and remains the
@@ -72,6 +93,7 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
     private struct FetchSnapshot {
         let records: [CKRecord]
         let coverageRevision: UInt64
+        let assetStaging: ShadowMirrorPublicationAssetStaging?
     }
 
     private struct StateSnapshot {
@@ -122,9 +144,11 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
         guard !fenced else { return nil }
         guard fetchEpochOpen else { return nil }
         fetchEpochOpen = false
+        let snapshot = try Self.snapshotRecordsForPublication(records)
         completedFetch = FetchSnapshot(
-            records: records.map { $0.copy() as! CKRecord },
-            coverageRevision: coverageRevision)
+            records: snapshot.records,
+            coverageRevision: coverageRevision,
+            assetStaging: snapshot.assetStaging)
         return try capturePublicationIfCovered()
     }
 
@@ -410,11 +434,57 @@ public final class ShadowMirrorRuntime: @unchecked Sendable {
                 coverageRevision: latestState.coverageRevision,
                 zoneEnsured: latestState.zoneEnsured,
                 participantFetchProof: latestState.participantFetchProof),
-            recoveryState: try writer.recoveryStateSynchronously())
+            recoveryState: try writer.recoveryStateSynchronously(),
+            assetStaging: completedFetch.assetStaging)
         publicationOutstanding = true
         self.completedFetch = nil
         stateHistory.removeAll { $0.coverageRevision < latestState.coverageRevision }
         return publication
+    }
+
+    private static func snapshotRecordsForPublication(
+        _ records: [CKRecord]
+    ) throws -> (
+        records: [CKRecord],
+        assetStaging: ShadowMirrorPublicationAssetStaging?
+    ) {
+        var staging: ShadowMirrorPublicationAssetStaging?
+        var copies: [CKRecord] = []
+        copies.reserveCapacity(records.count)
+        do {
+            for (recordIndex, record) in records.enumerated() {
+                let copy = record.copy() as! CKRecord
+                var assetIndex = 0
+                for fieldName in record.allKeys().sorted() {
+                    guard let asset = record[fieldName] as? CKAsset else { continue }
+                    guard let sourceURL = asset.fileURL else {
+                        throw ShadowMirrorRecordError.missingAsset(fieldName)
+                    }
+                    let activeStaging: ShadowMirrorPublicationAssetStaging
+                    if let staging {
+                        activeStaging = staging
+                    } else {
+                        let created = try ShadowMirrorPublicationAssetStaging()
+                        staging = created
+                        activeStaging = created
+                    }
+                    let destinationURL = activeStaging.directory.appendingPathComponent(
+                        "\(recordIndex)-\(assetIndex)")
+                    do {
+                        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                    } catch {
+                        throw ShadowMirrorRecordError.unreadableAsset(fieldName)
+                    }
+                    copy[fieldName] = CKAsset(fileURL: destinationURL)
+                    assetIndex += 1
+                }
+                copies.append(copy)
+            }
+            return (copies, staging)
+        } catch {
+            staging = nil
+            throw error
+        }
     }
 
     private func verifySameLaunchRoundTrip(_ publication: ShadowMirrorPublication) async throws {

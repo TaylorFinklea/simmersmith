@@ -297,6 +297,37 @@ func publicationDoesNotCompactLaterMutation() async throws {
     #expect(recovered.lastIntentSequence == 1)
 }
 
+@Test("checkpoint publication snapshots fetched assets before callback URLs expire")
+func publicationSnapshotsFetchedAssetsBeforeSourceExpires() async throws {
+    let root = try runtimeDirectory()
+    let writer = try ShadowMirrorCheckpointWriter(scope: runtimeScope(), rootDirectory: root)
+    let runtime = ShadowMirrorRuntime(writer: writer)
+    let assetSource = root.appendingPathComponent("cloudkit-callback-photo.jpg")
+    let assetBytes = Data("temporary-cloudkit-photo".utf8)
+    try assetBytes.write(to: assetSource)
+    let record = runtimeRecord(recordName: "recipe-with-photo")
+    record["imageAsset"] = CKAsset(fileURL: assetSource)
+
+    runtime.beginFetchEpoch()
+    _ = try runtime.completeFetchEpoch(
+        records: [record], coverageRevision: 1, zoneEnsured: true)
+    let publication = try #require(try runtime.observeStateUpdate(
+        Data([1]), coverageRevision: 1, zoneEnsured: true))
+
+    try FileManager.default.removeItem(at: assetSource)
+    try await runtime.publish(publication)
+
+    #expect(runtime.isCacheReady)
+    #expect(runtime.appendSaveBeforeMutation(
+        runtimeRecord(recordName: "write-after-photo-fetch"), mutationGeneration: 1))
+    let installed = try #require(await writer.loadCurrent())
+    let envelope = try #require(installed.records.first)
+    let decoded = try envelope.decode()
+    let installedAsset = try #require(decoded["imageAsset"] as? CKAsset)
+    let installedURL = try #require(installedAsset.fileURL)
+    #expect(try Data(contentsOf: installedURL) == assetBytes)
+}
+
 @Test("a newer fetch boundary coalesces behind publication and cannot regress current")
 func coalescedPublicationsCannotRegressCurrent() async throws {
     let root = try runtimeDirectory()

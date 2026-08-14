@@ -44,3 +44,17 @@ Status: `[?] awaiting human verify`
   accepted first. Participant durability remains untested: Sel and Roshar represent the owner/same
   account, not a participant on a distinct iCloud account.
 - Status remains `[?] awaiting human verify`; release gate fails at the healthy-writer precondition.
+
+## Build 175 blocker repair — 2026-08-14
+
+- Root cause: a fetched `CKAsset` callback URL could expire before asynchronous shadow-checkpoint
+  publication copied the photo. The failed publication marked the required normal-session WAL
+  unavailable, so later household mutations correctly failed closed but could never recover in-session.
+- Repair: fetch snapshots synchronously stage only callback-owned asset files, retain them through
+  asynchronous generation/verification, and remove the temporary staging directory with the snapshot.
+- Focused regression was observed red with `Unreadable CKAsset file for imageAsset`, then green after
+  the repair; it also proves a subsequent required WAL save is accepted.
+- Machine verification: `SimmerSmithCloudKit` 702/702, `SimmerSmithKit` 188/188, signed app-target
+  tests 257/257, generic iOS build, and `git diff --check` passed.
+- Status remains `[?] awaiting human verify`: rerun owner add/delete crash durability on build 176;
+  participant evidence still requires a distinct participant iCloud account.

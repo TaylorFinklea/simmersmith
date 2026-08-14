@@ -1277,9 +1277,10 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
         }
     }
 
-    /// Checkpoint generation can copy every record and asset. Keep that work off both the
-    /// mirror gate and CKSyncEngine's serial delegate callback so diagnostic P1 capture cannot
-    /// extend initial-fetch launch readiness. Runtime/writer fences still quiesce this task.
+    /// Checkpoint generation still archives every record and copies staged assets. Keep that work
+    /// off both the mirror gate and CKSyncEngine's serial delegate callback; the runtime already
+    /// retained callback-scoped asset bytes while their URLs were valid. Runtime/writer fences
+    /// still quiesce this task.
     private func publishShadowAsync(
         runtime: ShadowMirrorRuntime,
         publication: ShadowMirrorPublication
