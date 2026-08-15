@@ -248,6 +248,7 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
     public let zoneID: CKRecordZone.ID
     public let store: HouseholdLocalStore
     private let stateURL: URL
+    private let fetchedAssetStore = HouseholdFetchedAssetStore()
     /// Scoped durable checkpoint runtime. Exact production sessions install it during
     /// construction; recovery-pending and best-effort diagnostic engines may temporarily omit it.
     /// The same gate orders store snapshots, generation bookkeeping, state coverage, durable
@@ -1782,7 +1783,17 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
 
         case .fetchedRecordZoneChanges(let changes):
             for modification in changes.modifications {
-                let remote = modification.record
+                let callbackRecord = modification.record
+                let remote: CKRecord
+                do {
+                    remote = try fetchedAssetStore.rehomeAssets(in: callbackRecord)
+                } catch {
+                    remote = callbackRecord
+                    shadowMirrorLock.withLock { shadowMirror?.invalidate() }
+                    note("fetched asset ownership failed \(callbackRecord.recordID.recordName)")
+                    log.error(
+                        "fetched asset ownership failed for \(callbackRecord.recordID.recordName, privacy: .public): \(error, privacy: .public)")
+                }
                 guard Self.isRecordInActiveZone(remote, zoneID: zoneID) else {
                     note("ignored fetched modification outside active household zone")
                     continue
@@ -1849,8 +1860,18 @@ public final class HouseholdSyncEngine: CKSyncEngineDelegate {
             // enqueued for it would then just resend the now-stale acked payload (the next batch
             // pulls whatever the store currently holds). `rebaseAckedRecord` keeps the store's
             // newer fields and only lifts the ack's system fields/change tag onto them.
-            for saved in sent.savedRecords {
-                if Self.isShareRecord(saved) { continue }
+            for callbackRecord in sent.savedRecords {
+                if Self.isShareRecord(callbackRecord) { continue }
+                let saved: CKRecord
+                do {
+                    saved = try fetchedAssetStore.rehomeAssets(in: callbackRecord)
+                } catch {
+                    saved = callbackRecord
+                    shadowMirrorLock.withLock { shadowMirror?.invalidate() }
+                    note("saved asset ownership failed \(callbackRecord.recordID.recordName)")
+                    log.error(
+                        "saved asset ownership failed for \(callbackRecord.recordID.recordName, privacy: .public): \(error, privacy: .public)")
+                }
                 // Stale-ack guard: only rebase when the store's record actually changed AFTER
                 // this payload went out. The common case (no interleaved edit) still takes the
                 // server record verbatim, exactly as before.

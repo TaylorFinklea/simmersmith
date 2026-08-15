@@ -92,3 +92,23 @@ Its signed archive/export/upload passed, and App Store Connect processed build 1
   so the replacement gate is partial rather than fully passed.
 - The neutral anvil asset remains on the recipe for Sel cross-device rendering verification. Sel was not
   available during this pass; regenerate was not invoked, avoiding AI spend. Offline remains untested.
+
+## Post-build 176 callback ownership fix — 2026-08-15
+
+The first repair protected assets only when the completed fetch snapshot entered asynchronous
+checkpoint publication. CKSyncEngine had already copied fetched modifications and saved-record
+acknowledgements into the local store as bare `CKRecord` copies; their `CKAsset` URLs could expire when
+the individual delegate event returned, before `didFetchChanges` requested that snapshot. The delayed
+checkpoint failure fenced the required WAL, matching Roshar's “first upload passes, later replacement
+fails, relaunch retry passes” sequence.
+
+The engine now rehomes every fetched/saved callback asset synchronously into an immutable,
+engine-lifetime path before merge or store mutation. Later callbacks never overwrite earlier asset
+bytes, and the short-lived publication staging remains the second ownership hop into a durable
+checkpoint generation. A genuine ownership-copy failure remains fail-closed and is logged at the
+exact callback boundary.
+
+Focused tests were observed red with a no-op owner, then passed in debug and release optimization.
+Full verification passed: CloudKit 704, Kit 188, signed app tests 257, generic iOS build, and diff
+check. The next TestFlight RC still needs to be cut before Roshar repeated-replacement and Sel
+cross-device retesting.

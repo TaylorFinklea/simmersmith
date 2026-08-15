@@ -2381,3 +2381,23 @@ The staging directory is lifetime-bound to the fetch snapshot/publication and re
 **Why.** CloudKit's callback lifetime is the only reliable seam for retaining fetched asset bytes.
 Staging just the assets pays the minimum synchronous cost while preserving the existing WAL-first
 mutation guarantee and off-main checkpoint work.
+
+## 2026-08-15 — Rehome CloudKit assets at each record callback before store ownership
+
+**Context.** Build 176 could remove and upload a recipe photo, then reject a replacement minutes
+later until relaunch. The prior repair staged assets only when `didFetchChanges` captured the complete
+store. Fetched modifications and saved-record acknowledgements had already crossed their individual
+CKSyncEngine callback boundary as `CKRecord` copies, which preserve file URLs but not CloudKit's
+ownership of those files. A queued-writer lifetime hypothesis was tested and falsified.
+
+**Decision.** Before merge or store mutation, synchronously copy every `CKAsset` from fetched-record
+and saved-record callback payloads into a unique engine-owned path. Keep those immutable files for the
+engine lifetime; never overwrite an earlier callback path. The existing publication staging remains a
+separate short-lived hop from the stable store snapshot into the durable checkpoint generation. If
+callback-time ownership cannot be established, invalidate the required mirror and log that exact
+boundary rather than accepting later mutations against an unverifiable store.
+
+**Why.** The individual record event is the last guaranteed point at which CloudKit owns readable
+asset bytes. Unique session paths protect the local store, outbound batches, merge results, and later
+checkpoint snapshots from both callback expiry and replacement races while preserving asynchronous
+archive/hash/fsync work.
