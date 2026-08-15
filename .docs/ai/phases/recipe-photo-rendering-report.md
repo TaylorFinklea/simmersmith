@@ -76,3 +76,19 @@ succeed after the original asset disappears. Full CloudKit, Kit, signed app-targ
 verification passed. Replacement/removal and cross-device rendering still need build 176 device proof.
 Build 176 is locally RC-ready; release-note tests passed 18/18 and the post-bump generic iOS build passed.
 Its signed archive/export/upload passed, and App Store Connect processed build 176 as `VALID`.
+
+## Build 176 Roshar device verification — 2026-08-14
+
+- Roshar (iPhone 15 Pro, iOS 26.6) removed the existing neutral photo from Honey Garlic Butter
+  Salmon en Papillote. The sheet dismissed without a durability error and detail immediately rendered
+  the gradient/fish illustration.
+- A fresh upload of the neutral SimmerSmith logo succeeded, rendered on detail, and persisted through
+  force-quit/relaunch.
+- An immediate logo-to-anvil replacement was rejected safely with `Couldn't save this change safely`;
+  the sheet remained open and the accepted logo persisted. After relaunch, the same anvil replacement
+  succeeded and persisted through another relaunch.
+- Result: remove, upload, accepted-write rendering, failure truthfulness, and relaunch persistence pass.
+  The first replacement immediately following a fresh upload exposes a remaining transient writer race,
+  so the replacement gate is partial rather than fully passed.
+- The neutral anvil asset remains on the recipe for Sel cross-device rendering verification. Sel was not
+  available during this pass; regenerate was not invoked, avoiding AI spend. Offline remains untested.

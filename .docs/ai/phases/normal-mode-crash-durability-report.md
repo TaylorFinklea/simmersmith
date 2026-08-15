@@ -60,5 +60,17 @@ Status: `[?] awaiting human verify`
   focused release-note suites passed 18/18 and the post-bump generic iOS build passed.
 - Signed archive/export/upload passed on 2026-08-14; App Store Connect processed build 176 as
   `VALID`, ready for TestFlight installation.
-- Status remains `[?] awaiting human verify`: rerun owner add/delete crash durability on build 176;
-  participant evidence still requires a distinct participant iCloud account.
+- Status remains `[?] awaiting human verify`: participant evidence still requires a distinct
+  participant iCloud account.
+
+## Build 176 owner device verification — 2026-08-14
+
+- Roshar (iPhone 15 Pro, iOS 26.6) installed TestFlight build 176. Settings identified the device as
+  household owner, iCloud reported synced, pending changes were `None`, and cache-first was OFF.
+- Added disposable Friday breakfast `QA Crash Durability 176`; process termination was dispatched
+  355 ms after the Save request began. After relaunch and synchronization, the addition remained.
+- Removed the same record; process termination was dispatched 353 ms after the remove request began.
+  After relaunch and synchronization, Friday breakfast showed `plan a meal` and the disposable text
+  was absent.
+- Owner add and delete crash-durability boxes pass on build 176. Participant boxes remain untested;
+  Roshar and Sel are owner/same-account devices, not a participant account.
