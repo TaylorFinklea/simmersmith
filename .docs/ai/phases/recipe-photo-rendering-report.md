@@ -75,3 +75,4 @@ URLs are valid; the focused regression proves checkpoint publication and a later
 succeed after the original asset disappears. Full CloudKit, Kit, signed app-target, and generic iOS
 verification passed. Replacement/removal and cross-device rendering still need build 176 device proof.
 Build 176 is locally RC-ready; release-note tests passed 18/18 and the post-bump generic iOS build passed.
+Its signed archive/export/upload passed, and App Store Connect processed build 176 as `VALID`.

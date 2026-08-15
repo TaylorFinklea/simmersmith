@@ -1,6 +1,6 @@
 # Current State
 Branch: main
-Status: build 176 RC prepared locally; upload + device gates remain.
+Status: build 176 uploaded and App Store Connect VALID; device gates ready.
 Reports: `phases/normal-mode-crash-durability-report.md`, `phases/recipe-photo-rendering-report.md`
 
 ## Plan
@@ -12,7 +12,6 @@ Reports: `phases/normal-mode-crash-durability-report.md`, `phases/recipe-photo-r
 
 ## Blockers
 - Sel + Roshar are owner/same-account representatives, not a participant or clean-account matrix.
-- Build 176 is local only; archive/upload requires a separate release instruction.
 - Neutral test photo remains on Honey Garlic Butter Salmon; remove failed safely on both devices.
 - Offline WDA check needs a non-Wi-Fi control path; current endpoint is the device LAN address.
 - `.beads/` absent; do not reinitialize. `e0a` remains default-off pending device gates.
