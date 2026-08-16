@@ -110,5 +110,6 @@ exact callback boundary.
 
 Focused tests were observed red with a no-op owner, then passed in debug and release optimization.
 Full verification passed: CloudKit 704, Kit 188, signed app tests 257, generic iOS build, and diff
-check. The next TestFlight RC still needs to be cut before Roshar repeated-replacement and Sel
-cross-device retesting.
+check. Build 177 then passed the 18-test release-note gate, signed archive/export/upload, and App
+Store Connect processing to `VALID` on 2026-08-16. Roshar repeated-replacement and Sel cross-device
+retesting remain physical gates.
