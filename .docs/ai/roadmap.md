@@ -52,7 +52,8 @@ submission done-ness — the program below is HOW the next six weeks get there.
   in [the phase report](phases/recipe-photo-rendering-report.md) · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
 - **Wk5 — release closure**: `3sf` streaming (cut FIRST if slipping) · `5w8`+990.11 privacy/terms
-  re-host · `9wr` grant revoke · `pb8` prod schema · `vwq` metadata/screenshots · 990.8 Fly strip
+  re-host implemented locally on `codex/privacy-terms-rehost`; human legal/ASC review plus
+  merge/push/Pages verification remain · `9wr` grant revoke · `pb8` prod schema · `vwq` metadata/screenshots · 990.8 Fly strip
   (quarantine + CI grep gate, per conditions on the bead) · RC1.
 - **Wk6 — soak + submit**: no features; device matrix (clean install, migration, two-device storm,
   offline, account switch, share lifecycle, keyless walk); RC defects only; submit.

@@ -106,6 +106,7 @@ The container serves the built SPA and API from one service, while persistent da
 - GitHub Pages base URL: `https://taylorfinklea.github.io/simmersmith/`
 - Support URL: `https://taylorfinklea.github.io/simmersmith/support/`
 - Privacy Policy URL: `https://taylorfinklea.github.io/simmersmith/privacy/`
+- Terms of Use URL: `https://taylorfinklea.github.io/simmersmith/terms/`
 
 ## Operator flow
 

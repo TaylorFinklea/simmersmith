@@ -649,6 +649,14 @@ struct SettingsView: View {
                             .foregroundStyle(SMColor.textSecondary)
                     }
                 }
+
+                Link(destination: LegalDocumentURLs.privacy) {
+                    Label("Privacy Policy", systemImage: "hand.raised")
+                }
+
+                Link(destination: LegalDocumentURLs.terms) {
+                    Label("Terms of Use", systemImage: "doc.text")
+                }
             } header: {
                 SmithSectionHeader("about")
             }

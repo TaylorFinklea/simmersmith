@@ -1,17 +1,20 @@
 # Current State
-Branch: main
-Status: build 177 VALID; Sel cross-device photo rendering and restart persistence passed.
-Reports: `phases/normal-mode-crash-durability-report.md`, `phases/recipe-photo-rendering-report.md`
+Branch: codex/privacy-terms-rehost (isolated worktree from build-177 main)
+Status: privacy/terms re-host implemented locally; not pushed or published.
+Reports: `phases/privacy-terms-rehost-report.md`, `phases/recipe-photo-rendering-report.md`
 
 ## Plan
-- [x] Trace delayed build-176 fence to CKSyncEngine callback asset ownership; Verify: queued-publication hypothesis falsified, callback-source regression red.
-- [x] Rehome fetched/saved CKAssets before store mutation; Verify: expiry + immutable-path tests green under debug and release optimization.
-- [x] Machine verify; Verify: CloudKit 704, Kit 188, signed app 257, generic iOS build, diff check.
-- [x] Cut/upload build 177; Verify: archive/export/upload succeeded and App Store Connect reached `VALID`.
-- [?] Device retest; Sel owner cross-device list/detail + restart passed; Roshar repeated photo replacement without relaunch and participant gate remain.
+- [x] Replace server-era privacy/home/support claims; add Terms page and complete site navigation.
+- [x] Centralize Pages legal URLs; use them in paywall and Settings → About.
+- [x] Refresh claims-vs-code audit and preserve human ASC/legal decisions.
+- [x] Verify app/packages/site; commit branch.
+- [?] Build 177 device retest remains on main: Roshar repeated photo replacement + participant gate.
 
 ## Blockers
-- Install build 177 on Roshar; repeat photo replacement without relaunch.
-- Sel + Roshar are owner/same-account representatives, not a participant or clean-account matrix.
-- Offline WDA check needs a non-Wi-Fi control path; current endpoint is the device LAN address.
-- `.beads/` absent; do not reinitialize. `e0a` remains default-off pending device gates.
+- Publication requires merge/push and live GitHub Pages verification.
+- Human legal review and live ASC privacy questionnaire remain required.
+- Roshar is not currently attached; device gate remains independent.
+- `.beads/` absent; do not reinitialize.
+
+## Verification
+- Site 3/3; Kit 190/190; CloudKit 704/704; iOS test build succeeded; `git diff --check` clean.

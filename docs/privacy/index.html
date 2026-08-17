@@ -4,18 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SimmerSmith Privacy Policy</title>
-    <meta
-      name="description"
-      content="Privacy policy for SimmerSmith."
-    />
+    <meta name="description" content="Privacy policy for SimmerSmith." />
     <link rel="stylesheet" href="../site.css" />
   </head>
   <body>
     <main class="page">
-      <nav class="nav">
+      <nav class="nav" aria-label="Primary navigation">
         <a class="brand" href="../">SimmerSmith</a>
         <a href="../support/">Support</a>
         <a href="./">Privacy</a>
+        <a href="../terms/">Terms</a>
         <a href="https://github.com/TaylorFinklea/simmersmith">GitHub</a>
       </nav>
 
@@ -23,98 +21,169 @@
         <div class="eyebrow">Privacy Policy</div>
         <h1>SimmerSmith Privacy Policy</h1>
         <p class="lede">
-          This policy describes how the current SimmerSmith app and service layer handle data. It is
-          written for the product in this repository as it exists today.
+          SimmerSmith uses your iCloud account for synchronization and household sharing. It does
+          not operate a central account system or meal-planning database. Optional AI features send
+          requests directly from your device to a provider you configure.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Summary</h2>
-        <p>
-          SimmerSmith is a self-hosted meal planning app. It does not require a built-in account and
-          does not include advertising, analytics SDKs, or third-party crash reporting in this
-          repository. The iPhone app stores some data locally for offline use and syncs with the
-          SimmerSmith server you configure.
-        </p>
-      </section>
-
-      <section class="panel">
-        <h2>Data stored on your device</h2>
+        <h2>1. Information SimmerSmith stores</h2>
+        <p><strong>Shared household data in iCloud</strong> may include:</p>
         <ul>
-          <li>Your configured server URL</li>
-          <li>Your bearer token, stored in the iOS Keychain</li>
-          <li>A local cache of profile data, current week data, recipe lists, recipe metadata, and export snapshots for offline reading</li>
-          <li>Local grocery check-off state for grocery items</li>
-          <li>In the browser admin surface, a local theme preference may be stored in browser local storage</li>
+          <li>Recipes, ingredients, cooking steps, recipe images, and recipe memories</li>
+          <li>Weekly meal plans, grocery lists, pantry items, and household settings</li>
+          <li>Events, guest names, age groups, allergies, and dietary notes you enter</li>
+          <li>Custom household terms and other content created by household members</li>
+        </ul>
+        <p>
+          This data is stored in a private CloudKit zone associated with the household owner's
+          iCloud account. If the owner shares the household, Apple makes that zone available to the
+          invited participants who accept the share.
+        </p>
+        <p><strong>Personal data in iCloud</strong> may include:</p>
+        <ul>
+          <li>Your dietary goals, ingredient preferences, avoidances, and allergy flags</li>
+          <li>Your AI assistant conversations and personal assistant settings</li>
+        </ul>
+        <p>
+          Personal data uses your private iCloud database and is not included in the household
+          share.
+        </p>
+        <p><strong>Data stored on your device</strong> may include:</p>
+        <ul>
+          <li>Supported AI-provider API keys in the iOS Keychain</li>
+          <li>Local app preferences and the Apple Reminders list you select</li>
+          <li>A local cache used for responsive and offline operation</li>
+          <li>Rolling household backup files in the app's Application Support directory</li>
         </ul>
       </section>
 
       <section class="panel">
-        <h2>Data sent off device</h2>
+        <h2>2. Household sharing</h2>
         <p>
-          The app sends data to the SimmerSmith server you choose to connect to. Depending on how
-          that server is configured, this can include recipes, meal plans, grocery items, household
-          preferences, feedback, export payloads, and recipe imports.
+          A participant who accepts an iCloud household share can access the household data listed
+          above, including guest information and dietary or allergy notes saved to the household.
+          Sharing is household-wide rather than record-by-record. Your personal iCloud data and
+          your API keys are not shared with household participants.
         </p>
         <p>
-          SimmerSmith can also expose AI-related server features. In this repository, AI is routed
-          through the server rather than directly from the iPhone app. If the server operator enables
-          external AI providers, recipe or planning content may be sent from the server to those
-          providers. That behavior depends on the server configuration, not the app alone.
+          Owners can stop sharing and participants can leave using the app and Apple's iCloud
+          sharing controls. Removing access does not erase information a participant already saw,
+          exported, or retained while they had access.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Permissions and access</h2>
+        <h2>3. Optional AI features</h2>
+        <p>
+          SimmerSmith can process some AI tasks on your device. For cloud AI features, you choose a
+          supported provider and supply your own API key. Current choices include OpenAI,
+          Anthropic, Ollama Cloud, and NeuralWatt for text features, and OpenAI or Google Gemini
+          for recipe images. The available choices may change as the app evolves.
+        </p>
+        <p>
+          Requests go directly from your device to the selected provider. SimmerSmith does not
+          proxy those requests through a developer-operated server. Depending on the feature and
+          your request, transmitted information can include:
+        </p>
         <ul>
-          <li><strong>Camera:</strong> used only when you choose to scan a printed or handwritten recipe into a draft.</li>
-          <li><strong>Photos:</strong> used only when you choose an image from your photo library for recipe import.</li>
-          <li><strong>Files:</strong> used only when you choose a PDF recipe to import.</li>
-          <li><strong>Network access:</strong> used to communicate with the SimmerSmith server you configure.</li>
+          <li>Recipes, meal plans, groceries, pantry items, and household terminology</li>
+          <li>Your dietary goals, preferences, avoidances, and allergy flags</li>
+          <li>Event and guest details, including names, allergies, and dietary notes</li>
+          <li>Text you type or dictate, assistant conversation context, or image prompts</li>
+          <li>A photo you explicitly choose for an AI-powered image-analysis feature</li>
         </ul>
         <p>
-          The current app does <strong>not</strong> request microphone, location, contacts, calendar,
-          or health permissions.
+          The selected provider's privacy policy and terms govern its handling of a request after
+          it receives the request. You can avoid third-party AI transmission by not configuring a
+          provider key. Non-AI planning, recipe, grocery, and sharing features remain available.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Notifications, reminders, and Apple integrations</h2>
+        <h2>4. API keys</h2>
         <p>
-          The current iPhone app does not request notification permission and does not schedule local
-          or remote notifications.
-        </p>
-        <p>
-          This repository does include export payloads for Apple Reminders, but the actual Reminders
-          write step is handled by a separate host-side helper outside the iPhone app. The app itself
-          does not request Reminders permission.
+          AI-provider keys are stored as device-only iOS Keychain items. They are not written to
+          CloudKit, included in SimmerSmith household backups, or synchronized through iCloud
+          Keychain by the app. Clearing a key in Settings deletes that provider's saved Keychain
+          item.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Accounts, analytics, ads, and personal data</h2>
+        <h2>5. Photos, camera, microphone, and speech</h2>
         <ul>
-          <li>No built-in user account system is required by the app in this repository.</li>
-          <li>No advertising SDKs are included.</li>
-          <li>No third-party analytics SDKs are included.</li>
-          <li>No third-party crash reporting SDKs are included.</li>
-          <li>The developer does not receive your meal-planning data unless you intentionally send it in a support request.</li>
+          <li>
+            <strong>Photos:</strong> Apple's system photo picker lets you select specific images
+            for recipe import, recipe photos, memories, and visual checks. SimmerSmith receives the
+            items you select, not general access to your photo library.
+          </li>
+          <li>
+            <strong>Camera:</strong> used when you choose a camera-based recipe scan.
+          </li>
+          <li>
+            <strong>Microphone and speech recognition:</strong> used when you enable hands-free
+            cooking commands. Recognition is performed on-device when supported; Apple's speech
+            service may be used when on-device recognition is unavailable. Voice week planning
+            uses the system keyboard's dictation or text entry. A resulting text transcript may be
+            sent to your selected AI provider when cloud parsing is needed.
+          </li>
         </ul>
+      </section>
+
+      <section class="panel">
+        <h2>6. Apple Reminders and notifications</h2>
         <p>
-          If you email support, your email address and the information you include in that message
-          will be received and used to respond to your request.
+          If you enable grocery synchronization, SimmerSmith requests full Reminders access so it
+          can create items in, and reconcile changes from, the single Reminders list you choose.
+          It does not intentionally read or modify your other lists. Grocery names, quantities,
+          units, store labels, notes, and completion state may be exchanged with that list.
+        </p>
+        <p>
+          If you grant notification permission, SimmerSmith can schedule local meal and grocery
+          reminders on your device. The app also uses silent Apple push notifications for CloudKit
+          synchronization. It does not send visible notification content from a SimmerSmith server.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Contact</h2>
+        <h2>7. Backups, retention, and deletion</h2>
         <p>
-          For privacy questions or requests, contact
+          SimmerSmith can create rolling JSON snapshots of household records in the app's local
+          Application Support directory. You can delete those files in the app. Their inclusion in
+          device backups is controlled by Apple's operating system and your device settings.
+        </p>
+        <p>
+          Household and personal records remain in iCloud until they are deleted through the app or
+          Apple's applicable iCloud controls. Deleting the app removes its local data but may not
+          delete data already stored in iCloud. Because the developer does not operate the data
+          store, support cannot directly inspect or delete your iCloud records for you.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>8. Analytics, advertising, and tracking</h2>
+        <p>
+          The current app does not include third-party advertising, analytics, crash-reporting, or
+          tracking SDKs. SimmerSmith does not sell personal information or use your data to track
+          you across other companies' apps or websites.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>9. Changes and contact</h2>
+        <p>
+          This policy may be updated when SimmerSmith's features or data practices change. The date
+          below identifies the current version.
+        </p>
+        <p>
+          For privacy questions, contact
           <a href="mailto:support@finklea.dev">support@finklea.dev</a>.
         </p>
       </section>
 
-      <p class="footer">Last updated: March 25, 2026</p>
+      <p class="footer">Last updated: August 17, 2026</p>
     </main>
   </body>
 </html>

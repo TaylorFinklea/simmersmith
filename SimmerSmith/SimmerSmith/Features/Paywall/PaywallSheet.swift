@@ -63,11 +63,11 @@ struct PaywallSheet: View {
                             .foregroundStyle(SMColor.textSecondary)
                             .disabled(store.isPurchasing)
 
-                            Link("Terms", destination: URL(string: "https://simmersmith.fly.dev/terms")!)
+                            Link("Terms", destination: LegalDocumentURLs.terms)
                                 .font(SMFont.caption)
                                 .foregroundStyle(SMColor.textSecondary)
 
-                            Link("Privacy", destination: URL(string: "https://simmersmith.fly.dev/privacy")!)
+                            Link("Privacy", destination: LegalDocumentURLs.privacy)
                                 .font(SMFont.caption)
                                 .foregroundStyle(SMColor.textSecondary)
                         }
