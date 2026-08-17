@@ -46,8 +46,9 @@ submission done-ness — the program below is HOW the next six weeks get there.
   `2d1` assistant ladder (reads → proposals → merge commit → reversible grocery writes) ·
   `xwb`-stage-2 photo rendering shipped in TestFlight build 175; physical list/compact/detail,
   fallback, cross-device persistence, and rapid scroll verified; build 176 exposed a delayed
-  callback-asset ownership fence, fixed in VALID TestFlight build 177; mutation, hero, and offline
-  checks remain in the named human UI gate
+  callback-asset ownership fence, fixed in VALID TestFlight build 177; Sel then passed cross-device
+  list/detail rendering plus restart persistence. Roshar repeated mutation, hero, and offline checks
+  remain in the named human UI gate
   in [the phase report](phases/recipe-photo-rendering-report.md) · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
 - **Wk5 — release closure**: `3sf` streaming (cut FIRST if slipping) · `5w8`+990.11 privacy/terms

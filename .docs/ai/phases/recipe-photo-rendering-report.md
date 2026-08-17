@@ -3,7 +3,7 @@
 Date: 2026-08-13
 Branch: `main`
 Base: build-174 commit `72c4033`
-Status: shipped in TestFlight build 175; physical UI gate partially verified, healthy-writer checks blocked
+Status: shipped in TestFlight build 175; build 177 Sel cross-device render passed, Roshar mutation gate pending
 
 ## Outcome
 
@@ -46,7 +46,8 @@ green; the reproducible launch gate is outside the touched recipe-photo path and
 ## Human verification gate
 
 - [ ] Existing photos render with the correct crop in recipe list, hero, compact, card, and detail
-  surfaces. Verified: list/card/detail in simulator plus list/compact/detail on Sel and Roshar.
+  surfaces. Verified: list/card/detail in simulator plus list/compact/detail on Sel and Roshar;
+  build 177 also rendered Roshar's accepted anvil asset on Sel in list/detail and after relaunch.
   Blocked: hero could not be populated because the household rejects favorite/week writes.
 - [x] A recipe without a photo keeps the gradient and meal icon in list, card, and detail.
 - [x] Rapid scrolling remains smooth and never flashes an empty rectangle. Two upward passes and
@@ -112,4 +113,18 @@ Focused tests were observed red with a no-op owner, then passed in debug and rel
 Full verification passed: CloudKit 704, Kit 188, signed app tests 257, generic iOS build, and diff
 check. Build 177 then passed the 18-test release-note gate, signed archive/export/upload, and App
 Store Connect processing to `VALID` on 2026-08-16. Roshar repeated-replacement and Sel cross-device
-retesting remain physical gates.
+retesting were the next physical gates.
+
+## Build 177 Sel cross-device verification — 2026-08-17
+
+- TestFlight showed build 177 installed, and `devicectl` independently reported bundle version 177
+  for `app.simmersmith.ios` on Sel (iPadOS 26.6).
+- After the build-177 What's New sheet was dismissed, Forge visually rendered Roshar's accepted
+  neutral anvil asset as the Honey Garlic Butter Salmon en Papillote list thumbnail. The recipe
+  detail rendered the same asset at full size.
+- A WebDriverAgent force-quit/relaunch completed synchronization, did not repeat What's New, and
+  visually rendered the anvil thumbnail again in Forge.
+- Result: build install, launch, cross-device list/detail rendering, and restart persistence pass on
+  Sel. Sel and Roshar use the same owner Apple account, so this is not participant evidence.
+- No mutation or AI image generation ran on Sel. Roshar still needs the repeated replacement without
+  relaunch; hero and offline checks remain open.
