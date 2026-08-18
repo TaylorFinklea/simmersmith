@@ -2401,3 +2401,21 @@ boundary rather than accepting later mutations against an unverifiable store.
 asset bytes. Unique session paths protect the local store, outbound batches, merge results, and later
 checkpoint snapshots from both callback expiry and replacement races while preserving asynchronous
 archive/hash/fsync work.
+
+## 2026-08-18 — Third-party AI transmission requires versioned per-provider consent
+
+**Context.** SimmerSmith sends BYO-key AI requests directly from the device to the selected provider.
+A configured key demonstrated provider intent but did not itself disclose which household, dietary,
+guest, text, or selected-photo data an AI feature could include in a request.
+
+**Decision.** Require explicit consent separately for OpenAI, Anthropic, Ollama Cloud, NeuralWatt,
+and Gemini before any shipping direct-AI network seam can transmit data. Keep the consent versioned
+and device-local, default existing keys to denied, revoke consent when a key is saved, replaced, or
+cleared, and require separately approved Gemini consent before OpenAI image failover. Settings owns
+the provider-named disclosure, Allow/Not Now choice, privacy link, status, and revocation controls.
+All enforcement remains centralized in `AIService`; a disclosure-policy version change invalidates
+prior consent.
+
+**Why.** A provider key and data-sharing permission are distinct user decisions. Per-provider,
+versioned enforcement prevents an approved provider or fallback from silently authorizing another,
+keeps non-AI features available after a decline, and makes material disclosure changes fail closed.

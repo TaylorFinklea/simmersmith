@@ -2,6 +2,18 @@
 import Foundation
 import AIProviderKit
 
+@MainActor
+protocol RecipeImageGenerating {
+    func generateImage(
+        prompt: String,
+        provider: ImageProvider,
+        model: String?,
+        key: String
+    ) async throws -> (Data, String)
+}
+
+extension ImageGenProvider: RecipeImageGenerating {}
+
 // SP-C AI-1 — AIService: the single seam every AppState AI method uses.
 //
 // Responsibilities:
@@ -48,11 +60,30 @@ final class AIService {
 
     // MARK: - Dependencies
 
-    private let keyStore: KeychainKeyStore
+    private let keyStore: any KeyStore
+    private let consentStore: AIDataSharingConsentStore
+    private let imageGenerator: any RecipeImageGenerating
+    private let imageProviderResolver: () throws -> ImageProvider
     private let session: HouseholdSession
 
-    init(keyStore: KeychainKeyStore = KeychainKeyStore(), session: HouseholdSession) {
+    init(
+        keyStore: any KeyStore = KeychainKeyStore(),
+        consentStore: AIDataSharingConsentStore = AIDataSharingConsentStore(),
+        imageGenerator: any RecipeImageGenerating = ImageGenProvider(),
+        imageProviderResolver: (() throws -> ImageProvider)? = nil,
+        session: HouseholdSession
+    ) {
         self.keyStore = keyStore
+        self.consentStore = consentStore
+        self.imageGenerator = imageGenerator
+        self.imageProviderResolver = imageProviderResolver ?? {
+            guard let store = session.privateStore else {
+                throw AIServiceError.noProviderConfigured
+            }
+            let raw = ((try? store.profileSetting(key: "image_provider"))?.value ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return raw == "gemini" ? .gemini : .openAI
+        }
         self.session = session
     }
 
@@ -68,9 +99,7 @@ final class AIService {
     func generate(_ request: AIRequest) async throws -> AIResponse {
         let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
         let providerKey = Self.keychainKeyID(for: cloudModel)
-        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
-            throw AIServiceError.noKeyConfigured(providerKey)
-        }
+        _ = try keyWithConsent(for: providerKey)
         let provider = BYOKeyProvider(
             model: cloudModel,
             keyStore: keyStore,
@@ -96,9 +125,7 @@ final class AIService {
     func generateVision(_ request: AIRequest, imageData: Data, mimeType: String) async throws -> AIResponse {
         let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
         let providerKey = Self.keychainKeyID(for: cloudModel)
-        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
-            throw AIServiceError.noKeyConfigured(providerKey)
-        }
+        _ = try keyWithConsent(for: providerKey)
         let provider = BYOKeyProvider(
             model: cloudModel,
             keyStore: keyStore,
@@ -165,8 +192,9 @@ final class AIService {
     ///   • `"gemini"` — uses the Gemini Keychain key (separate from the text key).
     ///
     /// Failover: if `image_provider == openai` and the call fails transiently (5xx/429/network)
-    /// AND a Gemini key exists in the Keychain, retries once via Gemini. Gemini-primary → no
-    /// failover (user chose Gemini explicitly). Ports `recipe_image_ai.generate_recipe_image`.
+    /// AND a Gemini key plus independent Gemini data-sharing consent exist, retries once via
+    /// Gemini. Gemini-primary → no failover (user chose Gemini explicitly). Ports
+    /// `recipe_image_ai.generate_recipe_image`.
     ///
     /// Throws `AIServiceError.noKeyConfigured` when the resolved provider has no key.
     func generateRecipeImage(
@@ -174,36 +202,29 @@ final class AIService {
         cuisine: String = "",
         ingredients: [String] = []
     ) async throws -> (Data, String) {
-        guard let store = session.privateStore else {
-            throw AIServiceError.noProviderConfigured
-        }
-        let raw = ((try? store.profileSetting(key: "image_provider"))?.value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let imageProvider: ImageProvider = (raw == "gemini") ? .gemini : .openAI
+        let imageProvider = try imageProviderResolver()
 
         let prompt = RecipeImagePrompt.build(name: name, cuisine: cuisine, ingredients: ingredients)
-        let provider = ImageGenProvider()
 
         switch imageProvider {
         case .gemini:
-            guard let key = keyStore.key(for: "gemini"), !key.isEmpty else {
-                throw AIServiceError.noKeyConfigured("Gemini image")
-            }
-            return try await provider.generateImage(prompt: prompt, provider: .gemini, key: key)
+            let key = try keyWithConsent(for: "gemini")
+            return try await imageGenerator.generateImage(
+                prompt: prompt, provider: .gemini, model: nil, key: key)
 
         case .openAI:
-            guard let key = keyStore.key(for: "openai"), !key.isEmpty else {
-                throw AIServiceError.noKeyConfigured("OpenAI image")
-            }
+            let key = try keyWithConsent(for: "openai")
             do {
-                return try await provider.generateImage(prompt: prompt, provider: .openAI, key: key)
+                return try await imageGenerator.generateImage(
+                    prompt: prompt, provider: .openAI, model: nil, key: key)
             } catch let err as AIError {
                 // Transient error + Gemini key available → failover once to Gemini.
                 // Decision is isolated in ImageGenProvider.shouldFailoverToGemini (AI-4 F2).
                 let geminiKey = keyStore.key(for: "gemini") ?? ""
-                if ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: !geminiKey.isEmpty) {
-                    return try await provider.generateImage(
-                        prompt: prompt, provider: .gemini, key: geminiKey)
+                let canSendToGemini = !geminiKey.isEmpty && hasDataSharingConsent(for: "gemini")
+                if ImageGenProvider.shouldFailoverToGemini(error: err, hasGeminiKey: canSendToGemini) {
+                    return try await imageGenerator.generateImage(
+                        prompt: prompt, provider: .gemini, model: nil, key: geminiKey)
                 }
                 throw err
             }
@@ -222,9 +243,7 @@ final class AIService {
             openModelsModel: openModelsModel
         )
         let providerKey = Self.keychainKeyID(for: cloudModel)
-        guard let key = keyStore.key(for: providerKey), !key.isEmpty else {
-            throw AIServiceError.noKeyConfigured(providerKey)
-        }
+        _ = try keyWithConsent(for: providerKey)
         _ = try await provider.listModels()
         return providerKey
     }
@@ -249,9 +268,7 @@ final class AIService {
                 throw AIServiceError.unsupportedProvider(providerID)
             }
         }
-        guard hasKey(for: provider) else {
-            throw AIServiceError.noKeyConfigured(provider)
-        }
+        _ = try keyWithConsent(for: provider)
         let byo = BYOKeyProvider(model: cloudModel, keyStore: keyStore)
         return try await byo.listModels()
     }
@@ -260,15 +277,45 @@ final class AIService {
 
     func saveKey(_ key: String, for providerID: String) {
         keyStore.setKey(key.isEmpty ? nil : key, for: providerID)
+        revokeDataSharingConsent(for: providerID)
     }
 
     func clearKey(for providerID: String) {
         keyStore.setKey(nil, for: providerID)
+        revokeDataSharingConsent(for: providerID)
     }
 
     func hasKey(for providerID: String) -> Bool {
         guard let k = keyStore.key(for: providerID) else { return false }
         return !k.isEmpty
+    }
+
+    // MARK: - Third-party AI data sharing consent
+
+    func hasDataSharingConsent(for providerID: String) -> Bool {
+        consentStore.hasConsent(for: providerID)
+    }
+
+    func grantDataSharingConsent(for providerID: String) {
+        consentStore.grant(for: providerID)
+    }
+
+    func revokeDataSharingConsent(for providerID: String) {
+        consentStore.revoke(for: providerID)
+    }
+
+    private func requireDataSharingConsent(for providerID: String) throws {
+        guard hasDataSharingConsent(for: providerID) else {
+            throw AIServiceError.dataSharingConsentRequired(providerID)
+        }
+    }
+
+    private func keyWithConsent(for providerID: String) throws -> String {
+        guard let key = keyStore.key(for: providerID), !key.isEmpty else {
+            throw AIServiceError.noKeyConfigured(providerID)
+        }
+        try requireDataSharingConsent(for: providerID)
+        return key
     }
 
     // MARK: - Settings reads (direct from private plane store)
@@ -291,14 +338,13 @@ final class AIService {
     // MARK: - Assistant provider factory (SP-C AI-5)
 
     /// Build a `BYOKeyProvider` for the assistant tool-calling loop. Throws
-    /// `AIServiceError.noProviderConfigured` or `AIServiceError.noKeyConfigured`
-    /// when the provider or key isn't set — identical gate as `generate()`.
+    /// `AIServiceError.noProviderConfigured`, `AIServiceError.noKeyConfigured`, or
+    /// `AIServiceError.dataSharingConsentRequired` when a prerequisite is missing — identical
+    /// gate as `generate()`.
     func makeAssistantProvider() throws -> BYOKeyProvider {
         let (cloudModel, openAIModel, anthropicModel, openModelsModel) = try resolveConfiguration()
         let providerKey = Self.keychainKeyID(for: cloudModel)
-        guard hasKey(for: providerKey) else {
-            throw AIServiceError.noKeyConfigured(providerKey)
-        }
+        _ = try keyWithConsent(for: providerKey)
         return BYOKeyProvider(
             model: cloudModel,
             keyStore: keyStore,
@@ -369,6 +415,7 @@ final class AIService {
 enum AIServiceError: Error, LocalizedError, Equatable {
     case noProviderConfigured
     case noKeyConfigured(String)
+    case dataSharingConsentRequired(String)
     case unsupportedProvider(String)
 
     var errorDescription: String? {
@@ -379,6 +426,9 @@ enum AIServiceError: Error, LocalizedError, Equatable {
             // Map a vendor keychain id (zai/moonshot/minimax) to its friendly display name.
             let label = ProviderRegistry.vendor(forKeychainID: provider)?.displayName ?? provider.capitalized
             return "No \(label) API key is saved. Open Settings → AI and enter your key."
+        case .dataSharingConsentRequired(let provider):
+            let label = ProviderRegistry.vendor(forKeychainID: provider)?.displayName ?? provider.capitalized
+            return "Before SimmerSmith sends data to \(label), open Settings → AI and allow data sharing for that provider."
         case .unsupportedProvider(let p):
             return "Provider \"\(p)\" is not supported in this version."
         }

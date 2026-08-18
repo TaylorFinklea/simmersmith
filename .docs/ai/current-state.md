@@ -1,19 +1,18 @@
 # Current State
 Branch: main
-Status: privacy/terms re-host published from `main`; legal/ASC review remains.
-Reports: `phases/privacy-terms-rehost-report.md`, `phases/recipe-photo-rendering-report.md`
+Status: explicit per-provider AI data-sharing consent implemented; ready for next RC.
+Reports: `phases/ai-data-sharing-consent-report.md`, `phases/recipe-photo-rendering-report.md`
 
 ## Plan
-- [x] Replace server-era privacy/home/support claims; add Terms page and complete site navigation.
-- [x] Centralize Pages legal URLs; use them in paywall and Settings → About.
-- [x] Refresh claims-vs-code audit and preserve human ASC/legal decisions.
-- [x] Verify app/packages/site; merge/push; confirm Pages built `a96095f` and both legal URLs.
+- [x] Gate every shipping direct-AI seam on versioned, per-provider local consent.
+- [x] Add Settings disclosure, Allow/Not Now/revoke controls, and privacy-policy disclosure.
+- [x] Verify consent/failover tests, packages, legal site, and iOS test build.
 - [?] Build 177 device retest remains on main: Roshar repeated photo replacement + participant gate.
 
 ## Blockers
 - Human legal review and live ASC privacy questionnaire remain required.
-- Roshar is not currently attached; device gate remains independent.
+- Next RC needs physical-device consent UI smoke plus the independent Roshar build-177 gate.
 - `.beads/` absent; do not reinitialize.
 
 ## Verification
-- Site 3/3; Kit 190/190; CloudKit 704/704; backend 597 passed/1 skipped; iOS build succeeded.
+- Consent 9/9; site 3/3; Kit green; CloudKit 704/704; iOS test build succeeded.

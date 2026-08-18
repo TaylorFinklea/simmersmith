@@ -22,6 +22,10 @@ struct SettingsView: View {
     @State private var showingReminderPicker = false
     @State private var isTestingAIKey = false
     @State private var aiKeyTestResult: String?
+    @State private var showingAIDataSharingDisclosure = false
+    @State private var aiDataSharingProviderID = ""
+    @State private var aiDataSharingProviderName = ""
+    @State private var aiDataSharingConsentRevision = 0
     /// Confirmation-dialog presentation state for the "data" section's
     /// destructive buttons + Sign Out — mirrors `StartFreshSection`'s
     /// pattern so every destructive action states its consequence before
@@ -58,6 +62,19 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var appState = appState
+        let selectedAIConsentGranted = {
+            _ = aiDataSharingConsentRevision
+            guard let providerID = appState.selectedAIKeychainID else { return false }
+            return appState.aiService?.hasDataSharingConsent(for: providerID) ?? false
+        }()
+        let openAIConsentGranted = {
+            _ = aiDataSharingConsentRevision
+            return appState.aiService?.hasDataSharingConsent(for: "openai") ?? false
+        }()
+        let geminiConsentGranted = {
+            _ = aiDataSharingConsentRevision
+            return appState.aiService?.hasDataSharingConsent(for: "gemini") ?? false
+        }()
 
         Form {
             Section {
@@ -153,6 +170,32 @@ struct SettingsView: View {
                             .foregroundStyle(appState.aiDirectAPIKeyConfigured ? SMColor.textSecondary : .orange)
                     }
 
+                    if appState.aiDirectAPIKeyConfigured, let providerID = appState.selectedAIKeychainID {
+                        HStack(spacing: 6) {
+                            Image(systemName: selectedAIConsentGranted ? "checkmark.shield.fill" : "hand.raised.slash")
+                                .foregroundStyle(selectedAIConsentGranted ? SMColor.success : .orange)
+                                .imageScale(.small)
+                            Text(selectedAIConsentGranted
+                                 ? "Data sharing allowed with \(appState.selectedAIDisplayLabel)."
+                                 : "Data sharing with \(appState.selectedAIDisplayLabel) is not allowed yet.")
+                                .font(.footnote)
+                                .foregroundStyle(selectedAIConsentGranted ? SMColor.textSecondary : .orange)
+                        }
+
+                        Button(selectedAIConsentGranted ? "Review Data Sharing" : "Review and Allow Data Sharing") {
+                            aiDataSharingProviderID = providerID
+                            aiDataSharingProviderName = appState.selectedAIDisplayLabel
+                            showingAIDataSharingDisclosure = true
+                        }
+
+                        if selectedAIConsentGranted {
+                            Button("Revoke \(appState.selectedAIDisplayLabel) Data Sharing", role: .destructive) {
+                                appState.aiService?.revokeDataSharingConsent(for: providerID)
+                                aiDataSharingConsentRevision += 1
+                            }
+                        }
+                    }
+
                     SecureField(
                         "New \(appState.selectedAIDisplayLabel) API key",
                         text: $appState.aiDirectAPIKeyDraft
@@ -162,10 +205,24 @@ struct SettingsView: View {
                 }
 
                 Button("Save AI Settings") {
-                    Task { await appState.saveAISettings() }
+                    let enteredNewKey = !appState.aiDirectAPIKeyDraft
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let providerID = appState.selectedAIKeychainID
+                    let providerName = appState.selectedAIDisplayLabel
+                    Task {
+                        await appState.saveAISettings()
+                        guard enteredNewKey,
+                              let providerID,
+                              appState.aiService?.hasKey(for: providerID) == true else { return }
+                        aiDataSharingProviderID = providerID
+                        aiDataSharingProviderName = providerName
+                        showingAIDataSharingDisclosure = true
+                    }
                 }
 
-                if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
+                if !appState.aiDirectProviderDraft.isEmpty
+                    && appState.aiDirectAPIKeyConfigured
+                    && selectedAIConsentGranted {
                     Button {
                         Task { await runTestKey() }
                     } label: {
@@ -185,7 +242,10 @@ struct SettingsView: View {
 
                 if !appState.aiDirectProviderDraft.isEmpty && appState.aiDirectAPIKeyConfigured {
                     Button("Clear Stored API Key", role: .destructive) {
-                        Task { await appState.saveAISettings(clearStoredAPIKey: true) }
+                        Task {
+                            await appState.saveAISettings(clearStoredAPIKey: true)
+                            aiDataSharingConsentRevision += 1
+                        }
                     }
                 }
 
@@ -223,7 +283,7 @@ struct SettingsView: View {
             } header: {
                 SmithSectionHeader("ai")
             } footer: {
-                Text("Your API key is saved locally to this device's Keychain — it is never sent to SimmerSmith's servers or iCloud.")
+                Text("Your API key stays in this device's Keychain and is never sent to SimmerSmith or iCloud. Cloud AI remains off until you explicitly allow data sharing with the selected provider.")
                     .font(.footnote)
             }
 
@@ -265,11 +325,37 @@ struct SettingsView: View {
                     Button("Save Gemini Image Key") {
                         appState.saveGeminiImageKey(geminiImageKeyDraft)
                         geminiImageKeyDraft = ""
+                        guard appState.geminiImageKeyConfigured else { return }
+                        aiDataSharingProviderID = "gemini"
+                        aiDataSharingProviderName = "Gemini"
+                        showingAIDataSharingDisclosure = true
                     }
                     .disabled(geminiImageKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if appState.geminiImageKeyConfigured {
+                        HStack(spacing: 6) {
+                            Image(systemName: geminiConsentGranted ? "checkmark.shield.fill" : "hand.raised.slash")
+                                .foregroundStyle(geminiConsentGranted ? SMColor.success : .orange)
+                                .imageScale(.small)
+                            Text(geminiConsentGranted
+                                 ? "Data sharing allowed with Gemini."
+                                 : "Data sharing with Gemini is not allowed yet.")
+                                .font(.footnote)
+                                .foregroundStyle(geminiConsentGranted ? SMColor.textSecondary : .orange)
+                        }
+                        Button(geminiConsentGranted ? "Review Gemini Data Sharing" : "Review and Allow Gemini Data Sharing") {
+                            aiDataSharingProviderID = "gemini"
+                            aiDataSharingProviderName = "Gemini"
+                            showingAIDataSharingDisclosure = true
+                        }
+                        if geminiConsentGranted {
+                            Button("Revoke Gemini Data Sharing", role: .destructive) {
+                                appState.aiService?.revokeDataSharingConsent(for: "gemini")
+                                aiDataSharingConsentRevision += 1
+                            }
+                        }
                         Button("Clear Gemini Image Key", role: .destructive) {
                             appState.clearGeminiImageKey()
+                            aiDataSharingConsentRevision += 1
                         }
                     }
                 } else {
@@ -284,6 +370,29 @@ struct SettingsView: View {
                              : "No OpenAI key saved yet. Add it in the AI section above.")
                             .font(.footnote)
                             .foregroundStyle(appState.providerAPIKeyConfigured(providerID: "openai") ? SMColor.textSecondary : .orange)
+                    }
+                    if appState.providerAPIKeyConfigured(providerID: "openai") {
+                        HStack(spacing: 6) {
+                            Image(systemName: openAIConsentGranted ? "checkmark.shield.fill" : "hand.raised.slash")
+                                .foregroundStyle(openAIConsentGranted ? SMColor.success : .orange)
+                                .imageScale(.small)
+                            Text(openAIConsentGranted
+                                 ? "Data sharing allowed with OpenAI."
+                                 : "Data sharing with OpenAI is not allowed yet.")
+                                .font(.footnote)
+                                .foregroundStyle(openAIConsentGranted ? SMColor.textSecondary : .orange)
+                        }
+                        Button(openAIConsentGranted ? "Review OpenAI Data Sharing" : "Review and Allow OpenAI Data Sharing") {
+                            aiDataSharingProviderID = "openai"
+                            aiDataSharingProviderName = "OpenAI"
+                            showingAIDataSharingDisclosure = true
+                        }
+                        if openAIConsentGranted {
+                            Button("Revoke OpenAI Data Sharing", role: .destructive) {
+                                appState.aiService?.revokeDataSharingConsent(for: "openai")
+                                aiDataSharingConsentRevision += 1
+                            }
+                        }
                     }
                 }
 
@@ -683,6 +792,15 @@ struct SettingsView: View {
         }
         .sheet(item: $releaseNotesPresentation) { presentation in
             ReleaseNotesSheet(presentation: presentation)
+        }
+        .sheet(isPresented: $showingAIDataSharingDisclosure) {
+            AIDataSharingDisclosureSheet(providerName: aiDataSharingProviderName) {
+                appState.aiService?.grantDataSharingConsent(for: aiDataSharingProviderID)
+                aiDataSharingConsentRevision += 1
+                if aiDataSharingProviderID != "gemini" {
+                    Task { await appState.refreshCKAIModels(for: aiDataSharingProviderID) }
+                }
+            }
         }
         .sheet(item: $preferenceEditor) { context in
             IngredientPreferenceEditorSheet(context: context)
