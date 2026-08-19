@@ -20,6 +20,17 @@ enum ReleaseNotesCatalog {
 
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            build: 178,
+            version: "1.0.0",
+            date: "August 18, 2026",
+            headline: "You control AI sharing",
+            new: [
+                "Choose exactly which AI provider may receive your meal-planning details, and revoke access whenever you want.",
+            ],
+            improved: [],
+            fixed: []
+        ),
+        ReleaseNote(
             build: 177,
             version: "1.0.0",
             date: "August 16, 2026",
