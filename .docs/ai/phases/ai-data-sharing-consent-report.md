@@ -1,6 +1,6 @@
 # AI data-sharing consent report
 
-Status: implemented and verified; ready for the next release candidate.
+Status: shipped in TestFlight build 178; App Store Connect processing `VALID`; device smoke pending.
 
 ## Shipped behavior
 
@@ -18,10 +18,11 @@ Status: implemented and verified; ready for the next release candidate.
 - `swift test --package-path SimmerSmithKit` — passed with known entitled-host skips.
 - `swift test --package-path SimmerSmithCloudKit` — 704/704 passed.
 - iOS simulator `build-for-testing` — succeeded.
+- Build 178 Release archive/export/upload — succeeded; App Store Connect processing reached `VALID`.
 - `git diff --check` — clean before handoff.
 
 ## External gates
 
-- Next RC: physical-device smoke of save key → disclosure → Not Now/Allow → revoke.
+- Build 178: physical-device smoke of save key → disclosure → Not Now/Allow → revoke.
 - Human legal review and App Store Connect privacy questionnaire remain required.
-- Build 177 Roshar photo/participant gates remain independent.
+- Roshar photo/participant gates remain independent and now ride build 178.

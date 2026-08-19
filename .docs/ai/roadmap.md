@@ -52,8 +52,8 @@ submission done-ness — the program below is HOW the next six weeks get there.
   in [the phase report](phases/recipe-photo-rendering-report.md) · `4ii` deterministic Plan Shopping if bounded · `l4i`-stage-2
   macro pass · `1sz` critical-journey a11y · `0g5`+`79y` (MetricKit + four-boundary diagnostics).
 - **Wk5 — release closure**: `3sf` streaming (cut FIRST if slipping) · `5w8`+990.11 privacy/terms
-  re-host published at `a96095f`; versioned per-provider AI consent implemented; human legal/ASC
-  review and next-RC device disclosure smoke remain · `9wr` grant revoke ·
+  re-host published at `a96095f`; versioned per-provider AI consent shipped in VALID TestFlight
+  build 178; human legal/ASC review and device disclosure smoke remain · `9wr` grant revoke ·
   `pb8` prod schema · `vwq` metadata/screenshots · 990.8 Fly strip
   (quarantine + CI grep gate, per conditions on the bead) · RC1.
 - **Wk6 — soak + submit**: no features; device matrix (clean install, migration, two-device storm,
@@ -82,7 +82,7 @@ the activation gate · z69.1/.2 full structural extraction (re-scoped: only e0a'
 
 ### Awaiting User / External
 
-Build 177 TestFlight device gates remain: `6uj` (Gate-1 regression), `a97`
+Build 178 TestFlight consent smoke and device gates remain: `6uj` (Gate-1 regression), `a97`
 (sharing), `nli` (voice), `3hn` (backup recover), `3sf` (streaming), `cnx` (Reminders) · product
 test (hdeck `p1-milestone-product-test`) · `9wr` PUBLIC-grant revoke + `pb8` prod schema
 (CloudKit Dashboard ops) · ASC privacy nutrition label (rides `5w8`). Ongoing: TestFlight dogfood
